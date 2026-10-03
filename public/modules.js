@@ -97,9 +97,9 @@
   }
 
   // "Signed Copy": print the form, sign it, upload it; from then on the signed upload is the document.
-  function signedPanel(ownerType, ownerId, att, what) {
+  function signedPanel(ownerType, ownerId, att, what, legend = "Signed Copy") {
     const signed = att.filter((a) => a.kind === "signed_form");
-    return `<fieldset class="opt signed"><legend>Signed Copy</legend>
+    return `<fieldset class="opt signed"><legend>${esc(legend)}</legend>
       ${signed.length ? `<div class="signed-list">${signed.map((f, i) => `<div class="file"><span class="kind">${i ? "Earlier upload" : "Signed copy"}</span><span class="fname">${esc(f.file_name)} <small>${dmy(f.created_at)}</small></span>
         <button class="btn primary" data-open="${esc(f.storage_path)}" data-mime="${esc(f.mime || "")}" data-name="${esc(f.file_name)}">Preview</button></div>`).join("")}</div>`
         : `<small>Not uploaded yet. Print the ${esc(what)}, have it signed, then upload a photo or scan here.</small>`}
@@ -593,7 +593,7 @@
   function txnsOf(invs, pays, memos) {
     const t = [];
     invs.forEach((i) => t.push({ date: i.invoice_date, ref: i.invoice_no, desc: `Invoice${i.po_number ? " — PO " + i.po_number : ""} (${i.total_boxes || 0} box / ${i.total_pcs || 0} pcs)`, debit: num(i.total_amount), credit: 0, inv: i }));
-    pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: `Payment — ${METHOD[p.method] || p.method}${p.bank_name ? " " + p.bank_name : ""}${p.reference_no ? " Ref " + p.reference_no : ""}`, debit: 0, credit: num(p.amount) }));
+    pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: `Payment — ${METHOD[p.method] || p.method}${p.bank_name ? " " + p.bank_name : ""}${p.reference_no ? " Ref " + p.reference_no : ""}`, debit: 0, credit: num(p.amount), pay: p }));
     memos.filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action) && m.approved_at)
       .forEach((m) => t.push({ date: String(m.approved_at).slice(0, 10), ref: m.memo_no, desc: `Credit Memo — ${ACTION[m.requested_action]}${m.article ? " (" + m.article + ")" : ""}`, debit: 0, credit: num(m.request_amount) }));
     return t.sort((a, b) => a.date.localeCompare(b.date) || (b.debit - a.debit));
@@ -601,20 +601,30 @@
   const before = (txns, d) => txns.filter((x) => x.date < d).reduce((s, x) => s + x.debit - x.credit, 0);
   const within = (txns, a, b) => txns.filter((x) => x.date >= a && x.date <= b);
 
-  async function signedInvoiceImages(invoices) {
-    if (!invoices.length) return [];
-    const { data } = await sb.from("attachments").select("*").eq("owner_type", "invoice").eq("kind", "signed_form").in("owner_id", invoices.map((i) => i.id)).order("created_at", { ascending: false });
-    const seen = new Set(), out = [];
-    for (const a of data || []) {
-      if (seen.has(a.owner_id)) continue; seen.add(a.owner_id);
-      const inv = invoices.find((i) => i.id === a.owner_id);
-      const isImg = /^image\//.test(a.mime || "") || /\.(png|jpe?g|gif|webp)$/i.test(a.storage_path);
-      out.push({ inv, url: isImg ? await signedUrl(a.storage_path, 1800) : "", pdf: !isImg });
-    }
-    return out;
+  // Copies attached to the SOA: each invoice's uploaded copy and each payment's receipt for the month.
+  async function monthCopies(invoices, payments) {
+    const out = [];
+    const pick = async (ownerType, rows, kinds, label, noKey, amtKey) => {
+      if (!rows.length) return;
+      const { data } = await sb.from("attachments").select("*").eq("owner_type", ownerType).in("kind", kinds).in("owner_id", rows.map((r) => r.id)).order("created_at", { ascending: false });
+      for (const r of rows) {
+        const list = (data || []).filter((a) => a.owner_id === r.id);
+        const a = kinds.map((k) => list.find((x) => x.kind === k)).find(Boolean);
+        if (!a) continue;
+        const isImg = /^image\//.test(a.mime || "") || /\.(png|jpe?g|gif|webp)$/i.test(a.storage_path);
+        out.push({ label, no: r[noKey], amount: r[amtKey], date: r.invoice_date || r.paid_date, url: isImg ? await signedUrl(a.storage_path, 1800) : "", pdf: !isImg });
+      }
+    };
+    await pick("invoice", invoices, ["signed_form"], "Invoice", "invoice_no", "total_amount");
+    await pick("payment", payments, ["signed_form", "receipt"], "Payment Receipt", "receipt_no", "amount");
+    return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
   }
+  const copiesSummary = (copies) => {
+    const n = (l) => copies.filter((x) => x.label === l).length;
+    return [n("Invoice") ? `${n("Invoice")} Invoice Attached` : "", n("Payment Receipt") ? `${n("Payment Receipt")} Payment Receipt Attached` : ""].filter(Boolean).join(" · ");
+  };
 
-  // Bank-statement layout: customer left, account/period right, running balance, then signed invoice copies.
+  // Bank-statement layout: customer left, account/period right, running balance, then attached invoice and receipt copies.
   function soaPages(c, p, txns, images) {
     let bal = p.opening;
     const rows = txns.map((x) => { bal += x.debit - x.credit; return { ...x, bal }; });
@@ -630,16 +640,16 @@
       <tbody><tr><td>${dmy(p.start)}</td><td></td><td>BEGINNING BALANCE</td><td></td><td></td><td class="num">${peso(p.opening)}</td></tr>
         ${rows.map((x) => `<tr><td>${dmy(x.date)}</td><td>${esc(x.ref)}</td><td>${esc(x.desc)}</td><td class="num">${x.debit ? peso(x.debit) : ""}</td><td class="num">${x.credit ? peso(x.credit) : ""}</td><td class="num">${peso(x.bal)}</td></tr>`).join("")}
         <tr class="soa-end"><td>${dmy(p.end)}</td><td></td><td>ENDING BALANCE</td><td></td><td></td><td class="num">${peso(closing)}</td></tr>
-        <tr class="soa-total"><td><b>TOTAL</b></td><td>${rows.length} transaction(s)</td><td>${images.length ? `${images.length} signed invoice copy(ies) attached` : ""}</td><td class="num">${peso(deb)}</td><td class="num">${peso(cre)}</td><td></td></tr></tbody></table>
+        <tr class="soa-total"><td><b>TOTAL</b></td><td>${rows.length} transaction(s)</td><td>${esc(copiesSummary(images))}</td><td class="num">${peso(deb)}</td><td class="num">${peso(cre)}</td><td></td></tr></tbody></table>
       <div class="soa-due"><span>AMOUNT DUE</span><b>₱ ${peso(closing)}</b><small>${esc(words(Math.max(0, closing)))}</small></div>
       <div class="soa-note">Please examine this statement. Any discrepancy must be reported to ${esc(C.company.name)} within 10 days, otherwise this statement is considered correct.<br>Payments: ${esc(C.company.phone)} · ${esc(C.company.email)}</div>
       ${sigs("Prepared by", "Received by (Customer) / Date")}`;
     const pages = [page1];
     for (let i = 0; i < images.length; i += 4) {
       const chunk = images.slice(i, i + 4);
-      pages.push(`<div class="soa-pg">Page ${pages.length + 1}</div><div class="ph-title" style="text-align:left">SIGNED INVOICE COPIES — ${esc(monthName(p.start).toUpperCase())}</div>
-        <div class="soa-imgs">${chunk.map((im) => `<figure>${im.url ? `<img src="${esc(im.url)}" alt="Signed copy of ${esc(im.inv.invoice_no)}">` : `<div class="soa-pdf">Signed copy on file (PDF)</div>`}
-          <figcaption>Acct. No.: ${esc(c.account_no)} &nbsp; Invoice No.: ${esc(im.inv.invoice_no)} &nbsp; Amt.: ${peso(im.inv.total_amount)}</figcaption></figure>`).join("")}</div>`);
+      pages.push(`<div class="soa-pg">Page ${pages.length + 1}</div><div class="ph-title" style="text-align:left">ATTACHED DOCUMENTS — ${esc(monthName(p.start).toUpperCase())}</div>
+        <div class="soa-imgs">${chunk.map((im) => `<figure>${im.url ? `<img src="${esc(im.url)}" alt="${esc(im.label)} ${esc(im.no)}">` : `<div class="soa-pdf">${esc(im.label)} ${esc(im.no)} — copy on file (PDF)</div>`}
+          <figcaption>Acct. No.: ${esc(c.account_no)} &nbsp; ${esc(im.label)} No.: ${esc(im.no)} &nbsp; Amt.: ${peso(im.amount)}</figcaption></figure>`).join("")}</div>`);
     }
     return pages;
   }
@@ -647,7 +657,8 @@
   async function printSoa(c, p, allTxns, allInvs) {
     const txns = within(allTxns, p.start, p.end);
     const invs = allInvs.filter((i) => i.invoice_date >= p.start && i.invoice_date <= p.end);
-    const images = await signedInvoiceImages(invs);
+    const pays = txns.filter((x) => x.pay).map((x) => x.pay);
+    const images = await monthCopies(invs, pays);
     E.openPreview(`SOA ${p.no || monthName(p.start)}`, soaPages(c, p, txns, images));
   }
 
@@ -674,7 +685,7 @@
       printSoaRange(c, { start, end: isoToday(), opening: 0, no: "ALL TRANSACTIONS" }, txns, invs);
     };
   }
-  // Full history: one statement page set from the first transaction to today (no signed copies, to keep it short).
+  // Full history: one statement page set from the first transaction to today (no attachments, to keep it short).
   function printSoaRange(c, p, txns, invs) {
     E.openPreview(`All transactions ${c.account_no}`, soaPages(c, p, within(txns, p.start, p.end), []));
   }
@@ -686,7 +697,7 @@
     E.shell("statements", "All Statements of Account", `
       <div class="options"><fieldset class="opt"><legend>Month</legend><div class="fields"><label for="stMonth">Statement Month</label><input type="month" id="stMonth" value="${last.slice(0, 7)}"></div></fieldset></div>
       <div class="btnrow"><button class="btn primary" id="stGo">Show</button><button class="btn" id="stGen">Create Missing Statements Now</button><button class="btn" id="stPrintAll">Print All for Month</button><a class="btn" href="#customers">Close</a></div>
-      <div id="stRes"></div>`, "Statements are created automatically on the 1st of each month for the month just ended. Click a row to print it or upload the signed copy.");
+      <div id="stRes"></div>`, "Statements are created automatically on the 1st of each month for the month just ended. Click a row to print it or upload a copy.");
     let rows = [];
     const load = async () => {
       const m = $("#stMonth").value + "-01";
@@ -713,8 +724,8 @@
       const signed = latestSigned(att);
       const d = document.createElement("div"); d.className = "modal";
       d.innerHTML = `<div class="window" role="dialog" aria-modal="true" aria-label="${esc(r.statement_no)}"><div class="wtitle">${esc(r.statement_no)} — ${esc(fullName(r.customers || {}))}</div>
-        <div class="wbody">${signedPanel("statement", r.id, att, "statement")}</div>
-        <div class="wfoot">${signed ? `<button class="btn primary" id="sdSigned">View Signed SOA</button>` : ""}<button class="btn" id="sdPrint">Print SOA</button><button class="btn" id="sdClose">Close</button></div></div>`;
+        <div class="wbody">${signedPanel("statement", r.id, att, "statement", "Uploaded SOA Copy")}</div>
+        <div class="wfoot">${signed ? `<button class="btn primary" id="sdSigned">View Uploaded SOA</button>` : ""}<button class="btn" id="sdPrint">Print SOA</button><button class="btn" id="sdClose">Close</button></div></div>`;
       document.body.appendChild(d);
       bindFiles(d); bindSigned(d, () => { d.remove(); statementDialog(r); });
       $("#sdClose", d).onclick = () => d.remove();
