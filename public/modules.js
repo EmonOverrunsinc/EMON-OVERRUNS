@@ -383,8 +383,8 @@
         ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">Record Invoice</a>` : ""}
         ${canPay ? `<a class="btn" href="#newpayment/${c.id}">Record Payment</a>` : ""}
         ${canMemo ? `<a class="btn" href="#newcreditmemo/${c.id}">New Credit Memo</a>` : ""}
-        ${isAdmin() && ["active", "suspended"].includes(c.status) ? `<a class="btn" href="#resolution/${c.id}">Resolution (Suspend / Close)</a>` : ""}
       </div>
+      ${isAdmin() && ["active", "suspended"].includes(c.status) ? statusPanel(c) : ""}
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed) : ""}
       <div class="tabs" id="pfTabs">${["Details", "Invoices", "Payments", "Credit Memos", "Files", "History"].map((t, i) => `<button class="${i ? "" : "on"}" data-t="${i}">${t}</button>`).join("")}</div>
       <div class="tabpanes">
@@ -408,6 +408,7 @@
     if ($("#pvShow")) $("#pvShow").onclick = () => { const el = $("#pvCode"); const hidden = el.textContent.startsWith("•"); el.textContent = hidden ? el.dataset.code || "(none)" : "••••••••"; $("#pvShow").textContent = hidden ? "Hide" : "Show"; };
     if ($("#pfAdd")) $("#pfAdd").onchange = async (e) => { const f = await uploadRecords("customer", c.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed.` : "Uploaded.", f > 0); V.customer(c.id); };
     if (isAdmin() && ["pending", "verified"].includes(c.status)) bindReview(c, signed);
+    if (isAdmin() && ["active", "suspended"].includes(c.status)) bindStatus(c);
   };
 
   function detailsTable(c) {
@@ -918,64 +919,26 @@
       ${m.status === "paid" ? `<div class="pstamp paid big">PAID<small>${esc(dmy(m.paid_at))} · BY: ${esc(m.paid_by_name || "")} · ${esc(peso(m.request_amount))} PHP</small></div>` : ""}`;
   }
 
-  // ======================================================================
-  // 5. User Resolution (suspend / close accounts)
-  // ======================================================================
-  V.resolution = async (custId) => {
-    E.shell("resolution", "User Resolution", `
-      <div class="options"><fieldset class="opt" style="flex:1 1 320px"><legend>Find Account</legend>
-        <form id="rsForm" class="fields wide"><label for="rsQ">Name / Account</label><input type="search" id="rsQ">
-        <label for="rsSt">Status</label><select id="rsSt"><option value="">Active, Suspended &amp; Closed</option><option value="active">Active</option><option value="suspended">Suspended</option><option value="closed">Closed</option></select></form></fieldset></div>
-      <div id="rsPanel"></div><div id="rsRes"></div>`,
-      "Suspend an account to block new invoices for now, or close it permanently. A <b>closed</b> account cannot record new invoices and is hidden from the top search bar.");
-    const panel = async (c) => {
-      if (!c) { $("#rsPanel").innerHTML = ""; return; }
-      $("#rsPanel").innerHTML = `<fieldset class="opt review"><legend>${esc(fullName(c))} — ${esc(c.account_no)} ${pill(c.status)}</legend>
-        ${c.status_note ? `<p>Last note: ${esc(c.status_note)}</p>` : ""}
-        ${isAdmin() && c.status !== "closed" ? `<div class="fields wide"><label for="rsNote">Reason *</label><input type="text" id="rsNote" placeholder="Why is this action taken?"></div>
-          <div class="btnrow">
-            ${c.status === "active" ? `<button class="btn" data-r="suspend">Suspend Account</button>` : ""}
-            ${c.status === "suspended" ? `<button class="btn ok" data-r="reactivate">Reactivate Account</button>` : ""}
-            <button class="btn danger" data-r="close">Close Permanently</button>
-            <a class="btn" href="#customer/${c.id}">Open Profile</a></div>`
-          : c.status === "closed" ? `<p class="closed-mark">This account is permanently closed.</p>` : `<p>Only an administrator can change account status.</p>`}</fieldset>`;
-      $$("[data-r]").forEach((b) => (b.onclick = async () => {
-        const note = $("#rsNote").value.trim();
-        if (!note) return toast("Enter the reason first.", true);
-        if (b.dataset.r === "close" && b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Press again — this cannot be undone"; return; }
-        const r = await sb.rpc("customer_action", { p_id: c.id, p_action: b.dataset.r, p_note: note });
-        if (r.error) return fail(r.error, "Could not update the account");
-        toast(`${c.account_no} is now ${r.data.status.toUpperCase()}.`);
-        panel(r.data); run();
-      }));
-    };
-    const run = async () => {
-      const t = cleanQ($("#rsQ").value), st = $("#rsSt").value;
-      let q = sb.from("customers").select("*").order("last_name").limit(1000);
-      q = st ? q.eq("status", st) : q.in("status", ["active", "suspended", "closed"]);
-      if (t) { const w = t.split(/\s+/)[0]; q = q.or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,account_no.ilike.%${w}%`); }
-      const { data, error } = await q;
-      if (error) return fail(error, "Could not load accounts");
-      const rows = data || [];
-      $("#rsRes").innerHTML = E.grid({ cols: [
-        { label: "Account No", get: (r) => r.account_no }, { label: "Name", html: (r) => esc(fullName(r)) + (r.status === "closed" ? ' <span class="closed-mark">CLOSED</span>' : "") },
-        { label: "Business", get: (r) => r.business_name || "" }, { label: "Status", html: (r) => pill(r.status) }, { label: "Note", get: (r) => r.status_note || "" }],
-        rows, onRow: true, empty: "No accounts found." });
-      E.bindGrid($("#rsRes"), rows, panel);
-    };
-    $("#rsForm").onsubmit = (e) => { e.preventDefault(); run(); };
-    $("#rsSt").onchange = run;
-    await run();
-    if (custId) panel(await getCustomer(custId));
-  };
-
-  // ======================================================================
-  // 7. Project / 8. Billing (waiting for details)
-  // ======================================================================
-  const soon = (key, title) => () => E.shell(key, title, `<div class="window"><div class="wtitle">${esc(title)}</div>
-    <div class="wbody"><p><b>Coming soon.</b> This section will be built once the details of how ${esc(title)} should work are confirmed.</p></div></div>`);
-  V.projects = soon("projects", "Project");
-  V.billing = soon("billing", "Billing");
+  // Account status (suspend / reactivate / close) — admin panel inside the customer profile.
+  function statusPanel(c) {
+    return `<fieldset class="opt review"><legend>Account Status (Admin)</legend>
+      <div class="fields wide"><label for="stNote">Reason *</label><input type="text" id="stNote" placeholder="Why is this action taken?"></div>
+      <div class="btnrow">
+        ${c.status === "active" ? `<button class="btn" data-st="suspend">Suspend Account</button>` : ""}
+        ${c.status === "suspended" ? `<button class="btn ok" data-st="reactivate">Reactivate Account</button>` : ""}
+        <button class="btn danger" data-st="close">Close Permanently</button></div>
+      <small>Suspended: new invoices are blocked until reactivated. Closed: permanent, no new invoices, hidden from the top search.</small></fieldset>`;
+  }
+  function bindStatus(c) {
+    $$("[data-st]").forEach((b) => (b.onclick = async () => {
+      const note = $("#stNote").value.trim();
+      if (!note) return toast("Enter the reason first.", true);
+      if (b.dataset.st === "close" && b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Press again — this cannot be undone"; return; }
+      const r = await sb.rpc("customer_action", { p_id: c.id, p_action: b.dataset.st, p_note: note });
+      if (r.error) return fail(r.error, "Could not update the account");
+      toast(`${c.account_no} is now ${r.data.status.toUpperCase()}.`); V.customer(c.id);
+    }));
+  }
 
   // ======================================================================
   // Global search (top bar)
@@ -1039,4 +1002,6 @@
       await E.loadBranding(); toast("Logo saved."); V.settings();
     };
   };
+  // shared with modules2.js
+  Object.assign(E, { uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, printHead, box, cell, sigs, stampHtml, uuid, cleanQ });
 })();

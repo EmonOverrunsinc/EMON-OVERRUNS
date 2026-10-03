@@ -126,12 +126,16 @@
   }
 
   // ---------- company header (every page) ----------
+  // Built-in company logo and seal (an uploaded logo under Company Logo replaces the built-in one).
+  const DEFAULT_LOGO = "brand/logo.jpg";
+  const SEAL = "brand/seal.jpg";
+  S.logoUrl = DEFAULT_LOGO;
   const publicUrl = (bucket, path) => path ? sb.storage.from(bucket).getPublicUrl(path).data.publicUrl : "";
   async function loadBranding() {
     try {
       const { data } = await sb.from("company_settings").select("logo_path").eq("id", 1).maybeSingle();
-      S.logoUrl = data?.logo_path ? publicUrl("branding", data.logo_path) : "";
-    } catch (_) { S.logoUrl = ""; }
+      S.logoUrl = data?.logo_path ? publicUrl("branding", data.logo_path) : DEFAULT_LOGO;
+    } catch (_) { S.logoUrl = DEFAULT_LOGO; }
   }
   const logoHtml = (cls = "co-logo") => S.logoUrl
     ? `<img class="${cls}" src="${esc(S.logoUrl)}" alt="${esc(C.company.name)} logo">`
@@ -270,20 +274,34 @@
     { k: "invoices", n: "2", label: "Invoice" },
     { k: "payments", n: "3", label: "Payment" },
     { k: "creditmemos", n: "4", label: "Credit Memo" },
-    { k: "resolution", n: "5", label: "User Resolution" },
+    { k: "users", n: "5", label: "User" },
+    { k: "resolutions", n: "6", label: "Resolution" },
     { k: "projects", n: "7", label: "Project" },
     { k: "billing", n: "8", label: "Billing" }
   ];
+  // Which menu item (module) each page belongs to; used to hide pages a user has no access to.
+  const MODULE_OF = {
+    customers: "customers", newcustomer: "customers", customer: "customers",
+    invoices: "invoices", newinvoice: "invoices", invoice: "invoices",
+    payments: "payments", newpayment: "payments", payment: "payments",
+    creditmemos: "creditmemos", newcreditmemo: "creditmemos", creditmemo: "creditmemos",
+    users: "users", newemployee: "users", employee: "users", logins: "users",
+    resolutions: "resolutions", resolution: "resolutions",
+    projects: "projects", newproject: "projects", project: "projects",
+    billing: "billing", newsupplier: "billing", supplier: "billing"
+  };
+  // Admins see everything; "users" (employee management) is admin-only; NULL modules = all.
+  const hasModule = (m) => !m || isAdmin() || (m !== "users" && (!S.profile?.modules || S.profile.modules.includes(m)));
   const OTHER = [
     ["documents", "Documents", () => true],
     ["verification", "Document Verification", () => true],
     ["search", "Document Search (PDF417)", () => true],
     ["forms", "Download Forms", () => true],
     ["announcements", "Announcements", () => true],
-    ["users", "Users", () => isAdmin()],
+    ["logins", "Login Accounts", () => isAdmin()],
     ["settings", "Company Logo", () => isAdmin()]
   ];
-  const ACTIVE_OF = { customer: "customers", newcustomer: "customers", invoice: "invoices", newinvoice: "invoices", payment: "payments", newpayment: "payments", creditmemo: "creditmemos", newcreditmemo: "creditmemos", find: "", newdoc: "documents", doc: "documents", profile: "" };
+  const ACTIVE_OF = { ...MODULE_OF, find: "", newdoc: "documents", doc: "documents", profile: "" };
   const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);
   const initials = (name) => String(name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
   function drawerOpen(open) {
@@ -293,7 +311,7 @@
 
   function shell(key, title, body, hint) {
     const cur = ACTIVE_OF[key] ?? key;
-    const main = MENU.map((m) => `<a href="#${m.k}" class="${m.k === cur ? "active" : ""}">${m.n ? `<span class="num">${m.n}</span>` : `<span class="num">⌂</span>`}${esc(m.label)}</a>`).join("");
+    const main = MENU.filter((m) => m.k === "dashboard" || hasModule(m.k)).map((m) => `<a href="#${m.k}" class="${m.k === cur ? "active" : ""}">${m.n ? `<span class="num">${m.n}</span>` : `<span class="num">⌂</span>`}${esc(m.label)}</a>`).join("");
     const other = OTHER.filter((o) => o[2]()).map(([k, label]) => `<a href="#${k}" class="${k === cur ? "active" : ""}">${esc(label)}</a>`).join("");
     const av = avatarUrl();
     app.innerHTML = `
@@ -427,7 +445,7 @@
       }
     } else bodyHtml = rows.map(rowHtml).join("");
     const footHtml = foot ? `<tfoot><tr>${cols.map((c) => `<td class="${c.num ? "num" : ""}">${foot[c.key] ?? ""}</td>`).join("")}</tr></tfoot>` : "";
-    return `<div class="grid-wrap"><div class="grid-group">Click a row to open its document</div>
+    return `<div class="grid-wrap">${onRow ? `<div class="grid-group">Click a row to open it</div>` : ""}
       <div class="grid-scroll"><table class="grid"><thead><tr>${head}</tr></thead><tbody>${bodyHtml}</tbody>${footHtml}</table></div>
       <div class="grid-foot"><span>Record 1 of ${rows.length}</span><span>${rows.length} record(s)</span></div></div>`;
   }
@@ -466,7 +484,7 @@
         <select id="pvZoom" style="width:auto"><option>50</option><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
         <button class="btn" id="pvClose">Close</button>
       </div>
-      <div class="pv-desk" id="pvDesk">${pages.map((p) => `<div class="page${landscape ? " landscape" : ""}">${p}</div>`).join("")}</div>
+      <div class="pv-desk" id="pvDesk">${pages.map((p) => `<div class="page${landscape ? " landscape" : ""}"><img class="wm" src="${SEAL}" alt="">${p}</div>`).join("")}</div>
       <div class="statusbar"><span id="pvCur">Current Page No: 1</span><span>Total Page No: ${pages.length}</span><span id="pvZf">Zoom Factor: 100%</span></div>`;
     document.body.appendChild(pv);
     const desk = $("#pvDesk", pv);
@@ -1103,7 +1121,7 @@
   // ---------- User management ----------
   async function viewUsers() {
     if (!isAdmin()) { location.hash = "dashboard"; return; }
-    shell("users", "User Management", `
+    shell("logins", "Login Accounts", `
       <div class="options"><fieldset class="opt"><legend>Filter</legend><div class="fields">
         <label for="uStatus">Status</label><select id="uStatus"><option value="">All</option><option value="pending">Pending</option><option value="active">Active</option><option value="disabled">Disabled</option></select>
       </div></fieldset></div>
@@ -1147,6 +1165,7 @@
     if (!S.profile) await loadProfile();
     if (!S.profile || S.profile.status !== "active") return renderPending();
     const [key, id, extra] = (location.hash.slice(1) || "dashboard").split("/");
+    if (!hasModule(MODULE_OF[key])) { toast("You do not have access to that section. Ask the administrator.", true); location.hash = "dashboard"; return; }
     const ext = window.EO_VIEWS && window.EO_VIEWS[key];
     if (ext) return ext(id && decodeURIComponent(id), extra);
     switch (key) {
@@ -1157,7 +1176,7 @@
       case "search": return viewSearch();
       case "forms": return viewForms();
       case "announcements": return viewAnnouncements();
-      case "users": return viewUsers();
+      case "logins": return viewUsers();
       case "docdashboard": return viewDashboard();
       default: return window.EO_VIEWS?.dashboard ? window.EO_VIEWS.dashboard() : viewDashboard();
     }
@@ -1181,7 +1200,7 @@
   // shared with modules.js (customers, invoices, payments, credit memos)
   Object.assign(window.EO, {
     sb, S, C, esc, peso, pad, isoToday, dmy, stamp, longDate, $, $$, isAdmin, isStaff, pill, toast, fail, words,
-    shell, grid, bindGrid, setRecords, openPreview, closePreview, listingPages, drawPdf417, pdf417DataUrl, drawQr, qrDataUrl,
+    shell, grid, bindGrid, hasModule, setRecords, openPreview, closePreview, listingPages, drawPdf417, pdf417DataUrl, drawQr, qrDataUrl,
     decodeImageFile, scanDialog, openScanned, publicUrl, logoHtml, companyHeader, loadBranding, refreshBadge, route
   });
 })();
