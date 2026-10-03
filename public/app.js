@@ -194,6 +194,42 @@
     $("#pOut").onclick = () => sb.auth.signOut();
   }
 
+  // Shown after a password-reset email link, and from "Change Password" in the title bar.
+  function renderSetPassword(fromEmail) {
+    closePreview();
+    app.innerHTML = `
+      <div class="login">
+        <form class="window" id="pwForm" novalidate>
+          <div class="wtitle">Emon Overruns Portal — Set New Password</div>
+          <div class="wbody">
+            <div class="brand"><b>${esc(C.company.name)}</b><small>${esc(S.session?.user?.email || "")}</small></div>
+            <fieldset class="opt"><legend>New Password</legend>
+              <div class="fields wide">
+                <label for="pw1">New Password</label><input type="password" id="pw1" minlength="6" autocomplete="new-password" required>
+                <label for="pw2">Confirm</label><input type="password" id="pw2" minlength="6" autocomplete="new-password" required>
+              </div>
+            </fieldset>
+          </div>
+          <div class="wfoot">
+            ${fromEmail ? "" : `<button type="button" class="btn" id="pwCancel">Cancel</button>`}
+            <button class="btn primary" type="submit">Save Password</button>
+          </div>
+        </form>
+      </div>`;
+    if ($("#pwCancel")) $("#pwCancel").onclick = () => route();
+    $("#pwForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const p1 = $("#pw1").value, p2 = $("#pw2").value;
+      if (p1.length < 6) return toast("Use at least 6 characters.", true);
+      if (p1 !== p2) return toast("The two passwords do not match.", true);
+      const { error } = await sb.auth.updateUser({ password: p1 });
+      if (error) return fail(error, "Could not save the password");
+      toast("Password saved.");
+      history.replaceState(null, "", location.pathname + "#dashboard");
+      route();
+    };
+  }
+
   // ---------- shell ----------
   const MENU = [
     ["dashboard", "Dashboard", () => true],
@@ -211,12 +247,13 @@
       `<a href="#${k}" class="${k === key ? "active" : ""}"><u>${esc(label[0])}</u>${esc(label.slice(1))}</a>`).join("");
     app.innerHTML = `
       <div class="titlebar"><span class="logo">EO</span><span>${esc(title)} — ${esc(C.company.name)} [Portal]</span>
-        <span class="who"><span>${esc(S.profile.full_name || S.session.user.email)} · ${esc(S.profile.role.toUpperCase())}</span><button id="signOut">Sign Out</button></span></div>
+        <span class="who"><span>${esc(S.profile.full_name || S.session.user.email)} · ${esc(S.profile.role.toUpperCase())}</span><button id="chPw">Change Password</button><button id="signOut">Sign Out</button></span></div>
       <nav class="menubar" aria-label="Modules">${items}</nav>
       <div class="band"><h1>${esc(title)}</h1><span class="help" title="${esc(hint || title)}">?</span></div>
       <main id="main">${hint ? `<div class="hint"><b>Hint:</b> ${hint}</div>` : ""}${body}</main>
       <div class="statusbar"><span>User: ${esc(S.session.user.email)}</span><span id="sbRecords">Records: –</span><span>Currency: PHP (₱)</span></div>`;
     $("#signOut").onclick = () => sb.auth.signOut();
+    $("#chPw").onclick = () => renderSetPassword(false);
   }
   const setRecords = (txt) => { const e = $("#sbRecords"); if (e) e.textContent = txt; };
 
@@ -951,6 +988,7 @@
   async function route() {
     closePreview();
     if (!S.session) return renderLogin();
+    if (recovering) { recovering = false; return renderSetPassword(true); }
     if (!S.profile) await loadProfile();
     if (!S.profile || S.profile.status !== "active") return renderPending();
     const [key, id, extra] = (location.hash.slice(1) || "dashboard").split("/");
@@ -970,9 +1008,12 @@
 
   // Supabase calls must not run inside the auth callback itself, so routing is deferred a tick.
   let booted = false;
+  // A reset-email link arrives as #access_token=…&type=recovery; remember it before supabase-js clears the hash.
+  let recovering = /type=recovery/.test(location.hash);
   sb.auth.onAuthStateChange((event, session) => {
     const changedUser = (session?.user?.id || null) !== (S.session?.user?.id || null);
     S.session = session;
+    if (event === "PASSWORD_RECOVERY") { booted = true; setTimeout(() => renderSetPassword(true), 0); return; }
     if (!booted || changedUser) { booted = true; S.profile = null; setTimeout(route, 0); }
   });
 
