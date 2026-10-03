@@ -1,6 +1,7 @@
 -- Emon Overruns Portal, part 2: branding, menu access, customers, invoices, payments, credit memos,
 -- users (employees), resolutions, projects, billing (suppliers), notifications.
--- Safe to run once after portal_init.sql.
+-- Safe to run once after portal_init.sql. Invoices live in customer_invoices (an older, unrelated
+-- "invoices" table may already exist in this project and is left untouched).
 
 -- ---------- Counters (shared helper) ----------
 create or replace function public.next_counter(p_key text) returns integer
@@ -266,7 +267,7 @@ create policy "att: admin delete" on public.attachments for delete to authentica
   using ((select public.is_admin()));
 
 -- ---------- Invoices ----------
-create table if not exists public.invoices (
+create table if not exists public.customer_invoices (
   id uuid primary key default gen_random_uuid(),
   invoice_no text unique,
   customer_id uuid not null references public.customers(id),
@@ -280,10 +281,10 @@ create table if not exists public.invoices (
   created_by_name text,
   created_at timestamptz not null default now()
 );
-create index if not exists invoices_customer_idx on public.invoices(customer_id);
-create index if not exists invoices_created_by_idx on public.invoices(created_by);
+create index if not exists cinv_customer_idx on public.customer_invoices(customer_id);
+create index if not exists cinv_created_by_idx on public.customer_invoices(created_by);
 
-create or replace function public.invoices_before_insert() returns trigger
+create or replace function public.customer_invoices_before_insert() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare st text;
 begin
@@ -296,21 +297,21 @@ begin
   return new;
 end;
 $$;
-drop trigger if exists invoices_bi on public.invoices;
-create trigger invoices_bi before insert on public.invoices
-  for each row execute function public.invoices_before_insert();
+drop trigger if exists cinv_bi on public.customer_invoices;
+create trigger cinv_bi before insert on public.customer_invoices
+  for each row execute function public.customer_invoices_before_insert();
 
-alter table public.invoices enable row level security;
-create policy "inv: active read" on public.invoices for select to authenticated using ((select public.is_active()));
-create policy "inv: staff insert" on public.invoices for insert to authenticated with check ((select public.can_write('invoices')));
-create policy "inv: admin delete" on public.invoices for delete to authenticated using ((select public.is_admin()));
+alter table public.customer_invoices enable row level security;
+create policy "inv: active read" on public.customer_invoices for select to authenticated using ((select public.is_active()));
+create policy "inv: staff insert" on public.customer_invoices for insert to authenticated with check ((select public.can_write('invoices')));
+create policy "inv: admin delete" on public.customer_invoices for delete to authenticated using ((select public.is_admin()));
 
 -- ---------- Payments ----------
 create table if not exists public.payments_received (
   id uuid primary key default gen_random_uuid(),
   receipt_no text unique,
   customer_id uuid not null references public.customers(id),
-  invoice_id uuid references public.invoices(id) on delete set null,
+  invoice_id uuid references public.customer_invoices(id) on delete set null,
   amount numeric(14,2) not null check (amount > 0),
   method text not null check (method in ('cash','bank_transfer','online_transfer','deposit')),
   bank_name text,
@@ -333,7 +334,7 @@ begin
   select status into st from public.customers where id = new.customer_id;
   if st is null then raise exception 'Customer not found'; end if;
   if st in ('pending','verified','rejected') then raise exception 'Payments can only be recorded for approved accounts (this account is %)', upper(st); end if;
-  if new.invoice_id is not null and not exists (select 1 from public.invoices i where i.id = new.invoice_id and i.customer_id = new.customer_id) then
+  if new.invoice_id is not null and not exists (select 1 from public.customer_invoices i where i.id = new.invoice_id and i.customer_id = new.customer_id) then
     raise exception 'That invoice belongs to a different customer';
   end if;
   new.receipt_no := 'A-' || to_char(new.paid_date, 'YYYY') || '-' || to_char(new.paid_date, 'MMDD') || '-' || lpad(public.next_counter('PAY' || to_char(new.paid_date, 'YYYYMMDD'))::text, 3, '0');
@@ -359,7 +360,7 @@ create or replace view public.invoice_balances with (security_invoker = true) as
     case when coalesce((select sum(p.amount) from public.payments_received p where p.invoice_id = i.id), 0) >= i.total_amount then 'paid'
          when coalesce((select sum(p.amount) from public.payments_received p where p.invoice_id = i.id), 0) > 0 then 'partial'
          else 'unpaid' end as pay_status
-  from public.invoices i join public.customers c on c.id = i.customer_id;
+  from public.customer_invoices i join public.customers c on c.id = i.customer_id;
 
 -- ---------- Credit memos (customer complaint / defect claims) ----------
 create table if not exists public.credit_memos (
@@ -464,10 +465,10 @@ $$;
 -- Approved or paid credit/discount memos reduce what the customer owes.
 create or replace view public.customer_balances with (security_invoker = true) as
   select c.id as customer_id,
-    coalesce((select sum(total_amount) from public.invoices i where i.customer_id = c.id), 0)::numeric(14,2) as total_invoiced,
+    coalesce((select sum(total_amount) from public.customer_invoices i where i.customer_id = c.id), 0)::numeric(14,2) as total_invoiced,
     coalesce((select sum(amount) from public.payments_received p where p.customer_id = c.id), 0)::numeric(14,2) as total_paid,
     coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0)::numeric(14,2) as total_credits,
-    (coalesce((select sum(total_amount) from public.invoices i where i.customer_id = c.id), 0)
+    (coalesce((select sum(total_amount) from public.customer_invoices i where i.customer_id = c.id), 0)
       - coalesce((select sum(amount) from public.payments_received p where p.customer_id = c.id), 0)
       - coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0))::numeric(14,2) as balance_due
   from public.customers c;
@@ -479,7 +480,7 @@ grant execute on function public.customer_action(uuid, text, text) to authentica
 grant execute on function public.customer_duplicates(uuid) to authenticated;
 revoke execute on function public.customers_before_insert() from public, anon, authenticated;
 revoke execute on function public.customers_after_insert() from public, anon, authenticated;
-revoke execute on function public.invoices_before_insert() from public, anon, authenticated;
+revoke execute on function public.customer_invoices_before_insert() from public, anon, authenticated;
 revoke execute on function public.payments_before_insert() from public, anon, authenticated;
 revoke execute on function public.credit_memos_before_insert() from public, anon, authenticated;
 revoke execute on function public.credit_memos_after_insert() from public, anon, authenticated;

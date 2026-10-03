@@ -23,7 +23,7 @@
   // Uploaded files are renamed automatically from the record number and what they are,
   // e.g. "INV-202610-0001 Signed Copy" — no file extension is shown.
   const OWNER_NO = {
-    customer: ["customers", "account_no"], invoice: ["invoices", "invoice_no"], payment: ["payments_received", "receipt_no"],
+    customer: ["customers", "account_no"], invoice: ["customer_invoices", "invoice_no"], payment: ["payments_received", "receipt_no"],
     credit_memo: ["credit_memos", "memo_no"], employee: ["employees", "employee_no"], resolution: ["resolutions", "resolution_no"],
     project: ["projects", "project_no"], project_payment: ["project_payments", "payment_no"],
     supplier: ["suppliers", "supplier_no"], supplier_payment: ["supplier_payments", "payment_no"]
@@ -667,7 +667,7 @@
       if (paid && pAmt <= 0) return toast("Enter the amount paid.", true);
       if (paid && method === "bank_transfer" && !$("#niRef").value.trim()) return toast("Enter the bank reference number.", true);
       $$("#niForm button").forEach((b) => (b.disabled = true));
-      const { data: inv, error } = await sb.from("invoices").insert({
+      const { data: inv, error } = await sb.from("customer_invoices").insert({
         customer_id: cust.id, invoice_date: $("#niDate").value || isoToday(), purchase_date: $("#niPDate").value || null,
         po_number: $("#niPo").value.trim() || null, total_boxes: Math.max(0, Math.floor(num($("#niBox").value))),
         total_pcs: Math.max(0, Math.floor(num($("#niPcs").value))), total_amount: amt
@@ -741,7 +741,7 @@
     E.shell("payments", "Payment", `
       <div class="btnrow">${isStaff() ? `<a class="btn primary" href="#newpayment">+ Record Payment</a>` : ""}</div><div id="pyRes"></div>`,
       "All payments received. Each payment gets a receipt number like <b>A-2026-1003-001</b> and a printable acknowledgment.");
-    const { data, error } = await sb.from("payments_received").select("*, customers(first_name,last_name,account_no), invoices(invoice_no)").order("created_at", { ascending: false }).limit(2000);
+    const { data, error } = await sb.from("payments_received").select("*, customers(first_name,last_name,account_no), invoices:customer_invoices(invoice_no)").order("created_at", { ascending: false }).limit(2000);
     if (error) return fail(error, "Could not load payments");
     const rows = data || [];
     $("#pyRes").innerHTML = E.grid({ cols: PAY_COLS, rows, onRow: true, foot: { amount: peso(rows.reduce((s, r) => s + num(r.amount), 0)) }, empty: "No payments yet." });
@@ -814,7 +814,7 @@
 
   V.payment = async (id, extra) => {
     E.shell("payment", "Payment", `<div class="empty">Loading…</div>`);
-    const { data: p } = await sb.from("payments_received").select("*, customers(*), invoices(invoice_no,total_amount)").eq("id", id).maybeSingle();
+    const { data: p } = await sb.from("payments_received").select("*, customers(*), invoices:customer_invoices(invoice_no,total_amount)").eq("id", id).maybeSingle();
     if (!p) { $("#main").innerHTML = `<div class="empty">Payment not found. <a href="#payments">Back to Payments</a></div>`; return; }
     const att = await attachmentsOf("payment", id);
     $(".band h1").textContent = `Payment — ${p.receipt_no}`;
