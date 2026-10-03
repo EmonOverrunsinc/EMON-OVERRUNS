@@ -488,3 +488,6 @@ table.grid.budget td:first-child input { min-width: 180px; }
 .viewer-body iframe { width: 100%; height: calc(100vh - 150px); border: 0; background: #fff; }
 .signed { border-color: var(--ok); background: #f3faf3; }
 .signed legend { color: var(--ok); }
+.ph-codes { display: flex; gap: 12px; align-items: flex-end; text-align: center; }
+.ph-codes .ph-bar { height: 40px; margin: 0 auto; }
+.ph-codes .mono { font-size: 9px; margin-top: 2px; }

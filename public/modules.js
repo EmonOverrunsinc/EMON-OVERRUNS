@@ -383,18 +383,20 @@
 
   function applicationPage(c, photoUrl, reqs) {
     const qr = E.qrDataUrl(custQr(c));
-    return `${printHead("CUSTOMER ACCOUNT APPLICATION", `<img src="${qr}" alt="Customer QR" class="ph-qr"><div class="mono">${esc(c.public_id)}</div>`)}
+    const bar = E.pdf417DataUrl(c.application_no);
+    return `${printHead("CUSTOMER ACCOUNT APPLICATION", `<div class="ph-codes">
+        <div><img src="${bar}" alt="Application number barcode" class="ph-bar"><div class="mono">${esc(c.application_no)}</div></div>
+        <div><img src="${qr}" alt="Customer QR code" class="ph-qr"><div class="mono">${esc(c.public_id)}</div></div></div>`)}
       <div class="prow3">${cell("Application No", c.application_no)}${cell("Account No", c.account_no)}${cell("Application Date", dmy(c.application_date))}</div>
       ${box("Customer Information", `<div class="pgrid">
         <div class="pphoto">${photoUrl ? `<img src="${esc(photoUrl)}" alt="">` : "PHOTO"}</div>
         <div class="pgrid2">${cell("First Name", c.first_name)}${cell("Last Name", c.last_name)}
           ${cell("Phone Number", c.phone)}${cell("Email Address", c.email)}
-          ${cell("Full Address", c.address, "span2")}
-          ${cell("Address Check", c.address_verified ? "VERIFIED (location found)" : "NOT VERIFIED", "span2")}</div></div>`)}
+          ${cell("Full Address", c.address, "span2")}</div></div>`)}
       ${box("Business Start & Social", `<div class="pgrid2">
         ${cell("Date Starting in Business", dmy(c.business_start_date), "span2")}
         ${cell("Facebook Name", c.facebook_name)}${cell("Facebook Account", c.facebook_verified ? "VERIFIED" : "NOT VERIFIED")}
-        ${cell("Additional Facebook", c.has_extra_facebook ? "YES — " + (c.extra_facebook_name || "") : "NO", "span2")}</div>`)}
+        ${c.has_extra_facebook ? cell("Additional Facebook", "YES — " + (c.extra_facebook_name || ""), "span2") : ""}</div>`)}
       ${box("Requirements Submitted", `<div class="pv" style="padding:6px">${reqs.length ? reqs.map((r) => "☑ " + esc(r.file_name)).join("<br>") : "None uploaded yet"}</div>`)}
       ${box("Office Use", `<div class="pgrid2">${cell("Issued By", c.issued_by_name)}${cell("Status", c.status.toUpperCase())}</div>`)}
       <p class="pdecl">I certify that the information above is true and correct, and I agree to the terms of ${esc(C.company.name)}.</p>
