@@ -17,13 +17,16 @@
     if (up.error) { toast("The photo could not be uploaded.", true); return null; }
     return path;
   }
+  // "5 User Resolution" holds two functions, shown as tabs.
+  const urTabs = (on) => `<div class="tabs ur-tabs">${isAdmin() ? `<a class="${on === "users" ? "on" : ""}" href="#users">User</a>` : ""}<a class="${on === "resolutions" ? "on" : ""}" href="#resolutions">Resolution</a></div>`;
+  V.userres = () => { location.replace("#" + (isAdmin() ? "users" : "resolutions")); };
   const photoBox = (url, fallback) => `<div class="pf-photo">${url ? `<img src="${esc(url)}" alt="">` : `<span>${esc(fallback)}</span>`}</div>`;
 
   // ======================================================================
   // 5. User — employees and their menu access
   // ======================================================================
   V.users = async () => {
-    E.shell("users", "User", `<div class="btnrow"><a class="btn primary" href="#newemployee">+ New Employee</a></div><div id="emRes"></div>`,
+    E.shell("users", "User Resolution — User", `${urTabs("users")}<div class="btnrow"><a class="btn primary" href="#newemployee">+ New Employee</a></div><div id="emRes"></div>`,
       "Create the employee record and choose which menu items they may use. Then the employee opens the portal, presses <b>Create Account</b> with the same email, and gets in straight away with that access.");
     const { data, error } = await sb.from("employees").select("*").order("created_at", { ascending: false });
     if (error) return fail(error, "Could not load employees");
@@ -135,7 +138,7 @@
   // ======================================================================
   V.resolutions = async () => {
     const w = canWrite("resolutions");
-    E.shell("resolutions", "Resolution", `
+    E.shell("resolutions", "User Resolution — Resolution", `${urTabs("resolutions")}
       ${w ? `<form class="window" id="rsForm" novalidate style="margin-bottom:10px"><div class="wtitle">New Resolution / Notice</div><div class="wbody">
         <div class="fields wide"><label for="rsSubj">Subject *</label><input type="text" id="rsSubj" required>
         <label for="rsDate">Date</label><input type="date" id="rsDate" value="${isoToday()}">

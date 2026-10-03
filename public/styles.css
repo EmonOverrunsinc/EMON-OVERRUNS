@@ -477,3 +477,6 @@ table.grid.budget input { width: 100%; min-width: 70px; }
 table.grid.budget td:first-child input { min-width: 180px; }
 .sigbox { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 10px; }
 .sigbox div { height: 60px; border-bottom: 1px solid #000; }
+.ur-tabs { margin-bottom: 10px; }
+.ur-tabs a { border: 1px solid var(--panel-line); border-bottom: 0; background: var(--chrome-2); padding: 4px 16px; border-radius: 3px 3px 0 0; color: var(--ink); text-decoration: none; }
+.ur-tabs a.on { background: #fff; font-weight: bold; position: relative; top: 1px; }

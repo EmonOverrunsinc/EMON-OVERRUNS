@@ -109,7 +109,7 @@ declare
 begin
   if initials = '' or initials is null then initials := 'XX'; end if;
   new.account_no := initials || '-' || ym || lpad(public.next_counter('ACC' || ym)::text, 3, '0');
-  new.application_no := 'APP-' || yr || '-' || lpad(public.next_counter('APP' || yr)::text, 5, '0');
+  new.application_no := 'EO-' || yr || '-' || lpad(public.next_counter('APP' || yr)::text, 5, '0');
   new.public_id := 'EO' || upper(substr(md5(gen_random_uuid()::text), 1, 8));
   new.status := 'pending';
   new.issued_by := auth.uid();

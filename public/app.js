@@ -114,7 +114,7 @@
         g.drawImage(img, -w / 2, -h / 2, w, h);
         try { return decodeCanvas(c); } catch (_) { /* try next orientation */ }
       }
-      throw new Error("No QR code or PDF417 barcode found in that image. Try a sharper, straight-on photo.");
+      throw new Error("No QR code or barcode found in that image. Try a sharper, straight-on photo.");
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -274,8 +274,7 @@
     { k: "invoices", n: "2", label: "Invoice" },
     { k: "payments", n: "3", label: "Payment" },
     { k: "creditmemos", n: "4", label: "Credit Memo" },
-    { k: "users", n: "5", label: "User" },
-    { k: "resolutions", n: "6", label: "Resolution" },
+    { k: "userres", n: "5", label: "User Resolution" },
     { k: "projects", n: "7", label: "Project" },
     { k: "billing", n: "8", label: "Billing" }
   ];
@@ -285,7 +284,7 @@
     invoices: "invoices", newinvoice: "invoices", invoice: "invoices",
     payments: "payments", newpayment: "payments", payment: "payments",
     creditmemos: "creditmemos", newcreditmemo: "creditmemos", creditmemo: "creditmemos",
-    users: "users", newemployee: "users", employee: "users", logins: "users",
+    userres: "resolutions", users: "users", newemployee: "users", employee: "users", logins: "users",
     resolutions: "resolutions", resolution: "resolutions",
     projects: "projects", newproject: "projects", project: "projects",
     billing: "billing", newsupplier: "billing", supplier: "billing"
@@ -293,15 +292,11 @@
   // Admins see everything; "users" (employee management) is admin-only; NULL modules = all.
   const hasModule = (m) => !m || isAdmin() || (m !== "users" && (!S.profile?.modules || S.profile.modules.includes(m)));
   const OTHER = [
-    ["documents", "Documents", () => true],
-    ["verification", "Document Verification", () => true],
-    ["search", "Document Search (PDF417)", () => true],
-    ["forms", "Download Forms", () => true],
-    ["announcements", "Announcements", () => true],
-    ["logins", "Login Accounts", () => isAdmin()],
-    ["settings", "Company Logo", () => isAdmin()]
+    ["verification", "Verification", () => true],
+    ["logins", "User", () => isAdmin()],
+    ["forms", "Download Forms", () => true]
   ];
-  const ACTIVE_OF = { ...MODULE_OF, find: "", newdoc: "documents", doc: "documents", profile: "" };
+  const ACTIVE_OF = { ...MODULE_OF, users: "userres", newemployee: "userres", employee: "userres", resolutions: "userres", resolution: "userres", logins: "logins", find: "", newdoc: "", doc: "", profile: "" };
   const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);
   const initials = (name) => String(name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
   function drawerOpen(open) {
@@ -311,7 +306,7 @@
 
   function shell(key, title, body, hint) {
     const cur = ACTIVE_OF[key] ?? key;
-    const main = MENU.filter((m) => m.k === "dashboard" || hasModule(m.k)).map((m) => `<a href="#${m.k}" class="${m.k === cur ? "active" : ""}">${m.n ? `<span class="num">${m.n}</span>` : `<span class="num">⌂</span>`}${esc(m.label)}</a>`).join("");
+    const main = MENU.filter((m) => m.k === "dashboard" || (m.k === "userres" ? hasModule("resolutions") || isAdmin() : hasModule(m.k))).map((m) => `<a href="#${m.k}" class="${m.k === cur ? "active" : ""}">${m.n ? `<span class="num">${m.n}</span>` : `<span class="num">⌂</span>`}${esc(m.label)}</a>`).join("");
     const other = OTHER.filter((o) => o[2]()).map(([k, label]) => `<a href="#${k}" class="${k === cur ? "active" : ""}">${esc(label)}</a>`).join("");
     const av = avatarUrl();
     app.innerHTML = `
@@ -562,11 +557,11 @@
         <tr class="grand"><td colspan="2" class="num">Total Amount :</td><td class="num">${peso(d.amount)}</td></tr></tbody>
       </table>
       ${d.remarks ? `<p><b>Remarks:</b> ${esc(d.remarks)}</p>` : ""}
-      <div style="margin-top:18px">${bc ? `<img src="${bc}" alt="PDF417 barcode for ${esc(d.doc_no)}" style="height:70px;image-rendering:pixelated">` : ""}
+      <div style="margin-top:18px">${bc ? `<img src="${bc}" alt="Barcode for ${esc(d.doc_no)}" style="height:70px;image-rendering:pixelated">` : ""}
         <div style="font:9px var(--font-mono)">${esc(d.barcode_payload || "")}</div></div>
       <div class="sig"><div>Prepared by</div><div>Verified by${verifierName ? ": " + esc(verifierName) : ""}</div></div>
       <div style="margin-top:28px;text-align:right">FOR ${esc(C.company.name)}</div>
-      <div class="rp-foot"><span>Scan the PDF417 code in Portal › Search to open this record.</span><span>${esc(d.doc_no)}</span></div>`;
+      <div class="rp-foot"><span>Scan the barcode in the portal to open this record.</span><span>${esc(d.doc_no)}</span></div>`;
   }
 
   // ---------- data ----------
@@ -750,7 +745,7 @@
           <div class="summary-box"><div class="fields wide">
             <span>Amount</span><b id="nSumAmt">₱ 0.00</b>
             <span>In Words</span><span id="nSumWords">PESOS ZERO ONLY</span>
-            <span>PDF417</span><span>Assigned on save, from the new document number</span>
+            <span>Barcode</span><span>Assigned on save, from the new document number</span>
           </div></div>
         </div>
         <div class="wfoot">
@@ -837,7 +832,7 @@
           </div>
           <div class="summary-box"><div class="fields wide"><span>Amount</span><b>₱ ${peso(d.amount)}</b><span>In Words</span><span>${esc(words(d.amount))}</span></div></div>
           <div class="formgrid">
-            <fieldset class="opt"><legend>PDF417 Barcode</legend><div class="barcode-box"><canvas id="bc"></canvas><div class="cap">${esc(d.barcode_payload)}</div></div></fieldset>
+            <fieldset class="opt"><legend>Barcode</legend><div class="barcode-box"><canvas id="bc"></canvas><div class="cap">${esc(d.barcode_payload)}</div></div></fieldset>
             <fieldset class="opt"><legend>Attachments (${fl.length})</legend>
               <div id="fileList">${fl.length ? fl.map((f) => `<div><button class="btn" data-path="${esc(f.storage_path)}" data-name="${esc(f.file_name)}">Open</button> ${esc(f.file_name)} <small>(${Math.ceil((f.size || 0) / 1024)} KB)</small></div>`).join("") : "No files attached."}</div>
               ${isStaff() ? `<div style="margin-top:6px"><label for="addFiles">Add files </label><input type="file" id="addFiles" multiple></div>` : ""}
@@ -961,19 +956,19 @@
           <form id="sForm" class="fields wide"><label for="sQ">Keyword</label>
             <input type="search" id="sQ" placeholder="Doc no, party, code, description, amount or barcode text"></form>
         </fieldset>
-        <fieldset class="opt" style="flex:1 1 320px"><legend>PDF417 Barcode</legend>
+        <fieldset class="opt" style="flex:1 1 320px"><legend>Barcode</legend>
           <div class="btnrow" style="margin:0">
             <button class="btn" id="sCam">Scan with Camera</button>
             <label class="btn" for="sImg" style="display:inline-block">Upload Barcode Image</label>
             <input type="file" id="sImg" accept="image/*" capture="environment" hidden>
             <button class="btn" id="sStop" hidden>Stop Camera</button>
           </div>
-          <div id="sScanMsg" style="margin-top:4px;color:var(--ink-soft)">Every document carries a PDF417 code. Scan it to open the record.</div>
+          <div id="sScanMsg" style="margin-top:4px;color:var(--ink-soft)">Every document carries a barcode. Scan it to open the record.</div>
           <video id="sVideo" hidden playsinline muted style="width:100%;max-width:420px;margin-top:6px;border:1px solid var(--panel-line)"></video>
         </fieldset>
       </div>
       <div class="btnrow"><button class="btn primary" id="sGo">Search</button><button class="btn" id="sClose">Close</button></div>
-      <div id="sResult"></div>`, "Type any part of a document number, party name or amount, or scan a document's PDF417 barcode.");
+      <div id="sResult"></div>`, "Type any part of a document number, party name or amount, or scan a document's barcode.");
     const show = (rows) => {
       $("#sResult").innerHTML = grid({ cols: DOC_COLS, rows, onRow: true, foot: { amount: peso(rows.reduce((s, r) => s + Number(r.amount), 0)) }, empty: "No documents match that search." });
       bindGrid($("#sResult"), rows, (r) => (location.hash = "doc/" + r.id));
@@ -1015,7 +1010,7 @@
       const reader = new window.ZXing.BrowserPDF417Reader();
       S.scanReader = reader;
       $("#sVideo").hidden = false; $("#sStop").hidden = false; $("#sCam").hidden = true;
-      $("#sScanMsg").textContent = "Point the camera at the PDF417 barcode…";
+      $("#sScanMsg").textContent = "Point the camera at the barcode…";
       try {
         await reader.decodeFromVideoDevice(undefined, $("#sVideo"), (res) => {
           if (res && S.scanReader === reader) { stopCam(); openByCode(res.getText()); }

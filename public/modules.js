@@ -127,7 +127,7 @@
       </div>
       <div class="cols">
         <div class="box"><h3>Applications Waiting for Review</h3><div class="in" id="dApps">Loading…</div></div>
-        <div class="box"><h3>Announcements</h3><div class="in" id="dAnn">Loading…</div></div>
+        <div class="box"><h3>Latest Resolutions</h3><div class="in" id="dAnn">Loading…</div></div>
       </div>
       <div class="cols" style="margin-top:10px">
         <div class="box"><h3>Unpaid Invoices</h3><div class="in" id="dInv">Loading…</div></div>
@@ -139,7 +139,7 @@
       sb.from("customer_balances").select("balance_due"),
       sb.from("invoice_balances").select("*").neq("pay_status", "paid").order("invoice_date", { ascending: false }).limit(8),
       sb.from("payments_received").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).limit(200),
-      sb.from("announcements").select("*").order("pinned", { ascending: false }).order("published_at", { ascending: false }).limit(4)
+      sb.from("resolutions").select("resolution_no,subject,body,resolution_date").order("resolution_date", { ascending: false }).limit(4)
     ]);
     if (cust.error) {
       $("#main").insertAdjacentHTML("afterbegin", `<div class="hint err">The customer database is not set up yet. Ask the administrator to run the setup script <b>002_customers_invoices_payments.sql</b>.</div>`);
@@ -170,7 +170,7 @@
       rows: rp, onRow: true, empty: "No payments yet." });
     E.bindGrid($("#dPay"), rp, (r) => (location.hash = "payment/" + r.id));
     const a = ann.data || [];
-    $("#dAnn").innerHTML = a.length ? a.map((x) => `<div class="ann"><h4>${x.pinned ? `<span class="pin">PINNED</span> ` : ""}${esc(x.title)}</h4><p>${esc(x.body)}</p></div>`).join("") : `<div class="empty">No announcements.</div>`;
+    $("#dAnn").innerHTML = a.length ? a.map((x) => `<a class="ann" href="#resolutions" style="display:block;color:inherit;text-decoration:none"><h4><span class="mono">${esc(x.resolution_no)}</span> ${esc(x.subject)}</h4><div class="meta">${dmy(x.resolution_date)}</div>${x.body ? `<p>${esc(x.body.length > 160 ? x.body.slice(0, 160) + "…" : x.body)}</p>` : ""}</a>`).join("") : `<div class="empty">No resolutions in the last 3 months.</div>`;
     E.setRecords(`Customers: ${cs.length}`);
   };
 
@@ -322,8 +322,8 @@
           ${cell("Phone Number", c.phone)}${cell("Email Address", c.email)}
           ${cell("Full Address", c.address, "span2")}
           ${cell("Address Check", c.address_verified ? "VERIFIED (location found)" : "NOT VERIFIED", "span2")}</div></div>`)}
-      ${box("Business & Social", `<div class="pgrid2">
-        ${cell("Business Name", c.business_name)}${cell("Date Starting in Business", dmy(c.business_start_date))}
+      ${box("Business Start & Social", `<div class="pgrid2">
+        ${cell("Date Starting in Business", dmy(c.business_start_date), "span2")}
         ${cell("Facebook Name", c.facebook_name)}${cell("Facebook Account", c.facebook_verified ? "VERIFIED" : "NOT VERIFIED")}
         ${cell("Additional Facebook", c.has_extra_facebook ? "YES — " + (c.extra_facebook_name || "") : "NO", "span2")}</div>`)}
       ${box("Requirements Submitted", `<div class="pv" style="padding:6px">${reqs.length ? reqs.map((r) => "☑ " + esc(r.file_name)).join("<br>") : "None uploaded yet"}</div>`)}
@@ -639,7 +639,7 @@
   };
   function invoicePage(inv, pays) {
     return `${printHead("INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
-      ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}${cell("Business", inv.business_name)}${cell("PO Number", inv.po_number)}</div>`)}
+      ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}${cell("PO Number", inv.po_number, "span2")}</div>`)}
       ${box("Order", `<div class="prow3">${cell("Invoice Date", dmy(inv.invoice_date))}${cell("Date of Purchase", dmy(inv.purchase_date))}${cell("Total Boxes", inv.total_boxes)}</div>
         <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Total Amount (₱)", peso(inv.total_amount))}${cell("Balance (₱)", peso(inv.balance))}</div>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
@@ -760,7 +760,7 @@
     const c = p.customers;
     return `${printHead("ACKNOWLEDGMENT RECEIPT", `<img src="${E.pdf417DataUrl("EMONPAY|" + p.receipt_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.receipt_no)}</div>`)}
       <div class="ack-ok">PAYMENT SUCCESSFULLY RECEIVED</div>
-      ${box("Received From", `<div class="pgrid2">${cell("Customer Name", fullName(c))}${cell("Account No", c.account_no)}${cell("Business", c.business_name)}${cell("Date Paid", dmy(p.paid_date))}</div>`)}
+      ${box("Received From", `<div class="pgrid2">${cell("Customer Name", fullName(c))}${cell("Account No", c.account_no)}${cell("Date Paid", dmy(p.paid_date), "span2")}</div>`)}
       ${box("Payment Details", `<div class="prow3">${cell("Amount (₱)", peso(p.amount))}${cell("Method", METHOD[p.method])}${cell("Reference No", p.reference_no)}</div>
         <div class="prow3">${cell("Bank", p.bank_name)}${cell("Deposit Account", p.bank_account)}${cell("Applied to Invoice", p.invoices?.invoice_no || "General payment")}</div>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(p.amount))}</div></div>`)}
