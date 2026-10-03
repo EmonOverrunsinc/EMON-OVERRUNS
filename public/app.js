@@ -280,7 +280,7 @@
   ];
   // Which menu item (module) each page belongs to; used to hide pages a user has no access to.
   const MODULE_OF = {
-    customers: "customers", newcustomer: "customers", customer: "customers",
+    customers: "customers", newcustomer: "customers", customer: "customers", statements: "customers",
     invoices: "invoices", newinvoice: "invoices", invoice: "invoices",
     payments: "payments", newpayment: "payments", payment: "payments",
     creditmemos: "creditmemos", newcreditmemo: "creditmemos", creditmemo: "creditmemos",

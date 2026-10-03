@@ -203,6 +203,8 @@
         <div class="box"><h3>Recent Payments</h3><div class="in" id="dPay">Loading…</div></div>
       </div>`);
     const ym = isoToday().slice(0, 7);
+    let soaDone = false; try { soaDone = sessionStorage.getItem("eoSoa") === ym; } catch (_) {}
+    if (!soaDone) sb.rpc("generate_statements", {}).then(({ error }) => { if (!error) { try { sessionStorage.setItem("eoSoa", ym); } catch (_) {} } });
     const [cust, bal, inv, pay, ann] = await Promise.all([
       sb.from("customers").select("id,first_name,last_name,account_no,application_no,status,application_date,business_name").order("created_at", { ascending: false }).limit(1000),
       sb.from("customer_balances").select("balance_due"),
@@ -254,7 +256,7 @@
           <label for="cuSt">Status</label><select id="cuSt"><option value="">All</option><option value="active">Active</option><option value="pending">Pending review</option><option value="verified">Verified</option><option value="suspended">Suspended</option><option value="closed">Closed</option><option value="rejected">Rejected</option></select>
         </form></fieldset></div>
       <div class="btnrow"><button class="btn primary" id="cuGo">Search</button><button class="btn" id="cuScan">Scan QR</button>
-        ${isStaff() ? `<a class="btn ok" href="#newcustomer">+ New Customer</a>` : ""}</div>
+        ${isStaff() ? `<a class="btn ok" href="#newcustomer">+ New Customer</a>` : ""}${isAdmin() ? `<a class="btn" href="#statements">All Statements (SOA)</a>` : ""}</div>
       <div id="cuRes"></div>`, "All customer accounts. Closed accounts are shown here with a <b>CLOSED</b> mark but are hidden from the top search bar.");
     const run = async () => {
       const t = cleanQ($("#cuQ").value), st = $("#cuSt").value;
@@ -459,23 +461,26 @@
       ${!["pending", "verified"].includes(c.status) ? signedPanel("customer", c.id, att, "application") : ""}
       ${isAdmin() && ["active", "suspended"].includes(c.status) ? statusPanel(c) : ""}
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed) : ""}
-      <div class="tabs" id="pfTabs">${["Details", "Invoices", "Payments", "Credit Memos", "Files", "History"].map((t, i) => `<button class="${i ? "" : "on"}" data-t="${i}">${t}</button>`).join("")}</div>
+      <div class="tabs" id="pfTabs">${["Details", "Statement of Account", "Invoices", "Payments", "Credit Memos", "Files", "History"].map((t, i) => `<button class="${i ? "" : "on"}" data-t="${i}">${t}</button>`).join("")}</div>
       <div class="tabpanes">
         <div data-p="0">${detailsTable(c)}</div>
-        <div data-p="1" hidden>${E.grid({ cols: INV_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: invs.data || [], onRow: true, empty: "No invoices yet." })}</div>
-        <div data-p="2" hidden>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
-        <div data-p="3" hidden>${E.grid({ cols: MEMO_COLS.filter((x) => x.label !== "Customer"), rows: memos.data || [], onRow: true, empty: "No credit memos." })}</div>
-        <div data-p="4" hidden>${filesHtml(att)}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple")}</div>` : ""}</div>
-        <div data-p="5" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.created_at)) }, { label: "Action", get: (r) => r.action.toUpperCase() }, { label: "By", get: (r) => r.actor_name || "" }, { label: "Note", get: (r) => r.note || "" }], rows: ev.data || [] })}</div>
+        <div data-p="1" hidden id="pfSoa"><div class="empty">Loading statements…</div></div>
+        <div data-p="2" hidden>${E.grid({ cols: INV_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: invs.data || [], onRow: true, empty: "No invoices yet." })}</div>
+        <div data-p="3" hidden>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
+        <div data-p="4" hidden>${E.grid({ cols: MEMO_COLS.filter((x) => x.label !== "Customer"), rows: memos.data || [], onRow: true, empty: "No credit memos." })}</div>
+        <div data-p="5" hidden>${filesHtml(att)}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple")}</div>` : ""}</div>
+        <div data-p="6" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.created_at)) }, { label: "Action", get: (r) => r.action.toUpperCase() }, { label: "By", get: (r) => r.actor_name || "" }, { label: "Note", get: (r) => r.note || "" }], rows: ev.data || [] })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
     $$("#pfTabs button").forEach((t) => (t.onclick = () => {
       $$("#pfTabs button").forEach((x) => x.classList.toggle("on", x === t));
       $$(".tabpanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t));
     }));
-    E.bindGrid($('[data-p="1"]'), invs.data || [], (r) => (location.hash = "invoice/" + r.id));
-    E.bindGrid($('[data-p="2"]'), pays.data || [], (r) => (location.hash = "payment/" + r.id));
-    E.bindGrid($('[data-p="3"]'), memos.data || [], (r) => (location.hash = "creditmemo/" + r.id));
+    E.bindGrid($('[data-p="2"]'), invs.data || [], (r) => (location.hash = "invoice/" + r.id));
+    E.bindGrid($('[data-p="3"]'), pays.data || [], (r) => (location.hash = "payment/" + r.id));
+    E.bindGrid($('[data-p="4"]'), memos.data || [], (r) => (location.hash = "creditmemo/" + r.id));
+    if (!["pending", "verified", "rejected"].includes(c.status)) renderSoaTab(c, invs.data || [], pays.data || [], memos.data || []);
+    else $("#pfSoa").innerHTML = `<div class="empty">Statements start after the account is approved.</div>`;
     bindFiles($("#main"));
     $("#pfPrint").onclick = () => printApplication(c);
     if ($("#pfSigned")) $("#pfSigned").onclick = () => viewFile(latestSigned(att));
@@ -576,6 +581,156 @@
     E.drawQr($("#subQr"), custQr(c));
     $("#subPrint").onclick = () => printApplication(c);
   }
+
+  // ======================================================================
+  // Statement of Account (SOA)
+  // ======================================================================
+  const monthStart = (iso) => String(iso).slice(0, 7) + "-01";
+  const nextMonth = (iso) => { const d = new Date(monthStart(iso) + "T00:00:00"); d.setMonth(d.getMonth() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; };
+  const monthEnd = (iso) => { const d = new Date(nextMonth(iso) + "T00:00:00"); d.setDate(0); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const monthName = (iso) => new Date(monthStart(iso) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  // Same rules as the database: invoices debit; payments and approved credit/discount memos credit (on approval date).
+  function txnsOf(invs, pays, memos) {
+    const t = [];
+    invs.forEach((i) => t.push({ date: i.invoice_date, ref: i.invoice_no, desc: `Invoice${i.po_number ? " — PO " + i.po_number : ""} (${i.total_boxes || 0} box / ${i.total_pcs || 0} pcs)`, debit: num(i.total_amount), credit: 0, inv: i }));
+    pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: `Payment — ${METHOD[p.method] || p.method}${p.bank_name ? " " + p.bank_name : ""}${p.reference_no ? " Ref " + p.reference_no : ""}`, debit: 0, credit: num(p.amount) }));
+    memos.filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action) && m.approved_at)
+      .forEach((m) => t.push({ date: String(m.approved_at).slice(0, 10), ref: m.memo_no, desc: `Credit Memo — ${ACTION[m.requested_action]}${m.article ? " (" + m.article + ")" : ""}`, debit: 0, credit: num(m.request_amount) }));
+    return t.sort((a, b) => a.date.localeCompare(b.date) || (b.debit - a.debit));
+  }
+  const before = (txns, d) => txns.filter((x) => x.date < d).reduce((s, x) => s + x.debit - x.credit, 0);
+  const within = (txns, a, b) => txns.filter((x) => x.date >= a && x.date <= b);
+
+  async function signedInvoiceImages(invoices) {
+    if (!invoices.length) return [];
+    const { data } = await sb.from("attachments").select("*").eq("owner_type", "invoice").eq("kind", "signed_form").in("owner_id", invoices.map((i) => i.id)).order("created_at", { ascending: false });
+    const seen = new Set(), out = [];
+    for (const a of data || []) {
+      if (seen.has(a.owner_id)) continue; seen.add(a.owner_id);
+      const inv = invoices.find((i) => i.id === a.owner_id);
+      const isImg = /^image\//.test(a.mime || "") || /\.(png|jpe?g|gif|webp)$/i.test(a.storage_path);
+      out.push({ inv, url: isImg ? await signedUrl(a.storage_path, 1800) : "", pdf: !isImg });
+    }
+    return out;
+  }
+
+  // Bank-statement layout: customer left, account/period right, running balance, then signed invoice copies.
+  function soaPages(c, p, txns, images) {
+    let bal = p.opening;
+    const rows = txns.map((x) => { bal += x.debit - x.credit; return { ...x, bal }; });
+    const deb = txns.reduce((s, x) => s + x.debit, 0), cre = txns.reduce((s, x) => s + x.credit, 0);
+    const closing = p.closing ?? (p.opening + deb - cre);
+    const head = `<div class="soa-logo">${E.logoHtml("soa-logo-img")}<div class="soa-co">${esc(C.company.name)}</div><div class="soa-addr">${esc(C.company.address.join(", "))} · ${esc(C.company.email)} · ${esc(C.company.phone)}</div></div>
+      <div class="ph-title">STATEMENT OF ACCOUNT${p.live ? " (MONTH TO DATE)" : ""}</div>
+      <div class="soa-top"><div class="soa-cust"><b>${esc(fullName(c).toUpperCase())}</b><br>${esc(c.address || "")}<br>${esc(c.phone || "")}</div>
+        <div class="soa-acct"><span>Statement No :</span><b>${esc(p.no || "—")}</b><span>Account Number :</span><b>${esc(c.account_no)}</b>
+          <span>Period Coverage :</span><b>${dmy(p.start)} - ${dmy(p.end)}</b><span>Date Printed :</span><b>${dmy(isoToday())}</b></div></div>`;
+    const page1 = `${head}
+      <table class="soa-table"><thead><tr><th>DATE</th><th>REFERENCE NO.</th><th>TRANSACTION DESCRIPTION</th><th class="num">DEBIT</th><th class="num">CREDIT</th><th class="num">BALANCE</th></tr></thead>
+      <tbody><tr><td>${dmy(p.start)}</td><td></td><td>BEGINNING BALANCE</td><td></td><td></td><td class="num">${peso(p.opening)}</td></tr>
+        ${rows.map((x) => `<tr><td>${dmy(x.date)}</td><td>${esc(x.ref)}</td><td>${esc(x.desc)}</td><td class="num">${x.debit ? peso(x.debit) : ""}</td><td class="num">${x.credit ? peso(x.credit) : ""}</td><td class="num">${peso(x.bal)}</td></tr>`).join("")}
+        <tr class="soa-end"><td>${dmy(p.end)}</td><td></td><td>ENDING BALANCE</td><td></td><td></td><td class="num">${peso(closing)}</td></tr>
+        <tr class="soa-total"><td><b>TOTAL</b></td><td>${rows.length} transaction(s)</td><td>${images.length ? `${images.length} signed invoice copy(ies) attached` : ""}</td><td class="num">${peso(deb)}</td><td class="num">${peso(cre)}</td><td></td></tr></tbody></table>
+      <div class="soa-due"><span>AMOUNT DUE</span><b>₱ ${peso(closing)}</b><small>${esc(words(Math.max(0, closing)))}</small></div>
+      <div class="soa-note">Please examine this statement. Any discrepancy must be reported to ${esc(C.company.name)} within 10 days, otherwise this statement is considered correct.<br>Payments: ${esc(C.company.phone)} · ${esc(C.company.email)}</div>
+      ${sigs("Prepared by", "Received by (Customer) / Date")}`;
+    const pages = [page1];
+    for (let i = 0; i < images.length; i += 4) {
+      const chunk = images.slice(i, i + 4);
+      pages.push(`<div class="soa-pg">Page ${pages.length + 1}</div><div class="ph-title" style="text-align:left">SIGNED INVOICE COPIES — ${esc(monthName(p.start).toUpperCase())}</div>
+        <div class="soa-imgs">${chunk.map((im) => `<figure>${im.url ? `<img src="${esc(im.url)}" alt="Signed copy of ${esc(im.inv.invoice_no)}">` : `<div class="soa-pdf">Signed copy on file (PDF)</div>`}
+          <figcaption>Acct. No.: ${esc(c.account_no)} &nbsp; Invoice No.: ${esc(im.inv.invoice_no)} &nbsp; Amt.: ${peso(im.inv.total_amount)}</figcaption></figure>`).join("")}</div>`);
+    }
+    return pages;
+  }
+
+  async function printSoa(c, p, allTxns, allInvs) {
+    const txns = within(allTxns, p.start, p.end);
+    const invs = allInvs.filter((i) => i.invoice_date >= p.start && i.invoice_date <= p.end);
+    const images = await signedInvoiceImages(invs);
+    E.openPreview(`SOA ${p.no || monthName(p.start)}`, soaPages(c, p, txns, images));
+  }
+
+  async function renderSoaTab(c, invs, pays, memos) {
+    const box = $("#pfSoa"); if (!box) return;
+    const { data } = await sb.from("statements").select("*").eq("customer_id", c.id).order("period_start", { ascending: false }).limit(3);
+    const txns = txnsOf(invs, pays, memos);
+    const cm = monthStart(isoToday());
+    const live = { start: cm, end: isoToday(), opening: before(txns, cm), live: true, no: "Month to date" };
+    const st = (data || []).map((s) => ({ start: s.period_start, end: s.period_end, opening: num(s.opening_balance), closing: num(s.closing_balance), no: s.statement_no, debit: num(s.total_debit), credit: num(s.total_credit) }));
+    const lt = within(txns, live.start, live.end);
+    live.debit = lt.reduce((s, x) => s + x.debit, 0); live.credit = lt.reduce((s, x) => s + x.credit, 0); live.closing = live.opening + live.debit - live.credit;
+    const rows = [live, ...st];
+    box.innerHTML = `<div class="btnrow"><button class="btn" id="soaAll">Print All Transactions</button>${isAdmin() ? `<a class="btn" href="#statements">All Statements (Admin)</a>` : ""}</div>
+      ${E.grid({ cols: [
+        { label: "Period", get: (r) => r.live ? `${monthName(r.start)} (to date)` : monthName(r.start) }, { label: "Statement No", get: (r) => r.no },
+        { label: "Opening (₱)", num: true, get: (r) => peso(r.opening) }, { label: "Debit (₱)", num: true, get: (r) => peso(r.debit) },
+        { label: "Credit (₱)", num: true, get: (r) => peso(r.credit) }, { label: "Closing (₱)", num: true, get: (r) => peso(r.closing) },
+        { label: "", html: () => `<span class="btn">Print SOA</span>` }], rows, onRow: true })}
+      <small>A new statement is created automatically on the 1st of every month. Each month's closing balance is the next month's opening balance.</small>`;
+    E.bindGrid(box, rows, (r) => printSoa(c, r, txns, invs));
+    $("#soaAll").onclick = () => {
+      const start = txns.length ? monthStart(txns[0].date) : monthStart(c.application_date);
+      printSoaRange(c, { start, end: isoToday(), opening: 0, no: "ALL TRANSACTIONS" }, txns, invs);
+    };
+  }
+  // Full history: one statement page set from the first transaction to today (no signed copies, to keep it short).
+  function printSoaRange(c, p, txns, invs) {
+    E.openPreview(`All transactions ${c.account_no}`, soaPages(c, p, within(txns, p.start, p.end), []));
+  }
+
+  // Admin: every customer's SOA for a month.
+  V.statements = async () => {
+    if (!isAdmin()) { location.hash = "customers"; return; }
+    const last = monthStart(new Date(new Date().setDate(0)).toISOString().slice(0, 10));
+    E.shell("statements", "All Statements of Account", `
+      <div class="options"><fieldset class="opt"><legend>Month</legend><div class="fields"><label for="stMonth">Statement Month</label><input type="month" id="stMonth" value="${last.slice(0, 7)}"></div></fieldset></div>
+      <div class="btnrow"><button class="btn primary" id="stGo">Show</button><button class="btn" id="stGen">Create Missing Statements Now</button><button class="btn" id="stPrintAll">Print All for Month</button><a class="btn" href="#customers">Close</a></div>
+      <div id="stRes"></div>`, "Statements are created automatically on the 1st of each month for the month just ended. Click a row to print it or upload the signed copy.");
+    let rows = [];
+    const load = async () => {
+      const m = $("#stMonth").value + "-01";
+      const { data, error } = await sb.from("statements").select("*, customers(*)").eq("period_start", m).order("statement_no");
+      if (error) return fail(error, "Could not load statements");
+      rows = data || [];
+      const sum = (k) => peso(rows.reduce((s, r) => s + num(r[k]), 0));
+      $("#stRes").innerHTML = E.grid({ cols: [
+        { label: "Statement No", get: (r) => r.statement_no }, { label: "Account No", get: (r) => r.customers?.account_no || "" }, { label: "Customer", get: (r) => fullName(r.customers || {}) },
+        { label: "Opening (₱)", key: "opening_balance", num: true, get: (r) => peso(r.opening_balance) }, { label: "Debit (₱)", key: "total_debit", num: true, get: (r) => peso(r.total_debit) },
+        { label: "Credit (₱)", key: "total_credit", num: true, get: (r) => peso(r.total_credit) }, { label: "Closing (₱)", key: "closing_balance", num: true, get: (r) => peso(r.closing_balance) }],
+        rows, onRow: true, foot: { opening_balance: sum("opening_balance"), total_debit: sum("total_debit"), total_credit: sum("total_credit"), closing_balance: sum("closing_balance") }, empty: `No statements for ${monthName(m)} yet.` });
+      E.bindGrid($("#stRes"), rows, statementDialog);
+      E.setRecords(`Statements: ${rows.length}`);
+    };
+    const dataFor = async (cid) => {
+      const [i, p, m] = await Promise.all([
+        sb.from("invoice_balances").select("*").eq("customer_id", cid), sb.from("payments_received").select("*").eq("customer_id", cid), sb.from("credit_memos").select("*").eq("customer_id", cid)]);
+      return { invs: i.data || [], txns: txnsOf(i.data || [], p.data || [], m.data || []) };
+    };
+    const asPeriod = (r) => ({ start: r.period_start, end: r.period_end, opening: num(r.opening_balance), closing: num(r.closing_balance), no: r.statement_no });
+    async function statementDialog(r) {
+      const att = await attachmentsOf("statement", r.id);
+      const signed = latestSigned(att);
+      const d = document.createElement("div"); d.className = "modal";
+      d.innerHTML = `<div class="window" role="dialog" aria-modal="true" aria-label="${esc(r.statement_no)}"><div class="wtitle">${esc(r.statement_no)} — ${esc(fullName(r.customers || {}))}</div>
+        <div class="wbody">${signedPanel("statement", r.id, att, "statement")}</div>
+        <div class="wfoot">${signed ? `<button class="btn primary" id="sdSigned">View Signed SOA</button>` : ""}<button class="btn" id="sdPrint">Print SOA</button><button class="btn" id="sdClose">Close</button></div></div>`;
+      document.body.appendChild(d);
+      bindFiles(d); bindSigned(d, () => { d.remove(); statementDialog(r); });
+      $("#sdClose", d).onclick = () => d.remove();
+      if (signed) $("#sdSigned", d).onclick = () => viewFile(signed);
+      $("#sdPrint", d).onclick = async () => { d.remove(); const x = await dataFor(r.customer_id); printSoa(r.customers, asPeriod(r), x.txns, x.invs); };
+    }
+    $("#stGo").onclick = load; $("#stMonth").onchange = load;
+    $("#stGen").onclick = async () => { const { data, error } = await sb.rpc("generate_statements", {}); if (error) return fail(error, "Could not create statements"); toast(`${data || 0} new statement(s) created.`); load(); };
+    $("#stPrintAll").onclick = async () => {
+      if (!rows.length) return toast("No statements for this month.", true);
+      const pages = [];
+      for (const r of rows) { const x = await dataFor(r.customer_id); const p = asPeriod(r); pages.push(...soaPages(r.customers, p, within(x.txns, p.start, p.end), [])); }
+      E.openPreview(`All SOA ${monthName(rows[0].period_start)}`, pages);
+    };
+    load();
+  };
 
   // ======================================================================
   // 2. Invoice
