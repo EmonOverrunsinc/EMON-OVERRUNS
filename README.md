@@ -19,6 +19,16 @@ It is laid out like AutoCount: option panel, then Inquiry, Preview and Print, th
 
 All amounts are in **PHP (₱)**. Vouchers print the amount in words, for example "PESOS ONE THOUSAND … AND 50/100 ONLY".
 
+## Business modules (side menu)
+1. **Customer:** application form with address check, photo, Facebook and requirement uploads. It assigns the account no (initials-YYYYMM###, e.g. EH-202610001), application no, QR public ID and a hidden private code, then prints an application for signing. Admin review covers the duplicate check, the signed-form upload and approve/reject.
+2. **Invoice:** record a sale for an ACTIVE customer (PO, boxes, pcs, amount, paid or unpaid with cash or bank details, receipts, delivery receipt, PO upload).
+3. **Payment:** cash, bank transfer, online transfer or deposit. Receipt no A-YYYY-MMDD-###, with a printable acknowledgment receipt.
+4. **Credit Memo:** customer complaint or defect claim (report no EOC-YYYYMM###). Admin approve/reject and mark paid. Approved credit or discount amounts reduce the balance due.
+5. **User Resolution:** suspend, reactivate or permanently close accounts. Closed accounts cannot get new invoices and are hidden from the top search.
+7. **Project** and 8. **Billing:** coming soon.
+
+Database script for these modules: `supabase/002_customers_invoices_payments.sql` (run after `portal_init.sql`).
+
 ## Setup (one time)
 1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.
    This creates the tables, security rules, document numbering, audit trail and the `documents` and `forms` storage buckets.

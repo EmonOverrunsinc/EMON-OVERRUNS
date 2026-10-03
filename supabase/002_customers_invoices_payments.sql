@@ -1,4 +1,3 @@
--- DRAFT: not applied yet. Waiting for the owner to finish the spec (account number format, credit memo, project, billing).
 -- Emon Overruns Portal, part 2: branding, customers, invoices, payments, notifications.
 -- Safe to run once after portal_init.sql.
 
@@ -228,9 +227,9 @@ $$;
 -- ---------- Attachments (customers, invoices, payments) ----------
 create table if not exists public.attachments (
   id uuid primary key default gen_random_uuid(),
-  owner_type text not null check (owner_type in ('customer','invoice','payment')),
+  owner_type text not null check (owner_type in ('customer','invoice','payment','credit_memo')),
   owner_id uuid not null,
-  kind text not null check (kind in ('photo','requirement','signed_form','receipt','delivery_receipt','purchase_order','other')),
+  kind text not null check (kind in ('photo','requirement','signed_form','receipt','delivery_receipt','purchase_order','proof','other')),
   storage_path text not null,
   file_name text not null,
   mime text,
@@ -344,12 +343,115 @@ create or replace view public.invoice_balances with (security_invoker = true) as
          else 'unpaid' end as pay_status
   from public.invoices i join public.customers c on c.id = i.customer_id;
 
+-- ---------- Credit memos (customer complaint / defect claims) ----------
+create table if not exists public.credit_memos (
+  id uuid primary key default gen_random_uuid(),
+  memo_no text unique,
+  memo_date date not null default current_date,
+  customer_id uuid not null references public.customers(id),
+  payment_ref text,
+  po_number text,
+  article text,
+  brand text,
+  style text,
+  batch_no text,
+  serial_no text,
+  qty integer not null default 0 check (qty >= 0),
+  purchase_date date,
+  defect_category text not null check (defect_category in ('fabric_damage','color_issue','wrong_box','wrong_bundle','other')),
+  defect_detail text,
+  requested_action text not null check (requested_action in ('replacement','refund','credit','discount')),
+  rate numeric(14,2) not null default 0 check (rate >= 0),
+  request_amount numeric(14,2) not null default 0 check (request_amount >= 0),
+  assigned_by text,
+  inspection_notes text,
+  factory_status text,
+  status text not null default 'pending' check (status in ('pending','approved','rejected','paid')),
+  status_note text,
+  approved_by uuid references public.profiles(id),
+  approved_by_name text,
+  approved_at timestamptz,
+  paid_by_name text,
+  paid_at timestamptz,
+  created_by uuid references public.profiles(id) default auth.uid(),
+  created_by_name text,
+  created_at timestamptz not null default now()
+);
+create index if not exists credit_memos_customer_idx on public.credit_memos(customer_id);
+create index if not exists credit_memos_created_by_idx on public.credit_memos(created_by);
+create index if not exists credit_memos_approved_by_idx on public.credit_memos(approved_by);
+
+create or replace function public.credit_memos_before_insert() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare st text;
+begin
+  select status into st from public.customers where id = new.customer_id;
+  if st is null then raise exception 'Customer not found'; end if;
+  if st in ('pending','verified','rejected','closed') then raise exception 'Credit memos can only be recorded for approved, open accounts (this account is %)', upper(st); end if;
+  new.memo_no := 'EOC-' || to_char(new.memo_date, 'YYYYMM') || lpad(public.next_counter('EOC' || to_char(new.memo_date, 'YYYYMM'))::text, 3, '0');
+  new.status := 'pending';
+  new.approved_by := null; new.approved_at := null; new.paid_at := null;
+  new.created_by := auth.uid();
+  new.created_by_name := (select full_name from public.profiles where id = auth.uid());
+  return new;
+end;
+$$;
+drop trigger if exists credit_memos_bi on public.credit_memos;
+create trigger credit_memos_bi before insert on public.credit_memos
+  for each row execute function public.credit_memos_before_insert();
+
+create or replace function public.credit_memos_after_insert() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.notifications (user_id, title, body, link)
+  select p.id, 'Credit memo ' || new.memo_no || ' needs review',
+         'Requested ' || new.requested_action || ' of PHP ' || to_char(new.request_amount, 'FM999,999,990.00'),
+         'creditmemo/' || new.id
+  from public.profiles p where p.role = 'admin' and p.status = 'active';
+  return new;
+end;
+$$;
+drop trigger if exists credit_memos_ai on public.credit_memos;
+create trigger credit_memos_ai after insert on public.credit_memos
+  for each row execute function public.credit_memos_after_insert();
+
+alter table public.credit_memos enable row level security;
+create policy "cm: active read" on public.credit_memos for select to authenticated using ((select public.is_active()));
+create policy "cm: staff insert" on public.credit_memos for insert to authenticated with check ((select public.is_staff()));
+
+create or replace function public.credit_memo_action(p_id uuid, p_action text, p_note text default null)
+returns public.credit_memos
+language plpgsql security definer set search_path = '' as $$
+declare m public.credit_memos; me text;
+begin
+  if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  select * into m from public.credit_memos where id = p_id for update;
+  if m.id is null then raise exception 'Credit memo not found'; end if;
+  me := (select full_name from public.profiles where id = auth.uid());
+  if p_action = 'approve' and m.status = 'pending' then
+    update public.credit_memos set status = 'approved', approved_by = auth.uid(), approved_by_name = me, approved_at = now(), status_note = coalesce(p_note, status_note) where id = p_id returning * into m;
+  elsif p_action = 'reject' and m.status = 'pending' then
+    update public.credit_memos set status = 'rejected', approved_by = auth.uid(), approved_by_name = me, approved_at = now(), status_note = coalesce(p_note, status_note) where id = p_id returning * into m;
+  elsif p_action = 'paid' and m.status = 'approved' then
+    update public.credit_memos set status = 'paid', paid_by_name = me, paid_at = now(), status_note = coalesce(p_note, status_note) where id = p_id returning * into m;
+  else
+    raise exception 'Cannot % a % credit memo', p_action, m.status;
+  end if;
+  insert into public.customer_events (customer_id, action, note, actor, actor_name)
+  values (m.customer_id, 'credit memo ' || m.memo_no || ' ' || m.status, p_note, auth.uid(), me);
+  return m;
+end;
+$$;
+
+-- Approved or paid credit/discount memos reduce what the customer owes.
 create or replace view public.customer_balances with (security_invoker = true) as
   select c.id as customer_id,
     coalesce((select sum(total_amount) from public.invoices i where i.customer_id = c.id), 0)::numeric(14,2) as total_invoiced,
     coalesce((select sum(amount) from public.payments_received p where p.customer_id = c.id), 0)::numeric(14,2) as total_paid,
+    coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0)::numeric(14,2) as total_credits,
     (coalesce((select sum(total_amount) from public.invoices i where i.customer_id = c.id), 0)
-      - coalesce((select sum(amount) from public.payments_received p where p.customer_id = c.id), 0))::numeric(14,2) as balance_due
+      - coalesce((select sum(amount) from public.payments_received p where p.customer_id = c.id), 0)
+      - coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0))::numeric(14,2) as balance_due
   from public.customers c;
 
 -- ---------- Grants ----------
@@ -361,6 +463,10 @@ revoke execute on function public.customers_before_insert() from public, anon, a
 revoke execute on function public.customers_after_insert() from public, anon, authenticated;
 revoke execute on function public.invoices_before_insert() from public, anon, authenticated;
 revoke execute on function public.payments_before_insert() from public, anon, authenticated;
+revoke execute on function public.credit_memos_before_insert() from public, anon, authenticated;
+revoke execute on function public.credit_memos_after_insert() from public, anon, authenticated;
+revoke execute on function public.credit_memo_action(uuid, text, text) from public, anon;
+grant execute on function public.credit_memo_action(uuid, text, text) to authenticated;
 revoke select on public.invoice_balances, public.customer_balances from anon;
 
 -- ---------- Storage ----------

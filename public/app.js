@@ -4,6 +4,7 @@
   "use strict";
 
   const C = window.EMON_CONFIG;
+  window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
 
@@ -85,10 +86,16 @@
   }
   function decodeCanvas(canvas) {
     const Z = window.ZXing;
-    const hints = new Map([[Z.DecodeHintType.TRY_HARDER, true], [Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.PDF_417]]]);
+    const hints = new Map([[Z.DecodeHintType.TRY_HARDER, true], [Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.PDF_417, Z.BarcodeFormat.QR_CODE]]]);
     const bmp = new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)));
-    return new Z.PDF417Reader().decode(bmp, hints).getText();
+    const r = new Z.MultiFormatReader(); r.setHints(hints);
+    return r.decode(bmp).getText();
   }
+  function drawQr(canvas, text) {
+    try { window.bwipjs.toCanvas(canvas, { bcid: "qrcode", text, scale: 4, padding: 2, backgroundcolor: "FFFFFF" }); return true; }
+    catch (e) { console.error(e); return false; }
+  }
+  function qrDataUrl(text) { const c = document.createElement("canvas"); return drawQr(c, text) ? c.toDataURL("image/png") : ""; }
   // Try the image as-is and rotated, with a white quiet zone around it.
   async function decodeImageFile(file) {
     const url = URL.createObjectURL(file);
@@ -107,7 +114,7 @@
         g.drawImage(img, -w / 2, -h / 2, w, h);
         try { return decodeCanvas(c); } catch (_) { /* try next orientation */ }
       }
-      throw new Error("No PDF417 barcode found in that image. Try a sharper, straight-on photo.");
+      throw new Error("No QR code or PDF417 barcode found in that image. Try a sharper, straight-on photo.");
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -116,6 +123,24 @@
     const t = String(text || "").trim();
     if (t.startsWith("EMON|")) return t.split("|")[1];
     return t;
+  }
+
+  // ---------- company header (every page) ----------
+  const publicUrl = (bucket, path) => path ? sb.storage.from(bucket).getPublicUrl(path).data.publicUrl : "";
+  async function loadBranding() {
+    try {
+      const { data } = await sb.from("company_settings").select("logo_path").eq("id", 1).maybeSingle();
+      S.logoUrl = data?.logo_path ? publicUrl("branding", data.logo_path) : "";
+    } catch (_) { S.logoUrl = ""; }
+  }
+  const logoHtml = (cls = "co-logo") => S.logoUrl
+    ? `<img class="${cls}" src="${esc(S.logoUrl)}" alt="${esc(C.company.name)} logo">`
+    : `<span class="${cls} co-logo-fallback" aria-hidden="true">EO</span>`;
+  function companyHeader() {
+    return `<header class="co-head">${logoHtml()}<div class="co-text">
+      <b>${esc(C.company.name)}</b>
+      <span>${esc(C.company.address.join(", "))}</span>
+      <span>${esc(C.company.email)} · ${esc(C.company.phone)}</span></div></header>`;
   }
 
   // ---------- auth ----------
@@ -128,11 +153,12 @@
 
   function renderLogin(mode = "signin") {
     app.innerHTML = `
+      ${companyHeader()}
       <div class="login">
         <form class="window" id="loginForm" novalidate>
           <div class="wtitle">Emon Overruns Portal — ${mode === "signin" ? "Sign In" : "Create Account"}</div>
           <div class="wbody">
-            <div class="brand"><b>${esc(C.company.name)}</b><small>${esc(C.company.address.join(", "))}</small></div>
+            <div class="brand">${logoHtml("login-logo")}<b>Portal Sign In</b></div>
             <div class="tabs" role="tablist">
               <button type="button" class="${mode === "signin" ? "on" : ""}" id="tabSignin">Sign In</button>
               <button type="button" class="${mode === "signup" ? "on" : ""}" id="tabSignup">Create Account</button>
@@ -186,6 +212,7 @@
   function renderPending() {
     const st = S.profile?.status || "pending";
     app.innerHTML = `
+      ${companyHeader()}
       <div class="login"><div class="window">
         <div class="wtitle">Emon Overruns Portal</div>
         <div class="wbody">
@@ -203,6 +230,7 @@
   function renderSetPassword(fromEmail) {
     closePreview();
     app.innerHTML = `
+      ${companyHeader()}
       <div class="login">
         <form class="window" id="pwForm" novalidate>
           <div class="wtitle">Emon Overruns Portal — Set New Password</div>
@@ -235,30 +263,152 @@
     };
   }
 
-  // ---------- shell ----------
+  // ---------- shell: company header, top bar, slide-out menu ----------
   const MENU = [
-    ["dashboard", "Dashboard", () => true],
+    { k: "dashboard", n: "", label: "Dashboard" },
+    { k: "customers", n: "1", label: "Customer" },
+    { k: "invoices", n: "2", label: "Invoice" },
+    { k: "payments", n: "3", label: "Payment" },
+    { k: "creditmemos", n: "4", label: "Credit Memo" },
+    { k: "resolution", n: "5", label: "User Resolution" },
+    { k: "projects", n: "7", label: "Project" },
+    { k: "billing", n: "8", label: "Billing" }
+  ];
+  const OTHER = [
     ["documents", "Documents", () => true],
-    ["newdoc", "Upload", () => isStaff()],
-    ["verification", "Verification", () => true],
-    ["search", "Search", () => true],
+    ["verification", "Document Verification", () => true],
+    ["search", "Document Search (PDF417)", () => true],
     ["forms", "Download Forms", () => true],
     ["announcements", "Announcements", () => true],
-    ["users", "Users", () => isAdmin()]
+    ["users", "Users", () => isAdmin()],
+    ["settings", "Company Logo", () => isAdmin()]
   ];
+  const ACTIVE_OF = { customer: "customers", newcustomer: "customers", invoice: "invoices", newinvoice: "invoices", payment: "payments", newpayment: "payments", creditmemo: "creditmemos", newcreditmemo: "creditmemos", find: "", newdoc: "documents", doc: "documents", profile: "" };
+  const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);
+  const initials = (name) => String(name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+  function drawerOpen(open) {
+    document.body.classList.toggle("drawer-open", open);
+    try { localStorage.setItem("eoDrawer", open ? "1" : "0"); } catch (_) {}
+  }
 
   function shell(key, title, body, hint) {
-    const items = MENU.filter((m) => m[2]()).map(([k, label]) =>
-      `<a href="#${k}" class="${k === key ? "active" : ""}"><u>${esc(label[0])}</u>${esc(label.slice(1))}</a>`).join("");
+    const cur = ACTIVE_OF[key] ?? key;
+    const main = MENU.map((m) => `<a href="#${m.k}" class="${m.k === cur ? "active" : ""}">${m.n ? `<span class="num">${m.n}</span>` : `<span class="num">⌂</span>`}${esc(m.label)}</a>`).join("");
+    const other = OTHER.filter((o) => o[2]()).map(([k, label]) => `<a href="#${k}" class="${k === cur ? "active" : ""}">${esc(label)}</a>`).join("");
+    const av = avatarUrl();
     app.innerHTML = `
-      <div class="titlebar"><span class="logo">EO</span><span>${esc(title)} — ${esc(C.company.name)} [Portal]</span>
-        <span class="who"><span>${esc(S.profile.full_name || S.session.user.email)} · ${esc(S.profile.role.toUpperCase())}</span><button id="chPw">Change Password</button><button id="signOut">Sign Out</button></span></div>
-      <nav class="menubar" aria-label="Modules">${items}</nav>
-      <div class="band"><h1>${esc(title)}</h1><span class="help" title="${esc(hint || title)}">?</span></div>
-      <main id="main">${hint ? `<div class="hint"><b>Hint:</b> ${hint}</div>` : ""}${body}</main>
+      ${companyHeader()}
+      <div class="topbar">
+        <button class="iconbtn" id="tbMenu" aria-label="Open menu" aria-controls="drawer">☰</button>
+        <a href="#dashboard" class="tb-logo">${logoHtml("tb-logo-img")}</a>
+        <form class="tb-search" id="tbSearch" role="search">
+          <input type="search" id="tbQ" placeholder="Search customer name, account no, invoice or receipt no" aria-label="Search">
+          <button type="button" class="iconbtn" id="tbScan" title="Scan customer QR code" aria-label="Scan QR code">▣</button>
+        </form>
+        <div class="tb-right">
+          <button class="iconbtn mail" id="tbMail" aria-label="Messages" aria-haspopup="true">✉<span class="badge" id="tbBadge" hidden>0</span></button>
+          <button class="avatar-btn" id="tbUser" aria-haspopup="true" aria-label="Your account">
+            ${av ? `<img src="${esc(av)}" alt="">` : `<span>${esc(initials(S.profile.full_name || S.session.user.email))}</span>`}
+          </button>
+        </div>
+        <div class="pop" id="mailPop" hidden><div class="pop-head">Messages</div><div id="mailList">Loading…</div></div>
+        <div class="pop" id="userPop" hidden>
+          <div class="pop-head">${esc(S.profile.full_name || "")}<small>${esc(S.session.user.email)} · ${esc(S.profile.role.toUpperCase())}</small></div>
+          <a href="#profile">My Photo</a>
+          <button id="chPw">Change Password</button>
+          ${isAdmin() ? `<a href="#settings">Company Logo</a>` : ""}
+          <button id="signOut">Sign Out</button>
+        </div>
+      </div>
+      <div class="layout">
+        <nav class="drawer" id="drawer" aria-label="Main menu">
+          ${main}
+          <div class="drawer-sep">Other</div>
+          ${other}
+        </nav>
+        <div class="scrim" id="scrim"></div>
+        <div class="content">
+          <div class="band"><h1>${esc(title)}</h1><span class="help" title="${esc(hint ? hint.replace(/<[^>]+>/g, "") : title)}">?</span></div>
+          <main id="main">${hint ? `<div class="hint"><b>Hint:</b> ${hint}</div>` : ""}${body}</main>
+        </div>
+      </div>
       <div class="statusbar"><span>User: ${esc(S.session.user.email)}</span><span id="sbRecords">Records: –</span><span>Currency: PHP (₱)</span></div>`;
+    let saved = null; try { saved = localStorage.getItem("eoDrawer"); } catch (_) {}
+    if (window.innerWidth < 900) drawerOpen(false); else drawerOpen(saved !== "0");
+    $("#tbMenu").onclick = () => drawerOpen(!document.body.classList.contains("drawer-open"));
+    $("#scrim").onclick = () => drawerOpen(false);
+    $$("#drawer a").forEach((a) => (a.onclick = () => { if (window.innerWidth < 900) drawerOpen(false); }));
     $("#signOut").onclick = () => sb.auth.signOut();
     $("#chPw").onclick = () => renderSetPassword(false);
+    $("#tbSearch").onsubmit = (e) => { e.preventDefault(); const q = $("#tbQ").value.trim(); if (q) location.hash = "find/" + encodeURIComponent(q); };
+    $("#tbScan").onclick = () => scanDialog((text) => openScanned(text));
+    const toggle = (id) => { const el = $(id); const show = el.hidden; $$(".pop").forEach((p) => (p.hidden = true)); el.hidden = !show; if (show && id === "#mailPop") loadMail(); };
+    $("#tbMail").onclick = (e) => { e.stopPropagation(); toggle("#mailPop"); };
+    $("#tbUser").onclick = (e) => { e.stopPropagation(); toggle("#userPop"); };
+    document.onclick = (e) => { if (!e.target.closest(".pop")) $$(".pop").forEach((p) => (p.hidden = true)); };
+    refreshBadge();
+  }
+
+  async function refreshBadge() {
+    const { count } = await sb.from("notifications").select("id", { count: "exact", head: true }).eq("is_read", false);
+    const b = $("#tbBadge"); if (!b) return;
+    b.hidden = !count; b.textContent = count > 99 ? "99+" : String(count || 0);
+  }
+  async function loadMail() {
+    const { data, error } = await sb.from("notifications").select("*").order("created_at", { ascending: false }).limit(30);
+    const box = $("#mailList"); if (!box) return;
+    if (error) { box.textContent = "Messages could not be loaded."; return; }
+    if (!data.length) { box.innerHTML = `<div class="empty">No messages yet.</div>`; return; }
+    box.innerHTML = data.map((n) => `<a class="mail-item ${n.is_read ? "" : "unread"}" href="#${esc(n.link || "dashboard")}" data-n="${n.id}">
+      <b>${esc(n.title)}</b><span>${esc(n.body || "")}</span><small>${esc(new Date(n.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</small></a>`).join("")
+      + `<button class="btn" id="mailAllRead" style="margin:6px">Mark all as read</button>`;
+    $$(".mail-item", box).forEach((a) => (a.onclick = () => { sb.from("notifications").update({ is_read: true }).eq("id", Number(a.dataset.n)).then(refreshBadge); }));
+    $("#mailAllRead").onclick = async () => { await sb.from("notifications").update({ is_read: true }).eq("is_read", false); loadMail(); refreshBadge(); };
+  }
+
+  // Scanner dialog: camera (QR or PDF417) or a photo of the code.
+  function scanDialog(onText) {
+    const d = document.createElement("div");
+    d.className = "modal";
+    d.innerHTML = `<div class="window" role="dialog" aria-modal="true" aria-label="Scan code">
+      <div class="wtitle">Scan QR / Barcode</div>
+      <div class="wbody">
+        <video id="scVideo" playsinline muted style="width:100%;max-height:50vh;background:#000"></video>
+        <div id="scMsg">Point the camera at the customer's QR code.</div>
+      </div>
+      <div class="wfoot"><label class="btn" for="scImg">Use a Photo</label><input type="file" id="scImg" accept="image/*" hidden><button class="btn" id="scClose">Close</button></div></div>`;
+    document.body.appendChild(d);
+    let reader = null;
+    const close = () => { try { reader?.reset(); } catch (_) {} d.remove(); };
+    $("#scClose", d).onclick = close;
+    $("#scImg", d).onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      $("#scMsg", d).textContent = "Reading…";
+      try { const t = await decodeImageFile(f); close(); onText(t); }
+      catch (err) { $("#scMsg", d).textContent = err.message; }
+    };
+    if (navigator.mediaDevices?.getUserMedia) {
+      const Z = window.ZXing;
+      const hints = new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.QR_CODE, Z.BarcodeFormat.PDF_417]]]);
+      reader = new Z.BrowserMultiFormatReader(hints);
+      reader.decodeFromVideoDevice(undefined, $("#scVideo", d), (res) => { if (res) { close(); onText(res.getText()); } })
+        .catch(() => { $("#scMsg", d).textContent = "Camera is not available. Use a photo instead."; });
+    } else $("#scMsg", d).textContent = "Camera is not available here. Use a photo instead.";
+  }
+  // Customer QR: EMONCUST|<public id>|<account no>. Document PDF417: EMON|<doc no>|…
+  async function openScanned(text) {
+    const t = String(text || "").trim();
+    if (t.startsWith("EMONCUST|")) {
+      const pid = t.split("|")[1];
+      const { data } = await sb.from("customers").select("id").eq("public_id", pid).maybeSingle();
+      if (data) { location.hash = "customer/" + data.id; return; }
+      return toast("No customer found for that QR code.", true);
+    }
+    if (t.startsWith("EMON|")) {
+      const { data } = await sb.from("documents").select("id").eq("doc_no", t.split("|")[1]).maybeSingle();
+      if (data) { location.hash = "doc/" + data.id; return; }
+    }
+    location.hash = "find/" + encodeURIComponent(t);
   }
   const setRecords = (txt) => { const e = $("#sbRecords"); if (e) e.textContent = txt; };
 
@@ -997,6 +1147,8 @@
     if (!S.profile) await loadProfile();
     if (!S.profile || S.profile.status !== "active") return renderPending();
     const [key, id, extra] = (location.hash.slice(1) || "dashboard").split("/");
+    const ext = window.EO_VIEWS && window.EO_VIEWS[key];
+    if (ext) return ext(id && decodeURIComponent(id), extra);
     switch (key) {
       case "documents": return viewDocuments();
       case "newdoc": return viewNewDoc();
@@ -1006,7 +1158,8 @@
       case "forms": return viewForms();
       case "announcements": return viewAnnouncements();
       case "users": return viewUsers();
-      default: return viewDashboard();
+      case "docdashboard": return viewDashboard();
+      default: return window.EO_VIEWS?.dashboard ? window.EO_VIEWS.dashboard() : viewDashboard();
     }
   }
   window.addEventListener("hashchange", route);
@@ -1019,9 +1172,16 @@
     const changedUser = (session?.user?.id || null) !== (S.session?.user?.id || null);
     S.session = session;
     if (event === "PASSWORD_RECOVERY") { booted = true; setTimeout(() => renderSetPassword(true), 0); return; }
-    if (!booted || changedUser) { booted = true; S.profile = null; setTimeout(route, 0); }
+    if (!booted) { booted = true; S.profile = null; setTimeout(() => loadBranding().then(route), 0); return; }
+    if (changedUser) { S.profile = null; setTimeout(route, 0); }
   });
 
   // exposed for testing barcode round-trips
-  window.EMON = { drawPdf417, decodeCanvas, decodeImageFile, words, docNoFromPayload };
+  window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words, docNoFromPayload };
+  // shared with modules.js (customers, invoices, payments, credit memos)
+  Object.assign(window.EO, {
+    sb, S, C, esc, peso, pad, isoToday, dmy, stamp, longDate, $, $$, isAdmin, isStaff, pill, toast, fail, words,
+    shell, grid, bindGrid, setRecords, openPreview, closePreview, listingPages, drawPdf417, pdf417DataUrl, drawQr, qrDataUrl,
+    decodeImageFile, scanDialog, openScanned, publicUrl, logoHtml, companyHeader, loadBranding, refreshBadge, route
+  });
 })();
