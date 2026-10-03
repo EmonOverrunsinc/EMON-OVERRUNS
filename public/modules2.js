@@ -307,7 +307,7 @@
           <div class="btnrow"><button class="btn primary" type="submit">Save Payment</button>${isAdmin() ? `<button class="btn" type="button" data-pa="complete">Mark Project Completed</button>` : ""}</div></form>` : ""}
         <div><b>Payments</b>${E.grid({ cols: [{ label: "Payment No", get: (r) => r.payment_no }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "Received By", get: (r) => r.received_by }, { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }, { label: "Recorded By", get: (r) => r.created_by_name || "" }], rows: payments, foot: { amount: peso(pr.total_paid) }, empty: pr.status === "approved" ? "No payments yet." : "Payments unlock after the project is approved." })}</div>
         <div><b>Files</b>${E.filesHtml(att)}</div>
-      </div><div class="wfoot"><button class="btn primary" id="pjPrint">Print Project Application</button><button class="btn" id="pjStmt">Print Payment Record</button><a class="btn" href="#projects">Close</a></div></div>`;
+      </div><div class="wfoot">${approvals.length ? `<button class="btn primary" id="pjSigned">View Signed / Approved Application</button>` : ""}<button class="btn ${approvals.length ? "" : "primary"}" id="pjPrint">Print Project Application</button><button class="btn" id="pjStmt">Print Payment Record</button><a class="btn" href="#projects">Close</a></div></div>`;
     E.bindFiles($("#main"));
     if ($("#pjApproved")) $("#pjApproved").onchange = async (e) => { const f = await E.uploadRecords("project", id, "approval", Array.from(e.target.files)); toast(f ? "Upload failed." : "Approved document uploaded.", f > 0); V.project(id); };
     $$("[data-pa]").forEach((b) => (b.onclick = async () => {
@@ -332,8 +332,8 @@
         ${lines.map((l) => `<tr><td>${esc(l.description)}</td><td class="num">${l.qty}</td><td class="num">${peso(l.unit_cost)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
         <tr class="grand"><td colspan="3" class="num">TOTAL PROJECT COST (₱)</td><td class="num">${peso(pr.total_cost)}</td></tr></tbody></table>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(pr.total_cost))}</div></div>`)}
-      ${pr.status !== "pending" ? E.stampHtml(pr.status.toUpperCase(), pr.status === "rejected" ? "rejected" : "paid") : ""}
-      ${E.sigs(`Prepared by: ${esc(pr.created_by_name || "")}`, `Approved by${pr.approved_by_name ? ": " + esc(pr.approved_by_name) : ""} / Date`)}`]);
+      ${E.sigs(`Prepared by: ${esc(pr.created_by_name || "")}`, "Approved by / Date")}`]);
+    if ($("#pjSigned")) $("#pjSigned").onclick = () => E.viewFile(approvals[0]);
     $("#pjStmt").onclick = () => E.openPreview(`Project payments ${pr.project_no}`, E.listingPages({
       title: "Project Payment Record", range: `${esc(pr.project_no)} — ${esc(pr.title)}`,
       cols: [{ label: "Payment No", get: (r) => r.payment_no }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "Received By", get: (r) => r.received_by }, { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount", num: true, get: (r) => peso(r.amount) }],
@@ -440,7 +440,7 @@
     $("#spMonths").innerHTML = E.grid({ cols: [{ label: "Month", get: (r) => monthLabel(r.month) }, { label: "Payments", num: true, get: (r) => r.count }, { label: "Total Paid (₱)", key: "total", num: true, get: (r) => peso(r.total) }], rows: months, foot: { total: peso(s.total_paid) }, empty: "No payments yet." });
     $("#spBatches").innerHTML = E.grid({ cols: [{ label: "Batch No", get: (r) => r.batch_no }, { label: "Released", get: (r) => dmy(r.release_date) }, { label: "Description", get: (r) => r.description || "" }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }, { label: "Paid (₱)", num: true, get: (r) => peso(paidByBatch.get(r.id) || 0) }, { label: "Balance (₱)", num: true, get: (r) => peso(num(r.amount) - (paidByBatch.get(r.id) || 0)) }], rows: batches, foot: { amount: peso(s.total_batches) }, empty: "No batches released yet." });
     $("#spPays").innerHTML = E.grid({ cols: [{ label: "Payment No", get: (r) => r.payment_no }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "For Month", get: (r) => monthLabel(r.for_month) }, { label: "Batch", get: (r) => r.supplier_batches?.batch_no || "" }, { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }, { label: "Recorded By", get: (r) => r.created_by_name || "" }], rows: pays, onRow: true, foot: { amount: peso(s.total_paid) }, empty: "No payments yet." });
-    E.bindGrid($("#spPays"), pays, (p) => paymentVoucher(s, p));
+    E.bindGrid($("#spPays"), pays, (p) => paymentDialog(s, p));
     if ($("#sbForm")) $("#sbForm").onsubmit = async (e) => {
       e.preventDefault();
       const no = $("#sbNo").value.trim(), amt = num($("#sbAmt").value);
@@ -467,8 +467,22 @@
       summary: { title: "Monthly Totals (PHP)", cols: ["Month", "Payments", "Total (₱)"], rows: months.map((m) => [monthLabel(m.month), String(m.count), peso(m.total)]), total: ["Total Paid:", String(pays.length), peso(s.total_paid)] },
       criteria: `Supplier: ${s.supplier_no} ${s.account_name}\nBatches released: PHP ${peso(s.total_batches)}\nBalance: PHP ${peso(s.balance)}`
     }));
-    async function paymentVoucher(sup, p) {
+    async function paymentDialog(sup, p) {
       const att = await E.attachmentsOf("supplier_payment", p.id);
+      const signed = E.latestSigned(att);
+      const d = document.createElement("div");
+      d.className = "modal";
+      d.innerHTML = `<div class="window" role="dialog" aria-modal="true" aria-label="Payment ${esc(p.payment_no)}"><div class="wtitle">Payment ${esc(p.payment_no)} — ₱${peso(p.amount)}</div>
+        <div class="wbody">${E.signedPanel("supplier_payment", p.id, att, "payment voucher")}${E.filesHtml(att.filter((a) => a.kind !== "signed_form"))}</div>
+        <div class="wfoot">${signed ? `<button class="btn primary" id="dvSigned">View Signed Voucher</button>` : ""}<button class="btn" id="dvPrint">Print Voucher</button><button class="btn" id="dvClose">Close</button></div></div>`;
+      document.body.appendChild(d);
+      E.bindFiles(d);
+      E.bindSigned(d, () => { d.remove(); paymentDialog(sup, p); });
+      $("#dvClose", d).onclick = () => d.remove();
+      if (signed) $("#dvSigned", d).onclick = () => E.viewFile(signed);
+      $("#dvPrint", d).onclick = () => { d.remove(); paymentVoucher(sup, p, att); };
+    }
+    async function paymentVoucher(sup, p, att) {
       const url = att[0] ? await E.signedUrl(att[0].storage_path, 900) : "";
       E.openPreview(`Payment ${p.payment_no}`, [`${E.printHead("SUPPLIER PAYMENT VOUCHER", `<img src="${E.pdf417DataUrl("EMONSP|" + p.payment_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.payment_no)}</div>`)}
         ${E.box("Paid To", `<div class="pgrid2">${E.cell("Account Name", sup.account_name)}${E.cell("Supplier No", sup.supplier_no)}${E.cell("Bank", sup.bank_name)}${E.cell("Account Number", sup.account_number)}${E.cell("Branch", sup.branch_name, "span2")}</div>`)}
@@ -476,7 +490,6 @@
           <div class="prow3">${E.cell("Method", p.method)}${E.cell("Reference No", p.reference_no)}${E.cell("Amount (₱)", peso(p.amount))}</div>
           <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(p.amount))}</div></div>`)}
         ${url && att[0].mime && att[0].mime.startsWith("image/") ? E.box("Receipt", `<img src="${esc(url)}" alt="" style="max-width:100%;max-height:90mm;display:block;margin:6px auto">`) : ""}
-        ${E.stampHtml("PAID", "paid")}
         ${E.sigs(`Prepared by: <b>${esc(p.created_by_name || "")}</b>`, "Received by (Supplier) / Date")}`]);
     }
   };

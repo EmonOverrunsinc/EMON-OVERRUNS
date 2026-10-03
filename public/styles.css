@@ -480,3 +480,11 @@ table.grid.budget td:first-child input { min-width: 180px; }
 .ur-tabs { margin-bottom: 10px; }
 .ur-tabs a { border: 1px solid var(--panel-line); border-bottom: 0; background: var(--chrome-2); padding: 4px 16px; border-radius: 3px 3px 0 0; color: var(--ink); text-decoration: none; }
 .ur-tabs a.on { background: #fff; font-weight: bold; position: relative; top: 1px; }
+
+/* File preview and signed copies */
+.viewer .window { width: min(980px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
+.viewer-body { flex: 1; min-height: 0; overflow: auto; background: #555; display: grid; place-items: center; padding: 8px; }
+.viewer-body img { max-width: 100%; max-height: calc(100vh - 150px); object-fit: contain; background: #fff; }
+.viewer-body iframe { width: 100%; height: calc(100vh - 150px); border: 0; background: #fff; }
+.signed { border-color: var(--ok); background: #f3faf3; }
+.signed legend { color: var(--ok); }

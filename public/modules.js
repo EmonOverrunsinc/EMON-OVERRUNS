@@ -38,18 +38,60 @@
     return data.signedUrl;
   }
   async function attachmentsOf(ownerType, ownerId) {
-    const { data } = await sb.from("attachments").select("*").eq("owner_type", ownerType).eq("owner_id", ownerId).order("created_at");
+    const { data } = await sb.from("attachments").select("*").eq("owner_type", ownerType).eq("owner_id", ownerId).order("created_at", { ascending: false });
     return data || [];
   }
   const KIND = { photo: "Profile Photo", requirement: "Requirement", signed_form: "Signed Application Form", receipt: "Payment Receipt", delivery_receipt: "Delivery Receipt", purchase_order: "Purchase Order", proof: "Proof", other: "Other" };
   function filesHtml(list) {
     if (!list.length) return `<div class="empty">No files uploaded.</div>`;
     return `<div class="filelist">${list.map((f) => `<div class="file"><span class="kind">${esc(KIND[f.kind] || f.kind)}</span>
-      <span class="fname">${esc(f.file_name)}</span><button class="btn" data-open="${esc(f.storage_path)}">Open</button></div>`).join("")}</div>`;
+      <span class="fname">${esc(f.file_name)}</span><button class="btn" data-open="${esc(f.storage_path)}" data-mime="${esc(f.mime || "")}" data-name="${esc(f.file_name)}">Preview</button></div>`).join("")}</div>`;
   }
   function bindFiles(root) {
-    $$("[data-open]", root).forEach((b) => (b.onclick = async () => { const u = await signedUrl(b.dataset.open); if (u) window.open(u, "_blank", "noopener"); }));
+    $$("[data-open]", root).forEach((b) => (b.onclick = () => viewFile({ storage_path: b.dataset.open, mime: b.dataset.mime, file_name: b.dataset.name })));
   }
+  // In-page preview of an uploaded file (image or PDF).
+  async function viewFile(f) {
+    const url = await signedUrl(f.storage_path, 900);
+    if (!url) return;
+    const isImg = /^image\//.test(f.mime || "") || /\.(png|jpe?g|gif|webp|heic)$/i.test(f.file_name || f.storage_path);
+    const isPdf = /pdf/.test(f.mime || "") || /\.pdf$/i.test(f.file_name || f.storage_path);
+    const d = document.createElement("div");
+    d.className = "modal viewer";
+    d.innerHTML = `<div class="window" role="dialog" aria-modal="true" aria-label="Preview ${esc(f.file_name || "")}">
+      <div class="wtitle">Preview — ${esc(f.file_name || "")}</div>
+      <div class="viewer-body">${isImg ? `<img src="${esc(url)}" alt="${esc(f.file_name || "")}">` : isPdf ? `<iframe src="${esc(url)}" title="${esc(f.file_name || "")}"></iframe>` : `<div class="empty">This file type cannot be previewed here.</div>`}</div>
+      <div class="wfoot"><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Open / Download</a><button class="btn primary" id="vwClose">Close</button></div></div>`;
+    document.body.appendChild(d);
+    const close = () => { d.remove(); document.removeEventListener("keydown", onKey); };
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey);
+    $("#vwClose", d).onclick = close;
+    d.onclick = (e) => { if (e.target === d) close(); };
+  }
+
+  // "Signed Copy": print the form, sign it, upload it; from then on the signed upload is the document.
+  function signedPanel(ownerType, ownerId, att, what) {
+    const signed = att.filter((a) => a.kind === "signed_form");
+    return `<fieldset class="opt signed"><legend>Signed Copy</legend>
+      ${signed.length ? `<div class="signed-list">${signed.map((f, i) => `<div class="file"><span class="kind">${i ? "Earlier upload" : "Signed copy"}</span><span class="fname">${esc(f.file_name)} <small>${dmy(f.created_at)}</small></span>
+        <button class="btn primary" data-open="${esc(f.storage_path)}" data-mime="${esc(f.mime || "")}" data-name="${esc(f.file_name)}">Preview</button></div>`).join("")}</div>`
+        : `<small>Not uploaded yet. Print the ${esc(what)}, have it signed, then upload a photo or scan here.</small>`}
+      ${isStaff() ? `<div class="fields wide" style="margin-top:6px"><label for="sgUp">${signed.length ? "Replace with new signed copy" : "Upload signed copy"}</label><input type="file" id="sgUp" accept="image/*,application/pdf" data-owner="${ownerType}" data-id="${ownerId}"></div>` : ""}
+    </fieldset>`;
+  }
+  function bindSigned(root, reload) {
+    const inp = $("#sgUp", root);
+    if (inp) inp.onchange = async (e) => {
+      const files = Array.from(e.target.files);
+      if (!files.length) return;
+      const f = await uploadRecords(inp.dataset.owner, inp.dataset.id, "signed_form", files);
+      toast(f ? "Upload failed." : "Signed copy uploaded.", f > 0);
+      reload();
+    };
+  }
+  const latestSigned = (att) => att.filter((a) => a.kind === "signed_form").sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+
   const fileField = (id, label, opts = "") => `<label for="${id}">${label}</label><input type="file" id="${id}" ${opts}>`;
   const filesOf = (id) => Array.from(($("#" + id) || {}).files || []);
 
@@ -111,7 +153,8 @@
   const cell = (label, value, cls = "") => `<div class="pcell ${cls}"><div class="pl">${esc(label)}</div><div class="pv">${value === "" || value == null ? "&nbsp;" : esc(value)}</div></div>`;
   const radio = (on, label) => `<div class="pradio"><span class="dot ${on ? "on" : ""}"></span>${esc(label)}</div>`;
   const sigs = (left, right) => `<div class="psig"><div><div class="line"></div>${left}</div><div><div class="line"></div>${right}</div></div>`;
-  const stampHtml = (text, cls) => `<div class="pstamp ${cls}">${esc(text)}</div>`;
+  // Printed documents carry no status stamps; the signed copy uploaded afterwards is the record.
+  const stampHtml = () => "";
 
   // ======================================================================
   // Dashboard
@@ -379,11 +422,13 @@
         <div class="tile ${num(b.balance_due) > 0 ? "warn" : "ok"}"><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
       </div>
       <div class="btnrow">
-        <button class="btn" id="pfPrint">Download / Print Application</button>
+        ${latestSigned(att) ? `<button class="btn primary" id="pfSigned">View Signed Application</button>` : ""}
+        <button class="btn" id="pfPrint">${latestSigned(att) ? "Print Blank Application" : "Download / Print Application"}</button>
         ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">Record Invoice</a>` : ""}
         ${canPay ? `<a class="btn" href="#newpayment/${c.id}">Record Payment</a>` : ""}
         ${canMemo ? `<a class="btn" href="#newcreditmemo/${c.id}">New Credit Memo</a>` : ""}
       </div>
+      ${!["pending", "verified"].includes(c.status) ? signedPanel("customer", c.id, att, "application") : ""}
       ${isAdmin() && ["active", "suspended"].includes(c.status) ? statusPanel(c) : ""}
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed) : ""}
       <div class="tabs" id="pfTabs">${["Details", "Invoices", "Payments", "Credit Memos", "Files", "History"].map((t, i) => `<button class="${i ? "" : "on"}" data-t="${i}">${t}</button>`).join("")}</div>
@@ -405,6 +450,8 @@
     E.bindGrid($('[data-p="3"]'), memos.data || [], (r) => (location.hash = "creditmemo/" + r.id));
     bindFiles($("#main"));
     $("#pfPrint").onclick = () => printApplication(c);
+    if ($("#pfSigned")) $("#pfSigned").onclick = () => viewFile(latestSigned(att));
+    bindSigned($("#main"), () => V.customer(c.id));
     if ($("#pvShow")) $("#pvShow").onclick = () => { const el = $("#pvCode"); const hidden = el.textContent.startsWith("•"); el.textContent = hidden ? el.dataset.code || "(none)" : "••••••••"; $("#pvShow").textContent = hidden ? "Hide" : "Show"; };
     if ($("#pfAdd")) $("#pfAdd").onchange = async (e) => { const f = await uploadRecords("customer", c.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed.` : "Uploaded.", f > 0); V.customer(c.id); };
     if (isAdmin() && ["pending", "verified"].includes(c.status)) bindReview(c, signed);
@@ -629,13 +676,16 @@
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
         <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b><span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b><span>Balance</span><b>₱ ${peso(inv.balance)}</b></div></div>
       <div><b>Payments</b>${E.grid({ cols: PAY_COLS.filter((x) => !["Customer", "Account No", "Invoice"].includes(x.label)), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
+      ${signedPanel("invoice", inv.id, att, "invoice")}
       <div><b>Files</b>${filesHtml(att)}</div></div>
-      <div class="wfoot"><button class="btn primary" id="ivPrint">Print Invoice</button>
+      <div class="wfoot">${latestSigned(att) ? `<button class="btn primary" id="ivSigned">View Signed Invoice</button>` : ""}<button class="btn ${latestSigned(att) ? "" : "primary"}" id="ivPrint">Print Invoice</button>
         ${isStaff() && inv.pay_status !== "paid" && inv.customer_status !== "rejected" ? `<a class="btn" href="#newpayment/${inv.customer_id}/${inv.id}">Record Payment</a>` : ""}
         <a class="btn" href="#invoices">Close</a></div></div>`;
     E.bindGrid($("#main"), pays.data || [], (r) => (location.hash = "payment/" + r.id));
     bindFiles($("#main"));
     $("#ivPrint").onclick = () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, pays.data || [])]);
+    if ($("#ivSigned")) $("#ivSigned").onclick = () => viewFile(latestSigned(att));
+    bindSigned($("#main"), () => V.invoice(id));
   };
   function invoicePage(inv, pays) {
     return `${printHead("INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
@@ -751,10 +801,13 @@
         <span>Deposit Account</span><span>${esc(p.bank_account || "—")}</span><span>Reference No</span><span>${esc(p.reference_no || "—")}</span>
         <span>Invoice</span><span>${p.invoice_id ? `<a href="#invoice/${p.invoice_id}">${esc(p.invoices?.invoice_no || "")}</a>` : "General payment"}</span>
         <span>Verified By</span><span>${esc(p.created_by_name || "")}</span></div></div>
+      ${signedPanel("payment", p.id, att, "acknowledgment receipt")}
       <div><b>Files</b>${filesHtml(att)}</div></div>
-      <div class="wfoot"><button class="btn primary" id="pyPrint">Download Acknowledgment Receipt</button><a class="btn" href="#payments">Close</a></div></div>`;
+      <div class="wfoot">${latestSigned(att) ? `<button class="btn primary" id="pySigned">View Signed Receipt</button>` : ""}<button class="btn ${latestSigned(att) ? "" : "primary"}" id="pyPrint">Download Acknowledgment Receipt</button><a class="btn" href="#payments">Close</a></div></div>`;
     bindFiles($("#main"));
     $("#pyPrint").onclick = () => E.openPreview(`Acknowledgment ${p.receipt_no}`, [ackPage(p)]);
+    if ($("#pySigned")) $("#pySigned").onclick = () => viewFile(latestSigned(att));
+    bindSigned($("#main"), () => V.payment(id));
   };
   function ackPage(p) {
     const c = p.customers;
@@ -883,11 +936,12 @@
         <span>Factory Status</span><span>${esc(m.factory_status || "—")}</span>
         <span>Approved By</span><span>${esc(m.approved_by_name || "—")} ${m.approved_at ? dmy(m.approved_at) : ""}</span>
         <span>Paid / Settled</span><span>${m.paid_at ? `${esc(m.paid_by_name || "")} ${dmy(m.paid_at)}` : "—"}</span></div></div>
-      <div><b>Proof</b>${filesHtml(att)}</div>
+      ${signedPanel("credit_memo", m.id, att, "credit memo")}
+      <div><b>Proof</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"))}</div>
       ${isAdmin() && ["pending", "approved"].includes(m.status) ? `<fieldset class="opt"><legend>Admin Decision</legend>
         <div class="fields wide"><label for="cmNote">Note</label><input type="text" id="cmNote"></div>
         <div class="btnrow">${m.status === "pending" ? `<button class="btn ok" data-a="approve">Approve</button><button class="btn danger" data-a="reject">Reject</button>` : `<button class="btn ok" data-a="paid">Mark as PAID / Settled</button>`}</div></fieldset>` : ""}
-      </div><div class="wfoot"><button class="btn primary" id="cmPrint">Print Credit Memo</button><a class="btn" href="#creditmemos">Close</a></div></div>`;
+      </div><div class="wfoot">${latestSigned(att) ? `<button class="btn primary" id="cmSigned">View Signed Credit Memo</button>` : ""}<button class="btn ${latestSigned(att) ? "" : "primary"}" id="cmPrint">Print Credit Memo</button><a class="btn" href="#creditmemos">Close</a></div></div>`;
     bindFiles($("#main"));
     $$("[data-a]").forEach((b) => (b.onclick = async () => {
       const r = await sb.rpc("credit_memo_action", { p_id: m.id, p_action: b.dataset.a, p_note: $("#cmNote").value.trim() || null });
@@ -895,6 +949,8 @@
       toast(`${m.memo_no} updated.`); V.creditmemo(m.id);
     }));
     $("#cmPrint").onclick = () => E.openPreview(`Credit Memo ${m.memo_no}`, [memoPage(m)]);
+    if ($("#cmSigned")) $("#cmSigned").onclick = () => viewFile(latestSigned(att));
+    bindSigned($("#main"), () => V.creditmemo(id));
   };
   function memoPage(m) {
     const c = m.customers;
@@ -914,9 +970,8 @@
       ${box("Warehouse Verification (Internal Office Use) " + C.company.name, `<div class="pgrid2">
         <div>${cell("Assigned By", m.assigned_by)}${cell("Inspection Notes", m.inspection_notes)}</div>
         <div class="pcell"><div class="pl">Status</div><div class="pv" style="white-space:pre-wrap;font-weight:bold">${esc((m.factory_status || "").toUpperCase())}</div>
-          ${m.approved_at ? `<div class="pv">${esc(m.status === "rejected" ? "REJECTED" : "APPROVED")} ${esc(dmy(m.approved_at))} — ${esc(m.approved_by_name || "")}</div>` : ""}</div></div>`)}
-      ${sigs("Customer Signature &nbsp; Date: ____________", `Approval Signature${m.approved_by_name ? ": " + esc(m.approved_by_name) : ""} &nbsp; Date: ${m.approved_at ? dmy(m.approved_at) : "____________"}`)}
-      ${m.status === "paid" ? `<div class="pstamp paid big">PAID<small>${esc(dmy(m.paid_at))} · BY: ${esc(m.paid_by_name || "")} · ${esc(peso(m.request_amount))} PHP</small></div>` : ""}`;
+</div></div>`)}
+      ${sigs("Customer Signature &nbsp; Date: ____________", "Approval Signature &nbsp; Date: ____________")}`;
   }
 
   // Account status (suspend / reactivate / close) — admin panel inside the customer profile.
@@ -1003,5 +1058,5 @@
     };
   };
   // shared with modules2.js
-  Object.assign(E, { uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, printHead, box, cell, sigs, stampHtml, uuid, cleanQ });
+  Object.assign(E, { viewFile, signedPanel, bindSigned, latestSigned, uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, printHead, box, cell, sigs, stampHtml, uuid, cleanQ });
 })();
