@@ -173,6 +173,11 @@
         if (!full_name) return toast("Enter your full name.", true);
         const { data, error } = await sb.auth.signUp({ email, password, options: { data: { full_name }, emailRedirectTo: location.origin + location.pathname } });
         if (error) return fail(error, "Could not create the account");
+        // Supabase answers an already-registered email with a user that has no identities.
+        if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+          toast(`${email} already has an account. Sign in, or press Forgot Password to set a new password.`, true);
+          return renderLogin("signin");
+        }
         if (!data.session) { toast("Account created. Check your email to confirm it, then sign in."); renderLogin("signin"); }
       }
     };
