@@ -1,0 +1,8 @@
+{
+  "buildCommand": "",
+  "outputDirectory": "public",
+  "cleanUrls": true,
+  "headers": [
+    { "source": "/vendor/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] }
+  ]
+}
