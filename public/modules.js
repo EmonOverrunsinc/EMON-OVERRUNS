@@ -20,14 +20,40 @@
     : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (d) => (d ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (d / 4)))).toString(16)));
 
   // ---------- files (records bucket + attachments table) ----------
+  // Uploaded files are renamed automatically from the record number and what they are,
+  // e.g. "INV-202610-0001 Signed Copy" — no file extension is shown.
+  const OWNER_NO = {
+    customer: ["customers", "account_no"], invoice: ["invoices", "invoice_no"], payment: ["payments_received", "receipt_no"],
+    credit_memo: ["credit_memos", "memo_no"], employee: ["employees", "employee_no"], resolution: ["resolutions", "resolution_no"],
+    project: ["projects", "project_no"], project_payment: ["project_payments", "payment_no"],
+    supplier: ["suppliers", "supplier_no"], supplier_payment: ["supplier_payments", "payment_no"]
+  };
+  async function ownerNo(ownerType, ownerId) {
+    const m = OWNER_NO[ownerType];
+    if (!m) return "";
+    const { data } = await sb.from(m[0]).select(m[1]).eq("id", ownerId).maybeSingle();
+    return data?.[m[1]] || "";
+  }
+  const extOf = (f) => { const m = /\.([a-z0-9]{1,5})$/i.exec(f.name || ""); return m ? m[1].toLowerCase() : (f.type || "").split("/")[1] || "bin"; };
+  const slug = (t) => String(t).replace(/[^\w\-]+/g, "_");
+  async function autoName(ownerType, ownerId, kind, extraIndex = 0) {
+    const [no, existing] = await Promise.all([
+      ownerNo(ownerType, ownerId),
+      sb.from("attachments").select("id", { count: "exact", head: true }).eq("owner_type", ownerType).eq("owner_id", ownerId).eq("kind", kind)
+    ]);
+    const n = (existing.count || 0) + extraIndex + 1;
+    const label = kind === "signed_form" && ownerType !== "customer" ? "Signed Copy" : (KIND[kind] || "File");
+    return `${no ? no + " " : ""}${label}${n > 1 ? " " + n : ""}`;
+  }
   async function uploadRecords(ownerType, ownerId, kind, files) {
     let failed = 0;
     for (const f of files) {
-      if (f.size > 50 * 1024 * 1024) { failed++; toast(`${f.name} is larger than 50 MB and was skipped.`, true); continue; }
-      const path = `${ownerType}/${ownerId}/${Date.now()}_${f.name.replace(/[^\w.\-]+/g, "_")}`;
+      if (f.size > 50 * 1024 * 1024) { failed++; toast("A file larger than 50 MB was skipped.", true); continue; }
+      const name = await autoName(ownerType, ownerId, kind);
+      const path = `${ownerType}/${ownerId}/${slug(name)}_${Date.now()}.${extOf(f)}`;
       const up = await sb.storage.from("records").upload(path, f, { contentType: f.type || "application/octet-stream" });
       if (up.error) { failed++; console.error(up.error); continue; }
-      const ins = await sb.from("attachments").insert({ owner_type: ownerType, owner_id: ownerId, kind, storage_path: path, file_name: f.name, mime: f.type, size: f.size });
+      const ins = await sb.from("attachments").insert({ owner_type: ownerType, owner_id: ownerId, kind, storage_path: path, file_name: name, mime: f.type, size: f.size });
       if (ins.error) { failed++; console.error(ins.error); }
     }
     return failed;
@@ -54,8 +80,8 @@
   async function viewFile(f) {
     const url = await signedUrl(f.storage_path, 900);
     if (!url) return;
-    const isImg = /^image\//.test(f.mime || "") || /\.(png|jpe?g|gif|webp|heic)$/i.test(f.file_name || f.storage_path);
-    const isPdf = /pdf/.test(f.mime || "") || /\.pdf$/i.test(f.file_name || f.storage_path);
+    const isImg = /^image\//.test(f.mime || "") || /\.(png|jpe?g|gif|webp|heic)$/i.test(f.storage_path || "");
+    const isPdf = /pdf/.test(f.mime || "") || /\.pdf$/i.test(f.storage_path || "");
     const d = document.createElement("div");
     d.className = "modal viewer";
     d.innerHTML = `<div class="window" role="dialog" aria-modal="true" aria-label="Preview ${esc(f.file_name || "")}">
@@ -327,7 +353,7 @@
       let photo_path = null;
       const photo = $("#ncPhoto").files[0];
       if (photo) {
-        photo_path = `customer/${id}/photo_${Date.now()}_${photo.name.replace(/[^\w.\-]+/g, "_")}`;
+        photo_path = `customer/${id}/Profile_Photo_${Date.now()}.${extOf(photo)}`;
         const up = await sb.storage.from("records").upload(photo_path, photo, { contentType: photo.type });
         if (up.error) { photo_path = null; toast("The photo could not be uploaded; the application is saved without it.", true); }
       }
@@ -339,7 +365,7 @@
         facebook_verified: $("input[name=ncFbv]:checked").value === "yes", phone: v("ncPhone"), email: v("ncEmail") || null
       }).select().single();
       if (error) { btns.forEach((b) => (b.disabled = false)); return fail(error, "Could not submit the application"); }
-      if (photo_path) await sb.from("attachments").insert({ owner_type: "customer", owner_id: c.id, kind: "photo", storage_path: photo_path, file_name: photo.name, mime: photo.type, size: photo.size });
+      if (photo_path) await sb.from("attachments").insert({ owner_type: "customer", owner_id: c.id, kind: "photo", storage_path: photo_path, file_name: `${c.account_no} Profile Photo`, mime: photo.type, size: photo.size });
       const failed = await uploadRecords("customer", c.id, "requirement", filesOf("ncReq"));
       if (failed) toast(`${failed} requirement file(s) failed to upload. You can add them from the profile.`, true);
       location.hash = `customer/${c.id}/submitted`;
@@ -1033,7 +1059,7 @@
     $("#mpFile").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
       if (f.size > 5 * 1024 * 1024) return toast("Choose a photo under 5 MB.", true);
-      const path = `${S.session.user.id}/${Date.now()}_${f.name.replace(/[^\w.\-]+/g, "_")}`;
+      const path = `${S.session.user.id}/Photo_${Date.now()}.${extOf(f)}`;
       const up = await sb.storage.from("avatars").upload(path, f, { contentType: f.type });
       if (up.error) return fail(up.error, "Upload failed");
       const r = await sb.rpc("set_my_avatar", { p_path: path });
@@ -1049,7 +1075,7 @@
       <small>PNG with a transparent background looks best. The logo shows on the login page, every page header, the dashboard and all printouts.</small></div></div>`);
     $("#lgFile").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
-      const path = `logo_${Date.now()}_${f.name.replace(/[^\w.\-]+/g, "_")}`;
+      const path = `Logo_${Date.now()}.${extOf(f)}`;
       const up = await sb.storage.from("branding").upload(path, f, { contentType: f.type });
       if (up.error) return fail(up.error, "Upload failed");
       const r = await sb.from("company_settings").update({ logo_path: path, updated_at: new Date().toISOString() }).eq("id", 1);
@@ -1058,5 +1084,5 @@
     };
   };
   // shared with modules2.js
-  Object.assign(E, { viewFile, signedPanel, bindSigned, latestSigned, uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, printHead, box, cell, sigs, stampHtml, uuid, cleanQ });
+  Object.assign(E, { extOf, viewFile, signedPanel, bindSigned, latestSigned, uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, printHead, box, cell, sigs, stampHtml, uuid, cleanQ });
 })();

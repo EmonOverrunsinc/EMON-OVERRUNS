@@ -12,7 +12,7 @@
   const monthLabel = (iso) => iso ? new Date(String(iso).slice(0, 10) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) : "";
   async function uploadPhoto(folder, id, file) {
     if (!file) return null;
-    const path = `${folder}/${id}/photo_${Date.now()}_${file.name.replace(/[^\w.\-]+/g, "_")}`;
+    const path = `${folder}/${id}/Photo_${Date.now()}.${E.extOf(file)}`;
     const up = await sb.storage.from("records").upload(path, file, { contentType: file.type });
     if (up.error) { toast("The photo could not be uploaded.", true); return null; }
     return path;
@@ -184,11 +184,11 @@
       $$("#rsForm button").forEach((b) => (b.disabled = true));
       const id = E.uuid(); const f = $("#rsImg").files[0];
       let image_path = null;
-      if (f) { image_path = `resolution/${id}/${Date.now()}_${f.name.replace(/[^\w.\-]+/g, "_")}`; const up = await sb.storage.from("records").upload(image_path, f, { contentType: f.type }); if (up.error) { image_path = null; toast("The image could not be uploaded.", true); } }
+      if (f) { image_path = `resolution/${id}/Report_${Date.now()}.${E.extOf(f)}`; const up = await sb.storage.from("records").upload(image_path, f, { contentType: f.type }); if (up.error) { image_path = null; toast("The image could not be uploaded.", true); } }
       const { data, error } = await sb.from("resolutions").insert({ id, subject, body: $("#rsBody").value.trim() || null, resolution_date: $("#rsDate").value || isoToday(), image_path }).select().single();
       $$("#rsForm button").forEach((b) => (b.disabled = false));
       if (error) return fail(error, "Could not post");
-      if (image_path) await sb.from("attachments").insert({ owner_type: "resolution", owner_id: id, kind: "report", storage_path: image_path, file_name: f.name, mime: f.type, size: f.size });
+      if (image_path) await sb.from("attachments").insert({ owner_type: "resolution", owner_id: id, kind: "report", storage_path: image_path, file_name: `${data.resolution_no} Report`, mime: f.type, size: f.size });
       toast(`Posted ${data.resolution_no}.`); e.target.reset(); $("#rsDate").value = isoToday(); load();
     };
     load();
