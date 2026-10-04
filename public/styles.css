@@ -517,3 +517,5 @@ table.soa-table tr.soa-total td { padding-top: 10px; }
 .soa-imgs img { width: 100%; max-height: 105mm; object-fit: contain; border: 1px solid #999; }
 .soa-imgs figcaption { font-size: 9.5px; margin-top: 3px; }
 .soa-pdf { border: 1px dashed #999; padding: 30px 8px; font-size: 10px; }
+.install-app { font-size: 13px; padding: 0 10px; white-space: nowrap; background: #fff; color: var(--title-2); font-weight: bold; }
+@media (max-width: 620px) { .tb-install-txt { display: none; } }

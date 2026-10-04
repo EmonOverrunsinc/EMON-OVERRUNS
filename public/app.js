@@ -129,6 +129,15 @@
   // Built-in company logo and seal (an uploaded logo under Company Logo replaces the built-in one).
   const DEFAULT_LOGO = "brand/logo.jpg";
   const SEAL = "brand/seal.jpg";
+  // "Install App": the browser offers this event when the portal can be installed (Edge/Chrome on Windows, Android).
+  let installEvt = null;
+  const installed = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; $$(".install-app").forEach((b) => (b.hidden = false)); });
+  window.addEventListener("appinstalled", () => { installEvt = null; $$(".install-app").forEach((b) => (b.hidden = true)); toast("Emon Overruns app installed. Find it in the Start menu."); });
+  async function installApp() {
+    if (installEvt) { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; $$(".install-app").forEach((b) => (b.hidden = true)); return; }
+    toast("To install: open the browser menu (⋯ or ⋮) and choose “Install Emon Overruns” / “Apps → Install this site as an app”.");
+  }
   S.logoUrl = DEFAULT_LOGO;
   const publicUrl = (bucket, path) => path ? sb.storage.from(bucket).getPublicUrl(path).data.publicUrl : "";
   async function loadBranding() {
@@ -319,6 +328,7 @@
           <button type="button" class="iconbtn" id="tbScan" title="Scan customer QR code" aria-label="Scan QR code">▣</button>
         </form>
         <div class="tb-right">
+          <button class="iconbtn install-app" id="tbInstall" title="Install the portal as an app" ${installEvt ? "" : "hidden"}>⤓ <span class="tb-install-txt">Install App</span></button>
           <button class="iconbtn mail" id="tbMail" aria-label="Messages" aria-haspopup="true">✉<span class="badge" id="tbBadge" hidden>0</span></button>
           <button class="avatar-btn" id="tbUser" aria-haspopup="true" aria-label="Your account">
             ${av ? `<img src="${esc(av)}" alt="">` : `<span>${esc(initials(S.profile.full_name || S.session.user.email))}</span>`}
@@ -329,6 +339,7 @@
           <div class="pop-head">${esc(S.profile.full_name || "")}<small>${esc(S.session.user.email)} · ${esc(S.profile.role.toUpperCase())}</small></div>
           <a href="#profile">My Photo</a>
           <button id="chPw">Change Password</button>
+          ${installed() ? "" : `<button id="upInstall">Install as App</button>`}
           ${isAdmin() ? `<a href="#settings">Company Logo</a>` : ""}
           <button id="signOut">Sign Out</button>
         </div>
@@ -353,6 +364,8 @@
     $$("#drawer a").forEach((a) => (a.onclick = () => { if (window.innerWidth < 900) drawerOpen(false); }));
     $("#signOut").onclick = () => sb.auth.signOut();
     $("#chPw").onclick = () => renderSetPassword(false);
+    $("#tbInstall").onclick = installApp;
+    if ($("#upInstall")) $("#upInstall").onclick = installApp;
     $("#tbSearch").onsubmit = (e) => { e.preventDefault(); const q = $("#tbQ").value.trim(); if (q) location.hash = "find/" + encodeURIComponent(q); };
     $("#tbScan").onclick = () => scanDialog((text) => openScanned(text));
     const toggle = (id) => { const el = $(id); const show = el.hidden; $$(".pop").forEach((p) => (p.hidden = true)); el.hidden = !show; if (show && id === "#mailPop") loadMail(); };
