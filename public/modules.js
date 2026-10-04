@@ -1,10 +1,10 @@
-/* Emon Overruns Portal — business modules:
-   Dashboard, 1 Customer, 2 Invoice, 3 Payment, 4 Credit Memo, 5 User Resolution, 7 Project, 8 Billing,
-   plus My Photo and Company Logo. Uses helpers shared by app.js through window.EO. */
+/* EMON OVERRUNS E-PORTAL — business modules:
+   Dashboard, 1 Customer (profile, statement of account), 2 Invoice, 3 Payment, 4 Credit Memo,
+   global search, My Profile and Company Logo. Uses helpers shared by app.js through window.EO. */
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, dmy, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words } = E;
+  const { sb, S, C, esc, peso, isoToday, dmy, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy } = E;
   const V = (window.EO_VIEWS = window.EO_VIEWS || {});
 
   const fullName = (c) => `${c.first_name || ""} ${c.last_name || ""}`.trim();
@@ -18,6 +18,9 @@
   // randomUUID needs a secure context; fall back to getRandomValues elsewhere.
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
     : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (d) => (d ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (d / 4)))).toString(16)));
+  // Edit / Request Change / Delete buttons (modules3.js).
+  const tools = (...a) => (E.recordTools ? E.recordTools(...a) : "");
+  const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
 
   // ---------- files (records bucket + attachments table) ----------
   // Uploaded files are renamed automatically from the record number and what they are,
@@ -26,7 +29,9 @@
     customer: ["customers", "account_no"], invoice: ["customer_invoices", "invoice_no"], payment: ["payments_received", "receipt_no"],
     credit_memo: ["credit_memos", "memo_no"], employee: ["employees", "employee_no"], resolution: ["resolutions", "resolution_no"],
     project: ["projects", "project_no"], project_payment: ["project_payments", "payment_no"],
-    supplier: ["suppliers", "supplier_no"], supplier_payment: ["supplier_payments", "payment_no"]
+    supplier: ["suppliers", "supplier_no"], supplier_payment: ["supplier_payments", "payment_no"], statement: ["statements", "statement_no"],
+    job_application: ["job_applications", "application_no"], payslip: ["payslips", "payslip_no"], order_letter: ["order_letters", "order_no"],
+    pay_company: ["pay_companies", "name"], pay_account: ["pay_accounts", "account_name"], pay_voucher: ["pay_vouchers", "voucher_no"]
   };
   async function ownerNo(ownerType, ownerId) {
     const m = OWNER_NO[ownerType];
@@ -36,13 +41,17 @@
   }
   const extOf = (f) => { const m = /\.([a-z0-9]{1,5})$/i.exec(f.name || ""); return m ? m[1].toLowerCase() : (f.type || "").split("/")[1] || "bin"; };
   const slug = (t) => String(t).replace(/[^\w\-]+/g, "_");
+  const KIND = {
+    photo: "Profile Photo", requirement: "Requirement", signed_form: "Signed Copy", receipt: "Payment Receipt", delivery_receipt: "Delivery Receipt",
+    purchase_order: "Purchase Order", proof: "Proof", application: "Application Form", signature: "Signature Form", report: "Report", approval: "Approved Document", other: "Other"
+  };
   async function autoName(ownerType, ownerId, kind, extraIndex = 0) {
     const [no, existing] = await Promise.all([
       ownerNo(ownerType, ownerId),
       sb.from("attachments").select("id", { count: "exact", head: true }).eq("owner_type", ownerType).eq("owner_id", ownerId).eq("kind", kind)
     ]);
     const n = (existing.count || 0) + extraIndex + 1;
-    const label = kind === "signed_form" && ownerType !== "customer" ? "Signed Copy" : (KIND[kind] || "File");
+    const label = kind === "signed_form" ? (["customer", "job_application"].includes(ownerType) ? "Signed Application Form" : "Signed Copy") : (KIND[kind] || "File");
     return `${no ? no + " " : ""}${label}${n > 1 ? " " + n : ""}`;
   }
   async function uploadRecords(ownerType, ownerId, kind, files) {
@@ -60,63 +69,75 @@
   }
   async function signedUrl(path, secs = 600) {
     const { data, error } = await sb.storage.from("records").createSignedUrl(path, secs);
-    if (error) { fail(error, "Could not open the file"); return ""; }
+    if (error) { console.error(error); return ""; }
     return data.signedUrl;
   }
   async function attachmentsOf(ownerType, ownerId) {
     const { data } = await sb.from("attachments").select("*").eq("owner_type", ownerType).eq("owner_id", ownerId).order("created_at", { ascending: false });
     return data || [];
   }
-  const KIND = { photo: "Profile Photo", requirement: "Requirement", signed_form: "Signed Application Form", receipt: "Payment Receipt", delivery_receipt: "Delivery Receipt", purchase_order: "Purchase Order", proof: "Proof", other: "Other" };
-  function filesHtml(list) {
-    if (!list.length) return `<div class="empty">No files uploaded.</div>`;
+  function filesHtml(list, empty = "No files uploaded.") {
+    if (!list.length) return `<div class="empty small">${esc(empty)}</div>`;
     return `<div class="filelist">${list.map((f) => `<div class="file"><span class="kind">${esc(KIND[f.kind] || f.kind)}</span>
-      <span class="fname">${esc(f.file_name)}</span><button class="btn" data-open="${esc(f.storage_path)}" data-mime="${esc(f.mime || "")}" data-name="${esc(f.file_name)}">Preview</button></div>`).join("")}</div>`;
+      <span class="fname">${esc(f.file_name)}</span><button type="button" class="btn" data-open="${esc(f.storage_path)}" data-mime="${esc(f.mime || "")}" data-name="${esc(f.file_name)}">${ic("eye")} Preview</button></div>`).join("")}</div>`;
   }
   function bindFiles(root) {
     $$("[data-open]", root).forEach((b) => (b.onclick = () => viewFile({ storage_path: b.dataset.open, mime: b.dataset.mime, file_name: b.dataset.name })));
   }
+  const isImage = (f) => /^image\//.test(f.mime || "") || /\.(png|jpe?g|gif|webp|heic|bmp)$/i.test(f.storage_path || "");
   // In-page preview of an uploaded file (image or PDF).
   async function viewFile(f) {
-    const url = await signedUrl(f.storage_path, 900);
-    if (!url) return;
-    const isImg = /^image\//.test(f.mime || "") || /\.(png|jpe?g|gif|webp|heic)$/i.test(f.storage_path || "");
+    if (!f) return;
+    // The saved file keeps its type (e.g. ".jpg") so it opens on any device; the name shown has none.
+    const ext = (/\.[a-z0-9]{2,5}$/i.exec(f.storage_path || "") || [""])[0];
+    const [url, dl] = await Promise.all([
+      signedUrl(f.storage_path, 900),
+      sb.storage.from("records").createSignedUrl(f.storage_path, 900, { download: (f.file_name || "file") + ext }).then((r) => r.data?.signedUrl || "", () => "")
+    ]);
+    if (!url) return toast("The file could not be opened.", true);
     const isPdf = /pdf/.test(f.mime || "") || /\.pdf$/i.test(f.storage_path || "");
-    const d = document.createElement("div");
-    d.className = "modal viewer";
-    d.innerHTML = `<div class="window" role="dialog" aria-modal="true" aria-label="Preview ${esc(f.file_name || "")}">
-      <div class="wtitle">Preview — ${esc(f.file_name || "")}</div>
-      <div class="viewer-body">${isImg ? `<img src="${esc(url)}" alt="${esc(f.file_name || "")}">` : isPdf ? `<iframe src="${esc(url)}" title="${esc(f.file_name || "")}"></iframe>` : `<div class="empty">This file type cannot be previewed here.</div>`}</div>
-      <div class="wfoot"><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Open / Download</a><button class="btn primary" id="vwClose">Close</button></div></div>`;
-    document.body.appendChild(d);
-    const close = () => { d.remove(); document.removeEventListener("keydown", onKey); };
-    const onKey = (e) => { if (e.key === "Escape") close(); };
-    document.addEventListener("keydown", onKey);
-    $("#vwClose", d).onclick = close;
-    d.onclick = (e) => { if (e.target === d) close(); };
+    const m = E.modal(`Preview — ${f.file_name || ""}`,
+      `<div class="viewer-body">${isImage(f) ? `<img src="${esc(url)}" alt="${esc(f.file_name || "")}">` : isPdf ? `<iframe src="${esc(url)}" title="${esc(f.file_name || "")}"></iframe>` : `<div class="empty">This file type cannot be previewed here.</div>`}</div>`,
+      `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${ic("eye")} Open in New Tab</a><a class="btn" href="${esc(dl || url)}" rel="noopener">${ic("download")} Download</a><button type="button" class="btn primary" data-x>Close</button>`,
+      { wide: true, cls: "viewer" });
+    $("[data-x]", m.el).onclick = m.close;
   }
+  const latestSigned = (att, kind = "signed_form") => att.filter((a) => a.kind === kind).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
 
-  // "Signed Copy": print the form, sign it, upload it; from then on the signed upload is the document.
-  function signedPanel(ownerType, ownerId, att, what, legend = "Signed Copy") {
-    const signed = att.filter((a) => a.kind === "signed_form");
-    return `<fieldset class="opt signed"><legend>${esc(legend)}</legend>
-      ${signed.length ? `<div class="signed-list">${signed.map((f, i) => `<div class="file"><span class="kind">${i ? "Earlier upload" : "Signed copy"}</span><span class="fname">${esc(f.file_name)} <small>${dmy(f.created_at)}</small></span>
-        <button class="btn primary" data-open="${esc(f.storage_path)}" data-mime="${esc(f.mime || "")}" data-name="${esc(f.file_name)}">Preview</button></div>`).join("")}</div>`
-        : `<small>Not uploaded yet. Print the ${esc(what)}, have it signed, then upload a photo or scan here.</small>`}
-      ${isStaff() ? `<div class="fields wide" style="margin-top:6px"><label for="sgUp">${signed.length ? "Replace with new signed copy" : "Upload signed copy"}</label><input type="file" id="sgUp" accept="image/*,application/pdf" data-owner="${ownerType}" data-id="${ownerId}"></div>` : ""}
-    </fieldset>`;
+  // ---------- document cards ----------
+  // One card per printable document. Until a signed copy is uploaded the card prints the system form;
+  // once the signed copy is uploaded it replaces the form (the system form can no longer be printed here).
+  // kind: which upload counts as the signed copy ("approval" for an approved project document).
+  const DC = new Map();
+  function docCard({ key, title, sub = "", ownerType, ownerId, att, print, canUpload = isStaff(), printLabel = "Print / Download", kind = "signed_form", uploadLabel = "Upload Signed Copy" }) {
+    DC.set(key, { att, print, kind });
+    const signed = latestSigned(att, kind);
+    const upId = `dcUp_${key.replace(/\W/g, "_")}`;
+    const mayUpload = signed ? isAdmin() : canUpload;
+    return `<div class="doccard${signed ? " signed" : ""}">
+      <div class="dc-ic">${ic("doc")}${signed ? `<span class="dc-ok">${ic("check")}</span>` : ""}</div>
+      <div class="dc-main"><b>${esc(title)}</b><small>${signed ? `Signed copy · uploaded ${dmy(signed.created_at)}` : esc(sub || "Print it, have it signed, then upload the signed copy")}</small></div>
+      <div class="dc-act">
+        ${signed ? `<button type="button" class="btn primary" data-dc-view="${esc(key)}">${ic("eye")} View</button>`
+          : `<button type="button" class="btn primary" data-dc-print="${esc(key)}">${ic("print")} ${esc(printLabel)}</button>`}
+        ${mayUpload ? `<label class="btn" for="${upId}">${ic("upload")} ${signed ? "Replace" : esc(uploadLabel)}</label>
+          <input type="file" id="${upId}" hidden accept="image/*,application/pdf" data-dc-up="${esc(key)}" data-owner="${esc(ownerType)}" data-id="${esc(ownerId)}">` : ""}
+      </div></div>`;
   }
-  function bindSigned(root, reload) {
-    const inp = $("#sgUp", root);
-    if (inp) inp.onchange = async (e) => {
-      const files = Array.from(e.target.files);
+  function bindDocCards(root, reload) {
+    $$("[data-dc-print]", root).forEach((b) => (b.onclick = () => DC.get(b.dataset.dcPrint)?.print()));
+    $$("[data-dc-view]", root).forEach((b) => (b.onclick = () => { const d = DC.get(b.dataset.dcView); if (d) viewFile(latestSigned(d.att, d.kind)); }));
+    $$("[data-dc-up]", root).forEach((inp) => (inp.onchange = async (e) => {
+      const files = Array.from(e.target.files).slice(0, 1);
       if (!files.length) return;
-      const f = await uploadRecords(inp.dataset.owner, inp.dataset.id, "signed_form", files);
-      toast(f ? "Upload failed." : "Signed copy uploaded.", f > 0);
+      const card = inp.closest(".doccard");
+      card.classList.add("uploading");
+      $(".dc-main small", card).innerHTML = `<span class="spin sm"></span> Uploading…`;
+      const f = await uploadRecords(inp.dataset.owner, inp.dataset.id, DC.get(inp.dataset.dcUp)?.kind || "signed_form", files);
+      toast(f ? "Upload failed." : "Signed copy uploaded. It now replaces the system copy.", f > 0);
       reload();
-    };
+    }));
   }
-  const latestSigned = (att) => att.filter((a) => a.kind === "signed_form").sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
 
   const fileField = (id, label, opts = "") => `<label for="${id}">${label}</label><input type="file" id="${id}" ${opts}>`;
   const filesOf = (id) => Array.from(($("#" + id) || {}).files || []);
@@ -126,7 +147,7 @@
   function customerPicker(holder, { statuses, onPick, preset }) {
     holder.innerHTML = `<div class="picker">
       <div class="picker-row"><input type="search" class="pk-q" placeholder="Type name or account number" aria-label="Find customer">
-      <button type="button" class="btn pk-scan">Scan QR</button></div>
+      <button type="button" class="btn pk-scan">${ic("scan")} Scan QR</button></div>
       <div class="pk-list" hidden></div><div class="pk-chosen"></div></div>`;
     const q = $(".pk-q", holder), list = $(".pk-list", holder), chosen = $(".pk-chosen", holder);
     let timer = null;
@@ -139,13 +160,14 @@
     const search = async () => {
       const t = cleanQ(q.value);
       if (t.length < 2) { list.hidden = true; return; }
+      list.hidden = false;
+      list.innerHTML = busy("Searching");
       const w = t.split(/\s+/)[0];
       let qq = sb.from("customers").select("*").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,account_no.ilike.%${w}%,business_name.ilike.%${w}%,phone.ilike.%${w}%`).limit(20);
       if (statuses) qq = qq.in("status", statuses);
       const { data } = await qq;
       const words2 = t.toLowerCase().split(/\s+/);
       const rows = (data || []).filter((c) => words2.every((x) => `${fullName(c)} ${c.account_no} ${c.business_name || ""} ${c.phone || ""}`.toLowerCase().includes(x)));
-      list.hidden = false;
       list.innerHTML = rows.length ? rows.map((c, i) => `<button type="button" data-i="${i}"><b>${esc(fullName(c))}</b> <span class="mono">${esc(c.account_no)}</span> ${pill(c.status)}</button>`).join("")
         : `<div class="empty">No ${statuses ? statuses.join(" / ") + " " : ""}customer matches.</div>`;
       $$("button", list).forEach((b) => (b.onclick = () => choose(rows[Number(b.dataset.i)])));
@@ -153,7 +175,7 @@
     q.oninput = () => { clearTimeout(timer); timer = setTimeout(search, 250); };
     $(".pk-scan", holder).onclick = () => E.scanDialog(async (text) => {
       const pid = String(text).startsWith("EMONCUST|") ? String(text).split("|")[1] : null;
-      let r = pid ? await sb.from("customers").select("*").eq("public_id", pid).maybeSingle() : await sb.from("customers").select("*").eq("account_no", String(text).trim()).maybeSingle();
+      const r = pid ? await sb.from("customers").select("*").eq("public_id", pid).maybeSingle() : await sb.from("customers").select("*").eq("account_no", String(text).trim()).maybeSingle();
       const c = r.data;
       if (!c) return toast("No customer found for that code.", true);
       if (statuses && !statuses.includes(c.status)) return toast(`${fullName(c)} is ${c.status.toUpperCase()} and cannot be used here.`, true);
@@ -186,31 +208,44 @@
   // Dashboard
   // ======================================================================
   V.dashboard = async () => {
+    const H = E.hasModule;
+    const quick = [
+      [E.canWrite("customers"), "#newcustomer", "+ New Customer", "primary"],
+      [E.canWrite("invoices"), "#newinvoice", "+ Record Invoice"],
+      [E.canWrite("payments") || E.canWrite("invoices"), "#newpayment", "+ Record Payment"],
+      [E.canWrite("creditmemos"), "#newcreditmemo", "+ Credit Memo"],
+      [E.canWrite("orders") || E.canWrite("customers"), "#neworder", "+ Order Letter"],
+      [E.canWrite("billing"), "#newvoucher", "+ Payment Voucher"],
+      [true, "#community", "Community"],
+      [true, "#verify", "Verify a Record"]
+    ].filter((q) => q[0]);
+    const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     E.shell("dashboard", "Dashboard", `
       <section class="hero">${E.logoHtml("hero-logo")}<div>
-        <h2>${esc(C.company.name)}</h2><p>${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</p>
-        <p class="welcome">Welcome, <b>${esc(myName())}</b> (${esc(S.profile.role.toUpperCase())})</p></div></section>
-      <div class="tiles" id="dTiles">${["Active Customers", "Applications to Review", "Balance Due (₱)", "Payments This Month (₱)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v">…</div></div>`).join("")}</div>
-      <div class="quick">
-        ${isStaff() ? `<a class="btn primary" href="#newcustomer">+ New Customer</a><a class="btn" href="#newinvoice">+ Record Invoice</a><a class="btn" href="#newpayment">+ Record Payment</a><a class="btn" href="#newcreditmemo">+ Credit Memo</a>` : ""}
-      </div>
+        <h2>${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span></h2><p>${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</p>
+        <p class="welcome">Welcome, <b>${esc(myName())}</b> (${esc(S.profile.role.toUpperCase())}) · ${esc(today)}</p></div></section>
+      ${isAdmin() ? `<div class="todo" id="dTodo"></div>` : ""}
+      ${H("customers") ? `<div class="tiles" id="dTiles">${["Active Customers", "Applications to Review", "Balance Due (₱)", "Payments This Month (₱)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>` : ""}
+      <div class="quick">${quick.map((q) => `<a class="btn ${q[3] || ""}" href="${q[1]}">${esc(q[2])}</a>`).join("")}</div>
       <div class="cols">
-        <div class="box"><h3>Applications Waiting for Review</h3><div class="in" id="dApps">Loading…</div></div>
-        <div class="box"><h3>Latest Resolutions</h3><div class="in" id="dAnn">Loading…</div></div>
+        ${H("customers") ? `<div class="box"><h3>Applications Waiting for Review</h3><div class="in" id="dApps">${busy()}</div></div>` : ""}
+        <div class="box"><h3>Community <a href="#community" class="box-link">Open</a></h3><div class="in" id="dComm">${busy()}</div></div>
       </div>
-      <div class="cols" style="margin-top:10px">
-        <div class="box"><h3>Unpaid Invoices</h3><div class="in" id="dInv">Loading…</div></div>
-        <div class="box"><h3>Recent Payments</h3><div class="in" id="dPay">Loading…</div></div>
-      </div>`);
+      ${H("invoices") || H("payments") ? `<div class="cols" style="margin-top:10px">
+        ${H("invoices") ? `<div class="box"><h3>Unpaid Invoices</h3><div class="in" id="dInv">${busy()}</div></div>` : ""}
+        ${H("payments") ? `<div class="box"><h3>Recent Payments</h3><div class="in" id="dPay">${busy()}</div></div>` : ""}
+      </div>` : ""}`);
     const ym = isoToday().slice(0, 7);
     let soaDone = false; try { soaDone = sessionStorage.getItem("eoSoa") === ym; } catch (_) {}
-    if (!soaDone) sb.rpc("generate_statements", {}).then(({ error }) => { if (!error) { try { sessionStorage.setItem("eoSoa", ym); } catch (_) {} } });
-    const [cust, bal, inv, pay, ann] = await Promise.all([
+    if (!soaDone) sb.rpc("generate_statements", {}).then(({ error }) => { if (!error) { try { sessionStorage.setItem("eoSoa", ym); } catch (_) {} } }, () => {});
+    loadCommunityBox();
+    if (isAdmin()) loadTodo();
+    if (!H("customers") && !H("invoices") && !H("payments")) { E.setRecords("Welcome"); return; }
+    const [cust, bal, inv, pay] = await Promise.all([
       sb.from("customers").select("id,first_name,last_name,account_no,application_no,status,application_date,business_name").order("created_at", { ascending: false }).limit(1000),
       sb.from("customer_balances").select("balance_due"),
       sb.from("invoice_balances").select("*").neq("pay_status", "paid").order("invoice_date", { ascending: false }).limit(8),
-      sb.from("payments_received").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).limit(200),
-      sb.from("resolutions").select("resolution_no,subject,body,resolution_date").order("resolution_date", { ascending: false }).limit(4)
+      sb.from("payments_received").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).limit(200)
     ]);
     if (cust.error) {
       $("#main").insertAdjacentHTML("afterbegin", `<div class="hint err">The customer database is not set up yet. Ask the administrator to run the setup script <b>002_customers_invoices_payments.sql</b>.</div>`);
@@ -223,27 +258,58 @@
     const waiting = cs.filter((c) => ["pending", "verified"].includes(c.status));
     const tiles = [["ok", cs.filter((c) => c.status === "active").length], ["warn", waiting.length], ["", "₱ " + peso(due)], ["ok", "₱ " + peso(monthPaid)]];
     $$("#dTiles .tile").forEach((t, i) => { t.className = "tile " + tiles[i][0]; $(".v", t).textContent = tiles[i][1]; });
-    $("#dApps").innerHTML = E.grid({ cols: [
-      { label: "Application", get: (r) => r.application_no }, { label: "Account No", get: (r) => r.account_no },
-      { label: "Name", get: fullName }, { label: "Date", get: (r) => dmy(r.application_date) }, { label: "Status", html: (r) => pill(r.status) }],
-      rows: waiting.slice(0, 8), onRow: true, empty: "No applications waiting." });
-    E.bindGrid($("#dApps"), waiting.slice(0, 8), (r) => (location.hash = "customer/" + r.id));
-    const invs = inv.data || [];
-    $("#dInv").innerHTML = E.grid({ cols: [
-      { label: "Invoice", get: (r) => r.invoice_no }, { label: "Customer", get: fullName },
-      { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) }, { label: "Status", html: (r) => pill(r.pay_status) }],
-      rows: invs, onRow: true, empty: "No unpaid invoices." });
-    E.bindGrid($("#dInv"), invs, (r) => (location.hash = "invoice/" + r.id));
-    const rp = pays.slice(0, 8);
-    $("#dPay").innerHTML = E.grid({ cols: [
-      { label: "Receipt", get: (r) => r.receipt_no }, { label: "Customer", get: (r) => fullName(r.customers || {}) },
-      { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) }, { label: "Date", get: (r) => dmy(r.paid_date) }],
-      rows: rp, onRow: true, empty: "No payments yet." });
-    E.bindGrid($("#dPay"), rp, (r) => (location.hash = "payment/" + r.id));
-    const a = ann.data || [];
-    $("#dAnn").innerHTML = a.length ? a.map((x) => `<a class="ann" href="#resolutions" style="display:block;color:inherit;text-decoration:none"><h4><span class="mono">${esc(x.resolution_no)}</span> ${esc(x.subject)}</h4><div class="meta">${dmy(x.resolution_date)}</div>${x.body ? `<p>${esc(x.body.length > 160 ? x.body.slice(0, 160) + "…" : x.body)}</p>` : ""}</a>`).join("") : `<div class="empty">No resolutions in the last 3 months.</div>`;
+    if ($("#dApps")) {
+      $("#dApps").innerHTML = E.grid({ cols: [
+        { label: "Application", get: (r) => r.application_no }, { label: "Account No", get: (r) => r.account_no },
+        { label: "Name", get: fullName }, { label: "Date", get: (r) => dmy(r.application_date) }, { label: "Status", html: (r) => pill(r.status) }],
+        rows: waiting.slice(0, 8), onRow: true, empty: "No applications waiting." });
+      E.bindGrid($("#dApps"), waiting.slice(0, 8), (r) => (location.hash = "customer/" + r.id));
+    }
+    if ($("#dInv")) {
+      const invs = inv.data || [];
+      $("#dInv").innerHTML = E.grid({ cols: [
+        { label: "Invoice", get: (r) => r.invoice_no }, { label: "Customer", get: fullName },
+        { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) }, { label: "Status", html: (r) => pill(r.pay_status) }],
+        rows: invs, onRow: true, empty: "No unpaid invoices." });
+      E.bindGrid($("#dInv"), invs, (r) => (location.hash = "invoice/" + r.id));
+    }
+    if ($("#dPay")) {
+      const rp = pays.slice(0, 8);
+      $("#dPay").innerHTML = E.grid({ cols: [
+        { label: "Receipt", get: (r) => r.receipt_no }, { label: "Customer", get: (r) => fullName(r.customers || {}) },
+        { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) }, { label: "Date", get: (r) => dmy(r.paid_date) }],
+        rows: rp, onRow: true, empty: "No payments yet." });
+      E.bindGrid($("#dPay"), rp, (r) => (location.hash = "payment/" + r.id));
+    }
     E.setRecords(`Customers: ${cs.length}`);
   };
+  async function loadCommunityBox() {
+    const { data, error } = await sb.from("community_posts").select("*").order("created_at", { ascending: false }).limit(4);
+    const el = $("#dComm"); if (!el) return;
+    if (error) { el.innerHTML = `<div class="empty small">Community is not set up yet.</div>`; return; }
+    const rows = data || [];
+    const thumbs = await Promise.all(rows.map((p) => (p.photos?.[0] ? signedUrl(p.photos[0], 1800) : "")));
+    el.innerHTML = rows.length ? rows.map((p, i) => `<a class="mini-post" href="#community">
+        ${thumbs[i] ? `<img src="${esc(thumbs[i])}" alt="">` : ""}
+        <div><b class="who">${esc(p.author_name || "")}</b> <span class="pos">${esc(p.author_position || "")}</span><small>${esc(E.timeAgo(p.created_at))}</small>
+        <p>${esc((p.body || (p.photos?.length ? "Shared photos" : "")).slice(0, 140))}${(p.body || "").length > 140 ? "…" : ""}</p></div></a>`).join("")
+      : `<div class="empty small">No posts yet. <a href="#community">Share the first update</a>.</div>`;
+  }
+  // Admin to-do: everything waiting for a decision.
+  async function loadTodo() {
+    const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
+    const head = { count: "exact", head: true };
+    const [apps, jobs, orders, changes, memos] = await Promise.all([
+      cnt(sb.from("customers").select("id", head).in("status", ["pending", "verified"])),
+      cnt(sb.from("job_applications").select("id", head).eq("status", "submitted")),
+      cnt(sb.from("order_letters").select("id", head).eq("status", "pending")),
+      cnt(sb.from("change_requests").select("id", head).eq("status", "pending")),
+      cnt(sb.from("credit_memos").select("id", head).eq("status", "pending"))
+    ]);
+    const el = $("#dTodo"); if (!el) return;
+    const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [orders, "Order letters to approve", "#orders"], [changes, "Change requests", "#changes"], [memos, "Credit memos", "#creditmemos"]];
+    el.innerHTML = `<span class="todo-h">Waiting for you:</span>` + items.map(([n, label, href]) => `<a class="todo-chip ${n ? "hot" : ""}" href="${href}"><b>${n}</b> ${esc(label)}</a>`).join("");
+  }
 
   // ======================================================================
   // 1. Customer
@@ -255,10 +321,11 @@
           <label for="cuQ">Name / Account</label><input type="search" id="cuQ" placeholder="Name, account no, business or phone">
           <label for="cuSt">Status</label><select id="cuSt"><option value="">All</option><option value="active">Active</option><option value="pending">Pending review</option><option value="verified">Verified</option><option value="suspended">Suspended</option><option value="closed">Closed</option><option value="rejected">Rejected</option></select>
         </form></fieldset></div>
-      <div class="btnrow"><button class="btn primary" id="cuGo">Search</button><button class="btn" id="cuScan">Scan QR</button>
-        ${isStaff() ? `<a class="btn ok" href="#newcustomer">+ New Customer</a>` : ""}${isAdmin() ? `<a class="btn" href="#statements">All Statements (SOA)</a>` : ""}</div>
-      <div id="cuRes"></div>`, "All customer accounts. Closed accounts are shown here with a <b>CLOSED</b> mark but are hidden from the top search bar.");
+      <div class="btnrow"><button type="button" class="btn primary" id="cuGo">${ic("search")} Search</button><button type="button" class="btn" id="cuScan">${ic("scan")} Scan QR</button>
+        ${E.canWrite("customers") ? `<a class="btn ok" href="#newcustomer">+ New Customer</a>` : ""}${isAdmin() ? `<a class="btn" href="#statements">All Statements (SOA)</a>` : ""}</div>
+      <div id="cuRes">${busy("Searching")}</div>`, "All customer accounts. Closed accounts are shown here with a <b>CLOSED</b> mark but are hidden from the top search bar.");
     const run = async () => {
+      $("#cuRes").innerHTML = busy("Searching");
       const t = cleanQ($("#cuQ").value), st = $("#cuSt").value;
       let q = sb.from("customers").select("*").order("created_at", { ascending: false }).limit(1000);
       if (st) q = q.eq("status", st);
@@ -285,7 +352,7 @@
   };
 
   V.newcustomer = () => {
-    if (!isStaff()) { toast("Only Staff and Admin users can open customer accounts.", true); location.hash = "customers"; return; }
+    if (!E.canWrite("customers")) { toast("Only Staff and Admin users can open customer accounts.", true); location.hash = "customers"; return; }
     E.shell("newcustomer", "New Customer Application", `
       <form class="window" id="ncForm" novalidate>
         <div class="wtitle">Customer Account Application</div>
@@ -336,7 +403,7 @@
     $("#ncVerify").onclick = async () => {
       const a = $("#ncAddr").value.trim();
       if (a.length < 5) return toast("Type the full address first.", true);
-      const m = $("#ncAddrMsg"); m.className = "addr-msg"; m.textContent = "Checking the map…";
+      const m = $("#ncAddrMsg"); m.className = "addr-msg"; m.innerHTML = `<span class="spin sm"></span> Checking the map…`;
       geo = await verifyAddress(a);
       if (geo) { m.className = "addr-msg ok"; m.innerHTML = `✔ VERIFIED — location found: ${esc(geo.display)} <a href="https://www.openstreetmap.org/?mlat=${geo.lat}&mlon=${geo.lon}#map=17/${geo.lat}/${geo.lon}" target="_blank" rel="noopener">View map</a>`; }
       else { m.className = "addr-msg bad"; m.textContent = "✖ ADDRESS NOT FOUND — check the spelling or add the barangay and city."; }
@@ -350,7 +417,7 @@
       if (!v("ncAddr")) return toast("Enter the full address.", true);
       const extra = $("input[name=ncFbx]:checked").value === "yes";
       if (extra && !v("ncFb2")) return toast("Enter the additional Facebook name, or choose No.", true);
-      const btns = $$("#ncForm button"); btns.forEach((b) => (b.disabled = true));
+      E.setBusy(e.target, true, "Submitting");
       const id = uuid();
       let photo_path = null;
       const photo = $("#ncPhoto").files[0];
@@ -366,7 +433,7 @@
         facebook_name: v("ncFb") || null, has_extra_facebook: extra, extra_facebook_name: extra ? v("ncFb2") : null,
         facebook_verified: $("input[name=ncFbv]:checked").value === "yes", phone: v("ncPhone"), email: v("ncEmail") || null
       }).select().single();
-      if (error) { btns.forEach((b) => (b.disabled = false)); return fail(error, "Could not submit the application"); }
+      if (error) { E.setBusy(e.target, false); return fail(error, "Could not submit the application"); }
       if (photo_path) await sb.from("attachments").insert({ owner_type: "customer", owner_id: c.id, kind: "photo", storage_path: photo_path, file_name: `${c.account_no} Profile Photo`, mime: photo.type, size: photo.size });
       const failed = await uploadRecords("customer", c.id, "requirement", filesOf("ncReq"));
       if (failed) toast(`${failed} requirement file(s) failed to upload. You can add them from the profile.`, true);
@@ -411,65 +478,90 @@
     E.openPreview(`Application ${c.application_no}`, [applicationPage(c, photoUrl, att.filter((a) => a.kind === "requirement"))]);
   }
 
+  // Suspended / closed accounts are marked for everyone who opens them.
+  function statusBanner(c) {
+    if (c.status === "closed") return `<div class="banner closed">${ic("x")} CLOSED ACCOUNT — permanently closed. New invoices cannot be recorded.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
+    if (c.status === "suspended") return `<div class="banner warn">⚠ SUSPENDED ACCOUNT — new invoices are blocked until the account is reactivated with an approved order letter.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
+    if (c.status === "rejected") return `<div class="banner closed">REJECTED APPLICATION${c.status_note ? " — " + esc(c.status_note) : ""}</div>`;
+    return "";
+  }
+  // Record numbers and codes in a typewriter font; names, dates and amounts in the normal font.
+  const idBox = (label, value) => `<div class="idbox"><small>${esc(label)}</small><b class="${/^[A-Z0-9][A-Z0-9-]*\d[A-Z0-9-]*$/i.test(String(value || "")) ? "mono" : ""}">${esc(value || "—")}</b></div>`;
+  const fieldLabel = (table, k) => (E.fieldLabel ? E.fieldLabel(table, k) : k.replace(/_/g, " "));
+  const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v) : String(v));
+  const changeText = (r) => Object.keys(r.changes || r.previous || {}).map((k) => `${fieldLabel(r.target_table, k)}: ${showVal(r.previous?.[k])} → ${showVal(r.changes?.[k])}`).join("; ");
+
   V.customer = async (id, extra) => {
-    E.shell("customer", "Customer Profile", `<div class="empty">Loading…</div>`);
+    E.shell("customer", "Customer Profile", busy());
     const c = await getCustomer(id);
     if (!c) { $("#main").innerHTML = `<div class="empty">Customer not found. <a href="#customers">Back to Customer list</a></div>`; return; }
     if (extra === "submitted") return renderSubmitted(c);
-    const [att, bal, invs, pays, memos, ev, secret] = await Promise.all([
+    const [att, bal, invs, pays, memos, ev, secret, ords, chg] = await Promise.all([
       attachmentsOf("customer", c.id),
       sb.from("customer_balances").select("*").eq("customer_id", c.id).maybeSingle(),
       sb.from("invoice_balances").select("*").eq("customer_id", c.id).order("invoice_date", { ascending: false }),
       sb.from("payments_received").select("*").eq("customer_id", c.id).order("paid_date", { ascending: false }),
       sb.from("credit_memos").select("*").eq("customer_id", c.id).order("memo_date", { ascending: false }),
       sb.from("customer_events").select("*").eq("customer_id", c.id).order("created_at"),
-      isAdmin() ? sb.from("customer_secrets").select("private_code").eq("customer_id", c.id).maybeSingle() : Promise.resolve({ data: null })
+      isAdmin() ? sb.from("customer_secrets").select("private_code").eq("customer_id", c.id).maybeSingle() : Promise.resolve({ data: null }),
+      sb.from("order_letters").select("*").eq("customer_id", c.id).order("created_at", { ascending: false }),
+      sb.from("record_changes").select("*").eq("target_table", "customers").eq("target_id", c.id).order("created_at")
     ]);
     const b = bal.data || { total_invoiced: 0, total_paid: 0, total_credits: 0, balance_due: 0 };
     const photoUrl = c.photo_path ? await signedUrl(c.photo_path) : "";
     const signed = att.filter((a) => a.kind === "signed_form");
-    const canInvoice = c.status === "active" && isStaff();
-    const canPay = ["active", "suspended", "closed"].includes(c.status) && isStaff();
-    const canMemo = ["active", "suspended"].includes(c.status) && isStaff();
+    const orders = ords.data || [];
+    const canInvoice = c.status === "active" && E.canWrite("invoices");
+    const canPay = ["active", "suspended", "closed"].includes(c.status) && (E.canWrite("payments") || E.canWrite("invoices"));
+    const canMemo = ["active", "suspended"].includes(c.status) && E.canWrite("creditmemos");
+    const canOrder = ["active", "suspended"].includes(c.status) && (E.canWrite("orders") || E.canWrite("customers"));
+    const history = [
+      ...(ev.data || []).map((r) => ({ at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
+      ...(chg.data || []).map((r) => ({ at: r.created_at, action: r.action === "delete" ? "DELETED" : `DETAILS CHANGED${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }))
+    ].sort((x, y) => String(x.at).localeCompare(String(y.at)));
+    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Order Letters (${orders.length})`, `Files (${att.length})`, "History"];
     $(".band h1").textContent = `Customer — ${fullName(c)}`;
     $("#main").innerHTML = `
-      ${c.status === "closed" ? `<div class="banner closed">CLOSED ACCOUNT — permanently closed. New invoices cannot be recorded.${c.status_note ? " Reason: " + esc(c.status_note) : ""}</div>` : ""}
-      ${c.status === "suspended" ? `<div class="banner warn">SUSPENDED — new invoices are blocked until the account is reactivated.${c.status_note ? " Reason: " + esc(c.status_note) : ""}</div>` : ""}
-      <div class="profile">
-        <div class="pf-photo">${photoUrl ? `<img src="${esc(photoUrl)}" alt="Photo of ${esc(fullName(c))}">` : `<span>${esc((c.first_name[0] || "") + (c.last_name[0] || ""))}</span>`}</div>
-        <div class="pf-main">
-          <h2>${esc(fullName(c))} ${pill(c.status)}</h2>
-          <div class="pf-ids"><span>Account No <b class="mono">${esc(c.account_no)}</b></span><span>Application <b class="mono">${esc(c.application_no)}</b></span><span>Public ID <b class="mono">${esc(c.public_id)}</b></span>
-            ${isAdmin() ? `<span>Private Code <b class="mono" id="pvCode" data-code="${esc(secret.data?.private_code || "")}">••••••••</b> <button class="btn" id="pvShow">Show</button></span>` : ""}</div>
-          <div class="pf-sub">${esc(c.business_name || "")} · ${esc(c.phone || "")} · ${esc(c.email || "")}</div>
+      ${statusBanner(c)}
+      <section class="cust-hero st-${esc(c.status)}">
+        <div class="ch-photo">${photoUrl ? `<img src="${esc(photoUrl)}" alt="Photo of ${esc(fullName(c))}">` : `<span>${esc(((c.first_name || "")[0] || "") + ((c.last_name || "")[0] || ""))}</span>`}</div>
+        <div class="ch-main">
+          <div class="ch-name"><h2>${esc(fullName(c))}</h2>${pill(c.status)}</div>
+          <div class="ch-sub">${[c.business_name, c.phone, c.email].filter(Boolean).map(esc).join(" · ") || "—"}</div>
+          <div class="ch-ids">
+            ${idBox("Account No", c.account_no)}${idBox("Application No", c.application_no)}${idBox("Public ID", c.public_id)}${idBox("Opened", dmy(c.application_date))}
+            ${isAdmin() ? `<div class="idbox"><small>Private Code</small><b class="mono" id="pvCode" data-code="${esc(secret.data?.private_code || "")}">••••••••</b> <button type="button" class="linkbtn" id="pvShow">Show</button></div>` : ""}
+          </div>
+          <div class="ch-flags">${c.address_verified ? `<span class="flag ok">${ic("check")} Address verified</span>` : ""}${c.facebook_verified ? `<span class="flag ok">${ic("check")} Facebook verified</span>` : ""}</div>
         </div>
-        <div class="pf-qr"><canvas id="pfQr" aria-label="Customer QR code"></canvas></div>
-      </div>
+        <div class="ch-qr"><canvas id="pfQr" aria-label="Customer QR code"></canvas><small>Scan to open</small></div>
+      </section>
       <div class="tiles">
         <div class="tile"><div class="k">Total Invoiced</div><div class="v">₱ ${peso(b.total_invoiced)}</div></div>
         <div class="tile ok"><div class="k">Total Paid</div><div class="v">₱ ${peso(b.total_paid)}</div></div>
         <div class="tile"><div class="k">Credits / Discounts</div><div class="v">₱ ${peso(b.total_credits)}</div></div>
         <div class="tile ${num(b.balance_due) > 0 ? "warn" : "ok"}"><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
       </div>
-      <div class="btnrow">
-        ${latestSigned(att) ? `<button class="btn primary" id="pfSigned">View Signed Application</button>` : ""}
-        <button class="btn" id="pfPrint">${latestSigned(att) ? "Print Blank Application" : "Download / Print Application"}</button>
-        ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">Record Invoice</a>` : ""}
-        ${canPay ? `<a class="btn" href="#newpayment/${c.id}">Record Payment</a>` : ""}
-        ${canMemo ? `<a class="btn" href="#newcreditmemo/${c.id}">New Credit Memo</a>` : ""}
+      <div class="actionbar">
+        ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">${ic("plus")} Record Invoice</a>` : ""}
+        ${canPay ? `<a class="btn" href="#newpayment/${c.id}">${ic("plus")} Record Payment</a>` : ""}
+        ${canMemo ? `<a class="btn" href="#newcreditmemo/${c.id}">${ic("plus")} Credit Memo</a>` : ""}
+        ${canOrder ? `<a class="btn" href="#neworder/${c.id}">${ic("doc")} New Order Letter</a><button type="button" class="btn" id="pfApply">${ic("qr")} Apply Order Letter</button>` : ""}
+        <span class="grow"></span>
+        ${tools("customers", c, `${c.account_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers") })}
       </div>
-      ${!["pending", "verified"].includes(c.status) ? signedPanel("customer", c.id, att, "application") : ""}
-      ${isAdmin() && ["active", "suspended"].includes(c.status) ? statusPanel(c) : ""}
+      <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", sub: `${c.application_no} · print, sign, then upload the signed copy`, ownerType: "customer", ownerId: c.id, att, print: () => printApplication(c), canUpload: isStaff() && c.status !== "closed" })}</div>
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed) : ""}
-      <div class="tabs" id="pfTabs">${["Details", "Statement of Account", "Invoices", "Payments", "Credit Memos", "Files", "History"].map((t, i) => `<button class="${i ? "" : "on"}" data-t="${i}">${t}</button>`).join("")}</div>
+      <div class="tabs" id="pfTabs">${tabs.map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes">
         <div data-p="0">${detailsTable(c)}</div>
-        <div data-p="1" hidden id="pfSoa"><div class="empty">Loading statements…</div></div>
+        <div data-p="1" hidden id="pfSoa">${busy("Loading statements")}</div>
         <div data-p="2" hidden>${E.grid({ cols: INV_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: invs.data || [], onRow: true, empty: "No invoices yet." })}</div>
         <div data-p="3" hidden>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
         <div data-p="4" hidden>${E.grid({ cols: MEMO_COLS.filter((x) => x.label !== "Customer"), rows: memos.data || [], onRow: true, empty: "No credit memos." })}</div>
-        <div data-p="5" hidden>${filesHtml(att)}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple")}</div>` : ""}</div>
-        <div data-p="6" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.created_at)) }, { label: "Action", get: (r) => r.action.toUpperCase() }, { label: "By", get: (r) => r.actor_name || "" }, { label: "Note", get: (r) => r.note || "" }], rows: ev.data || [] })}</div>
+        <div data-p="5" hidden>${E.grid({ cols: [{ label: "Order No", get: (r) => r.order_no }, { label: "Date", get: (r) => dmy(r.order_date) }, { label: "Subject", get: (r) => r.subject }, { label: "Type", get: (r) => r.subject_type.replace(/_/g, " ").toUpperCase() }, { label: "Status", html: (r) => pill(r.status) }, { label: "Result", get: (r) => r.applied_result || "" }], rows: orders, onRow: true, empty: "No order letters for this account." })}</div>
+        <div data-p="6" hidden>${filesHtml(att)}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple")}</div>` : ""}</div>
+        <div data-p="7" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
     $$("#pfTabs button").forEach((t) => (t.onclick = () => {
@@ -479,16 +571,17 @@
     E.bindGrid($('[data-p="2"]'), invs.data || [], (r) => (location.hash = "invoice/" + r.id));
     E.bindGrid($('[data-p="3"]'), pays.data || [], (r) => (location.hash = "payment/" + r.id));
     E.bindGrid($('[data-p="4"]'), memos.data || [], (r) => (location.hash = "creditmemo/" + r.id));
+    E.bindGrid($('[data-p="5"]'), orders, (r) => (location.hash = "order/" + r.id));
     if (!["pending", "verified", "rejected"].includes(c.status)) renderSoaTab(c, invs.data || [], pays.data || [], memos.data || []);
     else $("#pfSoa").innerHTML = `<div class="empty">Statements start after the account is approved.</div>`;
     bindFiles($("#main"));
-    $("#pfPrint").onclick = () => printApplication(c);
-    if ($("#pfSigned")) $("#pfSigned").onclick = () => viewFile(latestSigned(att));
-    bindSigned($("#main"), () => V.customer(c.id));
+    bindDocCards($("#main"), () => V.customer(c.id));
+    bindTools($("#main"));
+    if ($("#pfApply")) $("#pfApply").onclick = () => E.applyOrderDialog && E.applyOrderDialog({ customer: c, onDone: () => V.customer(c.id) });
     if ($("#pvShow")) $("#pvShow").onclick = () => { const el = $("#pvCode"); const hidden = el.textContent.startsWith("•"); el.textContent = hidden ? el.dataset.code || "(none)" : "••••••••"; $("#pvShow").textContent = hidden ? "Hide" : "Show"; };
     if ($("#pfAdd")) $("#pfAdd").onchange = async (e) => { const f = await uploadRecords("customer", c.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed.` : "Uploaded.", f > 0); V.customer(c.id); };
-    if (isAdmin() && ["pending", "verified"].includes(c.status)) bindReview(c, signed);
-    if (isAdmin() && ["active", "suspended"].includes(c.status)) bindStatus(c);
+    if (isAdmin() && ["pending", "verified"].includes(c.status)) bindReview(c);
+    E.setRecords(`Account: ${c.account_no}`);
   };
 
   function detailsTable(c) {
@@ -498,7 +591,7 @@
       ["Business Name", c.business_name], ["Date Starting in Business", dmy(c.business_start_date)],
       ["Facebook Name", c.facebook_name], ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
       ["Facebook Account", c.facebook_verified ? "✔ VERIFIED" : "✖ NOT VERIFIED"],
-      ["Application Date", dmy(c.application_date)], ["Issued By", c.issued_by_name], ["Status Note", c.status_note]
+      ["Application Date", dmy(c.application_date)], ["Issued By", c.issued_by_name], ["Account Status", c.status.toUpperCase()], ["Status Note", c.status_note]
     ];
     return `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
   }
@@ -507,22 +600,22 @@
     return `<fieldset class="opt review"><legend>Admin Review — ${esc(c.application_no)}</legend>
       <ol class="steps">
         <li><b>Check records:</b> look for the same name, phone, email or Facebook name already in the database.
-          <div class="btnrow"><button class="btn primary" id="rvCheck">Check &amp; Verify</button>
-          <button class="btn" id="rvFb">${c.facebook_verified ? "Mark Facebook NOT verified" : "Mark Facebook verified"}</button></div><div id="rvResult">${c.status === "verified" ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
-        <li><b>Upload the signed application form</b> (photo or scan).
-          <div class="fields wide">${fileField("rvSigned", "Signed Form", 'accept="image/*,application/pdf"')}</div>
-          <div id="rvSignedList">${signed.length ? filesHtml(signed) : "<small>Not uploaded yet.</small>"}</div></li>
+          <div class="btnrow"><button type="button" class="btn primary" id="rvCheck">Check &amp; Verify</button>
+          <button type="button" class="btn" id="rvFb">${c.facebook_verified ? "Mark Facebook NOT verified" : "Mark Facebook verified"}</button></div><div id="rvResult">${c.status === "verified" ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
+        <li><b>Signed application form:</b> ${signed.length ? `<span class="ok-txt">✔ Uploaded — it now shows as the Customer Application Form above.</span>`
+          : `<span class="bad-txt">not uploaded yet.</span> Print the form from the <b>Customer Application Form</b> card above, have it signed, then press <b>Upload Signed Copy</b>.`}</li>
         <li><b>Decide:</b>
           <div class="fields wide"><label for="rvNote">Note</label><input type="text" id="rvNote" placeholder="Optional note (shown in history)"></div>
-          <div class="btnrow"><button class="btn ok" id="rvApprove" ${signed.length ? "" : "disabled title=\"Upload the signed application form first\""}>Approve — Activate Account</button>
-          <button class="btn danger" id="rvReject">Reject</button></div></li>
+          <div class="btnrow"><button type="button" class="btn ok" id="rvApprove" ${signed.length ? "" : "disabled title=\"Upload the signed application form first\""}>Approve — Activate Account</button>
+          <button type="button" class="btn danger" id="rvReject">Reject</button></div></li>
       </ol></fieldset>`;
   }
-  function bindReview(c, signed) {
+  function bindReview(c) {
     $("#rvCheck").onclick = async () => {
-      const { data, error } = await sb.rpc("customer_duplicates", { p_id: c.id });
-      if (error) return fail(error, "Could not check records");
       const out = $("#rvResult");
+      out.innerHTML = busy("Checking records");
+      const { data, error } = await sb.rpc("customer_duplicates", { p_id: c.id });
+      if (error) { out.innerHTML = ""; return fail(error, "Could not check records"); }
       const verify = async () => {
         if (c.status === "verified") return;
         const r = await sb.rpc("customer_action", { p_id: c.id, p_action: "verify", p_note: null });
@@ -535,7 +628,7 @@
       } else {
         out.innerHTML = `<div class="addr-msg bad">✖ ${data.length} similar record(s) found. Check before approving:</div>` +
           E.grid({ cols: [{ label: "Account No", get: (r) => r.account_no }, { label: "Name", get: fullName }, { label: "Phone", get: (r) => r.phone || "" }, { label: "Status", html: (r) => pill(r.status) }, { label: "Matched On", get: (r) => r.matched_on }], rows: data, onRow: true })
-          + `<div class="btnrow"><button class="btn" id="rvAnyway">Not a duplicate — Verify anyway</button></div>`;
+          + `<div class="btnrow"><button type="button" class="btn" id="rvAnyway">Not a duplicate — Verify anyway</button></div>`;
         E.bindGrid(out, data, (r) => window.open("#customer/" + r.id, "_blank"));
         $("#rvAnyway").onclick = async () => { await verify(); out.insertAdjacentHTML("beforeend", `<div class="addr-msg ok">✔ Verified by admin.</div>`); };
       }
@@ -544,11 +637,6 @@
       const r = await sb.rpc("customer_action", { p_id: c.id, p_action: c.facebook_verified ? "facebook_unverified" : "facebook_verified", p_note: null });
       if (r.error) return fail(r.error, "Could not update"); V.customer(c.id);
     };
-    $("#rvSigned").onchange = async (e) => {
-      const f = await uploadRecords("customer", c.id, "signed_form", Array.from(e.target.files));
-      if (f) return toast("Upload failed.", true);
-      toast("Signed form uploaded. Preview it, then Approve or Reject."); V.customer(c.id);
-    };
     const act = async (a) => {
       const r = await sb.rpc("customer_action", { p_id: c.id, p_action: a, p_note: $("#rvNote").value.trim() || null });
       if (r.error) return fail(r.error, "Could not update the account");
@@ -556,8 +644,7 @@
       V.customer(c.id);
     };
     $("#rvApprove").onclick = () => act("approve");
-    let armed = false;
-    $("#rvReject").onclick = () => { if (!armed) { armed = true; $("#rvReject").textContent = "Press again to reject"; return; } act("reject"); };
+    $("#rvReject").onclick = async () => { if (await E.confirmBox(`Reject the application of <b>${esc(fullName(c))}</b>?`, { ok: "Reject", danger: true })) act("reject"); };
   }
 
   function renderSubmitted(c) {
@@ -577,7 +664,7 @@
         <div class="sub-qr"><canvas id="subQr"></canvas><small>Scan to open this account</small></div></div>
         <div class="hint">Next: press <b>Download / Print Application</b>, have the customer sign it, and submit the signed paper to the office. The administrator has been notified.</div>
       </div>
-      <div class="wfoot"><button class="btn primary" id="subPrint">Download / Print Application</button><a class="btn" href="#customer/${c.id}">Open Customer Profile</a><a class="btn" href="#newcustomer">New Customer</a></div></div>`;
+      <div class="wfoot"><button type="button" class="btn primary" id="subPrint">${ic("print")} Download / Print Application</button><a class="btn" href="#customer/${c.id}">Open Customer Profile</a><a class="btn" href="#newcustomer">New Customer</a></div></div>`;
     E.drawQr($("#subQr"), custQr(c));
     $("#subPrint").onclick = () => printApplication(c);
   }
@@ -587,7 +674,6 @@
   // ======================================================================
   const monthStart = (iso) => String(iso).slice(0, 7) + "-01";
   const nextMonth = (iso) => { const d = new Date(monthStart(iso) + "T00:00:00"); d.setMonth(d.getMonth() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; };
-  const monthEnd = (iso) => { const d = new Date(nextMonth(iso) + "T00:00:00"); d.setDate(0); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const monthName = (iso) => new Date(monthStart(iso) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
   // Same rules as the database: invoices debit; payments and approved credit/discount memos credit (on approval date).
   function txnsOf(invs, pays, memos) {
@@ -611,8 +697,8 @@
         const list = (data || []).filter((a) => a.owner_id === r.id);
         const a = kinds.map((k) => list.find((x) => x.kind === k)).find(Boolean);
         if (!a) continue;
-        const isImg = /^image\//.test(a.mime || "") || /\.(png|jpe?g|gif|webp)$/i.test(a.storage_path);
-        out.push({ label, no: r[noKey], amount: r[amtKey], date: r.invoice_date || r.paid_date, url: isImg ? await signedUrl(a.storage_path, 1800) : "", pdf: !isImg });
+        const img = isImage(a);
+        out.push({ label, no: r[noKey], amount: r[amtKey], date: r.invoice_date || r.paid_date, url: img ? await signedUrl(a.storage_path, 1800) : "", pdf: !img });
       }
     };
     await pick("invoice", invoices, ["signed_form"], "Invoice", "invoice_no", "total_amount");
@@ -672,7 +758,7 @@
     const lt = within(txns, live.start, live.end);
     live.debit = lt.reduce((s, x) => s + x.debit, 0); live.credit = lt.reduce((s, x) => s + x.credit, 0); live.closing = live.opening + live.debit - live.credit;
     const rows = [live, ...st];
-    box.innerHTML = `<div class="btnrow"><button class="btn" id="soaAll">Print All Transactions</button>${isAdmin() ? `<a class="btn" href="#statements">All Statements (Admin)</a>` : ""}</div>
+    box.innerHTML = `<div class="btnrow"><button type="button" class="btn" id="soaAll">${ic("print")} Print All Transactions</button>${isAdmin() ? `<a class="btn" href="#statements">All Statements (Admin)</a>` : ""}</div>
       ${E.grid({ cols: [
         { label: "Period", get: (r) => r.live ? `${monthName(r.start)} (to date)` : monthName(r.start) }, { label: "Statement No", get: (r) => r.no },
         { label: "Opening (₱)", num: true, get: (r) => peso(r.opening) }, { label: "Debit (₱)", num: true, get: (r) => peso(r.debit) },
@@ -682,12 +768,8 @@
     E.bindGrid(box, rows, (r) => printSoa(c, r, txns, invs));
     $("#soaAll").onclick = () => {
       const start = txns.length ? monthStart(txns[0].date) : monthStart(c.application_date);
-      printSoaRange(c, { start, end: isoToday(), opening: 0, no: "ALL TRANSACTIONS" }, txns, invs);
+      E.openPreview(`All transactions ${c.account_no}`, soaPages(c, { start, end: isoToday(), opening: 0, no: "ALL TRANSACTIONS" }, within(txns, start, isoToday()), []));
     };
-  }
-  // Full history: one statement page set from the first transaction to today (no attachments, to keep it short).
-  function printSoaRange(c, p, txns, invs) {
-    E.openPreview(`All transactions ${c.account_no}`, soaPages(c, p, within(txns, p.start, p.end), []));
   }
 
   // Admin: every customer's SOA for a month.
@@ -696,10 +778,11 @@
     const last = monthStart(new Date(new Date().setDate(0)).toISOString().slice(0, 10));
     E.shell("statements", "All Statements of Account", `
       <div class="options"><fieldset class="opt"><legend>Month</legend><div class="fields"><label for="stMonth">Statement Month</label><input type="month" id="stMonth" value="${last.slice(0, 7)}"></div></fieldset></div>
-      <div class="btnrow"><button class="btn primary" id="stGo">Show</button><button class="btn" id="stGen">Create Missing Statements Now</button><button class="btn" id="stPrintAll">Print All for Month</button><a class="btn" href="#customers">Close</a></div>
-      <div id="stRes"></div>`, "Statements are created automatically on the 1st of each month for the month just ended. Click a row to print it or upload a copy.");
+      <div class="btnrow"><button type="button" class="btn primary" id="stGo">Show</button><button type="button" class="btn" id="stGen">Create Missing Statements Now</button><button type="button" class="btn" id="stPrintAll">${ic("print")} Print All for Month</button><a class="btn" href="#customers">Close</a></div>
+      <div id="stRes">${busy()}</div>`, "Statements are created automatically on the 1st of each month for the month just ended. Click a row to print it or upload a copy.");
     let rows = [];
     const load = async () => {
+      $("#stRes").innerHTML = busy();
       const m = $("#stMonth").value + "-01";
       const { data, error } = await sb.from("statements").select("*, customers(*)").eq("period_start", m).order("statement_no");
       if (error) return fail(error, "Could not load statements");
@@ -721,16 +804,12 @@
     const asPeriod = (r) => ({ start: r.period_start, end: r.period_end, opening: num(r.opening_balance), closing: num(r.closing_balance), no: r.statement_no });
     async function statementDialog(r) {
       const att = await attachmentsOf("statement", r.id);
-      const signed = latestSigned(att);
-      const d = document.createElement("div"); d.className = "modal";
-      d.innerHTML = `<div class="window" role="dialog" aria-modal="true" aria-label="${esc(r.statement_no)}"><div class="wtitle">${esc(r.statement_no)} — ${esc(fullName(r.customers || {}))}</div>
-        <div class="wbody">${signedPanel("statement", r.id, att, "statement", "Uploaded SOA Copy")}</div>
-        <div class="wfoot">${signed ? `<button class="btn primary" id="sdSigned">View Uploaded SOA</button>` : ""}<button class="btn" id="sdPrint">Print SOA</button><button class="btn" id="sdClose">Close</button></div></div>`;
-      document.body.appendChild(d);
-      bindFiles(d); bindSigned(d, () => { d.remove(); statementDialog(r); });
-      $("#sdClose", d).onclick = () => d.remove();
-      if (signed) $("#sdSigned", d).onclick = () => viewFile(signed);
-      $("#sdPrint", d).onclick = async () => { d.remove(); const x = await dataFor(r.customer_id); printSoa(r.customers, asPeriod(r), x.txns, x.invs); };
+      const m = E.modal(`${r.statement_no} — ${fullName(r.customers || {})}`,
+        `<div class="docgrid">${docCard({ key: "soa-" + r.id, title: `Statement of Account ${r.statement_no}`, sub: monthName(r.period_start), ownerType: "statement", ownerId: r.id, att,
+          print: async () => { m.close(); const x = await dataFor(r.customer_id); printSoa(r.customers, asPeriod(r), x.txns, x.invs); } })}</div>`,
+        `<button type="button" class="btn" data-x>Close</button>`);
+      $("[data-x]", m.el).onclick = m.close;
+      bindDocCards(m.el, () => { m.close(); statementDialog(r); });
     }
     $("#stGo").onclick = load; $("#stMonth").onchange = load;
     $("#stGen").onclick = async () => { const { data, error } = await sb.rpc("generate_statements", {}); if (error) return fail(error, "Could not create statements"); toast(`${data || 0} new statement(s) created.`); load(); };
@@ -757,10 +836,11 @@
   ];
   V.invoices = async () => {
     E.shell("invoices", "Invoice", `
-      <div class="tabs" id="ivTabs"><button class="on" data-f="open">Active (Unpaid)</button><button data-f="paid">Paid</button><button data-f="">All</button></div>
-      <div class="btnrow">${isStaff() ? `<a class="btn primary" href="#newinvoice">+ Record Invoice</a>` : ""}</div>
-      <div id="ivRes"></div>`, "Active invoices still have a balance. Press <b>Record Invoice</b> to add a sale for an ACTIVE customer.");
+      <div class="tabs" id="ivTabs"><button type="button" class="on" data-f="open">Active (Unpaid)</button><button type="button" data-f="paid">Paid</button><button type="button" data-f="">All</button></div>
+      <div class="btnrow">${E.canWrite("invoices") ? `<a class="btn primary" href="#newinvoice">+ Record Invoice</a>` : ""}</div>
+      <div id="ivRes">${busy()}</div>`, "Active invoices still have a balance. Press <b>Record Invoice</b> to add a sale for an ACTIVE customer.");
     const run = async (f) => {
+      $("#ivRes").innerHTML = busy();
       let q = sb.from("invoice_balances").select("*").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(2000);
       if (f === "open") q = q.neq("pay_status", "paid"); else if (f === "paid") q = q.eq("pay_status", "paid");
       const { data, error } = await q;
@@ -776,7 +856,7 @@
   };
 
   V.newinvoice = async (custId) => {
-    if (!isStaff()) { toast("Only Staff and Admin users can record invoices.", true); location.hash = "invoices"; return; }
+    if (!E.canWrite("invoices")) { toast("Only Staff and Admin users can record invoices.", true); location.hash = "invoices"; return; }
     E.shell("newinvoice", "Record Invoice", `
       <form class="window" id="niForm" novalidate>
         <div class="wtitle">Record Invoice</div>
@@ -832,13 +912,13 @@
       const pAmt = num($("#niPAmt").value || amt);
       if (paid && pAmt <= 0) return toast("Enter the amount paid.", true);
       if (paid && method === "bank_transfer" && !$("#niRef").value.trim()) return toast("Enter the bank reference number.", true);
-      $$("#niForm button").forEach((b) => (b.disabled = true));
+      E.setBusy(e.target, true, "Saving");
       const { data: inv, error } = await sb.from("customer_invoices").insert({
         customer_id: cust.id, invoice_date: $("#niDate").value || isoToday(), purchase_date: $("#niPDate").value || null,
         po_number: $("#niPo").value.trim() || null, total_boxes: Math.max(0, Math.floor(num($("#niBox").value))),
         total_pcs: Math.max(0, Math.floor(num($("#niPcs").value))), total_amount: amt
       }).select().single();
-      if (error) { $$("#niForm button").forEach((b) => (b.disabled = false)); return fail(error, "Could not record the invoice"); }
+      if (error) { E.setBusy(e.target, false); return fail(error, "Could not record the invoice"); }
       let failed = 0;
       if (paid) {
         const { data: p, error: pe } = await sb.from("payments_received").insert({
@@ -857,29 +937,29 @@
   };
 
   V.invoice = async (id) => {
-    E.shell("invoice", "Invoice", `<div class="empty">Loading…</div>`);
+    E.shell("invoice", "Invoice", busy());
     const { data: inv } = await sb.from("invoice_balances").select("*").eq("id", id).maybeSingle();
     if (!inv) { $("#main").innerHTML = `<div class="empty">Invoice not found. <a href="#invoices">Back to Invoices</a></div>`; return; }
     const [pays, att] = await Promise.all([sb.from("payments_received").select("*").eq("invoice_id", id).order("paid_date"), attachmentsOf("invoice", id)]);
     $(".band h1").textContent = `Invoice — ${inv.invoice_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${pill(inv.pay_status)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
-        <span>Customer</span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a>
+        <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${dmy(inv.invoice_date)}</span><span>Date of Purchase</span><span>${dmy(inv.purchase_date) || "—"}</span>
         <span>PO Number</span><span>${esc(inv.po_number || "—")}</span><span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
         <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b><span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b><span>Balance</span><b>₱ ${peso(inv.balance)}</b></div></div>
+      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, sub: `₱ ${peso(inv.total_amount)} · ${dmy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, pays.data || [])]) })}</div>
       <div><b>Payments</b>${E.grid({ cols: PAY_COLS.filter((x) => !["Customer", "Account No", "Invoice"].includes(x.label)), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
-      ${signedPanel("invoice", inv.id, att, "invoice")}
-      <div><b>Files</b>${filesHtml(att)}</div></div>
-      <div class="wfoot">${latestSigned(att) ? `<button class="btn primary" id="ivSigned">View Signed Invoice</button>` : ""}<button class="btn ${latestSigned(att) ? "" : "primary"}" id="ivPrint">Print Invoice</button>
-        ${isStaff() && inv.pay_status !== "paid" && inv.customer_status !== "rejected" ? `<a class="btn" href="#newpayment/${inv.customer_id}/${inv.id}">Record Payment</a>` : ""}
+      <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div></div>
+      <div class="wfoot">${tools("customer_invoices", inv, `Invoice ${inv.invoice_no}`, { reload: () => V.invoice(id), afterDelete: () => (location.hash = "invoices") })}
+        ${(E.canWrite("payments") || E.canWrite("invoices")) && inv.pay_status !== "paid" && !["rejected", "pending", "verified"].includes(inv.customer_status) ? `<a class="btn" href="#newpayment/${inv.customer_id}/${inv.id}">Record Payment</a>` : ""}
         <a class="btn" href="#invoices">Close</a></div></div>`;
     E.bindGrid($("#main"), pays.data || [], (r) => (location.hash = "payment/" + r.id));
     bindFiles($("#main"));
-    $("#ivPrint").onclick = () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, pays.data || [])]);
-    if ($("#ivSigned")) $("#ivSigned").onclick = () => viewFile(latestSigned(att));
-    bindSigned($("#main"), () => V.invoice(id));
+    bindDocCards($("#main"), () => V.invoice(id));
+    bindTools($("#main"));
+    E.setRecords(`Invoice: ${inv.invoice_no}`);
   };
   function invoicePage(inv, pays) {
     return `${printHead("INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
@@ -889,7 +969,6 @@
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
       ${box("Payments Received", pays.length ? `<table class="rp"><thead><tr><th>Receipt No</th><th>Date</th><th>Method</th><th>Reference</th><th class="num">Amount</th></tr></thead><tbody>
         ${pays.map((p) => `<tr><td>${esc(p.receipt_no)}</td><td>${dmy(p.paid_date)}</td><td>${esc(METHOD[p.method])}</td><td>${esc(p.reference_no || "")}</td><td class="num">${peso(p.amount)}</td></tr>`).join("")}</tbody></table>` : `<div class="pv" style="padding:6px">UNPAID</div>`)}
-      ${inv.pay_status === "paid" ? stampHtml("PAID", "paid") : ""}
       ${sigs("Received by (Customer Signature) / Date", `Prepared by: ${esc(inv.created_by_name || "")}`)}`;
   }
 
@@ -905,7 +984,7 @@
   ];
   V.payments = async () => {
     E.shell("payments", "Payment", `
-      <div class="btnrow">${isStaff() ? `<a class="btn primary" href="#newpayment">+ Record Payment</a>` : ""}</div><div id="pyRes"></div>`,
+      <div class="btnrow">${E.canWrite("payments") || E.canWrite("invoices") ? `<a class="btn primary" href="#newpayment">+ Record Payment</a>` : ""}</div><div id="pyRes">${busy()}</div>`,
       "All payments received. Each payment gets a receipt number like <b>A-2026-1003-001</b> and a printable acknowledgment.");
     const { data, error } = await sb.from("payments_received").select("*, customers(first_name,last_name,account_no), invoices:customer_invoices(invoice_no)").order("created_at", { ascending: false }).limit(2000);
     if (error) return fail(error, "Could not load payments");
@@ -916,7 +995,7 @@
   };
 
   V.newpayment = async (custId, invId) => {
-    if (!isStaff()) { toast("Only Staff and Admin users can record payments.", true); location.hash = "payments"; return; }
+    if (!(E.canWrite("payments") || E.canWrite("invoices"))) { toast("Only Staff and Admin users can record payments.", true); location.hash = "payments"; return; }
     E.shell("newpayment", "Record Payment", `
       <form class="window" id="npForm" novalidate>
         <div class="wtitle">Record Payment</div>
@@ -964,13 +1043,13 @@
       if (amt <= 0) return toast("Enter the amount received.", true);
       const m = $("#npMethod").value;
       if (m !== "cash" && !$("#npRef").value.trim()) return toast("Enter the reference number.", true);
-      $$("#npForm button").forEach((b) => (b.disabled = true));
+      E.setBusy(e.target, true, "Saving");
       const { data: p, error } = await sb.from("payments_received").insert({
         customer_id: cust.id, invoice_id: $("#npInv").value || null, amount: amt, method: m, paid_date: $("#npDate").value || isoToday(),
         bank_name: m === "cash" ? null : $("#npBank").value.trim() || null, bank_account: m === "cash" ? null : $("#npAcct").value.trim() || null,
         reference_no: m === "cash" ? null : $("#npRef").value.trim(), notes: $("#npNotes").value.trim() || null
       }).select().single();
-      if (error) { $$("#npForm button").forEach((b) => (b.disabled = false)); return fail(error, "Could not record the payment"); }
+      if (error) { E.setBusy(e.target, false); return fail(error, "Could not record the payment"); }
       let failed = await uploadRecords("payment", p.id, "receipt", filesOf("npRcpt"));
       failed += await uploadRecords("payment", p.id, "purchase_order", filesOf("npPo"));
       if (failed) toast(`${failed} file(s) failed to upload.`, true);
@@ -979,7 +1058,7 @@
   };
 
   V.payment = async (id, extra) => {
-    E.shell("payment", "Payment", `<div class="empty">Loading…</div>`);
+    E.shell("payment", "Payment", busy());
     const { data: p } = await sb.from("payments_received").select("*, customers(*), invoices:customer_invoices(invoice_no,total_amount)").eq("id", id).maybeSingle();
     if (!p) { $("#main").innerHTML = `<div class="empty">Payment not found. <a href="#payments">Back to Payments</a></div>`; return; }
     const att = await attachmentsOf("payment", id);
@@ -988,20 +1067,20 @@
       ${extra === "done" ? `<div class="banner ok">✔ Payment successfully recorded — Receipt No <b>${esc(p.receipt_no)}</b>. It has been added to ${esc(fullName(p.customers))}'s account.</div>` : ""}
       <div class="window"><div class="wtitle">${esc(p.receipt_no)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
-        <span>Customer</span><a href="#customer/${p.customer_id}"><b>${esc(fullName(p.customers))}</b> (${esc(p.customers.account_no)})</a>
+        <span>Customer</span><span><a href="#customer/${p.customer_id}"><b>${esc(fullName(p.customers))}</b> (${esc(p.customers.account_no)})</a> ${p.customers.status !== "active" ? pill(p.customers.status) : ""}</span>
         <span>Amount</span><b>₱ ${peso(p.amount)}</b><span>In Words</span><span>${esc(words(p.amount))}</span>
         <span>Date Paid</span><span>${dmy(p.paid_date)}</span></div>
       <div class="fields wide"><span>Method</span><span>${esc(METHOD[p.method])}</span><span>Bank</span><span>${esc(p.bank_name || "—")}</span>
         <span>Deposit Account</span><span>${esc(p.bank_account || "—")}</span><span>Reference No</span><span>${esc(p.reference_no || "—")}</span>
         <span>Invoice</span><span>${p.invoice_id ? `<a href="#invoice/${p.invoice_id}">${esc(p.invoices?.invoice_no || "")}</a>` : "General payment"}</span>
         <span>Verified By</span><span>${esc(p.created_by_name || "")}</span></div></div>
-      ${signedPanel("payment", p.id, att, "acknowledgment receipt")}
-      <div><b>Files</b>${filesHtml(att)}</div></div>
-      <div class="wfoot">${latestSigned(att) ? `<button class="btn primary" id="pySigned">View Signed Receipt</button>` : ""}<button class="btn ${latestSigned(att) ? "" : "primary"}" id="pyPrint">Download Acknowledgment Receipt</button><a class="btn" href="#payments">Close</a></div></div>`;
+      <div class="docgrid">${docCard({ key: "ack", title: `Acknowledgment Receipt ${p.receipt_no}`, sub: `₱ ${peso(p.amount)} · ${dmy(p.paid_date)}`, ownerType: "payment", ownerId: p.id, att, print: () => E.openPreview(`Acknowledgment ${p.receipt_no}`, [ackPage(p)]) })}</div>
+      <div><b>Uploaded Receipts &amp; Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No receipts uploaded.")}</div></div>
+      <div class="wfoot">${tools("payments_received", p, `Receipt ${p.receipt_no}`, { reload: () => V.payment(id), afterDelete: () => (location.hash = "payments") })}<a class="btn" href="#payments">Close</a></div></div>`;
     bindFiles($("#main"));
-    $("#pyPrint").onclick = () => E.openPreview(`Acknowledgment ${p.receipt_no}`, [ackPage(p)]);
-    if ($("#pySigned")) $("#pySigned").onclick = () => viewFile(latestSigned(att));
-    bindSigned($("#main"), () => V.payment(id));
+    bindDocCards($("#main"), () => V.payment(id));
+    bindTools($("#main"));
+    E.setRecords(`Receipt: ${p.receipt_no}`);
   };
   function ackPage(p) {
     const c = p.customers;
@@ -1012,7 +1091,6 @@
         <div class="prow3">${cell("Bank", p.bank_name)}${cell("Deposit Account", p.bank_account)}${cell("Applied to Invoice", p.invoices?.invoice_no || "General payment")}</div>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(p.amount))}</div></div>`)}
       <p class="pdecl">This acknowledges that ${esc(C.company.name)} has received the payment above. Receipt No ${esc(p.receipt_no)}.</p>
-      ${stampHtml("RECEIVED", "paid")}
       ${sigs(`Received &amp; verified by: <b>${esc(p.created_by_name || "")}</b>`, "Customer Signature / Date")}`;
   }
 
@@ -1027,7 +1105,7 @@
   ];
   V.creditmemos = async () => {
     E.shell("creditmemos", "Credit Memo", `
-      <div class="btnrow">${isStaff() ? `<a class="btn primary" href="#newcreditmemo">+ New Credit Memo</a>` : ""}</div><div id="cmRes"></div>`,
+      <div class="btnrow">${E.canWrite("creditmemos") ? `<a class="btn primary" href="#newcreditmemo">+ New Credit Memo</a>` : ""}</div><div id="cmRes">${busy()}</div>`,
       "Customer complaints and defect claims. Approved <b>Credit</b> and <b>Discount</b> memos reduce the customer's balance due.");
     const { data, error } = await sb.from("credit_memos").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).limit(2000);
     if (error) return fail(error, "Could not load credit memos");
@@ -1038,7 +1116,7 @@
   };
 
   V.newcreditmemo = async (custId) => {
-    if (!isStaff()) { toast("Only Staff and Admin users can create credit memos.", true); location.hash = "creditmemos"; return; }
+    if (!E.canWrite("creditmemos")) { toast("Only Staff and Admin users can create credit memos.", true); location.hash = "creditmemos"; return; }
     E.shell("newcreditmemo", "New Credit Memo", `
       <form class="window" id="cmForm" novalidate>
         <div class="wtitle">Customer Complaint / Credit Memo</div>
@@ -1093,7 +1171,7 @@
       e.preventDefault();
       if (!cust) return toast("Choose the customer first.", true);
       const v = (id) => $("#" + id).value.trim();
-      $$("#cmForm button").forEach((b) => (b.disabled = true));
+      E.setBusy(e.target, true, "Submitting");
       const { data: m, error } = await sb.from("credit_memos").insert({
         customer_id: cust.id, memo_date: v("cmDate") || isoToday(), payment_ref: v("cmPay") || null, po_number: v("cmPo") || null,
         article: v("cmArt") || null, brand: v("cmBrand") || null, style: v("cmStyle") || null, batch_no: v("cmBatch") || null, serial_no: v("cmSerial") || null,
@@ -1102,7 +1180,7 @@
         requested_action: $("input[name=cmAct]:checked").value, rate: num(v("cmRate")), request_amount: num(v("cmAmt")),
         assigned_by: v("cmAssign") || null, inspection_notes: v("cmNotes") || null, factory_status: v("cmFactory") || null
       }).select().single();
-      if (error) { $$("#cmForm button").forEach((b) => (b.disabled = false)); return fail(error, "Could not save the credit memo"); }
+      if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the credit memo"); }
       const failed = await uploadRecords("credit_memo", m.id, "proof", filesOf("cmProof"));
       toast(`Credit memo ${m.memo_no} submitted for approval.${failed ? ` ${failed} file(s) failed.` : ""}`, failed > 0);
       location.hash = "creditmemo/" + m.id;
@@ -1110,14 +1188,14 @@
   };
 
   V.creditmemo = async (id) => {
-    E.shell("creditmemo", "Credit Memo", `<div class="empty">Loading…</div>`);
+    E.shell("creditmemo", "Credit Memo", busy());
     const { data: m } = await sb.from("credit_memos").select("*, customers(*)").eq("id", id).maybeSingle();
     if (!m) { $("#main").innerHTML = `<div class="empty">Credit memo not found. <a href="#creditmemos">Back</a></div>`; return; }
     const att = await attachmentsOf("credit_memo", id);
     $(".band h1").textContent = `Credit Memo — ${m.memo_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(m.memo_no)} ${pill(m.status)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
-        <span>Customer</span><a href="#customer/${m.customer_id}"><b>${esc(fullName(m.customers))}</b> (${esc(m.customers.account_no)})</a>
+        <span>Customer</span><span><a href="#customer/${m.customer_id}"><b>${esc(fullName(m.customers))}</b> (${esc(m.customers.account_no)})</a> ${m.customers.status !== "active" ? pill(m.customers.status) : ""}</span>
         <span>Payment Ref</span><span>${esc(m.payment_ref || "—")}</span><span>Purchase Order</span><span>${esc(m.po_number || "—")}</span>
         <span>Article</span><span>${esc(m.article || "—")}</span><span>Brand / Style</span><span>${esc([m.brand, m.style].filter(Boolean).join(" / ") || "—")}</span>
         <span>Batch / Serial</span><span>${esc([m.batch_no, m.serial_no].filter(Boolean).join(" / ") || "—")}</span>
@@ -1130,28 +1208,26 @@
         <span>Factory Status</span><span>${esc(m.factory_status || "—")}</span>
         <span>Approved By</span><span>${esc(m.approved_by_name || "—")} ${m.approved_at ? dmy(m.approved_at) : ""}</span>
         <span>Paid / Settled</span><span>${m.paid_at ? `${esc(m.paid_by_name || "")} ${dmy(m.paid_at)}` : "—"}</span></div></div>
-      ${signedPanel("credit_memo", m.id, att, "credit memo")}
-      <div><b>Proof</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"))}</div>
-      ${isAdmin() && ["pending", "approved"].includes(m.status) ? `<fieldset class="opt"><legend>Admin Decision</legend>
+      <div class="docgrid">${docCard({ key: "memo", title: `Credit Memo ${m.memo_no}`, sub: `₱ ${peso(m.request_amount)} · ${dmy(m.memo_date)}`, ownerType: "credit_memo", ownerId: m.id, att, print: () => E.openPreview(`Credit Memo ${m.memo_no}`, [memoPage(m)]) })}</div>
+      <div><b>Proof</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No proof uploaded.")}</div>
+      ${isAdmin() && ["pending", "approved"].includes(m.status) ? `<fieldset class="opt review"><legend>Admin Decision</legend>
         <div class="fields wide"><label for="cmNote">Note</label><input type="text" id="cmNote"></div>
-        <div class="btnrow">${m.status === "pending" ? `<button class="btn ok" data-a="approve">Approve</button><button class="btn danger" data-a="reject">Reject</button>` : `<button class="btn ok" data-a="paid">Mark as PAID / Settled</button>`}</div></fieldset>` : ""}
-      </div><div class="wfoot">${latestSigned(att) ? `<button class="btn primary" id="cmSigned">View Signed Credit Memo</button>` : ""}<button class="btn ${latestSigned(att) ? "" : "primary"}" id="cmPrint">Print Credit Memo</button><a class="btn" href="#creditmemos">Close</a></div></div>`;
+        <div class="btnrow">${m.status === "pending" ? `<button type="button" class="btn ok" data-a="approve">Approve</button><button type="button" class="btn danger" data-a="reject">Reject</button>` : `<button type="button" class="btn ok" data-a="paid">Mark as PAID / Settled</button>`}</div></fieldset>` : ""}
+      </div><div class="wfoot">${tools("credit_memos", m, `Credit Memo ${m.memo_no}`, { reload: () => V.creditmemo(id), afterDelete: () => (location.hash = "creditmemos") })}<a class="btn" href="#creditmemos">Close</a></div></div>`;
     bindFiles($("#main"));
+    bindDocCards($("#main"), () => V.creditmemo(id));
+    bindTools($("#main"));
     $$("[data-a]").forEach((b) => (b.onclick = async () => {
       const r = await sb.rpc("credit_memo_action", { p_id: m.id, p_action: b.dataset.a, p_note: $("#cmNote").value.trim() || null });
       if (r.error) return fail(r.error, "Could not update the credit memo");
       toast(`${m.memo_no} updated.`); V.creditmemo(m.id);
     }));
-    $("#cmPrint").onclick = () => E.openPreview(`Credit Memo ${m.memo_no}`, [memoPage(m)]);
-    if ($("#cmSigned")) $("#cmSigned").onclick = () => viewFile(latestSigned(att));
-    bindSigned($("#main"), () => V.creditmemo(id));
+    E.setRecords(`Credit memo: ${m.memo_no}`);
   };
   function memoPage(m) {
     const c = m.customers;
-    const stampTxt = { approved: "APPROVED", rejected: "REJECTED", paid: "APPROVED", pending: "PENDING" }[m.status];
     return `<div class="cm-head"><div><div class="cm-co">${esc(C.company.name)}</div><div class="cm-date">${esc(new Date(m.memo_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "2-digit", year: "numeric" }).toUpperCase())}</div></div>
         <div class="cm-rep"><div><span>REPORT:</span> <b>${esc(m.memo_no)}</b></div><img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt=""></div></div>
-      ${stampHtml(stampTxt, m.status)}
       <div class="ph-title" style="text-align:left">CUSTOMER COMPLAINT</div>
       ${box("Customer / Buyer Information", `<div class="pgrid2">${cell("Customer Name", fullName(c).toUpperCase(), "hl")}${cell("Customer ID", c.account_no, "hl")}
         ${cell("Payment Reference", m.payment_ref)}${cell("Purchase Order", m.po_number)}</div>`)}
@@ -1168,62 +1244,80 @@
       ${sigs("Customer Signature &nbsp; Date: ____________", "Approval Signature &nbsp; Date: ____________")}`;
   }
 
-  // Account status (suspend / reactivate / close) — admin panel inside the customer profile.
-  function statusPanel(c) {
-    return `<fieldset class="opt review"><legend>Account Status (Admin)</legend>
-      <div class="fields wide"><label for="stNote">Reason *</label><input type="text" id="stNote" placeholder="Why is this action taken?"></div>
-      <div class="btnrow">
-        ${c.status === "active" ? `<button class="btn" data-st="suspend">Suspend Account</button>` : ""}
-        ${c.status === "suspended" ? `<button class="btn ok" data-st="reactivate">Reactivate Account</button>` : ""}
-        <button class="btn danger" data-st="close">Close Permanently</button></div>
-      <small>Suspended: new invoices are blocked until reactivated. Closed: permanent, no new invoices, hidden from the top search.</small></fieldset>`;
-  }
-  function bindStatus(c) {
-    $$("[data-st]").forEach((b) => (b.onclick = async () => {
-      const note = $("#stNote").value.trim();
-      if (!note) return toast("Enter the reason first.", true);
-      if (b.dataset.st === "close" && b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Press again — this cannot be undone"; return; }
-      const r = await sb.rpc("customer_action", { p_id: c.id, p_action: b.dataset.st, p_note: note });
-      if (r.error) return fail(r.error, "Could not update the account");
-      toast(`${c.account_no} is now ${r.data.status.toUpperCase()}.`); V.customer(c.id);
-    }));
-  }
-
   // ======================================================================
   // Global search (top bar)
   // ======================================================================
   V.find = async (q) => {
     const t = cleanQ(q);
-    E.shell("find", `Search: ${t}`, `<div id="fdRes" class="empty">Searching…</div>`);
-    if (!t) { $("#fdRes").textContent = "Type something in the search bar."; return; }
+    E.shell("find", `Search: ${t}`, `<div id="fdRes">${busy("Searching")}</div>`);
+    const tq = $("#tbQ"); if (tq) tq.value = t;
+    const done = () => { const sp = $("#tbSpin"); if (sp) sp.hidden = true; };
+    if (!t) { done(); $("#fdRes").innerHTML = `<div class="empty">Type something in the search bar.</div>`; return; }
+    const sp = $("#tbSpin"); if (sp) sp.hidden = false;
     const w = t.split(/\s+/)[0];
-    const [cs, iv, py] = await Promise.all([
-      sb.from("customers").select("*").neq("status", "closed").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,account_no.ilike.%${w}%,public_id.ilike.%${w}%,business_name.ilike.%${w}%,phone.ilike.%${w}%`).limit(100),
-      sb.from("invoice_balances").select("*").neq("customer_status", "closed").or(`invoice_no.ilike.%${w}%,po_number.ilike.%${w}%`).limit(50),
-      sb.from("payments_received").select("*, customers(first_name,last_name,account_no,status)").or(`receipt_no.ilike.%${w}%,reference_no.ilike.%${w}%`).limit(50)
+    const H = E.hasModule;
+    const none = Promise.resolve({ data: [] });
+    const [cs, iv, py, ol, vo, em] = await Promise.all([
+      H("customers") ? sb.from("customers").select("*").neq("status", "closed").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,account_no.ilike.%${w}%,public_id.ilike.%${w}%,business_name.ilike.%${w}%,phone.ilike.%${w}%`).limit(100) : none,
+      H("invoices") ? sb.from("invoice_balances").select("*").neq("customer_status", "closed").or(`invoice_no.ilike.%${w}%,po_number.ilike.%${w}%`).limit(50) : none,
+      H("payments") ? sb.from("payments_received").select("*, customers(first_name,last_name,account_no,status)").or(`receipt_no.ilike.%${w}%,reference_no.ilike.%${w}%`).limit(50) : none,
+      E.canOpen("orders") ? sb.from("order_letters").select("*, customers(first_name,last_name,account_no)").or(`order_no.ilike.%${w}%,subject.ilike.%${w}%`).limit(30) : none,
+      H("billing") ? sb.from("pay_vouchers").select("*, pay_companies(name)").or(`voucher_no.ilike.%${w}%,reference_no.ilike.%${w}%,purpose.ilike.%${w}%`).limit(30) : none,
+      H("employees") ? sb.from("employees").select("*").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,employee_no.ilike.%${w}%,email.ilike.%${w}%`).limit(30) : none
     ]);
+    done();
+    if (!$("#fdRes")) return; // navigated away
     const ws = t.toLowerCase().split(/\s+/);
     const custs = (cs.data || []).filter((c) => ws.every((x) => `${fullName(c)} ${c.account_no} ${c.public_id} ${c.business_name || ""} ${c.phone || ""}`.toLowerCase().includes(x)));
     const pays = (py.data || []).filter((p) => p.customers?.status !== "closed");
-    $("#main").innerHTML = `<h3>Customers (${custs.length})</h3><div id="fdC"></div><h3>Invoices (${(iv.data || []).length})</h3><div id="fdI"></div><h3>Payments (${pays.length})</h3><div id="fdP"></div>`;
-    $("#fdC").innerHTML = E.grid({ cols: [{ label: "Account No", get: (r) => r.account_no }, { label: "Name", get: fullName }, { label: "Business", get: (r) => r.business_name || "" }, { label: "Phone", get: (r) => r.phone || "" }, { label: "Status", html: (r) => pill(r.status) }], rows: custs, onRow: true, empty: "No customers match." });
-    E.bindGrid($("#fdC"), custs, (r) => (location.hash = "customer/" + r.id));
-    $("#fdI").innerHTML = E.grid({ cols: INV_COLS, rows: iv.data || [], onRow: true, empty: "No invoices match." });
-    E.bindGrid($("#fdI"), iv.data || [], (r) => (location.hash = "invoice/" + r.id));
-    $("#fdP").innerHTML = E.grid({ cols: PAY_COLS, rows: pays, onRow: true, empty: "No payments match." });
-    E.bindGrid($("#fdP"), pays, (r) => (location.hash = "payment/" + r.id));
-    const tq = $("#tbQ"); if (tq) tq.value = t;
+    const sections = [];
+    if (H("customers")) sections.push(["Customers", custs, [{ label: "Account No", get: (r) => r.account_no }, { label: "Name", get: fullName }, { label: "Business", get: (r) => r.business_name || "" }, { label: "Phone", get: (r) => r.phone || "" }, { label: "Status", html: (r) => pill(r.status) }], (r) => "customer/" + r.id]);
+    if (H("invoices")) sections.push(["Invoices", iv.data || [], INV_COLS, (r) => "invoice/" + r.id]);
+    if (H("payments")) sections.push(["Payments", pays, PAY_COLS, (r) => "payment/" + r.id]);
+    if ((ol.data || []).length) sections.push(["Order Letters", ol.data, [{ label: "Order No", get: (r) => r.order_no }, { label: "Customer", get: (r) => fullName(r.customers || {}) }, { label: "Subject", get: (r) => r.subject }, { label: "Status", html: (r) => pill(r.status) }], (r) => "order/" + r.id]);
+    if ((vo.data || []).length) sections.push(["Payment Vouchers", vo.data, [{ label: "Voucher No", get: (r) => r.voucher_no }, { label: "Company", get: (r) => r.pay_companies?.name || "" }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "PHP", num: true, get: (r) => peso(r.amount_php) }, { label: "BDT", num: true, get: (r) => peso(r.amount_bdt) }], (r) => "voucher/" + r.id]);
+    if ((em.data || []).length) sections.push(["Employees", em.data, [{ label: "Employee No", get: (r) => r.employee_no }, { label: "Name", get: fullName }, { label: "Position", get: (r) => r.position || "" }, { label: "Status", html: (r) => pill(r.status) }], (r) => "employee/" + r.id]);
+    const total = sections.reduce((s, x) => s + x[1].length, 0);
+    $("#main").innerHTML = `<div class="find-sum">${total ? `${ic("search")} ${total} record(s) found for “${esc(t)}”` : `${ic("search")} Nothing found for “${esc(t)}”. Try a different spelling, or <a href="#verify/${encodeURIComponent(t)}">verify it as a record number</a>.`}</div>`
+      + sections.map(([title, rows], i) => `<h3>${esc(title)} (${rows.length})</h3><div id="fd${i}"></div>`).join("");
+    sections.forEach(([, rows, cols, link], i) => {
+      $("#fd" + i).innerHTML = E.grid({ cols, rows, onRow: true, empty: "No matches." });
+      E.bindGrid($("#fd" + i), rows, (r) => (location.hash = link(r)));
+    });
+    E.setRecords(`Found: ${total}`);
   };
 
   // ======================================================================
-  // My Photo / Company Logo
+  // My Profile (photo, username, employee record, payslip history) and Company Logo
   // ======================================================================
-  V.profile = () => {
+  V.profile = async () => {
     const av = E.publicUrl("avatars", S.profile.avatar_path);
-    E.shell("profile", "My Photo", `<div class="window"><div class="wtitle">${esc(myName())}</div><div class="wbody">
-      <div class="profile-photo">${av ? `<img src="${esc(av)}" alt="Your photo">` : `<span>No photo yet</span>`}</div>
-      <div class="fields wide"><label for="mpFile">Upload Photo</label><input type="file" id="mpFile" accept="image/*"></div>
-      <small>This photo shows at the top right of every page after you sign in.</small></div></div>`);
+    E.shell("profile", "My Profile", busy());
+    const { data: emp } = await sb.from("employees").select("*").eq("profile_id", S.profile.id).maybeSingle();
+    const slips = emp ? (await sb.from("payslips").select("*").eq("employee_id", emp.id).order("pay_date", { ascending: false })).data || [] : [];
+    const netTotal = slips.reduce((s, p) => s + num(p.net_pay), 0);
+    $("#main").innerHTML = `
+      <section class="me-card">
+        <div class="me-photo">${av ? `<img src="${esc(av)}" alt="Your photo">` : `<span>${esc(E.initials(myName()))}</span>`}
+          <label class="btn small" for="mpFile">${ic("camera")} Change Photo</label><input type="file" id="mpFile" accept="image/*" hidden></div>
+        <div class="me-main"><h2>${esc(myName())}</h2>
+          <div class="me-sub">${S.profile.username ? `@${esc(S.profile.username)} · ` : ""}${esc(S.session.user.email)} · ${esc(S.profile.role.toUpperCase())}</div>
+          ${emp ? `<div class="ch-ids">${idBox("Employee No", emp.employee_no)}${idBox("Position", emp.position)}${idBox("Date Hired", dmy(emp.date_hired))}${idBox("Monthly Salary (₱)", peso(emp.monthly_salary))}</div>` : ""}
+        </div>
+      </section>
+      <div class="cols">
+        <fieldset class="opt"><legend>Username</legend>
+          ${S.profile.username ? `<p>Your username is <b>@${esc(S.profile.username)}</b>. You can sign in with it or with your email.</p>`
+            : `<p>Set a username so you can sign in without typing your email.</p><div class="fields wide"><label for="mpUser">Username</label><input type="text" id="mpUser" maxlength="20" autocapitalize="none" spellcheck="false" placeholder="3–20 letters, numbers, dot or underscore"></div>
+              <div class="btnrow"><button type="button" class="btn primary" id="mpUserSave">Save Username</button></div>`}
+        </fieldset>
+        <fieldset class="opt"><legend>Password</legend><p>Change the password you sign in with.</p><div class="btnrow"><button type="button" class="btn" id="mpPw">${ic("key")} Change Password</button></div></fieldset>
+      </div>
+      ${emp ? `<h3>My Payslip History</h3>
+        <div class="tiles"><div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div><div class="tile ok"><div class="k">Total Received (₱)</div><div class="v">₱ ${peso(netTotal)}</div></div></div>
+        <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => dmy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}`;
+    if (emp) E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
+    $("#mpPw").onclick = () => E.changePassword();
     $("#mpFile").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
       if (f.size > 5 * 1024 * 1024) return toast("Choose a photo under 5 MB.", true);
@@ -1234,6 +1328,14 @@
       if (r.error) return fail(r.error, "Could not save the photo");
       S.profile.avatar_path = path; toast("Photo saved."); V.profile();
     };
+    if ($("#mpUserSave")) $("#mpUserSave").onclick = async () => {
+      const u = $("#mpUser").value.trim().toLowerCase();
+      if (!/^[a-z0-9._]{3,20}$/.test(u)) return toast("Use 3–20 letters, numbers, dot or underscore.", true);
+      const r = await sb.rpc("set_my_username", { p_username: u });
+      if (r.error) return fail(r.error, "Could not save the username");
+      S.profile.username = u; toast(`Username @${u} saved.`); V.profile();
+    };
+    E.setRecords(emp ? `Employee: ${emp.employee_no}` : "My Profile");
   };
   V.settings = () => {
     if (!isAdmin()) { location.hash = "dashboard"; return; }
@@ -1251,6 +1353,9 @@
       await E.loadBranding(); toast("Logo saved."); V.settings();
     };
   };
-  // shared with modules2.js
-  Object.assign(E, { extOf, viewFile, signedPanel, bindSigned, latestSigned, uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, printHead, box, cell, sigs, stampHtml, uuid, cleanQ });
+  // shared with modules2.js and modules3.js
+  Object.assign(E, {
+    extOf, viewFile, latestSigned, uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, isImage,
+    docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, stampHtml, uuid, cleanQ, idBox, METHOD
+  });
 })();

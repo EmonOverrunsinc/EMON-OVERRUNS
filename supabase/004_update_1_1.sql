@@ -1148,6 +1148,7 @@ create policy "att: active read" on public.attachments for select to authenticat
   ((select public.is_active()) and (owner_type not in ('employee','job_application','payslip') or (select public.is_admin()) or (select public.has_module('employees'))))
   or (owner_type = 'job_application' and exists (select 1 from public.job_applications j where j.id = owner_id and j.profile_id = (select auth.uid())))
   or (owner_type = 'payslip' and exists (select 1 from public.payslips s join public.employees e on e.id = s.employee_id where s.id = owner_id and e.profile_id = (select auth.uid())))
+  or (owner_type = 'employee' and exists (select 1 from public.employees e where e.id = owner_id and e.profile_id = (select auth.uid())))
 );
 drop policy if exists "att: staff insert" on public.attachments;
 create policy "att: staff insert" on public.attachments for insert to authenticated with check (
@@ -1160,6 +1161,8 @@ create policy "storage records: active read" on storage.objects for select to au
   bucket_id = 'records' and (
     ((select public.is_active()) and ((storage.foldername(name))[1] not in ('employee','job_application','payslip') or (select public.is_admin()) or (select public.has_module('employees'))))
     or ((storage.foldername(name))[1] = 'job_application' and exists (select 1 from public.job_applications j where j.id::text = (storage.foldername(name))[2] and j.profile_id = (select auth.uid())))
+    or ((storage.foldername(name))[1] = 'employee' and exists (select 1 from public.employees e where e.id::text = (storage.foldername(name))[2] and e.profile_id = (select auth.uid())))
+    or ((storage.foldername(name))[1] = 'payslip' and exists (select 1 from public.payslips s join public.employees e on e.id = s.employee_id where s.id::text = (storage.foldername(name))[2] and e.profile_id = (select auth.uid())))
   ));
 drop policy if exists "storage records: staff upload" on storage.objects;
 create policy "storage records: staff upload" on storage.objects for insert to authenticated with check (

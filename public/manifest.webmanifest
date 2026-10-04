@@ -1,7 +1,7 @@
 {
-  "name": "Emon Overruns Portal",
-  "short_name": "Emon Overruns",
-  "description": "Customers, invoices, payments, statements and records for Emon Overruns, Pasay City.",
+  "name": "EMON OVERRUNS E-PORTAL",
+  "short_name": "E-PORTAL",
+  "description": "EMON OVERRUNS E-PORTAL — customers, invoices, payments, employees, billing, order letters and record verification. Pasay City.",
   "id": "/",
   "start_url": "/#dashboard",
   "scope": "/",
@@ -16,8 +16,9 @@
     { "src": "brand/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
+    { "name": "Verify a Record", "url": "/#verify", "icons": [{ "src": "brand/icon-192.png", "sizes": "192x192" }] },
     { "name": "New Customer", "url": "/#newcustomer", "icons": [{ "src": "brand/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Record Invoice", "url": "/#newinvoice", "icons": [{ "src": "brand/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Record Payment", "url": "/#newpayment", "icons": [{ "src": "brand/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Record Payment", "url": "/#newpayment", "icons": [{ "src": "brand/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Messages and Community", "url": "/#community", "icons": [{ "src": "brand/icon-192.png", "sizes": "192x192" }] }
   ]
 }
