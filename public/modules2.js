@@ -429,18 +429,19 @@
 
   const EDU_COLS = ["Examination", "Institute / Board", "Result / GPA", "Passing Year"];
   const EXP_COLS = ["Company", "Position", "From", "To"];
-  // The printed job application (laid out like the company's paper template).
+  // The printed job application (laid out like the company's paper template), on one A4 page: the application
+  // number, name, phone and email sit under the company name, beside the QR code and the photo.
   function jobAppPage(a, photoUrl) {
     const edu = Array.isArray(a.education) ? a.education : [], exp = Array.isArray(a.experience) ? a.experience : [];
     const row4 = (cells) => `<tr>${cells.map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`;
     return `<div class="ja-head">
-        <div class="ja-left">${E.logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</div></div></div>
+        <div class="ja-main">
+          <div class="ja-left">${E.logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</div></div></div>
+          <div class="ja-ids"><div><span>Application No</span><b>${esc(a.application_no)}</b></div><div><span>Name</span><b>${esc(a.full_name)}</b></div>
+            <div><span>Phone</span><b>${esc(a.phone || "")}</b></div><div><span>Email</span><b>${esc(a.email || "")}</b></div>
+            ${a.status === "approved" ? `<div class="ja-appr">( APPROVED ) ${esc(a.approval_no || "")} ${esc(E.dmy(a.approved_at))}</div>` : ""}</div></div>
+        <div class="ja-qr"><img src="${E.qrDataUrl("EMONJA|" + a.application_no)}" alt="QR code"><img class="ja-bar" src="${E.pdf417DataUrl("EMONJA|" + a.application_no)}" alt=""></div>
         <div class="ja-photo">${photoUrl ? `<img src="${esc(photoUrl)}" alt="">` : "PHOTO"}</div></div>
-      <div class="ja-idrow">
-        <div class="ja-ids"><div><span>Application No</span><b>${esc(a.application_no)}</b></div><div><span>Name</span><b>${esc(a.full_name)}</b></div>
-          <div><span>Phone</span><b>${esc(a.phone || "")}</b></div><div><span>Email</span><b>${esc(a.email || "")}</b></div>
-          ${a.status === "approved" ? `<div class="ja-appr">( APPROVED ) ${esc(a.approval_no || "")} ${esc(E.dmy(a.approved_at))}</div>` : ""}</div>
-        <div class="ja-qr"><img src="${E.qrDataUrl("EMONJA|" + a.application_no)}" alt="QR code"><img class="ja-bar" src="${E.pdf417DataUrl("EMONJA|" + a.application_no)}" alt=""></div></div>
       <div class="ph-title">JOB APPLICATION FORM</div>
       ${E.box("Address Details", `<div class="pgrid2">${E.cell("Present Address", a.present_address)}${E.cell("Permanent Address", a.permanent_address)}</div>`)}
       ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Full Name", a.full_name, "hl")}${E.cell("Father's Name", a.father_name)}${E.cell("Mother's Name", a.mother_name)}${E.cell("Wife / Husband Name", a.spouse_name)}
