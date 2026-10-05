@@ -1,6 +1,6 @@
 /* EMON OVERRUNS E-PORTAL — job applicant portal, 6 Community, 9 Order Letter, Verification (public),
-   Messages (chat), Corrections, and the Add Correction / Cancel Record tools used on every record
-   (saved records are never edited or deleted). */
+   Messages (chat), Corrections, and the Add Correction / Delete (CEO) tools used on every record
+   (saved records are never edited; only the CEO deletes, permanently). */
 (function () {
   "use strict";
   const E = window.EO;
@@ -41,13 +41,13 @@
   const avatarOf = (c) => c.avatar_path ? `<img src="${esc(E.publicUrl("avatars", c.avatar_path))}" alt="">` : `<span>${esc(E.initials(c.full_name))}</span>`;
 
   // ======================================================================
-  // Records are only added: Add Correction / Cancel Record on every record
-  // (staff: Request Correction / Request Cancel, approved by the CEO)
+  // Records are only added: Add Correction on every record (staff: Request Correction, approved by the CEO).
+  // Only the CEO deletes a record, and then it is gone for good.
   // ======================================================================
   const F = (k, label, type = "text", opts) => ({ k, label, type, opts });
   const METHODS = [["cash", "Cash"], ["bank_transfer", "Bank Transfer"], ["online_transfer", "Online Transfer"], ["deposit", "Bank Deposit"]];
   // Details that can be corrected — must match editable_columns() in the database. Amounts, transaction dates and
-  // record numbers are never corrected: a wrong money record is cancelled and recorded again.
+  // record numbers are never corrected: a wrong money record is deleted by the CEO and recorded again.
   const FIELDS = {
     customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Date Starting in Business", "date"), F("facebook_name", "Facebook Name"), F("has_extra_facebook", "Has Additional Facebook", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool")],
     customer_invoices: [F("purchase_date", "Date of Purchase", "date"), F("po_number", "PO Number"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int")],
@@ -64,8 +64,10 @@
     pay_vouchers: [F("purpose", "Purpose"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
     job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife / Husband Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("apply_salary", "Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date")]
   };
-  // Money records that are cancelled (never deleted) when wrong — must match cancellable_table() in the database.
-  const CANCELLABLE = ["customer_invoices", "payments_received", "credit_memos", "payslips", "pay_vouchers", "project_payments", "order_letters"];
+  // Money records: their amounts and dates are not corrected (the CEO deletes a wrong one and it is recorded again).
+  const MONEY = ["customer_invoices", "payments_received", "credit_memos", "payslips", "pay_vouchers", "project_payments", "order_letters"];
+  // Records the CEO can delete — must match deletable_table() in the database.
+  const DELETABLE = ["customers", "customer_invoices", "payments_received", "credit_memos", "order_letters", "employees", "payslips", "projects", "project_payments", "pay_companies", "pay_accounts", "pay_vouchers", "job_applications", "job_positions"];
   const TABLE_NAME = { customers: "Customer", customer_invoices: "Invoice", payments_received: "Payment", credit_memos: "Credit Memo", employees: "Employee", payslips: "Payslip", projects: "Project", project_payments: "Project Payment", pay_companies: "Billing Company", pay_accounts: "Billing Account", pay_vouchers: "Payment Voucher", job_applications: "Job Application", order_letters: "Order Letter" };
   const ROUTE_OF = { customers: "customer", customer_invoices: "invoice", payments_received: "payment", credit_memos: "creditmemo", employees: "employee", payslips: "payslip", projects: "project", pay_companies: "paycompany", pay_vouchers: "voucher", job_applications: "jobapp", order_letters: "order" };
   const fieldLabel = (table, k) => (FIELDS[table] || []).find((f) => f.k === k)?.label || k.replace(/_/g, " ");
@@ -104,9 +106,9 @@
     if (!fields) return toast("This record cannot be corrected.", true);
     const admin = isAdmin();
     const m = E.modal(`${admin ? "Add Correction" : "Request Correction"} — ${label}`, `
-      <div class="hint">The saved record is not edited. ${admin ? "A correction record is added" : "When the CEO approves, a correction record is added"} with the new details, and the original details stay in the record's history.</div>
+      <div class="hint">The saved record is not edited. ${admin ? "A correction record is added" : "When the CEO approves, a correction record is added"} with the new details, and the original details are kept with it.</div>
       <div class="fields wide edit-grid">${fields.map((f) => fieldInput(f, row[f.k])).join("")}</div>
-      ${CANCELLABLE.includes(table) ? `<small class="muted">Amounts and dates cannot be corrected. If they are wrong, cancel this record and record it again.</small>` : ""}
+      ${MONEY.includes(table) ? `<small class="muted">Amounts and dates cannot be corrected. If they are wrong, ${admin ? "delete this record" : "ask the CEO to delete this record"} and record it again.</small>` : ""}
       <label class="fl" for="edReason">Reason for the correction *</label><textarea id="edReason" rows="2" placeholder="e.g. Wrong phone number was typed"></textarea>`,
       `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn primary" data-ok>${admin ? "Add Correction" : "Send for Approval"}</button>`, { wide: true });
     $("[data-x]", m.el).onclick = m.close;
@@ -117,7 +119,7 @@
       const reason = $("#edReason", m.el).value.trim();
       if (!reason) return toast("Write the reason for the correction.", true);
       const btn = $("[data-ok]", m.el); btn.disabled = true;
-      const { data, error } = await sb.rpc("submit_change_request", { p_table: table, p_id: row.id, p_changes: changes, p_reason: reason, p_label: label, p_kind: "correction" });
+      const { data, error } = await sb.rpc("submit_change_request", { p_table: table, p_id: row.id, p_changes: changes, p_reason: reason, p_label: label });
       btn.disabled = false;
       if (error) return fail(error, admin ? "Could not add the correction" : "Could not send the correction");
       m.close();
@@ -125,55 +127,38 @@
       if (reload) reload();
     };
   }
-  // A wrong money record is cancelled, never deleted: it stays, marked CANCELLED, and is left out of every total.
-  function cancelRecord(table, row, label, reload) {
-    const admin = isAdmin();
-    const m = E.modal(`${admin ? "Cancel Record" : "Request Cancel"} — ${label}`, `
-      <div class="banner warn">${esc(label)} is not deleted. It stays in the system marked <b>CANCELLED</b> with a cancel record, and is left out of all totals and balances.${table === "customer_invoices" ? " If the invoice has payments, cancel those payments first." : ""} Then record the correct one as a new record.</div>
-      <label class="fl" for="cxReason">Reason for cancelling *</label><textarea id="cxReason" rows="2" placeholder="e.g. Wrong amount was typed — recorded again"></textarea>
-      ${admin ? "" : `<small class="muted">The CEO approves the cancel.</small>`}`,
-      `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn danger" data-ok>${admin ? "Cancel This Record" : "Send for Approval"}</button>`);
-    $("[data-x]", m.el).onclick = m.close;
-    $("[data-ok]", m.el).onclick = async () => {
-      const reason = $("#cxReason", m.el).value.trim();
-      if (!reason) return toast("Write the reason for cancelling.", true);
-      const btn = $("[data-ok]", m.el); btn.disabled = true;
-      const { data, error } = await sb.rpc("submit_change_request", { p_table: table, p_id: row.id, p_changes: null, p_reason: reason, p_label: label, p_kind: "cancel" });
-      btn.disabled = false;
-      if (error) return fail(error, admin ? "Could not cancel the record" : "Could not send the cancel request");
-      m.close();
-      toast(admin ? `${label} is now CANCELLED (${data.request_no}).` : `Cancel request ${data.request_no} sent to the CEO.`);
-      if (reload) reload();
-    };
+  // The CEO deletes a record permanently, with its files. Nothing of it is shown afterwards.
+  async function deleteRecord(table, row, label, afterDelete) {
+    if (!isAdmin()) return;
+    if (!(await E.confirmBox(`Delete <b>${esc(label)}</b> permanently? It is removed from the portal with its files and cannot be brought back.`, { title: "Delete record", ok: "Delete", danger: true }))) return;
+    const { data: paths, error } = await sb.rpc("delete_record", { p_table: table, p_id: row.id });
+    if (error) return fail(error, "Could not delete");
+    const files = [...new Set((paths || []).filter(Boolean))];
+    if (files.length) await sb.storage.from("records").remove(files).then(() => {}, () => {});
+    toast(`${label} deleted.`);
+    if (afterDelete) afterDelete();
   }
   const RT = new Map();
   function recordTools(table, row, label, opts = {}) {
-    if (!S.profile || !row || row.void_no) return "";
-    const fix = !!FIELDS[table];
-    const cancel = CANCELLABLE.includes(table) && (table !== "order_letters" || ["pending", "approved"].includes(row.status));
-    if (!fix && !cancel) return "";
+    if (!S.profile || !row) return "";
+    const admin = isAdmin();
+    const fix = !!FIELDS[table], del = admin && DELETABLE.includes(table);
+    if (!fix && !del) return "";
     if (RT.size > 300) RT.clear();
     const id = "rt" + Math.random().toString(36).slice(2, 9);
     RT.set(id, { table, row, label, ...opts });
-    const admin = isAdmin();
-    return `<span class="rtools" data-rt="${id}">${fix ? `<button type="button" class="btn" data-rt-fix>${ic("edit")} ${admin ? "Add Correction" : "Request Correction"}</button>` : ""}${cancel ? `<button type="button" class="btn danger" data-rt-cancel>${ic("x")} ${admin ? "Cancel Record" : "Request Cancel"}</button>` : ""}</span>`;
+    return `<span class="rtools" data-rt="${id}">${fix ? `<button type="button" class="btn" data-rt-fix>${ic("edit")} ${admin ? "Add Correction" : "Request Correction"}</button>` : ""}${del ? `<button type="button" class="btn danger" data-rt-del>${ic("trash")} Delete</button>` : ""}</span>`;
   }
   function bindRecordTools(root = document) {
     $$("[data-rt]", root).forEach((w) => {
       const o = RT.get(w.dataset.rt); if (!o) return;
-      const fx = $("[data-rt-fix]", w), cx = $("[data-rt-cancel]", w);
+      const fx = $("[data-rt-fix]", w), dl = $("[data-rt-del]", w);
       if (fx) fx.onclick = (e) => { e.stopPropagation(); correctRecord(o.table, o.row, o.label, o.reload); };
-      if (cx) cx.onclick = (e) => { e.stopPropagation(); cancelRecord(o.table, o.row, o.label, o.reload); };
+      if (dl) dl.onclick = (e) => { e.stopPropagation(); deleteRecord(o.table, o.row, o.label, o.afterDelete || o.reload); };
     });
     $$("[data-rh]", root).forEach((el) => { const [t, id] = el.dataset.rh.split(":"); recordHistory(el, t, id); });
   }
-  // Cancelled records stay, clearly marked, on screen and on paper. Only the CEO sees the cancel record
-  // itself (its number, reason and who cancelled); everyone else just sees CANCELLED.
-  const voidBanner = (r) => !r?.void_no ? "" : isAdmin()
-    ? `<div class="banner closed">${ic("x")} CANCELLED on ${dmy(r.voided_at)} by cancel record <b class="mono">${esc(r.void_no)}</b>${r.voided_by_name ? ` (${esc(r.voided_by_name)})` : ""} — ${esc(r.void_reason || "")}. Kept for reference only; it is left out of all totals and balances.</div>`
-    : `<div class="banner closed">${ic("x")} CANCELLED on ${dmy(r.voided_at)}. Kept for reference only; it is left out of all totals and balances.</div>`;
-  const voidPrint = (r) => !r?.void_no ? "" : `<div class="void-print">CANCELLED · ${dmy(r.voided_at)}${isAdmin() ? ` · ${esc(r.void_no)} · ${esc(r.void_reason || "")}` : ""}</div>`;
-  // Corrections and cancel records added to one record (with requests still waiting), newest first. CEO only.
+  // Corrections added to one record (with requests still waiting), newest first. CEO only.
   const rhBox = (table, id) => isAdmin() ? `<div class="rhist" data-rh="${esc(table)}:${esc(id)}" hidden></div>` : "";
   async function recordHistory(el, table, id) {
     const [done, reqs] = await Promise.all([
@@ -183,12 +168,12 @@
     if (!el.isConnected) return;
     const why = new Map((reqs.data || []).map((r) => [r.request_no, r.reason]));
     const rows = [
-      ...(reqs.data || []).filter((r) => r.status === "pending").map((r) => ({ at: r.created_at, no: r.request_no, st: "pending", what: r.kind === "cancel" ? "Cancel request" : "Correction request", detail: r.kind === "cancel" ? "" : changeList(table, r.changes, r.previous), why: r.reason, by: r.requested_by_name })),
-      ...(done.data || []).map((r) => ({ at: r.created_at, no: r.request_no || "", st: r.action === "cancel" ? "cancelled" : "approved", what: r.action === "cancel" ? "Cancel record" : "Correction", detail: r.action === "cancel" ? "" : changeList(table, r.changes, r.previous), why: why.get(r.request_no) || "", by: r.actor_name }))
+      ...(reqs.data || []).filter((r) => r.status === "pending").map((r) => ({ at: r.created_at, no: r.request_no, st: "pending", what: "Correction request", detail: changeList(table, r.changes, r.previous), why: r.reason, by: r.requested_by_name })),
+      ...(done.data || []).map((r) => ({ at: r.created_at, no: r.request_no || "", st: "approved", what: "Correction", detail: changeList(table, r.changes, r.previous), why: why.get(r.request_no) || "", by: r.actor_name }))
     ];
     if (!rows.length) { el.hidden = true; return; }
     el.hidden = false;
-    el.innerHTML = `<b>Corrections &amp; Cancel Records</b>${E.grid({ cols: [
+    el.innerHTML = `<b>Corrections</b>${E.grid({ cols: [
       { label: "Date / Time", get: (r) => E.stamp(new Date(r.at)) }, { label: "Record No", get: (r) => r.no }, { label: "Type", html: (r) => `${esc(r.what)} ${pill(r.st)}` },
       { label: "Original → Corrected", get: (r) => r.detail || "—" }, { label: "Reason", get: (r) => r.why || "" }, { label: "By", get: (r) => r.by || "" }], rows })}`;
   }
@@ -198,11 +183,10 @@
   // ======================================================================
   V.changes = async () => {
     if (!isAdmin()) { location.hash = "dashboard"; return; }
-    const admin = true;
     E.shell("changes", "Corrections", `
       <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button><button type="button" data-f="log">Correction Log</button></div>
       <div id="crRes">${busy()}</div>`,
-      "Saved records are never edited or deleted. Staff send <b>corrections</b> (wrong details) and <b>cancels</b> (wrong money records) here; <b>Approve</b> adds the correction or cancel record. Your own are added straight away. Only you can see corrections and cancel records.");
+      "Saved records are never edited. Staff send <b>corrections</b> (wrong details) here; <b>Approve</b> adds the correction record. Your own are added straight away. Only you can see corrections.");
     const run = async (f) => {
       $("#crRes").innerHTML = busy();
       if (f === "log") {
@@ -211,7 +195,7 @@
         const rows = data || [];
         $("#crRes").innerHTML = E.grid({ cols: [
           { label: "Date / Time", get: (r) => E.stamp(new Date(r.created_at)) }, { label: "Record", get: (r) => `${TABLE_NAME[r.target_table] || r.target_table}: ${r.target_label || ""}` },
-          { label: "Type", get: (r) => r.action === "cancel" ? "CANCEL RECORD" : "CORRECTION" }, { label: "Original → Corrected", get: (r) => r.action === "cancel" ? "Marked CANCELLED" : changeList(r.target_table, r.changes, r.previous) },
+          { label: "Original → Corrected", get: (r) => changeList(r.target_table, r.changes, r.previous) },
           { label: "By", get: (r) => r.actor_name || "" }, { label: "Record No", get: (r) => r.request_no || "" }], rows, empty: "No corrections yet." });
         return E.setRecords(`Corrections: ${rows.length}`);
       }
@@ -220,21 +204,20 @@
       const { data, error } = await q;
       if (error) return fail(error, "Could not load corrections");
       const rows = data || [];
-      $("#crRes").innerHTML = rows.length ? rows.map((r) => `<article class="cr-card st-${esc(r.status)}${r.kind === "cancel" ? " k-cancel" : ""}">
-          <header><b class="mono">${esc(r.request_no)}</b><span class="cr-kind">${r.kind === "cancel" ? "CANCEL RECORD" : "CORRECTION"}</span>${pill(r.status)}<span>${esc(TABLE_NAME[r.target_table] || r.target_table)}: ${ROUTE_OF[r.target_table] ? `<a href="#${ROUTE_OF[r.target_table]}/${r.target_id}">${esc(r.target_label || "open record")}</a>` : esc(r.target_label || "")}</span><small>${esc(E.dateTime(r.created_at))} · by ${esc(r.requested_by_name || "")}</small></header>
+      $("#crRes").innerHTML = rows.length ? rows.map((r) => `<article class="cr-card st-${esc(r.status)}">
+          <header><b class="mono">${esc(r.request_no)}</b>${pill(r.status)}<span>${esc(TABLE_NAME[r.target_table] || r.target_table)}: ${ROUTE_OF[r.target_table] ? `<a href="#${ROUTE_OF[r.target_table]}/${r.target_id}">${esc(r.target_label || "open record")}</a>` : esc(r.target_label || "")}</span><small>${esc(E.dateTime(r.created_at))} · by ${esc(r.requested_by_name || "")}</small></header>
           <div class="cr-reason"><b>Reason:</b> ${esc(r.reason)}</div>
-          ${r.kind === "cancel" ? `<div class="cr-cancel">${ic("x")} The record is marked <b>CANCELLED</b>. It stays in the system and is left out of all totals and balances.</div>`
-            : `<table class="grid cr-diff"><thead><tr><th>Field</th><th>Original</th><th>Corrected</th></tr></thead><tbody>
-            ${Object.keys(r.changes || {}).map((k) => `<tr><td>${esc(fieldLabel(r.target_table, k))}</td><td class="old">${esc(showVal(r.previous?.[k]))}</td><td class="new">${esc(showVal(r.changes[k]))}</td></tr>`).join("")}</tbody></table>`}
+          <table class="grid cr-diff"><thead><tr><th>Field</th><th>Original</th><th>Corrected</th></tr></thead><tbody>
+            ${Object.keys(r.changes || {}).map((k) => `<tr><td>${esc(fieldLabel(r.target_table, k))}</td><td class="old">${esc(showVal(r.previous?.[k]))}</td><td class="new">${esc(showVal(r.changes[k]))}</td></tr>`).join("")}</tbody></table>
           ${r.status !== "pending" ? `<div class="cr-done">${r.status === "approved" ? "Approved" : "Rejected"} by ${esc(r.reviewed_by_name || "")} · ${esc(E.dateTime(r.reviewed_at))}${r.review_note ? " — " + esc(r.review_note) : ""}</div>`
-            : admin ? `<div class="cr-act"><input type="text" placeholder="Note (optional)" data-note="${r.id}"><button type="button" class="btn ok" data-cr="${r.id}" data-k="${esc(r.kind)}" data-a="approve">${ic("check")} Approve</button><button type="button" class="btn danger" data-cr="${r.id}" data-a="reject">Reject</button></div>` : `<div class="cr-done">Waiting for the CEO.</div>`}
+            : `<div class="cr-act"><input type="text" placeholder="Note (optional)" data-note="${r.id}"><button type="button" class="btn ok" data-cr="${r.id}" data-a="approve">${ic("check")} Approve</button><button type="button" class="btn danger" data-cr="${r.id}" data-a="reject">Reject</button></div>`}
         </article>`).join("") : `<div class="empty">${f === "pending" ? "Nothing waiting for approval." : "Nothing here."}</div>`;
       $$("[data-cr]").forEach((b) => (b.onclick = async () => {
         const note = $(`[data-note="${b.dataset.cr}"]`).value.trim() || null;
         b.disabled = true;
         const { error: e2 } = await sb.rpc("review_change_request", { p_id: b.dataset.cr, p_action: b.dataset.a, p_note: note });
         if (e2) { b.disabled = false; return fail(e2, "Could not decide the request"); }
-        toast(b.dataset.a === "reject" ? "Request rejected." : b.dataset.k === "cancel" ? "Approved — the record is now CANCELLED." : "Approved — the correction was added to the record."); run(f); E.refreshBadge();
+        toast(b.dataset.a === "reject" ? "Request rejected." : "Approved — the correction was added to the record."); run(f); E.refreshBadge();
       }));
       E.setRecords(`Requests: ${rows.length}`);
     };
@@ -504,7 +487,7 @@
   const canApply = () => E.canWrite("orders") || E.canWrite("customers");
   V.orders = async () => {
     E.shell("orders", "Order Letter", `
-      <div class="tabs" id="olF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="applied">Applied</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="cancelled">Cancelled</button><button type="button" data-f="">All</button></div>
+      <div class="tabs" id="olF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="applied">Applied</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${canApply() ? `<a class="btn primary" href="#neworder">${ic("plus")} New Order Letter</a><button type="button" class="btn" id="olApply">${ic("qr")} Apply Order Letter (Scan QR)</button>` : ""}</div>
       <div id="olRes">${busy()}</div>`,
       "Order letters suspend, close or reactivate an account, or record a payment arrangement. The CEO approves the letter; its QR code carries a verification code. Scanning the QR (or typing the code) carries out the order.");
@@ -599,7 +582,7 @@
     const c = o.customers || {};
     const qr = code ? E.qrDataUrl(orderQr(o, code)) : "";
     const dear = c.first_name ? `Dear ${esc(fullName(c))},` : "Dear Sir / Madam,";
-    return `${E.printHead("ORDER LETTER", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}${voidPrint(o)}
+    return `${E.printHead("ORDER LETTER", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
       <div class="ol-top"><div><div><b>Order No:</b> ${esc(o.order_no)}</div><div><b>Date:</b> ${esc(E.dLong(o.order_date))}</div></div>
         <div class="ol-to"><b>To:</b> ${esc(fullName(c).toUpperCase())}<br>Account No: ${esc(c.account_no || "")}<br>${esc(c.address || "")}</div></div>
       <div class="ol-subj">SUBJECT: ${esc((o.subject || "").toUpperCase())}</div>
@@ -632,8 +615,7 @@
       pending: `<div class="banner warn">Waiting for the CEO to approve this order letter.</div>`,
       approved: `<div class="banner ok">✔ APPROVED by ${esc(o.approved_by_name || "")} on ${dmy(o.approved_at)}. ${isAdmin() ? "Print the letter: its QR code carries the verification code." : "The CEO prints the letter with its QR code."} Scan the QR (or type the code) to carry out the order.</div>`,
       applied: `<div class="banner ok">✔ APPLIED on ${dmy(o.applied_at)} by ${esc(o.applied_by_name || "")} — ${esc(o.applied_result || "")}</div>`,
-      rejected: `<div class="banner closed">REJECTED by ${esc(o.approved_by_name || "")}${o.review_note ? " — " + esc(o.review_note) : ""}</div>`,
-      cancelled: voidBanner(o)
+      rejected: `<div class="banner closed">REJECTED by ${esc(o.approved_by_name || "")}${o.review_note ? " — " + esc(o.review_note) : ""}</div>`
     }[o.status] || "";
     $("#main").innerHTML = `${banner}
       <div class="window"><div class="wtitle">${esc(o.order_no)} — ${esc(SUBJ[o.subject_type]?.[0] || "")} ${pill(o.status)}</div><div class="wbody">
@@ -650,7 +632,7 @@
         ${o.status === "approved" && canApply() ? `<fieldset class="opt review"><legend>Carry Out This Order</legend><p>Scan the QR code on the printed letter, or type its verification code.</p>
           <div class="btnrow"><button type="button" class="btn primary" id="olApplyBtn">${ic("qr")} Scan / Enter Code</button></div></fieldset>` : ""}
         ${rhBox("order_letters", o.id)}
-      </div><div class="wfoot">${recordTools("order_letters", o, `Order letter ${o.order_no}`, { reload: () => V.order(id) })}<a class="btn" href="#orders">Close</a></div></div>`;
+      </div><div class="wfoot">${recordTools("order_letters", o, `Order letter ${o.order_no}`, { reload: () => V.order(id), afterDelete: () => (location.hash = "orders") })}<a class="btn" href="#orders">Close</a></div></div>`;
     E.bindDocCards($("#main"), () => V.order(id));
     bindRecordTools($("#main"));
     const review = async (action) => {
@@ -758,16 +740,14 @@
       $(".verify-hero").hidden = true;
       window.scrollTo(0, 0);
       // Anyone can verify and view; only employees signed in to the portal get the Validated Print.
-      // A cancelled record is still a real record, but it is marked CANCELLED and gets no validated print.
-      const cx = !!data.cancelled;
-      out.innerHTML = `<div class="vf-ok${cx ? " vf-void" : ""}">
-        <div class="vf-seal">${cx ? ic("x") : ic("check")}</div>
-        <div class="vf-title">${cx ? "CANCELLED RECORD" : "TRUE RECORD"}</div>
-        <div class="vf-sub">${cx ? `This record was cancelled. It is kept for reference only and is not valid.` : `VERIFIED BY ${esc(E.APP)}`}</div>
+      out.innerHTML = `<div class="vf-ok">
+        <div class="vf-seal">${ic("check")}</div>
+        <div class="vf-title">TRUE RECORD</div>
+        <div class="vf-sub">VERIFIED BY ${esc(E.APP)}</div>
         <div class="vf-type">${esc(data.type)} · <b class="mono">${esc(data.number)}</b> ${data.status ? pill(data.status) : ""}</div>
         <table class="vf-fields"><tbody>${(data.fields || []).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v ?? "")}</td></tr>`).join("")}</tbody></table>
         <div class="vf-when">Checked ${esc(E.dateTime(checked.toISOString()))}</div>
-        ${inside ? `<div class="btnrow center">${cx ? "" : `<button type="button" class="btn primary" id="vfPrint">${ic("print")} Validated Print</button>`}${OPEN[data.type] ? `<button type="button" class="btn" id="vfOpen">${ic("eye")} Open Record</button>` : ""}</div>` : ""}</div>`;
+        ${inside ? `<div class="btnrow center"><button type="button" class="btn primary" id="vfPrint">${ic("print")} Validated Print</button>${OPEN[data.type] ? `<button type="button" class="btn" id="vfOpen">${ic("eye")} Open Record</button>` : ""}</div>` : ""}</div>`;
       if ($("#vfPrint")) $("#vfPrint").onclick = () => validatedPrint(data, checked);
       if ($("#vfOpen")) $("#vfOpen").onclick = async () => {
         const [table, col, route, via] = OPEN[data.type];
@@ -941,5 +921,5 @@
     if (CH.tick % 4 === 0) loadContacts();
   }
 
-  Object.assign(E, { recordTools, bindRecordTools, correctRecord, cancelRecord, voidBanner, voidPrint, rhBox, fieldLabel, applyOrderDialog, applyOrderScan, openChat, closeChat, shrinkImage, signedMap, lightbox });
+  Object.assign(E, { recordTools, bindRecordTools, correctRecord, deleteRecord, rhBox, fieldLabel, applyOrderDialog, applyOrderScan, openChat, closeChat, shrinkImage, signedMap, lightbox });
 })();

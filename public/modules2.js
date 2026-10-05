@@ -10,10 +10,7 @@
   const monthLabel = (iso) => iso ? new Date(String(iso).slice(0, 10) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) : "";
   const tools = (...a) => (E.recordTools ? E.recordTools(...a) : "");
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
-  const voidBanner = (r) => (E.voidBanner ? E.voidBanner(r) : "");
-  const voidPrint = (r) => (E.voidPrint ? E.voidPrint(r) : "");
   const rhBox = (t, id) => (E.rhBox ? E.rhBox(t, id) : "");
-  const live = (rows) => rows.filter((r) => !r.void_no);
   // Menu access an employee can be given (Community, Verification and Download Forms are open to everyone).
   const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["employees", "5 Employee (HR)"], ["projects", "7 Project"], ["billing", "8 Billing"], ["orders", "9 Order Letter"]];
   const accessText = (role, mods) => role === "admin" ? "Everything" : (mods || []).map((m) => (MODULES.find((x) => x[0] === m) || [m, m])[1]).join(", ") || "Dashboard and Community";
@@ -130,9 +127,8 @@
     const photo = em.photo_path ? await E.signedUrl(em.photo_path) : "";
     const verified = em.status === "active" && (!!em.job_application_id || att.some((a) => ["signature", "signed_form", "application"].includes(a.kind)));
     const canPay = E.canWrite("employees") && em.status !== "terminated";
-    const valid = live(slips);
-    const paid = valid.reduce((s, p) => s + num(p.net_pay), 0);
-    const advances = valid.reduce((s, p) => s + num(p.advance_amount), 0) - valid.reduce((s, p) => s + num(p.advance_deduction), 0);
+    const paid = slips.reduce((s, p) => s + num(p.net_pay), 0);
+    const advances = slips.reduce((s, p) => s + num(p.advance_amount), 0) - slips.reduce((s, p) => s + num(p.advance_deduction), 0);
     $(".band h1").textContent = `Employee — ${fullName(em)}`;
     $("#main").innerHTML = `
       ${em.status === "terminated" ? `<div class="banner closed">TERMINATED on ${dmy(em.termination_date)} — ${esc(em.termination_reason || "")}. The login is disabled.</div>` : ""}
@@ -143,14 +139,14 @@
           <div class="ch-ids">${E.idBox("Employee No", em.employee_no)}${E.idBox("Date Hired", dmy(em.date_hired))}${E.idBox("Monthly Salary (₱)", peso(em.monthly_salary))}${E.idBox("Role", E.roleName(em.role).toUpperCase())}</div></div></section>
       <div class="tiles"><div class="tile ok"><div class="k">Total Paid (₱)</div><div class="v">₱ ${peso(paid)}</div></div>
         <div class="tile ${advances > 0 ? "warn" : ""}"><div class="k">Advance Balance (₱)</div><div class="v">₱ ${peso(Math.max(0, advances))}</div></div>
-        <div class="tile"><div class="k">Payslips</div><div class="v">${valid.length}</div></div></div>
+        <div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div></div>
       <div class="actionbar">
         ${canPay ? `<button type="button" class="btn primary" id="emPay">${ic("plus")} Record Salary / Advance</button>` : ""}
         <button type="button" class="btn" id="emPrint">${ic("print")} Print Employee Record</button>
         ${isAdmin() && em.status !== "terminated" && em.profile_id !== S.profile.id ? `<button type="button" class="btn danger" id="emTerm">Terminate</button>` : ""}
         ${isAdmin() && em.status === "terminated" ? `<button type="button" class="btn ok" id="emRehire">Re-hire</button>` : ""}
         <span class="grow"></span>
-        ${tools("employees", em, `${em.employee_no} ${fullName(em)}`, { reload: () => V.employee(id) })}
+        ${tools("employees", em, `${em.employee_no} ${fullName(em)}`, { reload: () => V.employee(id), afterDelete: () => (location.hash = "employees") })}
       </div>
       <div class="tabs" id="emTabs">${[`Payslips (${slips.length})`, "Documents", ...(isAdmin() ? ["Access & Status"] : []), "Details"].map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes" id="emPanes">
@@ -289,7 +285,7 @@
     const earn = [["Basic Pay", p.basic_pay, p.pay_type !== "advance"], ["Allowances", p.allowances], ["Overtime Pay", p.overtime_pay], ["Bonus", p.bonus], ["Advance Given", p.advance_amount]].filter((x) => x[2] || num(x[1]) > 0);
     const ded = [["Advance Deduction", p.advance_deduction], ["Other Deductions", p.other_deductions]].filter((x) => num(x[1]) > 0);
     const gross = earn.reduce((s, x) => s + num(x[1]), 0), less = ded.reduce((s, x) => s + num(x[1]), 0);
-    return `${E.printHead(title, `<img src="${E.pdf417DataUrl("EMONPS|" + p.payslip_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.payslip_no)}</div>`)}${voidPrint(p)}
+    return `${E.printHead(title, `<img src="${E.pdf417DataUrl("EMONPS|" + p.payslip_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.payslip_no)}</div>`)}
       ${E.box("Employee", `<div class="pgrid2">${E.cell("Employee Name", fullName(em), "hl")}${E.cell("Employee No", em.employee_no)}${E.cell("Position", em.position)}${E.cell("Payslip No", p.payslip_no)}
         ${E.cell("For Month", monthLabel(p.period_month))}${E.cell("Pay Date", dmy(p.pay_date))}${E.cell("Payment Method", p.method)}${E.cell("Reference No", p.reference_no)}</div>`)}
       <div class="pgrid2 slip-cols">
@@ -310,7 +306,7 @@
     const em = p.employees;
     const hr = E.hasModule("employees");
     $(".band h1").textContent = `Payslip — ${p.payslip_no}`;
-    $("#main").innerHTML = `${voidBanner(p)}<div class="window"><div class="wtitle">${esc(p.payslip_no)} · ${esc(PAY_TYPE[p.pay_type])}${p.void_no ? " " + pill("cancelled") : ""}</div><div class="wbody">
+    $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(p.payslip_no)} · ${esc(PAY_TYPE[p.pay_type])}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide"><span>Employee</span><span>${hr ? `<a href="#employee/${em.id}"><b>${esc(fullName(em))}</b></a>` : `<b>${esc(fullName(em))}</b>`} (${esc(em.employee_no)})</span>
         <span>Position</span><span>${esc(em.position || "—")}</span><span>For Month</span><span>${esc(monthLabel(p.period_month))}</span><span>Pay Date</span><span>${dmy(p.pay_date)}</span>
         <span>Method</span><span>${esc(p.method || "—")}${p.reference_no ? " · Ref " + esc(p.reference_no) : ""}</span></div>
@@ -319,7 +315,7 @@
         <span>Net Pay</span><b class="big">₱ ${peso(p.net_pay)}</b></div></div>
       <div class="docgrid">${E.docCard({ key: "slip", title: `Payslip ${p.payslip_no}`, sub: `Net ₱ ${peso(p.net_pay)} · ${monthLabel(p.period_month)}`, ownerType: "payslip", ownerId: p.id, att, print: () => E.openPreview(`Payslip ${p.payslip_no}`, [payslipPage(p)]), canUpload: E.canWrite("employees") })}</div>
       ${hr ? rhBox("payslips", p.id) : ""}
-      </div><div class="wfoot">${hr ? tools("payslips", p, `Payslip ${p.payslip_no}`, { reload: () => V.payslip(id) }) : ""}
+      </div><div class="wfoot">${hr ? tools("payslips", p, `Payslip ${p.payslip_no}`, { reload: () => V.payslip(id), afterDelete: () => (location.hash = "employee/" + em.id) }) : ""}
         <a class="btn" href="${hr ? "#employee/" + em.id : "#profile"}">Close</a></div></div>`;
     E.bindDocCards($("#main"), () => V.payslip(id));
     bindTools($("#main"));
@@ -339,19 +335,18 @@
       if (error) return fail(error, "Could not load payroll");
       rows = data || [];
       const cols = [SLIP_COLS[0], { label: "Employee", get: (r) => fullName(r.employees || {}) }, { label: "Employee No", get: (r) => r.employees?.employee_no || "" }, ...SLIP_COLS.slice(1, 6)];
-      $("#prRes").innerHTML = E.grid({ cols, rows, onRow: true, foot: { net_pay: peso(live(rows).reduce((s, r) => s + num(r.net_pay), 0)) }, empty: `No payments for ${monthLabel(m)}.` });
+      $("#prRes").innerHTML = E.grid({ cols, rows, onRow: true, foot: { net_pay: peso(rows.reduce((s, r) => s + num(r.net_pay), 0)) }, empty: `No payments for ${monthLabel(m)}.` });
       E.bindGrid($("#prRes"), rows, (r) => (location.hash = "payslip/" + r.id));
       E.setRecords(`Payslips: ${rows.length}`);
     };
     $("#prMonth").onchange = load;
     $("#prPrint").onclick = () => {
-      const all = rows, rows2 = live(all);
-      const byType = new Map(); rows2.forEach((r) => { const t = byType.get(r.pay_type) || [0, 0]; t[0]++; t[1] += num(r.net_pay); byType.set(r.pay_type, t); });
+      const byType = new Map(); rows.forEach((r) => { const t = byType.get(r.pay_type) || [0, 0]; t[0]++; t[1] += num(r.net_pay); byType.set(r.pay_type, t); });
       E.openPreview(`Payroll ${monthLabel($("#prMonth").value + "-01")}`, E.listingPages({
         title: "Payroll Listing", range: `For the month of ${monthLabel($("#prMonth").value + "-01")}`,
         cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Employee", get: (r) => fullName(r.employees || {}) }, { label: "Emp No", get: (r) => r.employees?.employee_no || "" }, { label: "Type", get: (r) => PAY_TYPE[r.pay_type] }, { label: "Pay Date", get: (r) => dmy(r.pay_date) }, { label: "Method", get: (r) => r.method || "" }, { label: "Net Pay", num: true, get: (r) => peso(r.net_pay) }],
-        rows: rows2, summary: { title: "Summary by Type (PHP)", cols: ["Type", "Count", "Net Pay (₱)"], rows: [...byType].map(([t, v]) => [PAY_TYPE[t], String(v[0]), peso(v[1])]), total: ["Total:", String(rows2.length), peso(rows2.reduce((s, r) => s + num(r.net_pay), 0))] },
-        criteria: `Month: ${$("#prMonth").value}${all.length > rows2.length ? `\nCancelled payslips not included: ${all.length - rows2.length}` : ""}`
+        rows, summary: { title: "Summary by Type (PHP)", cols: ["Type", "Count", "Net Pay (₱)"], rows: [...byType].map(([t, v]) => [PAY_TYPE[t], String(v[0]), peso(v[1])]), total: ["Total:", String(rows.length), peso(rows.reduce((s, r) => s + num(r.net_pay), 0))] },
+        criteria: `Month: ${$("#prMonth").value}`
       }));
     };
     load();
@@ -378,8 +373,9 @@
         { label: "Position", get: (r) => r.title }, { label: "Company", get: (r) => r.company_name }, { label: "Code", get: (r) => r.company_code },
         { label: "Monthly Salary (₱)", num: true, get: (r) => peso(r.monthly_salary) }, { label: "Duty Hours", get: (r) => r.duty_hours || "" },
         { label: "Applications", num: true, get: (r) => count.get(r.id) || 0 }, { label: "Status", html: (r) => r.is_open ? `<span class="pill active">OPEN</span>` : `<span class="pill closed">CLOSED</span>` },
-        { label: "", html: (r) => isAdmin() ? `<button type="button" class="btn" data-open="${r.id}" data-v="${r.is_open ? 0 : 1}">${r.is_open ? "Close" : "Re-open"}</button>` : "" }],
+        { label: "", html: (r) => isAdmin() ? `<button type="button" class="btn" data-open="${r.id}" data-v="${r.is_open ? 0 : 1}">${r.is_open ? "Close" : "Re-open"}</button> ${tools("job_positions", r, `Job position ${r.title}`, { reload: load })}` : "" }],
         rows, empty: "No job positions yet." });
+      bindTools($("#poRes"));
       $$("[data-open]", $("#poRes")).forEach((b) => (b.onclick = async () => {
         const { error: e2 } = await sb.rpc("set_position_open", { p_id: b.dataset.open, p_open: b.dataset.v === "1" });
         if (e2) return fail(e2, "Could not update"); load();
@@ -488,7 +484,7 @@
       <h3>Work Experience</h3>${E.grid({ cols: [{ label: "Company", get: (r) => r.company || "" }, { label: "Position", get: (r) => r.position || "" }, { label: "From", get: (r) => r.from || "" }, { label: "To", get: (r) => r.to || "" }], rows: exp, empty: "No previous experience." })}
       <h3>Requirements &amp; Files</h3>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No requirements uploaded.")}
       ${rhBox("job_applications", a.id)}
-      <div class="btnrow">${tools("job_applications", a, `Job application ${a.application_no}`, { reload: () => V.jobapp(id) })}<a class="btn" href="#jobapps">Close</a></div>`;
+      <div class="btnrow">${tools("job_applications", a, `Job application ${a.application_no}`, { reload: () => V.jobapp(id), afterDelete: () => (location.hash = "jobapps") })}<a class="btn" href="#jobapps">Close</a></div>`;
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), () => V.jobapp(id));
     bindTools($("#main"));
@@ -593,7 +589,7 @@
       sb.from("project_items").select("*").eq("project_id", id).order("id"),
       sb.from("project_payments").select("*").eq("project_id", id).order("pay_date"),
       E.attachmentsOf("project", id)]);
-    const lines = items.data || [], payments = pays.data || [], paid = live(payments);
+    const lines = items.data || [], payments = pays.data || [];
     const approved = att.some((a) => a.kind === "approval");
     const w = E.canWrite("projects");
     const printApp = () => E.openPreview(`Project ${pr.project_no}`, [`${E.printHead("PROJECT APPLICATION", `<img src="${E.pdf417DataUrl("EMONPRJ|" + pr.project_no)}" alt="" class="ph-bar"><div class="mono">${esc(pr.project_no)}</div>`)}
@@ -628,11 +624,11 @@
             <label for="ppRef">Reference No</label><input type="text" id="ppRef">
             ${E.fileField("ppRcpt", "Receipt", 'accept="image/*,application/pdf"')}</div></div>
           <div class="btnrow"><button class="btn primary" type="submit">Save Payment</button>${isAdmin() ? `<button class="btn" type="button" data-pa="complete">Mark Project Completed</button>` : ""}</div></form>` : ""}
-        <div><b>Payments</b>${E.grid({ cols: [{ label: "Payment No", html: (r) => `${esc(r.payment_no)}${r.void_no ? " " + pill("cancelled") : ""}` }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "Received By", get: (r) => r.received_by }, { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }, { label: "Recorded By", get: (r) => r.created_by_name || "" },
-          { label: "", html: (r) => r.void_no ? (isAdmin() ? `<small>${esc(r.void_no)} — ${esc(r.void_reason || "")}</small>` : "") : tools("project_payments", r, `Project payment ${r.payment_no}`, { reload: () => V.project(id) }) }], rows: payments, foot: { amount: peso(pr.total_paid) }, empty: pr.status === "approved" ? "No payments yet." : "Payments unlock after the project is approved." })}</div>
+        <div><b>Payments</b>${E.grid({ cols: [{ label: "Payment No", get: (r) => r.payment_no }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "Received By", get: (r) => r.received_by }, { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }, { label: "Recorded By", get: (r) => r.created_by_name || "" },
+          { label: "", html: (r) => tools("project_payments", r, `Project payment ${r.payment_no}`, { reload: () => V.project(id) }) }], rows: payments, foot: { amount: peso(pr.total_paid) }, empty: pr.status === "approved" ? "No payments yet." : "Payments unlock after the project is approved." })}</div>
         <div><b>Other Files</b>${E.filesHtml(att.filter((a) => a.kind !== "approval"), "No other files.")}</div>
         ${rhBox("projects", pr.id)}
-      </div><div class="wfoot">${tools("projects", pr, `Project ${pr.project_no}`, { reload: () => V.project(id) })}<button type="button" class="btn" id="pjStmt">${ic("print")} Print Payment Record</button><a class="btn" href="#projects">Close</a></div></div>`;
+      </div><div class="wfoot">${tools("projects", pr, `Project ${pr.project_no}`, { reload: () => V.project(id), afterDelete: () => (location.hash = "projects") })}<button type="button" class="btn" id="pjStmt">${ic("print")} Print Payment Record</button><a class="btn" href="#projects">Close</a></div></div>`;
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), () => V.project(id));
     bindTools($("#main"));
@@ -655,8 +651,8 @@
     $("#pjStmt").onclick = () => E.openPreview(`Project payments ${pr.project_no}`, E.listingPages({
       title: "Project Payment Record", range: `${esc(pr.project_no)} — ${esc(pr.title)}`,
       cols: [{ label: "Payment No", get: (r) => r.payment_no }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "Received By", get: (r) => r.received_by }, { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount", num: true, get: (r) => peso(r.amount) }],
-      rows: paid,
-      summary: { title: "Project Summary (PHP)", cols: ["Item", "", "Amount (₱)"], rows: [["Total Project Cost", "", peso(pr.total_cost)], ["Total Paid", String(paid.length) + " payment(s)", peso(pr.total_paid)]], total: ["Remaining:", "", peso(pr.remaining)] },
+      rows: payments,
+      summary: { title: "Project Summary (PHP)", cols: ["Item", "", "Amount (₱)"], rows: [["Total Project Cost", "", peso(pr.total_cost)], ["Total Paid", String(payments.length) + " payment(s)", peso(pr.total_paid)]], total: ["Remaining:", "", peso(pr.remaining)] },
       criteria: `Project: ${pr.project_no}\nStatus: ${pr.status.toUpperCase()}\nApproved by: ${pr.approved_by_name || "-"}`
     }));
     E.setRecords(`Project: ${pr.project_no}`);
@@ -736,24 +732,24 @@
     ]);
     const c = co.data;
     if (!c) { $("#main").innerHTML = `<div class="empty">Company not found. <a href="#billing">Back</a></div>`; return; }
-    const accounts = accs.data || [], vouchers = vs.data || [], valid = live(vouchers);
+    const accounts = accs.data || [], vouchers = vs.data || [];
     const w = E.canWrite("billing");
-    const months = [...new Set(valid.map((v) => ym(v.pay_date)))].sort().reverse().map((m) => {
-      const list = valid.filter((v) => ym(v.pay_date) === m);
+    const months = [...new Set(vouchers.map((v) => ym(v.pay_date)))].sort().reverse().map((m) => {
+      const list = vouchers.filter((v) => ym(v.pay_date) === m);
       return { month: m + "-01", count: list.length, php: list.reduce((s, v) => s + num(v.amount_php), 0), bdt: list.reduce((s, v) => s + num(v.amount_bdt), 0), list };
     });
-    const accTotals = new Map(); valid.forEach((v) => { const t = accTotals.get(v.account_id) || [0, 0]; t[0] += num(v.amount_php); t[1] += num(v.amount_bdt); accTotals.set(v.account_id, t); });
+    const accTotals = new Map(); vouchers.forEach((v) => { const t = accTotals.get(v.account_id) || [0, 0]; t[0] += num(v.amount_php); t[1] += num(v.amount_bdt); accTotals.set(v.account_id, t); });
     $(".band h1").textContent = `Billing — ${c.name}`;
     $("#main").innerHTML = `
       <section class="cust-hero"><div class="ch-photo"><span>${esc(E.initials(c.name))}</span></div>
         <div class="ch-main"><div class="ch-name"><h2>${esc(c.name)}</h2></div><div class="ch-sub">${esc([c.country, c.contact].filter(Boolean).join(" · ") || "—")}</div>
-          <div class="ch-ids">${E.idBox("Accounts", String(accounts.length))}${E.idBox("Vouchers", String(valid.length))}${E.idBox("Last Paid", dmy(c.last_paid))}${E.idBox("Added By", c.created_by_name)}</div></div></section>
+          <div class="ch-ids">${E.idBox("Accounts", String(accounts.length))}${E.idBox("Vouchers", String(vouchers.length))}${E.idBox("Last Paid", dmy(c.last_paid))}${E.idBox("Added By", c.created_by_name)}</div></div></section>
       <div class="tiles"><div class="tile"><div class="k">Total Paid (PHP)</div><div class="v">₱ ${peso(c.total_php)}</div></div>
         <div class="tile ok"><div class="k">Total Paid (BDT)</div><div class="v">${bdt(c.total_bdt)}</div></div>
         <div class="tile"><div class="k">This Month (PHP)</div><div class="v">₱ ${peso(c.month_php)}</div></div>
         <div class="tile ok"><div class="k">This Month (BDT)</div><div class="v">${bdt(c.month_bdt)}</div></div></div>
       <div class="actionbar">${w ? `<a class="btn primary" href="#newvoucher/${c.id}">${ic("plus")} New Payment</a>` : ""}<button type="button" class="btn" id="pcRecord">${ic("download")} Download Payment Record</button>
-        <span class="grow"></span>${tools("pay_companies", c, c.name, { reload: () => V.paycompany(id) })}</div>
+        <span class="grow"></span>${tools("pay_companies", c, c.name, { reload: () => V.paycompany(id), afterDelete: () => (location.hash = "billing") })}</div>
       <div class="tabs" id="pcTabs"><button type="button" class="on" data-t="0">Payment Vouchers (${vouchers.length})</button><button type="button" data-t="1">Monthly Records (${months.length})</button><button type="button" data-t="2">Accounts (${accounts.length})</button></div>
       <div class="tabpanes" id="pcPanes">
         <div data-p="0"><div id="pcVouchers">${E.grid({ cols: VOUCHER_COLS, rows: vouchers, onRow: true, foot: { amount_php: peso(c.total_php), amount_bdt: `<b class="bdt">${peso(c.total_bdt)}</b>` }, empty: "No payments yet." })}</div></div>
@@ -772,7 +768,7 @@
     E.bindGrid($("#pcVouchers"), vouchers, (r) => (location.hash = "voucher/" + r.id));
     E.bindGrid($("#pcMonths"), months, (r) => printRecord(c, r.list, `For the month of ${monthLabel(r.month)}`));
     bindTools($("#main"));
-    $("#pcRecord").onclick = () => printRecord(c, valid, "All payments");
+    $("#pcRecord").onclick = () => printRecord(c, vouchers, "All payments");
     if ($("#paForm")) $("#paForm").onsubmit = async (e) => {
       e.preventDefault();
       const v = (i) => $("#" + i).value.trim();
@@ -868,7 +864,7 @@
   // The voucher: BDT amount highlighted, PDF417 barcode, receipt fitted on the page, "Issued by" signature only.
   function voucherPage(v, receiptUrl) {
     const a = v.pay_accounts || {};
-    return `${E.printHead("PAYMENT VOUCHER", `<img src="${E.pdf417DataUrl("EMONBD|" + v.voucher_no)}" alt="" class="ph-bar"><div class="mono">${esc(v.voucher_no)}</div>`)}${voidPrint(v)}
+    return `${E.printHead("PAYMENT VOUCHER", `<img src="${E.pdf417DataUrl("EMONBD|" + v.voucher_no)}" alt="" class="ph-bar"><div class="mono">${esc(v.voucher_no)}</div>`)}
       <div class="vno-row"><span>Voucher No: <b>${esc(v.voucher_no)}</b></span><span>Date: <b>${esc(E.dShort(v.pay_date))}</b></span></div>
       ${E.box("Paid To", `<div class="pgrid2">${E.cell("Company", v.pay_companies?.name, "hl")}${E.cell("Account Name", a.account_name)}${E.cell("Account Number", a.account_number)}${E.cell("Bank / Branch", [a.bank_name, a.branch_name].filter(Boolean).join(" — "))}</div>`)}
       ${E.box("Payment", `<div class="prow3">${E.cell("Purpose", v.purpose)}${E.cell("Method", v.method)}${E.cell("Reference No", v.reference_no)}</div>
@@ -891,7 +887,7 @@
     const print = async () => E.openPreview(`Voucher ${v.voucher_no}`, [voucherPage(v, rcpt ? await E.signedUrl(rcpt.storage_path, 1800) : "")]);
     const a = v.pay_accounts || {};
     $(".band h1").textContent = `Payment Voucher — ${v.voucher_no}`;
-    $("#main").innerHTML = `${voidBanner(v)}<div class="window"><div class="wtitle">${esc(v.voucher_no)} · ${esc(v.pay_companies?.name || "")}${v.void_no ? " " + pill("cancelled") : ""}</div><div class="wbody">
+    $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(v.voucher_no)} · ${esc(v.pay_companies?.name || "")}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
         <span>Paid To</span><a href="#paycompany/${v.company_id}"><b>${esc(v.pay_companies?.name || "")}</b></a>
         <span>Account</span><span>${esc([a.account_name, a.account_number, a.bank_name, a.branch_name].filter(Boolean).join(" · ") || "—")}</span>
@@ -903,7 +899,7 @@
       <div><b>Receipt</b>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No receipt uploaded.")}
         ${E.canWrite("billing") ? `<div class="fields wide" style="margin-top:6px">${E.fileField("vAddRcpt", "Add Receipt", 'accept="image/*,application/pdf"')}</div>` : ""}</div>
       ${rhBox("pay_vouchers", v.id)}</div>
-      <div class="wfoot">${tools("pay_vouchers", v, `Voucher ${v.voucher_no}`, { reload: () => V.voucher(id) })}<a class="btn" href="#paycompany/${v.company_id}">Close</a></div></div>`;
+      <div class="wfoot">${tools("pay_vouchers", v, `Voucher ${v.voucher_no}`, { reload: () => V.voucher(id), afterDelete: () => (location.hash = "paycompany/" + v.company_id) })}<a class="btn" href="#paycompany/${v.company_id}">Close</a></div></div>`;
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), () => V.voucher(id));
     bindTools($("#main"));

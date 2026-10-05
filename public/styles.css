@@ -1061,19 +1061,8 @@ table.rp.v-amt { margin: 6px 0; }
 .me-sub { margin: 2px 0 8px; color: var(--ink-soft); }
 .btn.small { padding: 2px 10px; font-size: 12px; }
 
-/* ---------- Records are only added: cancelled records, corrections ---------- */
-.pill.cancelled, .pill.void { color: #fff; border-color: #6f6f6f; background: #6f6f6f; }
-table.grid tr.voided td { color: #8a8a8a; background-image: repeating-linear-gradient(-45deg, transparent 0 8px, rgba(0,0,0,.03) 8px 16px); }
-table.grid tr.voided td.num { text-decoration: line-through; }
-.void-print { margin: 6px 0; padding: 5px 8px; border: 2px solid var(--bad); color: var(--bad); font-weight: bold; letter-spacing: .06em; text-align: center; text-transform: uppercase; }
+/* ---------- Corrections box on records ---------- */
 .rhist { margin-top: 10px; }
-.cr-kind { padding: 0 6px; border-radius: 3px; background: #1f5fbf; color: #fff; font-size: 11px; font-weight: bold; letter-spacing: .05em; }
-.cr-card.k-cancel .cr-kind { background: var(--bad); }
-.cr-cancel { margin: 6px 0; padding: 6px 8px; border-radius: 8px; background: #fdecea; color: var(--bad); }
-.vf-ok.vf-void { background: linear-gradient(160deg, #f4f4f4, #fff); border-color: #6f6f6f; box-shadow: 0 12px 30px rgba(0,0,0,.12); }
-.vf-void .vf-seal { background: #6f6f6f; box-shadow: 0 0 0 7px #e2e2e2; }
-.vf-void .vf-title { color: #555; }
-.vf-void .vf-sub { font-weight: normal; letter-spacing: 0; color: var(--ink); }
 
 @media (prefers-reduced-motion: reduce) {
   *:not(.spin) { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition: none !important; }

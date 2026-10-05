@@ -18,13 +18,10 @@
   // randomUUID needs a secure context; fall back to getRandomValues elsewhere.
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
     : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (d) => (d ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (d / 4)))).toString(16)));
-  // Add Correction / Cancel Record buttons, cancelled marks and the corrections box (modules3.js).
+  // Add Correction / Delete (CEO) buttons and the corrections box (modules3.js).
   const tools = (...a) => (E.recordTools ? E.recordTools(...a) : "");
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
-  const voidBanner = (r) => (E.voidBanner ? E.voidBanner(r) : "");
-  const voidPrint = (r) => (E.voidPrint ? E.voidPrint(r) : "");
   const rhBox = (t, id) => (E.rhBox ? E.rhBox(t, id) : "");
-  const live = (rows) => rows.filter((r) => !r.void_no);
 
   // ---------- files (records bucket + attachments table) ----------
   // Uploaded files are renamed automatically from the record number and what they are,
@@ -258,7 +255,7 @@
     const cs = cust.data || [];
     const due = (bal.data || []).reduce((s, b) => s + Math.max(0, num(b.balance_due)), 0);
     const pays = pay.data || [];
-    const monthPaid = live(pays).filter((p) => String(p.paid_date).startsWith(ym)).reduce((s, p) => s + num(p.amount), 0);
+    const monthPaid = pays.filter((p) => String(p.paid_date).startsWith(ym)).reduce((s, p) => s + num(p.amount), 0);
     const waiting = cs.filter((c) => ["pending", "verified"].includes(c.status));
     const tiles = [["ok", cs.filter((c) => c.status === "active").length], ["warn", waiting.length], ["", "₱ " + peso(due)], ["ok", "₱ " + peso(monthPaid)]];
     $$("#dTiles .tile").forEach((t, i) => { t.className = "tile " + tiles[i][0]; $(".v", t).textContent = tiles[i][1]; });
@@ -311,7 +308,7 @@
       cnt(sb.from("credit_memos").select("id", head).eq("status", "pending"))
     ]);
     const el = $("#dTodo"); if (!el) return;
-    const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [orders, "Order letters to approve", "#orders"], [changes, "Corrections & cancels", "#changes"], [memos, "Credit memos", "#creditmemos"]];
+    const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [orders, "Order letters to approve", "#orders"], [changes, "Corrections", "#changes"], [memos, "Credit memos", "#creditmemos"]];
     el.innerHTML = `<span class="todo-h">Waiting for you:</span>` + items.map(([n, label, href]) => `<a class="todo-chip ${n ? "hot" : ""}" href="${href}"><b>${n}</b> ${esc(label)}</a>`).join("");
   }
 
@@ -520,8 +517,7 @@
     const canMemo = ["active", "suspended"].includes(c.status) && E.canWrite("creditmemos");
     const canOrder = ["active", "suspended"].includes(c.status) && (E.canWrite("orders") || E.canWrite("customers"));
     const history = [
-      // Cancel records (and their reasons) are for the CEO only.
-      ...(ev.data || []).filter((r) => isAdmin() || !/ cancelled by CR-/i.test(r.action)).map((r) => ({ at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
+      ...(ev.data || []).map((r) => ({ at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
       ...(chg.data || []).map((r) => ({ at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }))
     ].sort((x, y) => String(x.at).localeCompare(String(y.at)));
     const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Order Letters (${orders.length})`, `Files (${att.length})`, "History"];
@@ -553,7 +549,7 @@
         ${canMemo ? `<a class="btn" href="#newcreditmemo/${c.id}">${ic("plus")} Credit Memo</a>` : ""}
         ${canOrder ? `<a class="btn" href="#neworder/${c.id}">${ic("doc")} New Order Letter</a><button type="button" class="btn" id="pfApply">${ic("qr")} Apply Order Letter</button>` : ""}
         <span class="grow"></span>
-        ${tools("customers", c, `${c.account_no} ${fullName(c)}`, { reload: () => V.customer(c.id) })}
+        ${tools("customers", c, `${c.account_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers") })}
       </div>
       <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", sub: `${c.application_no} · print, sign, then upload the signed copy`, ownerType: "customer", ownerId: c.id, att, print: () => printApplication(c), canUpload: isStaff() && c.status !== "closed" })}</div>
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed) : ""}
@@ -681,26 +677,13 @@
   const nextMonth = (iso) => { const d = new Date(monthStart(iso) + "T00:00:00"); d.setMonth(d.getMonth() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; };
   const monthName = (iso) => new Date(monthStart(iso) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
   // Same rules as the database: invoices debit; payments and approved credit/discount memos credit (on approval date).
-  // A cancelled record keeps its line and is reversed on the day it was cancelled, so issued statements never change.
-  const voidDate = (r) => String(r.voided_at).slice(0, 10);
   function txnsOf(invs, pays, memos) {
     const t = [];
-    // Only the CEO's copy shows the cancel record number and reason.
-    const undo = (r, ref, what, debit, credit) => r.void_no && t.push({ date: voidDate(r), ref: isAdmin() ? r.void_no : ref, desc: `CANCELLED ${what} ${ref}${isAdmin() && r.void_reason ? " — " + r.void_reason : ""}`, debit, credit, reversal: true });
-    invs.forEach((i) => {
-      t.push({ date: i.invoice_date, ref: i.invoice_no, desc: `Invoice${i.po_number ? " — PO " + i.po_number : ""} (${i.total_boxes || 0} box / ${i.total_pcs || 0} pcs)`, debit: num(i.total_amount), credit: 0, inv: i });
-      undo(i, i.invoice_no, "invoice", 0, num(i.total_amount));
-    });
-    pays.forEach((p) => {
-      t.push({ date: p.paid_date, ref: p.receipt_no, desc: `Payment — ${METHOD[p.method] || p.method}${p.bank_name ? " " + p.bank_name : ""}${p.reference_no ? " Ref " + p.reference_no : ""}`, debit: 0, credit: num(p.amount), pay: p });
-      undo(p, p.receipt_no, "payment", num(p.amount), 0);
-    });
+    invs.forEach((i) => t.push({ date: i.invoice_date, ref: i.invoice_no, desc: `Invoice${i.po_number ? " — PO " + i.po_number : ""} (${i.total_boxes || 0} box / ${i.total_pcs || 0} pcs)`, debit: num(i.total_amount), credit: 0, inv: i }));
+    pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: `Payment — ${METHOD[p.method] || p.method}${p.bank_name ? " " + p.bank_name : ""}${p.reference_no ? " Ref " + p.reference_no : ""}`, debit: 0, credit: num(p.amount), pay: p }));
     memos.filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action) && m.approved_at)
-      .forEach((m) => {
-        t.push({ date: String(m.approved_at).slice(0, 10), ref: m.memo_no, desc: `Credit Memo — ${ACTION[m.requested_action]}${m.article ? " (" + m.article + ")" : ""}`, debit: 0, credit: num(m.request_amount) });
-        undo(m, m.memo_no, "credit memo", num(m.request_amount), 0);
-      });
-    return t.sort((a, b) => a.date.localeCompare(b.date) || (!!a.reversal - !!b.reversal) || (b.debit - a.debit));
+      .forEach((m) => t.push({ date: String(m.approved_at).slice(0, 10), ref: m.memo_no, desc: `Credit Memo — ${ACTION[m.requested_action]}${m.article ? " (" + m.article + ")" : ""}`, debit: 0, credit: num(m.request_amount) }));
+    return t.sort((a, b) => a.date.localeCompare(b.date) || (b.debit - a.debit));
   }
   const before = (txns, d) => txns.filter((x) => x.date < d).reduce((s, x) => s + x.debit - x.credit, 0);
   const within = (txns, a, b) => txns.filter((x) => x.date >= a && x.date <= b);
@@ -855,11 +838,11 @@
     { label: "Amount (₱)", key: "total_amount", num: true, get: (r) => peso(r.total_amount) },
     { label: "Paid (₱)", key: "amount_paid", num: true, get: (r) => peso(r.amount_paid) },
     { label: "Balance (₱)", key: "balance", num: true, get: (r) => peso(r.balance) },
-    { label: "Status", html: (r) => pill(r.void_no ? "cancelled" : r.pay_status) }
+    { label: "Status", html: (r) => pill(r.pay_status) }
   ];
   V.invoices = async () => {
     E.shell("invoices", "Invoice", `
-      <div class="tabs" id="ivTabs"><button type="button" class="on" data-f="open">Active (Unpaid)</button><button type="button" data-f="paid">Paid</button><button type="button" data-f="void">Cancelled</button><button type="button" data-f="">All</button></div>
+      <div class="tabs" id="ivTabs"><button type="button" class="on" data-f="open">Active (Unpaid)</button><button type="button" data-f="paid">Paid</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${E.canWrite("invoices") ? `<a class="btn primary" href="#newinvoice">+ Record Invoice</a>` : ""}</div>
       <div id="ivRes">${busy()}</div>`, "Active invoices still have a balance. Press <b>Record Invoice</b> to add a sale for an ACTIVE customer.");
     const run = async (f) => {
@@ -869,7 +852,7 @@
       const { data, error } = await q;
       if (error) return fail(error, "Could not load invoices");
       const rows = data || [];
-      const sum = (k) => peso(live(rows).reduce((s, r) => s + num(r[k]), 0));
+      const sum = (k) => peso(rows.reduce((s, r) => s + num(r[k]), 0));
       $("#ivRes").innerHTML = E.grid({ cols: INV_COLS, rows, onRow: true, foot: { total_amount: sum("total_amount"), amount_paid: sum("amount_paid"), balance: sum("balance") }, empty: "No invoices here." });
       E.bindGrid($("#ivRes"), rows, (r) => (location.hash = "invoice/" + r.id));
       E.setRecords(`Invoices: ${rows.length}`);
@@ -965,7 +948,7 @@
     if (!inv) { $("#main").innerHTML = `<div class="empty">Invoice not found. <a href="#invoices">Back to Invoices</a></div>`; return; }
     const [pays, att] = await Promise.all([sb.from("payments_received").select("*").eq("invoice_id", id).order("paid_date"), attachmentsOf("invoice", id)]);
     $(".band h1").textContent = `Invoice — ${inv.invoice_no}`;
-    $("#main").innerHTML = `${voidBanner(inv)}<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${pill(inv.void_no ? "cancelled" : inv.pay_status)}</div><div class="wbody">
+    $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${pill(inv.pay_status)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${dmy(inv.invoice_date)}</span><span>Date of Purchase</span><span>${dmy(inv.purchase_date) || "—"}</span>
@@ -976,7 +959,7 @@
       <div><b>Payments</b>${E.grid({ cols: PAY_COLS.filter((x) => !["Customer", "Account No", "Invoice"].includes(x.label)), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
       <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
       ${rhBox("customer_invoices", inv.id)}</div>
-      <div class="wfoot">${tools("customer_invoices", inv, `Invoice ${inv.invoice_no}`, { reload: () => V.invoice(id) })}
+      <div class="wfoot">${tools("customer_invoices", inv, `Invoice ${inv.invoice_no}`, { reload: () => V.invoice(id), afterDelete: () => (location.hash = "invoices") })}
         ${(E.canWrite("payments") || E.canWrite("invoices")) && ["unpaid", "partial"].includes(inv.pay_status) && !["rejected", "pending", "verified"].includes(inv.customer_status) ? `<a class="btn" href="#newpayment/${inv.customer_id}/${inv.id}">Record Payment</a>` : ""}
         <a class="btn" href="#invoices">Close</a></div></div>`;
     E.bindGrid($("#main"), pays.data || [], (r) => (location.hash = "payment/" + r.id));
@@ -985,9 +968,8 @@
     bindTools($("#main"));
     E.setRecords(`Invoice: ${inv.invoice_no}`);
   };
-  function invoicePage(inv, allPays) {
-    const pays = live(allPays);
-    return `${printHead("INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}${voidPrint(inv)}
+  function invoicePage(inv, pays) {
+    return `${printHead("INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
       ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}${cell("PO Number", inv.po_number, "span2")}</div>`)}
       ${box("Order", `<div class="prow3">${cell("Invoice Date", dmy(inv.invoice_date))}${cell("Date of Purchase", dmy(inv.purchase_date))}${cell("Total Boxes", inv.total_boxes)}</div>
         <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Total Amount (₱)", peso(inv.total_amount))}${cell("Balance (₱)", peso(inv.balance))}</div>
@@ -1014,7 +996,7 @@
     const { data, error } = await sb.from("payments_received").select("*, customers(first_name,last_name,account_no), invoices:customer_invoices(invoice_no)").order("created_at", { ascending: false }).limit(2000);
     if (error) return fail(error, "Could not load payments");
     const rows = data || [];
-    $("#pyRes").innerHTML = E.grid({ cols: PAY_COLS, rows, onRow: true, foot: { amount: peso(live(rows).reduce((s, r) => s + num(r.amount), 0)) }, empty: "No payments yet." });
+    $("#pyRes").innerHTML = E.grid({ cols: PAY_COLS, rows, onRow: true, foot: { amount: peso(rows.reduce((s, r) => s + num(r.amount), 0)) }, empty: "No payments yet." });
     E.bindGrid($("#pyRes"), rows, (r) => (location.hash = "payment/" + r.id));
     E.setRecords(`Payments: ${rows.length}`);
   };
@@ -1090,8 +1072,7 @@
     $(".band h1").textContent = `Payment — ${p.receipt_no}`;
     $("#main").innerHTML = `
       ${extra === "done" ? `<div class="banner ok">✔ Payment successfully recorded — Receipt No <b>${esc(p.receipt_no)}</b>. It has been added to ${esc(fullName(p.customers))}'s account.</div>` : ""}
-      ${voidBanner(p)}
-      <div class="window"><div class="wtitle">${esc(p.receipt_no)}${p.void_no ? " " + pill("cancelled") : ""}</div><div class="wbody">
+      <div class="window"><div class="wtitle">${esc(p.receipt_no)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${p.customer_id}"><b>${esc(fullName(p.customers))}</b> (${esc(p.customers.account_no)})</a> ${p.customers.status !== "active" ? pill(p.customers.status) : ""}</span>
         <span>Amount</span><b>₱ ${peso(p.amount)}</b><span>In Words</span><span>${esc(words(p.amount))}</span>
@@ -1103,7 +1084,7 @@
       <div class="docgrid">${docCard({ key: "ack", title: `Acknowledgment Receipt ${p.receipt_no}`, sub: `₱ ${peso(p.amount)} · ${dmy(p.paid_date)}`, ownerType: "payment", ownerId: p.id, att, print: () => E.openPreview(`Acknowledgment ${p.receipt_no}`, [ackPage(p)]) })}</div>
       <div><b>Uploaded Receipts &amp; Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No receipts uploaded.")}</div>
       ${rhBox("payments_received", p.id)}</div>
-      <div class="wfoot">${tools("payments_received", p, `Receipt ${p.receipt_no}`, { reload: () => V.payment(id) })}<a class="btn" href="#payments">Close</a></div></div>`;
+      <div class="wfoot">${tools("payments_received", p, `Receipt ${p.receipt_no}`, { reload: () => V.payment(id), afterDelete: () => (location.hash = "payments") })}<a class="btn" href="#payments">Close</a></div></div>`;
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.payment(id));
     bindTools($("#main"));
@@ -1112,7 +1093,7 @@
   function ackPage(p) {
     const c = p.customers;
     return `${printHead("ACKNOWLEDGMENT RECEIPT", `<img src="${E.pdf417DataUrl("EMONPAY|" + p.receipt_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.receipt_no)}</div>`)}
-      ${p.void_no ? voidPrint(p) : `<div class="ack-ok">PAYMENT SUCCESSFULLY RECEIVED</div>`}
+      <div class="ack-ok">PAYMENT SUCCESSFULLY RECEIVED</div>
       ${box("Received From", `<div class="pgrid2">${cell("Customer Name", fullName(c))}${cell("Account No", c.account_no)}${cell("Date Paid", dmy(p.paid_date), "span2")}</div>`)}
       ${box("Payment Details", `<div class="prow3">${cell("Amount (₱)", peso(p.amount))}${cell("Method", METHOD[p.method])}${cell("Reference No", p.reference_no)}</div>
         <div class="prow3">${cell("Bank", p.bank_name)}${cell("Deposit Account", p.bank_account)}${cell("Applied to Invoice", p.invoices?.invoice_no || "General payment")}</div>
@@ -1128,7 +1109,7 @@
     { label: "Report No", get: (r) => r.memo_no }, { label: "Date", get: (r) => dmy(r.memo_date) },
     { label: "Customer", get: (r) => fullName(r.customers || {}) }, { label: "Article", get: (r) => r.article || "" },
     { label: "Defect", get: (r) => DEFECT[r.defect_category] || "" }, { label: "Request", get: (r) => ACTION[r.requested_action] || "" },
-    { label: "Amount (₱)", key: "request_amount", num: true, get: (r) => peso(r.request_amount) }, { label: "Status", html: (r) => pill(r.void_no ? "cancelled" : r.status) }
+    { label: "Amount (₱)", key: "request_amount", num: true, get: (r) => peso(r.request_amount) }, { label: "Status", html: (r) => pill(r.status) }
   ];
   V.creditmemos = async () => {
     E.shell("creditmemos", "Credit Memo", `
@@ -1137,7 +1118,7 @@
     const { data, error } = await sb.from("credit_memos").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).limit(2000);
     if (error) return fail(error, "Could not load credit memos");
     const rows = data || [];
-    $("#cmRes").innerHTML = E.grid({ cols: MEMO_COLS, rows, onRow: true, foot: { request_amount: peso(live(rows).reduce((s, r) => s + num(r.request_amount), 0)) }, empty: "No credit memos yet." });
+    $("#cmRes").innerHTML = E.grid({ cols: MEMO_COLS, rows, onRow: true, foot: { request_amount: peso(rows.reduce((s, r) => s + num(r.request_amount), 0)) }, empty: "No credit memos yet." });
     E.bindGrid($("#cmRes"), rows, (r) => (location.hash = "creditmemo/" + r.id));
     E.setRecords(`Credit memos: ${rows.length}`);
   };
@@ -1184,7 +1165,7 @@
     let cust = null;
     const loadPays = async () => {
       const dl = $("#cmPays"); dl.innerHTML = ""; if (!cust) return;
-      const { data } = await sb.from("payments_received").select("receipt_no,amount").eq("customer_id", cust.id).is("void_no", null).order("paid_date", { ascending: false }).limit(20);
+      const { data } = await sb.from("payments_received").select("receipt_no,amount").eq("customer_id", cust.id).order("paid_date", { ascending: false }).limit(20);
       (data || []).forEach((p) => dl.insertAdjacentHTML("beforeend", `<option value="${esc(p.receipt_no)} ${esc(peso(p.amount))} RECEIVED">`));
     };
     customerPicker($("#cmCust"), { statuses: ["active", "suspended"], onPick: (c) => { cust = c; loadPays(); }, preset: (await getCustomer(custId)) || undefined });
@@ -1220,7 +1201,7 @@
     if (!m) { $("#main").innerHTML = `<div class="empty">Credit memo not found. <a href="#creditmemos">Back</a></div>`; return; }
     const att = await attachmentsOf("credit_memo", id);
     $(".band h1").textContent = `Credit Memo — ${m.memo_no}`;
-    $("#main").innerHTML = `${voidBanner(m)}<div class="window"><div class="wtitle">${esc(m.memo_no)} ${pill(m.void_no ? "cancelled" : m.status)}</div><div class="wbody">
+    $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(m.memo_no)} ${pill(m.status)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${m.customer_id}"><b>${esc(fullName(m.customers))}</b> (${esc(m.customers.account_no)})</a> ${m.customers.status !== "active" ? pill(m.customers.status) : ""}</span>
         <span>Payment Ref</span><span>${esc(m.payment_ref || "—")}</span><span>Purchase Order</span><span>${esc(m.po_number || "—")}</span>
@@ -1237,11 +1218,11 @@
         <span>Paid / Settled</span><span>${m.paid_at ? `${esc(m.paid_by_name || "")} ${dmy(m.paid_at)}` : "—"}</span></div></div>
       <div class="docgrid">${docCard({ key: "memo", title: `Credit Memo ${m.memo_no}`, sub: `₱ ${peso(m.request_amount)} · ${dmy(m.memo_date)}`, ownerType: "credit_memo", ownerId: m.id, att, print: () => E.openPreview(`Credit Memo ${m.memo_no}`, [memoPage(m)]) })}</div>
       <div><b>Proof</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No proof uploaded.")}</div>
-      ${isAdmin() && !m.void_no && ["pending", "approved"].includes(m.status) ? `<fieldset class="opt review"><legend>CEO Decision</legend>
+      ${isAdmin() && ["pending", "approved"].includes(m.status) ? `<fieldset class="opt review"><legend>CEO Decision</legend>
         <div class="fields wide"><label for="cmNote">Note</label><input type="text" id="cmNote"></div>
         <div class="btnrow">${m.status === "pending" ? `<button type="button" class="btn ok" data-a="approve">Approve</button><button type="button" class="btn danger" data-a="reject">Reject</button>` : `<button type="button" class="btn ok" data-a="paid">Mark as PAID / Settled</button>`}</div></fieldset>` : ""}
       ${rhBox("credit_memos", m.id)}
-      </div><div class="wfoot">${tools("credit_memos", m, `Credit Memo ${m.memo_no}`, { reload: () => V.creditmemo(id) })}<a class="btn" href="#creditmemos">Close</a></div></div>`;
+      </div><div class="wfoot">${tools("credit_memos", m, `Credit Memo ${m.memo_no}`, { reload: () => V.creditmemo(id), afterDelete: () => (location.hash = "creditmemos") })}<a class="btn" href="#creditmemos">Close</a></div></div>`;
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.creditmemo(id));
     bindTools($("#main"));
@@ -1256,7 +1237,7 @@
     const c = m.customers;
     return `<div class="cm-head"><div><div class="cm-co">${esc(C.company.name)}</div><div class="cm-date">${esc(new Date(m.memo_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "2-digit", year: "numeric" }).toUpperCase())}</div></div>
         <div class="cm-rep"><div><span>REPORT:</span> <b>${esc(m.memo_no)}</b></div><img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt=""></div></div>
-      <div class="ph-title" style="text-align:left">CUSTOMER COMPLAINT</div>${voidPrint(m)}
+      <div class="ph-title" style="text-align:left">CUSTOMER COMPLAINT</div>
       ${box("Customer / Buyer Information", `<div class="pgrid2">${cell("Customer Name", fullName(c).toUpperCase(), "hl")}${cell("Customer ID", c.account_no, "hl")}
         ${cell("Payment Reference", m.payment_ref)}${cell("Purchase Order", m.po_number)}</div>`)}
       ${box("Garment & Order Details", `<div class="pgrid4">${cell("Garment Description / Article", m.article, "span2 hl")}${cell("Brand", m.brand)}${cell("Style", m.style)}
@@ -1323,7 +1304,7 @@
     E.shell("profile", "My Profile", busy());
     const { data: emp } = await sb.from("employees").select("*").eq("profile_id", S.profile.id).maybeSingle();
     const slips = emp ? (await sb.from("payslips").select("*").eq("employee_id", emp.id).order("pay_date", { ascending: false })).data || [] : [];
-    const netTotal = live(slips).reduce((s, p) => s + num(p.net_pay), 0);
+    const netTotal = slips.reduce((s, p) => s + num(p.net_pay), 0);
     $("#main").innerHTML = `
       <section class="me-card">
         <div class="me-photo">${av ? `<img src="${esc(av)}" alt="Your photo">` : `<span>${esc(E.initials(myName()))}</span>`}
@@ -1342,7 +1323,7 @@
         <fieldset class="opt"><legend>Password</legend><p>Change the password you sign in with.</p><div class="btnrow"><button type="button" class="btn" id="mpPw">${ic("key")} Change Password</button></div></fieldset>
       </div>
       ${emp ? `<h3>My Payslip History</h3>
-        <div class="tiles"><div class="tile"><div class="k">Payslips</div><div class="v">${live(slips).length}</div></div><div class="tile ok"><div class="k">Total Received (₱)</div><div class="v">₱ ${peso(netTotal)}</div></div></div>
+        <div class="tiles"><div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div><div class="tile ok"><div class="k">Total Received (₱)</div><div class="v">₱ ${peso(netTotal)}</div></div></div>
         <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => dmy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}`;
     if (emp) E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
     $("#mpPw").onclick = () => E.changePassword();
