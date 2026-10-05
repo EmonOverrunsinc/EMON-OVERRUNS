@@ -726,15 +726,19 @@
     return [n("Invoice") ? `${n("Invoice")} Invoice Attached` : "", n("Payment Receipt") ? `${n("Payment Receipt")} Payment Receipt Attached` : ""].filter(Boolean).join(" · ");
   };
 
-  // Bank-statement layout: customer left, account/period right, running balance, then attached invoice and receipt copies.
+  // Statement numbers are made by the system: SOA-YYYYMM-<account no> for a month (the same number the monthly
+  // statement gets on the 1st), SOA-YYYYMMDD-<account no> for a print of all transactions up to that day.
+  const soaNo = (iso, c, day = false) => `SOA-${String(iso).slice(0, day ? 10 : 7).replace(/-/g, "")}-${c.account_no}`;
+  // Bank-statement layout: customer name left, statement and account numbers right, running balance, then
+  // attached invoice and receipt copies. System-generated: no signature lines.
   function soaPages(c, p, txns, images) {
     let bal = p.opening;
     const rows = txns.map((x) => { bal += x.debit - x.credit; return { ...x, bal }; });
     const deb = txns.reduce((s, x) => s + x.debit, 0), cre = txns.reduce((s, x) => s + x.credit, 0);
     const closing = p.closing ?? (p.opening + deb - cre);
     const head = `<div class="soa-logo">${E.logoHtml("soa-logo-img")}<div class="soa-co">${esc(C.company.name)}</div><div class="soa-addr">${esc(C.company.address.join(", "))} · ${esc(C.company.email)} · ${esc(C.company.phone)}</div></div>
-      <div class="ph-title">STATEMENT OF ACCOUNT${p.live ? " (MONTH TO DATE)" : ""}</div>
-      <div class="soa-top"><div class="soa-cust"><b>${esc(fullName(c).toUpperCase())}</b><br>${esc(c.address || "")}<br>${esc(c.phone || "")}</div>
+      <div class="ph-title">STATEMENT OF ACCOUNT</div>
+      <div class="soa-top"><div class="soa-cust"><b>${esc(fullName(c).toUpperCase())}</b></div>
         <div class="soa-acct"><span>Statement No :</span><b>${esc(p.no || "—")}</b><span>Account Number :</span><b>${esc(c.account_no)}</b>
           <span>Period Coverage :</span><b>${dmy(p.start)} - ${dmy(p.end)}</b><span>Date Printed :</span><b>${dmy(isoToday())}</b></div></div>`;
     const page1 = `${head}
@@ -745,7 +749,8 @@
         <tr class="soa-total"><td><b>TOTAL</b></td><td>${rows.length} transaction(s)</td><td>${esc(copiesSummary(images))}</td><td class="num">${peso(deb)}</td><td class="num">${peso(cre)}</td><td></td></tr></tbody></table>
       <div class="soa-due"><span>AMOUNT DUE</span><b>₱ ${peso(closing)}</b><small>${esc(words(Math.max(0, closing)))}</small></div>
       <div class="soa-note">Please examine this statement. Any discrepancy must be reported to ${esc(C.company.name)} within 10 days, otherwise this statement is considered correct.<br>Payments: ${esc(C.company.phone)} · ${esc(C.company.email)}</div>
-      ${sigs("Prepared by", "Received by (Customer) / Date")}`;
+      <div class="soa-sys">This is a system-generated statement. No signature is required.</div>
+      <div class="soa-thanks">Thank you for your business!</div>`;
     const pages = [page1];
     for (let i = 0; i < images.length; i += 4) {
       const chunk = images.slice(i, i + 4);
@@ -769,7 +774,7 @@
     const { data } = await sb.from("statements").select("*").eq("customer_id", c.id).order("period_start", { ascending: false }).limit(3);
     const txns = txnsOf(invs, pays, memos);
     const cm = monthStart(isoToday());
-    const live = { start: cm, end: isoToday(), opening: before(txns, cm), live: true, no: "Month to date" };
+    const live = { start: cm, end: isoToday(), opening: before(txns, cm), live: true, no: soaNo(cm, c) };
     const st = (data || []).map((s) => ({ start: s.period_start, end: s.period_end, opening: num(s.opening_balance), closing: num(s.closing_balance), no: s.statement_no, debit: num(s.total_debit), credit: num(s.total_credit) }));
     const lt = within(txns, live.start, live.end);
     live.debit = lt.reduce((s, x) => s + x.debit, 0); live.credit = lt.reduce((s, x) => s + x.credit, 0); live.closing = live.opening + live.debit - live.credit;
@@ -784,7 +789,7 @@
     E.bindGrid(box, rows, (r) => printSoa(c, r, txns, invs));
     $("#soaAll").onclick = () => {
       const start = txns.length ? monthStart(txns[0].date) : monthStart(c.application_date);
-      E.openPreview(`All transactions ${c.account_no}`, soaPages(c, { start, end: isoToday(), opening: 0, no: "ALL TRANSACTIONS" }, within(txns, start, isoToday()), []));
+      E.openPreview(`All transactions ${c.account_no}`, soaPages(c, { start, end: isoToday(), opening: 0, no: soaNo(isoToday(), c, true) }, within(txns, start, isoToday()), []));
     };
   }
 
