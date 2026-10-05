@@ -585,7 +585,7 @@ table.grid.budget td:first-child input { min-width: 180px; }
 .ph-codes { display: flex; gap: 12px; align-items: flex-end; text-align: center; }
 .ph-codes .ph-bar { height: 40px; margin: 0 auto; }
 .ph-codes .mono { font-size: 9px; margin-top: 2px; }
-.ph-codes .key { max-width: 110px; margin-left: auto; margin-right: auto; }
+.ph-codes .key { max-width: 21ch; margin-left: auto; margin-right: auto; } /* the 42-character key in two even lines */
 
 /* Statement of account (bank-statement style) */
 .soa-logo { text-align: center; }

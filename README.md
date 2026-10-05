@@ -8,7 +8,7 @@ It is laid out like AutoCount: option panel, then Inquiry, Preview and Print, th
 ## Modules (side menu)
 | Menu | What it does |
 |---|---|
-| Dashboard | Totals, what is waiting for the CEO (applications, orders, corrections, credit memos) and the monthly chart |
+| Dashboard | Totals, what is waiting for the Director (applications, orders, corrections, credit memos) and the monthly chart |
 | 1. Customer | Application with photo and requirements, account no, wallet-style Public ID with its QR, approval, profile with balance, monthly SOA and history |
 | 2. Invoice | Sales for ACTIVE customers (PO, boxes, pcs, amount, receipts, delivery receipt) |
 | 3. Payment | Cash, bank transfer, online transfer or deposit, with a printable acknowledgment receipt |
@@ -17,10 +17,10 @@ It is laid out like AutoCount: option panel, then Inquiry, Preview and Print, th
 | 6. Community | Company posts (kept 30 days) and chat |
 | 7. Project | Projects with their costs and payments |
 | 8. Billing | Billing companies (PHP, BDT or both) and payment vouchers |
-| 9. Order Letter | Requests for customers, employees and billing companies (closure, reactivation, additional charge, settlement adjustment, balance certificate and more); the CEO approves and it is carried out at once |
+| 9. Order Letter | Requests for customers, employees and billing companies (closure, reactivation, additional charge, settlement adjustment, balance certificate and more); the Director approves and it is carried out at once |
 | Verification | Anyone can check a record by its number or by scanning its QR / PDF417 code, without signing in |
-| Corrections | Records are only added; corrections and cancellations are approved by the CEO |
-| User | Logins, roles and which modules each person can open (CEO) |
+| Corrections | Records are only added; corrections and cancellations are approved by the Director |
+| User | Logins, access levels and which modules each person can open (Director) |
 | Download Forms | Blank company forms |
 
 Amounts are in **PHP (₱)** (Billing also uses BDT). Dates show as MM-DD-YYYY in Manila time. Vouchers print the amount in words, for example "PESOS ONE THOUSAND … AND 50/100 ONLY".
@@ -34,6 +34,7 @@ Database scripts, run once each in this order in the Supabase SQL Editor: `porta
 `008_update_1_5.sql` (order letter Additional Charge added to the balance and the SOA; old photos leave Files),
 `009_update_1_6.sql` (dates follow Manila time: between midnight and 8 AM the database no longer uses the day before;
 run it again after any later update that replaces a function, so the replaced function keeps Manila time).
+`010_update_1_7.sql` (wording: the database says Director instead of CEO, Employee instead of Staff, and clearer messages and history lines).
 
 ## Setup (one time)
 1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.

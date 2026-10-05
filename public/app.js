@@ -37,8 +37,9 @@
   const isAdmin = () => S.profile?.role === "admin";
   const isStaff = () => ["admin", "staff"].includes(S.profile?.role);
   const pill = (s) => `<span class="pill ${esc(s)}">${esc(String(s || "").replace(/_/g, " ").toUpperCase())}</span>`;
-  // The top role is called CEO in the portal (stored as "admin").
-  const roleName = (r) => ({ admin: "CEO", staff: "Staff", viewer: "Viewer" })[r] || r || "";
+  // The top role is called Director in the portal (stored as "admin"); everyone else is shown with their job position.
+  const roleName = (r) => ({ admin: "Director", staff: "Employee", viewer: "Viewer" })[r] || r || "";
+  const personTitle = (role, position) => role === "admin" ? "Director" : position || roleName(role);
   // Seen in the last 3 minutes = active now.
   const online = (ts) => !!ts && Date.now() - new Date(ts).getTime() < 3 * 60 * 1000;
   function timeAgo(iso) {
@@ -201,7 +202,7 @@
         g.drawImage(img, -w / 2, -h / 2, w, h);
         try { return decodeCanvas(c); } catch (_) { /* try next orientation */ }
       }
-      throw new Error("No QR code or barcode found in that image. Try a sharper, straight-on photo.");
+      throw new Error("No QR code or barcode found in that image. Try a sharper photo, taken from the front.");
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -218,7 +219,7 @@
   window.addEventListener("appinstalled", () => { installEvt = null; $$(".install-app").forEach((b) => (b.hidden = true)); toast(`${APP} installed. Find it in the Start menu or on your home screen.`); });
   async function installApp() {
     if (installEvt) { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; $$(".install-app").forEach((b) => (b.hidden = true)); return; }
-    toast("To install: open the browser menu (⋯ or ⋮) and choose “Install EMON OVERRUNS E-PORTAL” / “Apps → Install this site as an app”.");
+    toast("To install: open the browser menu (⋯ or ⋮) and choose “Install EMON OVERRUNS E-PORTAL” or “Apps → Install this site as an app”.");
   }
   S.logoUrl = DEFAULT_LOGO;
   const publicUrl = (bucket, path) => path ? sb.storage.from(bucket).getPublicUrl(path).data.publicUrl : "";
@@ -246,6 +247,9 @@
     const { data, error } = await sb.from("profiles").select("*").eq("id", S.session.user.id).maybeSingle();
     if (error) fail(error, "Could not load your profile");
     S.profile = data;
+    // the job position shown with the user's name (the Director is shown as Director)
+    S.position = "";
+    if (data && data.role !== "admin") S.position = (await sb.from("employees").select("position").eq("profile_id", data.id).maybeSingle()).data?.position || "";
   }
   const authRedirect = () => location.origin + location.pathname;
   function authFrame(title, inner) {
@@ -332,7 +336,7 @@
         sb.auth.resend({ type: "signup", email, options: { emailRedirectTo: authRedirect() } }).then(() => {}, () => {});
         return renderCode(email);
       }
-      fail(/invalid login/i.test(error.message) ? "Wrong email/username or password." : error, "Sign in failed");
+      fail(/invalid login/i.test(error.message) ? "Wrong email/username or password." : error, "Sign-in failed");
     };
   }
 
@@ -386,7 +390,7 @@
       if (error) return fail(error, "Could not create the account");
       // Supabase answers an already-registered email with a user that has no identities.
       if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-        toast(`${email} already has an account. Sign in, or press Forgot password.`, true);
+        toast(`${email} already has an account. Sign in, or press “Forgot password?”`, true);
         return renderLogin("signin", email);
       }
       if (!data.session) renderCode(email);
@@ -501,7 +505,7 @@
       <p class="center">${esc(S.session?.user?.email || "")}</p>
       ${pwField("pw1", "New Password", "new-password")}
       ${pwField("pw2", "Confirm New Password", "new-password")}
-      <button class="btn primary big" type="submit">Save Password</button>
+      <button class="btn primary big" type="submit">Save New Password</button>
       ${fromEmail ? "" : `<div class="login-links"><button type="button" class="linkbtn" id="pwCancel">Cancel</button></div>`}
     </form>`);
     bindEyes();
@@ -524,13 +528,13 @@
   function renderDisabled() {
     authFrame("Account Disabled", `<div class="wbody login-form">${brandBlock()}
       <div class="banner closed">This account (${esc(S.session.user.email)}) is disabled.</div>
-      <p>Contact the CEO of ${esc(C.company.name)} if you think this is a mistake.</p>
+      <p>Contact the Director of ${esc(C.company.name)} if you think this is a mistake.</p>
       <button class="btn big" id="dsOut">Sign Out</button></div>`);
     $("#dsOut").onclick = signOut;
   }
   function renderPending() {
     authFrame("Waiting for Approval", `<div class="wbody login-form">${brandBlock()}
-      <p>Signed in as <b>${esc(S.session.user.email)}</b>. Your account is waiting for the CEO.</p>
+      <p>Signed in as <b>${esc(S.session.user.email)}</b>. Your account is waiting for approval by the Director.</p>
       <div class="login-links"><button class="btn" id="pRefresh">Check Again</button><button class="btn" id="pOut">Sign Out</button></div></div>`);
     $("#pRefresh").onclick = async () => { S.profile = null; route(); };
     $("#pOut").onclick = signOut;
@@ -667,7 +671,7 @@
           <button type="button" class="scanbtn" id="tbScan" title="Scan a QR code or barcode">${ic("scan")}<span>Scan</span></button>
         </form>
         <div class="tb-right">
-          <button type="button" class="iconbtn install-app" id="tbInstall" title="Install the E-Portal as an app" ${installEvt ? "" : "hidden"}>${ic("install")}<span class="tb-install-txt">Install App</span></button>
+          <button type="button" class="iconbtn install-app" id="tbInstall" title="Install the E-PORTAL as an app" ${installEvt ? "" : "hidden"}>${ic("install")}<span class="tb-install-txt">Install App</span></button>
           <button type="button" class="iconbtn" id="tbChat" aria-label="Messages" title="Messages">${ic("chat")}<span class="badge" id="tbChatBadge" hidden>0</span></button>
           <button type="button" class="iconbtn" id="tbBell" aria-label="Notifications" title="Notifications" aria-haspopup="true">${ic("bell")}<span class="badge" id="tbBadge" hidden>0</span></button>
           <button type="button" class="avatar-btn" id="tbUser" aria-haspopup="true" aria-label="Your account">
@@ -676,10 +680,10 @@
         </div>
         <div class="pop" id="mailPop" hidden><div class="pop-head">Notifications</div><div id="mailList">${busy()}</div></div>
         <div class="pop" id="userPop" hidden>
-          <div class="pop-head">${esc(S.profile.full_name || "")}<small>${S.profile.username ? "@" + esc(S.profile.username) + " · " : ""}${esc(S.session.user.email)} · ${esc(roleName(S.profile.role).toUpperCase())}</small></div>
+          <div class="pop-head">${esc(S.profile.full_name || "")}<small>${S.profile.username ? "@" + esc(S.profile.username) + " · " : ""}${esc(S.session.user.email)} · ${esc(personTitle(S.profile.role, S.position).toUpperCase())}</small></div>
           <a href="#profile">${ic("user")} My Profile</a>
           <button type="button" id="chPw">${ic("key")} Change Password</button>
-          ${installed() ? "" : `<button type="button" id="upInstall">${ic("install")} Install as App</button>`}
+          ${installed() ? "" : `<button type="button" id="upInstall">${ic("install")} Install App</button>`}
           ${isAdmin() ? `<a href="#settings">${ic("image")} Company Logo</a>` : ""}
           <button type="button" id="signOut">${ic("out")} Sign Out</button>
         </div>
@@ -795,8 +799,8 @@
       const hints = new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.QR_CODE, Z.BarcodeFormat.PDF_417]]]);
       reader = new Z.BrowserMultiFormatReader(hints);
       reader.decodeFromVideoDevice(undefined, $("#scVideo", d), (res) => { if (res) finish(res.getText()); })
-        .catch(() => { d.classList.add("nocam"); msg("Camera is not available. Use a photo instead."); });
-    } else { d.classList.add("nocam"); msg("Camera is not available here. Use a photo instead."); }
+        .catch(() => { d.classList.add("nocam"); msg("The camera is not available. Use a photo instead."); });
+    } else { d.classList.add("nocam"); msg("The camera is not available here. Use a photo instead."); }
   }
   // Customer QR: the customer's Public ID key, like a crypto wallet address (EO + 40 letters and numbers).
   // Older customer QR codes read EMONCUST|<public id>|<account no>.
@@ -932,7 +936,7 @@
   // ---------- Download forms ----------
   async function viewForms() {
     shell("forms", "Download Forms", `
-      ${isAdmin() ? `<form class="options" id="fmForm"><fieldset class="opt" style="flex:1 1 100%"><legend>Upload New Form (CEO)</legend>
+      ${isAdmin() ? `<form class="options" id="fmForm"><fieldset class="opt" style="flex:1 1 100%"><legend>Upload New Form (Director)</legend>
         <div class="formgrid"><div class="fields wide">
           <label for="fmTitle">Title</label><input type="text" id="fmTitle" required placeholder="e.g. Leave Application Form">
           <label for="fmCat">Category</label><input type="text" id="fmCat" list="fmCats" value="General">
@@ -990,19 +994,21 @@
         <label for="uStatus">Status</label><select id="uStatus"><option value="">All</option><option value="pending">Pending (applicants)</option><option value="active">Active</option><option value="disabled">Disabled</option></select>
       </div></fieldset></div>
       <div id="uList">${busy()}</div>`,
-      "Everyone who signed up. New sign-ups are <b>Pending</b> applicants: they apply for a job, and approving the job application under <b>Employee → Job Applications</b> lets them in. You can also change a role or status here.");
+      "Everyone who signed up. New sign-ups are <b>Pending</b> applicants. When you approve their job application under <b>Employee → Job Applications</b>, they can use the portal. You can also change an access level or status here.");
     const load = async () => {
       let q = sb.from("profiles").select("*").order("created_at", { ascending: false });
       if ($("#uStatus").value) q = q.eq("status", $("#uStatus").value);
-      const { data, error } = await q;
+      const [{ data, error }, { data: emps }] = await Promise.all([q, sb.from("employees").select("profile_id, position").not("profile_id", "is", null)]);
+      const posOf = new Map((emps || []).map((e) => [e.profile_id, e.position]));
       if (error) return fail(error, "Could not load users");
       const rows = data || [];
       const me = S.profile.id;
       const sel = (id, field, val, opts, label = (o) => o) => `<select data-u="${id}" data-f="${field}" ${id === me ? "disabled" : ""} style="width:auto">${opts.map((o) => `<option value="${o}" ${o === val ? "selected" : ""}>${esc(label(o))}</option>`).join("")}</select>`;
       const cols = [
         { label: "Name", get: (r) => r.full_name || "" }, { label: "Username", get: (r) => r.username ? "@" + r.username : "" }, { label: "Email", get: (r) => r.email || "" },
-        { label: "Role", html: (r) => sel(r.id, "role", r.role, ["admin", "staff", "viewer"], roleName) },
-        { label: "Status", html: (r) => sel(r.id, "status", r.status, ["pending", "active", "disabled"]) + " " + pill(r.status) },
+        { label: "Position", get: (r) => personTitle(r.role, posOf.get(r.id)) },
+        { label: "Access Level", html: (r) => sel(r.id, "role", r.role, ["admin", "staff", "viewer"], roleName) },
+        { label: "Status", html: (r) => sel(r.id, "status", r.status, ["pending", "active", "disabled"], (o) => o[0].toUpperCase() + o.slice(1)) + " " + pill(r.status) },
         { label: "Last Seen", html: (r) => r.status === "active" && online(r.last_seen_at) ? `<span class="dot-on"></span> Active now` : esc(r.last_seen_at ? timeAgo(r.last_seen_at) : "—") },
         { label: "Joined", get: (r) => mdy(r.created_at) },
         { label: "", html: (r) => r.id === me ? "<small>You</small>" : `<button type="button" class="btn primary" data-save="${r.id}">Save</button>` }
@@ -1042,7 +1048,7 @@
     if (linkError) { toast(linkError + " You are already signed in."); linkError = ""; }
     if (!S.profile) await loadProfile();
     if (!S.profile) {
-      authFrame("Sign In", `<div class="wbody login-form">${brandBlock()}<p>Your profile could not be loaded. Check the connection and try again.</p>
+      authFrame("Sign In", `<div class="wbody login-form">${brandBlock()}<p>Your profile could not be loaded. Check your internet connection and try again.</p>
         <div class="login-links"><button class="btn" id="npRetry">Try Again</button><button class="btn" id="npOut">Sign Out</button></div></div>`);
       $("#npRetry").onclick = route; $("#npOut").onclick = signOut;
       return;
@@ -1053,7 +1059,7 @@
       return V.applicant ? V.applicant(key, arg) : renderPending();
     }
     startTimers();
-    if (!canOpen(key)) { toast("You do not have access to that section. Ask the CEO.", true); location.hash = "dashboard"; return; }
+    if (!canOpen(key)) { toast("You do not have access to that section. Ask the Director.", true); location.hash = "dashboard"; return; }
     const view = V[key] || BUILTIN[key];
     if (view) return view(arg, extra);
     return V.dashboard ? V.dashboard() : shell("dashboard", "Dashboard", "");
@@ -1092,7 +1098,7 @@
     isAdmin, isStaff, pill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages,
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey,
-    roleName, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
+    roleName, personTitle, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
     changePassword: () => renderSetPassword(false)
   });
 })();

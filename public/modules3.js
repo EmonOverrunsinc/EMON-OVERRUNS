@@ -1,6 +1,6 @@
 /* EMON OVERRUNS E-PORTAL — job applicant portal, 6 Community, 9 Order Letter, Verification (public),
-   Messages (chat), Corrections, and the Add Correction / Delete (CEO) tools used on every record
-   (saved records are never edited; only the CEO deletes, permanently). */
+   Messages (chat), Corrections, and the Add Correction / Delete (Director) tools used on every record
+   (saved records are never edited; only the Director deletes, permanently). */
 (function () {
   "use strict";
   const E = window.EO;
@@ -41,16 +41,16 @@
   const avatarOf = (c) => c.avatar_path ? `<img src="${esc(E.publicUrl("avatars", c.avatar_path))}" alt="">` : `<span>${esc(E.initials(c.full_name))}</span>`;
 
   // ======================================================================
-  // Records are only added: Add Correction on every record (staff: Request Correction, approved by the CEO).
-  // Only the CEO deletes a record, and then it is gone for good.
+  // Records are only added: Add Correction on every record (staff: Request Correction, approved by the Director).
+  // Only the Director deletes a record, and then it is gone for good.
   // ======================================================================
   const F = (k, label, type = "text", opts) => ({ k, label, type, opts });
   const METHODS = [["cash", "Cash"], ["bank_transfer", "Bank Transfer"], ["online_transfer", "Online Transfer"], ["deposit", "Bank Deposit"]];
   // Details that can be corrected — must match editable_columns() in the database. Amounts, transaction dates and
-  // record numbers are never corrected: a wrong money record is deleted by the CEO and recorded again.
+  // record numbers are never corrected: a wrong money record is deleted by the Director and recorded again.
   const FIELDS = {
-    customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Date Starting in Business", "date"), F("facebook_name", "Facebook Name"), F("has_extra_facebook", "Has Additional Facebook", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool")],
-    customer_invoices: [F("purchase_date", "Date of Purchase", "date"), F("po_number", "PO Number"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int")],
+    customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool")],
+    customer_invoices: [F("purchase_date", "Purchase Date", "date"), F("po_number", "PO Number"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int")],
     payments_received: [F("method", "Method", "select", METHODS), F("bank_name", "Bank Name"), F("bank_account", "Deposit Account"), F("reference_no", "Reference No"), F("notes", "Notes")],
     credit_memos: [F("payment_ref", "Payment Reference"), F("po_number", "Purchase Order"), F("article", "Article"), F("brand", "Brand"), F("style", "Style"), F("batch_no", "Batch No"), F("serial_no", "Serial No"), F("purchase_date", "Purchase Date", "date"),
       F("defect_category", "Defect Category", "select", [["fabric_damage", "Fabric Damage"], ["color_issue", "Color Issue"], ["wrong_box", "Wrong Box Delivered"], ["wrong_bundle", "Wrong Bundle"], ["other", "Other"]]), F("defect_detail", "Defect Details"),
@@ -62,11 +62,11 @@
     pay_companies: [F("name", "Company Name"), F("contact_person", "Contact Person"), F("contact", "Phone / Email"), F("address", "Address"), F("currency", "Currency", "select", [["PHP", "PHP"], ["BDT", "BDT"], ["BOTH", "PHP, BDT"]]), F("notes", "Notes")],
     pay_accounts: [F("account_name", "Account Name"), F("account_number", "Account Number"), F("bank_name", "Bank Name"), F("branch_name", "Branch"), F("notes", "Notes")],
     pay_vouchers: [F("purpose", "Purpose"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
-    job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife / Husband Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("apply_salary", "Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date")]
+    job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife's / Husband's Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("apply_salary", "Expected Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date")]
   };
-  // Money records: their amounts and dates are not corrected (the CEO deletes a wrong one and it is recorded again).
+  // Money records: their amounts and dates are not corrected (the Director deletes a wrong one and it is recorded again).
   const MONEY = ["customer_invoices", "payments_received", "credit_memos", "payslips", "pay_vouchers", "project_payments", "order_letters"];
-  // Records the CEO can delete — must match deletable_table() in the database.
+  // Records the Director can delete — must match deletable_table() in the database.
   const DELETABLE = ["customers", "customer_invoices", "payments_received", "credit_memos", "order_letters", "employees", "payslips", "projects", "project_payments", "pay_companies", "pay_accounts", "pay_vouchers", "job_applications", "job_positions"];
   const TABLE_NAME = { customers: "Customer", customer_invoices: "Invoice", payments_received: "Payment", credit_memos: "Credit Memo", employees: "Employee", payslips: "Payslip", projects: "Project", project_payments: "Project Payment", pay_companies: "Billing Company", pay_accounts: "Billing Account", pay_vouchers: "Payment Voucher", job_applications: "Job Application", order_letters: "Order Letter" };
   const ROUTE_OF = { customers: "customer", customer_invoices: "invoice", payments_received: "payment", credit_memos: "creditmemo", employees: "employee", payslips: "payslip", projects: "project", pay_companies: "paycompany", pay_vouchers: "voucher", job_applications: "jobapp", order_letters: "order" };
@@ -106,10 +106,10 @@
     if (!fields) return toast("This record cannot be corrected.", true);
     const admin = isAdmin();
     const m = E.modal(`${admin ? "Add Correction" : "Request Correction"} — ${label}`, `
-      <div class="hint">The saved record is not edited. ${admin ? "A correction record is added" : "When the CEO approves, a correction record is added"} with the new details, and the original details are kept with it.</div>
+      <div class="hint">The saved record is not edited. ${admin ? "A correction record is added" : "When the Director approves, a correction record is added"} with the new details, and the original details are kept with it.</div>
       <div class="fields wide edit-grid">${fields.map((f) => fieldInput(f, row[f.k])).join("")}</div>
-      ${MONEY.includes(table) ? `<small class="muted">Amounts and dates cannot be corrected. If they are wrong, ${admin ? "delete this record" : "ask the CEO to delete this record"} and record it again.</small>` : ""}
-      <label class="fl" for="edReason">Reason for the correction *</label><textarea id="edReason" rows="2" placeholder="e.g. Wrong phone number was typed"></textarea>`,
+      ${MONEY.includes(table) ? `<small class="muted">Amounts and transaction dates cannot be corrected. If they are wrong, ${admin ? "delete this record" : "ask the Director to delete this record"} and record it again.</small>` : ""}
+      <label class="fl" for="edReason">Reason for the correction *</label><textarea id="edReason" rows="2" placeholder="e.g. The wrong phone number was typed"></textarea>`,
       `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn primary" data-ok>${admin ? "Add Correction" : "Send for Approval"}</button>`, { wide: true });
     $("[data-x]", m.el).onclick = m.close;
     $("[data-ok]", m.el).onclick = async () => {
@@ -123,17 +123,17 @@
       btn.disabled = false;
       if (error) return fail(error, admin ? "Could not add the correction" : "Could not send the correction");
       m.close();
-      toast(admin ? `Correction ${data.request_no} added.` : `Correction ${data.request_no} sent to the CEO for approval.`);
+      toast(admin ? `Correction ${data.request_no} added.` : `Correction ${data.request_no} sent to the Director for approval.`);
       if (reload) reload();
     };
   }
-  // The CEO deletes a record permanently, with its files. Nothing of it is shown afterwards.
+  // The Director deletes a record permanently, with its files. Nothing of it is shown afterwards.
   async function deleteRecord(table, row, label, afterDelete) {
     if (!isAdmin()) return;
     // A carried-out order letter is also undone (see undo_order in the database).
     const undo = table === "order_letters" && row.status === "applied"
-      ? `<br><br>This order was carried out, so deleting it also <b>undoes it</b>: the status before the order comes back (if no later order changed it again), and a charge or settlement adjustment leaves the balance and the statements.` : "";
-    if (!(await E.confirmBox(`Delete <b>${esc(label)}</b> permanently? It is removed from the portal with its files and cannot be brought back.${undo}`, { title: "Delete record", ok: "Delete", danger: true }))) return;
+      ? `<br><br>This order was carried out, so deleting it also <b>undoes it</b>: the status goes back to what it was before the order (if no later order changed it again), and a charge or settlement adjustment is removed from the balance and the statements.` : "";
+    if (!(await E.confirmBox(`Delete <b>${esc(label)}</b> permanently? It will be removed from the portal with its files and cannot be brought back.${undo}`, { title: "Delete Record", ok: "Delete", danger: true }))) return;
     const { data: paths, error } = await sb.rpc("delete_record", { p_table: table, p_id: row.id });
     if (error) return fail(error, "Could not delete");
     const files = [...new Set((paths || []).filter(Boolean))];
@@ -161,7 +161,7 @@
     });
     $$("[data-rh]", root).forEach((el) => { const [t, id] = el.dataset.rh.split(":"); recordHistory(el, t, id); });
   }
-  // Corrections added to one record (with requests still waiting), newest first. CEO only.
+  // Corrections added to one record (with requests still waiting), newest first. Director only.
   const rhBox = (table, id) => isAdmin() ? `<div class="rhist" data-rh="${esc(table)}:${esc(id)}" hidden></div>` : "";
   async function recordHistory(el, table, id) {
     const [done, reqs] = await Promise.all([
@@ -177,19 +177,19 @@
     if (!rows.length) { el.hidden = true; return; }
     el.hidden = false;
     el.innerHTML = `<b>Corrections</b>${E.grid({ cols: [
-      { label: "Date / Time", get: (r) => E.stamp(new Date(r.at)) }, { label: "Record No", get: (r) => r.no }, { label: "Type", html: (r) => `${esc(r.what)} ${pill(r.st)}` },
+      { label: "Date / Time", get: (r) => E.stamp(new Date(r.at)) }, { label: "Correction No", get: (r) => r.no }, { label: "Type", html: (r) => `${esc(r.what)} ${pill(r.st)}` },
       { label: "Original → Corrected", get: (r) => r.detail || "—" }, { label: "Reason", get: (r) => r.why || "" }, { label: "By", get: (r) => r.by || "" }], rows })}`;
   }
 
   // ======================================================================
-  // Corrections (requests and the log) — the CEO only
+  // Corrections (requests and the log) — the Director only
   // ======================================================================
   V.changes = async () => {
     if (!isAdmin()) { location.hash = "dashboard"; return; }
     E.shell("changes", "Corrections", `
-      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button><button type="button" data-f="log">Correction Log</button></div>
+      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button><button type="button" data-f="log">Correction Log</button></div>
       <div id="crRes">${busy()}</div>`,
-      "Saved records are never edited. Staff send <b>corrections</b> (wrong details) here; <b>Approve</b> adds the correction record. Your own are added straight away. Only you can see corrections.");
+      "Saved records are never edited. Employees send <b>corrections</b> (wrong details) here; <b>Approve</b> adds the correction record. Your own corrections are added straight away. Only you can see corrections.");
     const run = async (f) => {
       $("#crRes").innerHTML = busy();
       if (f === "log") {
@@ -199,7 +199,7 @@
         $("#crRes").innerHTML = E.grid({ cols: [
           { label: "Date / Time", get: (r) => E.stamp(new Date(r.created_at)) }, { label: "Record", get: (r) => `${TABLE_NAME[r.target_table] || r.target_table}: ${r.target_label || ""}` },
           { label: "Original → Corrected", get: (r) => changeList(r.target_table, r.changes, r.previous) },
-          { label: "By", get: (r) => r.actor_name || "" }, { label: "Record No", get: (r) => r.request_no || "" }], rows, empty: "No corrections yet." });
+          { label: "By", get: (r) => r.actor_name || "" }, { label: "Correction No", get: (r) => r.request_no || "" }], rows, empty: "No corrections yet." });
         return E.setRecords(`Corrections: ${rows.length}`);
       }
       let q = sb.from("change_requests").select("*").order("created_at", { ascending: false }).limit(300);
@@ -219,7 +219,7 @@
         const note = $(`[data-note="${b.dataset.cr}"]`).value.trim() || null;
         b.disabled = true;
         const { error: e2 } = await sb.rpc("review_change_request", { p_id: b.dataset.cr, p_action: b.dataset.a, p_note: note });
-        if (e2) { b.disabled = false; return fail(e2, "Could not decide the request"); }
+        if (e2) { b.disabled = false; return fail(e2, "Could not update the request"); }
         toast(b.dataset.a === "reject" ? "Request rejected." : "Approved — the correction was added to the record."); run(f); E.refreshBadge();
       }));
       E.setRecords(`Requests: ${rows.length}`);
@@ -253,8 +253,8 @@
   function applicantPositions(positions, rejected) {
     $("#main").innerHTML = `
       <section class="welcome-card"><h2>Welcome, ${esc(S.profile.full_name || "")}!</h2>
-        <p>Your account is ready. To work with ${esc(C.company.name)}, choose a position below and fill in the job application. After you submit, download the application form, sign it, and bring it to the office. The CEO approves it and gives you access to the portal.</p>
-        ${rejected ? `<div class="banner closed">Your last application ${esc(rejected.application_no)} was not approved${rejected.review_note ? ": " + esc(rejected.review_note) : "."} You may apply again.</div>` : ""}</section>
+        <p>Your account is ready. To work with ${esc(C.company.name)}, choose a position below and fill in the job application. After you submit, download the application form, sign it, and bring it to the office. The Director approves it and gives you access to the portal.</p>
+        ${rejected ? `<div class="banner closed">Your last application ${esc(rejected.application_no)} was not approved${rejected.review_note ? " (" + esc(rejected.review_note) + ")" : ""}. You may apply again.</div>` : ""}</section>
       <h3>Open Positions</h3>
       <div class="pos-grid">${positions.map((p) => `<article class="pos-card"><h4>${esc(p.title)}</h4><div class="pos-co">${esc(p.company_name)}</div>
           <div class="pos-meta">${num(p.monthly_salary) ? `<span>₱ ${peso(p.monthly_salary)} / month</span>` : ""}${p.duty_hours ? `<span>${esc(p.duty_hours)}</span>` : ""}</div>
@@ -271,10 +271,10 @@
     $(".band h1").textContent = "Job Application Form";
     $("#main").innerHTML = `
       <form class="window jaform" id="jaForm" novalidate><div class="wtitle">Job Application — ${esc(pos ? pos.title : "Other Position")}</div><div class="wbody">
-        <fieldset class="opt"><legend>Apply Job Information</legend><div class="formgrid">
+        <fieldset class="opt"><legend>Position Applied For</legend><div class="formgrid">
           <div class="fields wide">
             ${pos ? `<span>Position</span><b>${esc(pos.title)}</b><span>Company</span><b>${esc(pos.company_name)}</b>`
-              : `<label for="jaPos">Position *</label><input type="text" id="jaPos" placeholder="Position you apply for">`}
+              : `<label for="jaPos">Position *</label><input type="text" id="jaPos" placeholder="Position you are applying for">`}
             <label for="jaSal">Expected Monthly Salary (₱)</label><input type="number" id="jaSal" min="0" step="0.01" value="${v(pos ? pos.monthly_salary : "")}">
           </div>
           <div class="fields wide">
@@ -298,7 +298,7 @@
           <div class="fields wide">
             <label for="jaFather">Father's Name</label><input type="text" id="jaFather">
             <label for="jaMother">Mother's Name</label><input type="text" id="jaMother">
-            <label for="jaSpouse">Wife / Husband Name</label><input type="text" id="jaSpouse">
+            <label for="jaSpouse">Wife's / Husband's Name</label><input type="text" id="jaSpouse">
             <label for="jaDob">Date of Birth</label><input type="date" id="jaDob">
             <label for="jaBirth">Birth Place</label><input type="text" id="jaBirth">
           </div>
@@ -329,7 +329,7 @@
     $("#jaForm").onsubmit = async (e) => {
       e.preventDefault();
       const g = (id) => ($("#" + id)?.value || "").trim();
-      if (!pos && !g("jaPos")) return toast("Enter the position you apply for.", true);
+      if (!pos && !g("jaPos")) return toast("Enter the position you are applying for.", true);
       if (!g("jaName")) return toast("Enter your full name.", true);
       if (!g("jaPhone")) return toast("Enter your phone number.", true);
       if (!g("jaPres")) return toast("Enter your present address.", true);
@@ -351,7 +351,7 @@
       if (!(await addApplicationPhoto(app, photo))) toast("The photo could not be uploaded. Add it from My Job Application.", true);
       const failed = await E.uploadRecords("job_application", app.id, "requirement", E.filesOf("jaReq"));
       if (failed) toast(`${failed} requirement file(s) failed to upload.`, true);
-      toast(`Application ${app.application_no} submitted. The CEO has been notified.`);
+      toast(`Application ${app.application_no} submitted. The Director has been notified.`);
       applicantStatus(app);
     };
   }
@@ -374,7 +374,7 @@
         <div class="as-ic">${a.status === "approved" ? ic("check") : ic("doc")}</div>
         <div><h2>${a.status === "approved" ? "Approved — welcome to the team!" : "Application submitted — under review"}</h2>
           <p>${a.status === "approved" ? `Approval No <b>${esc(a.approval_no || "")}</b>. Sign out and sign in again to open the portal.`
-            : "Next: download the application form, sign it, and bring it to the office. The CEO signs it too, uploads the signed copy and approves your application. This page opens the full portal by itself once you are approved."}</p></div></section>
+            : "Next: download the application form, sign it, and bring it to the office. The Director signs it too, uploads the signed copy and approves your application. This page opens the full portal by itself once you are approved."}</p></div></section>
       <div class="ch-ids big-ids">${E.idBox("Application No", a.application_no)}${E.idBox("Position", a.position_title)}${E.idBox("Company", a.company_name)}${E.idBox("Submitted", mdy(a.created_at))}${E.idBox("Status", a.status.toUpperCase())}</div>
       <div class="docgrid">${E.docCard({ key: "myja", title: `Job Application Form ${a.application_no}`, sub: "Download, print and sign", ownerType: "job_application", ownerId: a.id, att, print: () => E.printJobApp(a), canUpload: false, printLabel: "Download / Print Form" })}</div>
       <h3>My Requirements</h3>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No requirements uploaded yet.")}
@@ -473,13 +473,13 @@
   }
 
   // ======================================================================
-  // 9. Order Letter — for a customer, an employee or a billing company. Staff send a request; the CEO approves
-  // it and it is carried out at once (the CEO's own order is carried out straight away). No verification code.
+  // 9. Order Letter — for a customer, an employee or a billing company. Staff send a request; the Director approves
+  // it and it is carried out at once (the Director's own order is carried out straight away). No verification code.
   // ======================================================================
   const SUBJ = {
-    suspension: ["Suspension", "Suspension of Account"], closure: ["Closure", "Closure of Account"], reactivation: ["Reactivation", "Reactivation of Account"], reopen: ["Reopen", "Reopening of Account"],
+    suspension: ["Suspension", "Suspension of Account"], closure: ["Closure", "Closure of Account"], reactivation: ["Reactivation", "Reactivation of Account"], reopen: ["Reopening", "Reopening of Account"],
     termination: ["Termination", "Termination of Employment"], memo: ["Notice / Memo", "Memorandum"],
-    unpaid: ["Unpaid", "Notice of Unpaid Balance"], installment: ["Installment", "Installment Payment Arrangement"], unsettled_balance: ["Unsettled Balance", "Demand for Unsettled Balance"],
+    unpaid: ["Unpaid Balance", "Notice of Unpaid Balance"], installment: ["Installment", "Installment Payment Arrangement"], unsettled_balance: ["Unsettled Balance", "Demand for Unsettled Balance"],
     promise_to_pay: ["Promise to Pay", "Promise to Pay Agreement"], balance_certificate: ["Balance Certificate", "Account Balance Certificate"],
     charge: ["Additional Charge", "Additional Charge"], settlement: ["Settlement Adjustment", "Settlement Adjustment"], other: ["Other", ""]
   };
@@ -537,10 +537,10 @@
   const canOrder = () => Object.values(KINDS).some((k) => k.write());
   V.orders = async () => {
     E.shell("orders", "Order Letter", `
-      <div class="tabs" id="olF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="applied">Applied</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
+      <div class="tabs" id="olF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="applied">Applied</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${canOrder() ? `<a class="btn primary" href="#neworder">${ic("plus")} Request Order</a>` : ""}</div>
       <div id="olRes">${busy()}</div>`,
-      "Orders for customers, employees and billing companies. Staff send a request; the CEO approves it and it is carried out at once.");
+      "Orders for customers, employees and billing companies. Employees send a request; the Director approves it and it is carried out at once.");
     const run = async (f) => {
       $("#olRes").innerHTML = busy();
       let q = sb.from("order_letters").select(ORDER_LIST).order("created_at", { ascending: false }).limit(1000);
@@ -565,7 +565,7 @@
     if (kind === "employee") return {
       suspension: `This is to inform you that you are SUSPENDED from work effective ${when}. Your portal login is closed until you are reactivated by an approved order.`,
       reactivation: `This is to inform you that your suspension is lifted and you are REACTIVATED effective ${when}. Your portal login is open again and you may return to work.`,
-      termination: `This is to inform you that your employment with ${C.company.name} is TERMINATED effective ${when}. Your portal login is closed. Please settle your clearance with the office.`
+      termination: `This is to inform you that your employment with ${C.company.name} is TERMINATED effective ${when}. Your portal login is closed. Please complete your clearance with the office.`
     }[t] || "";
     if (kind === "company") {
       const name = w?.name || "[company]";
@@ -576,7 +576,7 @@
     }
     const name = w ? fullName(w).toUpperCase() : "[customer]", acct = w ? w.account_no : "[account]";
     const p = (n) => (n ? `PHP ${peso(n)}` : "PHP [amount]"), due = d.due ? E.mdy(d.due) : "[date]";
-    const late = d.days ? `, which is ${d.days} day(s) overdue` : "";
+    const late = d.days ? ` (${d.days} day(s) overdue)` : "";
     return {
       suspension: `We regret to inform you that your account ${acct} (${name}) is SUSPENDED effective ${when}. New orders and invoices are on hold until the account is reactivated by an approved order.`,
       closure: `Please be informed that your account ${acct} (${name}) is CLOSED effective ${when}. Reason: ${d.reason || "[reason]"}. ${d.bal > 0 ? `The remaining balance of PHP ${peso(d.bal)} must still be settled.` : "The account has no remaining balance."} No new invoices will be recorded on this account.`,
@@ -584,10 +584,10 @@
       reopen: `We are pleased to inform you that your account ${acct} (${name}) is REOPENED effective ${when}. You may place orders again.`,
       unpaid: `Our records show an unpaid balance of ${p(d.amt)} on your account ${acct}${late}. Please settle it on or before ${due}.`,
       unsettled_balance: `Despite previous reminders, the balance of ${p(d.amt)} on account ${acct} remains unsettled${late}. Please settle it on or before ${due}.`,
-      promise_to_pay: `I, ${name}, holder of account ${acct}, acknowledge an outstanding balance of PHP ${peso(d.bal)} as of ${when}${late}. I promise to pay ${p(d.amt)} on or before ${due}. I understand that if I do not pay on this date, ${C.company.name} may suspend my account.`,
+      promise_to_pay: `I, ${name}, holder of account ${acct}, acknowledge an outstanding balance of PHP ${peso(d.bal)} as of ${when}${late}. I promise to pay ${p(d.amt)} on or before ${due}. I understand that if I do not pay by this date, ${C.company.name} may suspend my account.`,
       installment: `I, ${name}, holder of account ${acct}, agree to pay the balance of ${p(d.amt)} in ${d.n || "[number]"} installment(s) of ${p(d.each)} ${(EVERY[d.every] || EVERY.month).toLowerCase()}, starting ${due}, as shown in the installment schedule. I understand that if I miss a payment, ${C.company.name} may suspend my account.`,
       charge: `Please be informed that an additional charge of ${p(d.amt)} is added to your account ${acct} (${name}) effective ${when}. Your previous balance is PHP ${peso(d.bal)} and your new balance is PHP ${peso(d.bal + (d.amt || 0))}. Please pay on or before ${due}.`,
-      settlement: d.adj ? `As agreed for the settlement of account ${acct} (${name}), ${p(d.amt)} is ${d.adj === "reduce" ? "taken off" : "added to"} the balance effective ${when}. Previous balance: PHP ${peso(d.bal)}. New balance: PHP ${peso(d.bal + (d.adj === "reduce" ? -1 : 1) * (d.amt || 0))}.${d.due ? ` Please settle the balance on or before ${due}.` : ""}`
+      settlement: d.adj ? `As agreed for the settlement of account ${acct} (${name}), ${p(d.amt)} is ${d.adj === "reduce" ? "deducted from" : "added to"} the balance effective ${when}. Previous balance: PHP ${peso(d.bal)}. New balance: PHP ${peso(d.bal + (d.adj === "reduce" ? -1 : 1) * (d.amt || 0))}.${d.due ? ` Please settle the balance on or before ${due}.` : ""}`
         : `Settlement adjustment of ${p(d.amt)} on account ${acct} (${name}) effective ${when}. [Choose: take off the balance or add to it]`,
       balance_certificate: "This certificate is issued upon the request of the account holder for whatever purpose it may serve."
     }[t] || "";
@@ -623,7 +623,7 @@
           <label for="noDetails" id="noDetailsL">Details *</label><textarea id="noDetails" rows="5"></textarea>
           <label for="noRes">Resolution / Terms</label><textarea id="noRes" rows="3" placeholder="Optional: conditions, what must be done"></textarea></div></fieldset>
       </div><div class="wfoot"><button type="button" class="btn" id="noCancel">Cancel</button><button type="submit" class="btn primary" id="noSubmit">${isAdmin() ? "Approve &amp; Carry Out" : "Send for Approval"}</button></div></form>`,
-      "Choose who the order is for and the kind of order: the details are filled in for you. The CEO approves it and it is carried out at once.");
+      "Choose who the order is for and the kind of order: the details are filled in for you. The Director approves it and it is carried out at once.");
     let who = null, due = null, dirty = false;
     const touched = new Set();
     const types = () => KINDS[kind].types(who?.status);
@@ -714,7 +714,7 @@
       if (cust && t === "closure" && !reason()) return toast("Choose the reason for closing the account.", true);
       const amtOn = cust && AMOUNT_TYPES.includes(t), amt = num($("#noAmt").value), n = Math.floor(num($("#noN").value));
       if (amtOn && amt <= 0) return toast("Enter the amount.", true);
-      if (["promise_to_pay", "installment"].includes(t) && !$("#noDue").value) return toast("Enter the date.", true);
+      if (["promise_to_pay", "installment"].includes(t) && !$("#noDue").value) return toast("Enter the due date.", true);
       if (t === "installment" && n < 1) return toast("Enter the number of installments.", true);
       const adj = $("input[name=noAdj]:checked")?.value;
       if (t === "settlement" && !adj) return toast("Choose: take the amount off the balance, or add it to the balance.", true);
@@ -730,12 +730,12 @@
         adjust_type: t === "settlement" ? adj : null
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the order"); }
-      // The CEO's own order is approved and carried out at once.
+      // The Director's own order is approved and carried out at once.
       if (isAdmin()) {
         const r = await sb.rpc("review_order_letter", { p_id: data.id, p_action: "approve", p_note: null });
         if (r.error) { fail(r.error, `${data.order_no} was saved but could not be carried out`); location.hash = "order/" + data.id; return; }
         toast(`${data.order_no} carried out — ${r.data.applied_result || "done"}.`);
-      } else toast(`${data.order_no} sent to the CEO for approval.`);
+      } else toast(`${data.order_no} sent to the Director for approval.`);
       location.hash = "order/" + data.id;
     };
   };
@@ -841,7 +841,7 @@
     const closeTo = E.canOpen("orders") ? "orders" : page;
     $(".band h1").textContent = `Order — ${o.order_no}`;
     const banner = {
-      pending: `<div class="banner warn">Waiting for the CEO to approve. Once approved, it is carried out straight away.</div>`,
+      pending: `<div class="banner warn">Waiting for the Director to approve. Once approved, it is carried out straight away.</div>`,
       approved: `<div class="banner ok">✔ APPROVED by ${esc(o.approved_by_name || "")} on ${mdy(dayOf(o.approved_at))}.</div>`,
       applied: `<div class="banner ok">✔ APPROVED by ${esc(o.approved_by_name || "")} and carried out on ${mdy(dayOf(o.applied_at))} — ${esc(o.applied_result || "")}</div>`,
       rejected: `<div class="banner closed">DISAPPROVED by ${esc(o.approved_by_name || "")}${o.review_note ? " — " + esc(o.review_note) : ""}</div>`
@@ -858,7 +858,7 @@
             ${o.installments ? `<span>Installments</span><span>${o.installments} × ₱ ${peso(o.installment_amount)}, ${esc((EVERY[o.installment_every] || EVERY.month).toLowerCase())}</span>` : ""}${o.first_due_date ? `<span>${o.subject_type === "installment" ? "First Due Date" : "Due Date"}</span><span>${mdy(o.first_due_date)}</span>` : ""}</div></div>
         <div class="letter-box"><div class="lb-h">Details</div><p>${esc(o.details || "").replace(/\n/g, "<br>")}</p>${o.resolution ? `<div class="lb-h">Resolution / Terms</div><p>${esc(o.resolution).replace(/\n/g, "<br>")}</p>` : ""}</div>
         <div class="docgrid">${E.docCard({ key: "ol", title: `${o.subject_type === "balance_certificate" ? "Account Balance Certificate" : "Order"} ${o.order_no}`, sub: "Print it, have it signed, then upload the signed copy", ownerType: "order_letter", ownerId: o.id, att, print: () => E.openPreview(`Order ${o.order_no}`, [letterPage(o)]) })}</div>
-        ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>CEO Approval</legend><div class="fields wide"><label for="olNote">Note</label><input type="text" id="olNote" placeholder="Optional"></div>
+        ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>Director's Approval</legend><div class="fields wide"><label for="olNote">Note</label><input type="text" id="olNote" placeholder="Optional"></div>
           <div class="btnrow"><button type="button" class="btn ok" id="olApprove">${ic("check")} ${o.subject_type === "balance_certificate" ? "Approve &amp; Issue" : "Approve &amp; Carry Out"}</button><button type="button" class="btn danger" id="olReject">Reject</button></div></fieldset>` : ""}
         ${rhBox("order_letters", o.id)}
       </div><div class="wfoot">${recordTools("order_letters", o, `Order ${o.order_no}`, { reload: () => V.order(id), afterDelete: () => (location.hash = closeTo) })}<a class="btn" href="#${closeTo}">Close</a></div></div>`;
@@ -1033,7 +1033,7 @@
     p.classList.add("in-conv");
     renderContacts();
     $(".cp-conv", p).innerHTML = `<div class="cv-head"><span class="cp-av">${avatarOf(c)}<i class="dot ${E.online(c.last_seen_at) ? "on" : ""}"></i></span>
-        <div><b>${esc(c.full_name || "")}${c.verified ? `<span class="vbadge sm" title="Verified employee">${ic("check")}</span>` : ""}</b><small>${esc(c.job_position || "")} · ${E.online(c.last_seen_at) ? `<span class="on-txt">Active now</span>` : `Last seen ${esc(c.last_seen_at ? E.timeAgo(c.last_seen_at) : "—")}`}</small></div></div>
+        <div><b>${esc(c.full_name || "")}${c.verified ? `<span class="vbadge sm" title="Verified">${ic("check")}</span>` : ""}</b><small>${esc(c.job_position || "")} · ${E.online(c.last_seen_at) ? `<span class="on-txt">Active now</span>` : `Last seen ${esc(c.last_seen_at ? E.timeAgo(c.last_seen_at) : "—")}`}</small></div></div>
       <div class="cv-msgs" id="cvMsgs">${busy()}</div>
       <form class="cv-compose" id="cvForm"><label class="cv-attach" title="Send a photo or document" for="cvFile">${ic("clip")}</label>
         <input type="file" id="cvFile" hidden accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt">
@@ -1090,7 +1090,7 @@
     const btn = $(".cv-send"); if (btn) btn.disabled = true;
     let rec = { recipient_id: other, body: body || null };
     if (file) {
-      if (file.size > 25 * 1024 * 1024) { CH.busy = false; if (btn) btn.disabled = false; return toast("Files up to 25 MB can be sent.", true); }
+      if (file.size > 25 * 1024 * 1024) { CH.busy = false; if (btn) btn.disabled = false; return toast("This file is too big. Files up to 25 MB can be sent.", true); }
       const f = await shrinkImage(file);
       const path = `chat/${E.uuid()}/${f.name.replace(/[^\w.\-]+/g, "_")}`;
       const up = await sb.storage.from("records").upload(path, f, { contentType: f.type || "application/octet-stream" });
