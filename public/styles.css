@@ -690,6 +690,7 @@ table.grid tbody tr { transition: background-color .15s; }
 /* Applicant / public pages */
 .topbar.mini { justify-content: space-between; }
 .mini-brand { display: inline-flex; align-items: center; gap: 8px; font-weight: bold; letter-spacing: .05em; }
+a.mini-brand { color: inherit; text-decoration: none; }
 .mini-user { font-size: 12px; opacity: .92; }
 .btn.light { background: #fff; color: var(--title-2); border-color: #fff; text-decoration: none; }
 .mini-content main { max-width: 1100px; margin: 0 auto; }
@@ -1073,7 +1074,6 @@ table.grid tr.voided td.num { text-decoration: line-through; }
 .vf-void .vf-seal { background: #6f6f6f; box-shadow: 0 0 0 7px #e2e2e2; }
 .vf-void .vf-title { color: #555; }
 .vf-void .vf-sub { font-weight: normal; letter-spacing: 0; color: var(--ink); }
-.vf-staff { margin-top: 6px; font-size: 12px; color: var(--ink-soft); }
 
 @media (prefers-reduced-motion: reduce) {
   *:not(.spin) { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition: none !important; }

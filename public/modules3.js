@@ -733,7 +733,7 @@
         <div class="btnrow center"><button type="button" class="btn" id="vfScan">${ic("camera")} Scan with Camera</button><label class="btn" for="vfImg">${ic("image")} Upload Photo of Code</label><input type="file" id="vfImg" accept="image/*" hidden></div>
       </section>
       <div id="vfResult"></div>`;
-    if (inside) E.shell("verify", "Verification", body); else E.miniShell("Verification", body);
+    if (inside) E.shell("verify", "Verification", body); else E.miniShell("Verification", body, { home: "#verify" });
     const run = async (raw) => {
       const t = String(raw || "").trim();
       if (!t) return toast("Type a record number or scan its code.", true);
@@ -750,6 +750,10 @@
         return;
       }
       const checked = new Date();
+      // A found record shows on its own (no search box above it). Verification in the menu, or the
+      // E-Portal name on the public page, opens the search again.
+      $(".verify-hero").hidden = true;
+      window.scrollTo(0, 0);
       // Anyone can verify and view; only employees signed in to the portal get the Validated Print.
       // A cancelled record is still a real record, but it is marked CANCELLED and gets no validated print.
       const cx = !!data.cancelled;
@@ -760,8 +764,7 @@
         <div class="vf-type">${esc(data.type)} · <b class="mono">${esc(data.number)}</b> ${data.status ? pill(data.status) : ""}</div>
         <table class="vf-fields"><tbody>${(data.fields || []).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v ?? "")}</td></tr>`).join("")}</tbody></table>
         <div class="vf-when">Checked ${esc(E.dateTime(checked.toISOString()))}</div>
-        ${inside ? `<div class="btnrow center">${cx ? "" : `<button type="button" class="btn primary" id="vfPrint">${ic("print")} Validated Print</button>`}${OPEN[data.type] ? `<button type="button" class="btn" id="vfOpen">${ic("eye")} Open Record</button>` : ""}</div>`
-          : cx ? "" : `<div class="vf-staff">A validated printed copy can only be printed by ${esc(C.company.name)} staff.</div>`}</div>`;
+        ${inside ? `<div class="btnrow center">${cx ? "" : `<button type="button" class="btn primary" id="vfPrint">${ic("print")} Validated Print</button>`}${OPEN[data.type] ? `<button type="button" class="btn" id="vfOpen">${ic("eye")} Open Record</button>` : ""}</div>` : ""}</div>`;
       if ($("#vfPrint")) $("#vfPrint").onclick = () => validatedPrint(data, checked);
       if ($("#vfOpen")) $("#vfOpen").onclick = async () => {
         const [table, col, route, via] = OPEN[data.type];

@@ -522,12 +522,13 @@
   }
 
   // Simple page frame (company header + slim bar) for applicants and the public verification page.
-  function miniShell(title, body) {
+  // home: where the E-Portal name links to (the public Verification page links back to its search).
+  function miniShell(title, body, { home } = {}) {
     const signed = !!S.session;
     closePreview();
     app.innerHTML = `${companyHeader()}
       <div class="topbar mini">
-        <span class="mini-brand">${ic("shield")} ${esc(APP)}</span>
+        ${home ? `<a class="mini-brand" href="${esc(home)}">${ic("shield")} ${esc(APP)}</a>` : `<span class="mini-brand">${ic("shield")} ${esc(APP)}</span>`}
         <div class="tb-right">${signed
           ? `<span class="mini-user">${esc(S.profile?.full_name || S.session.user.email)}</span><button type="button" class="btn light" id="msOut">${ic("out")} Sign Out</button>`
           : `<a class="btn light" href="#dashboard">${ic("user")} Sign In</a>`}</div>
