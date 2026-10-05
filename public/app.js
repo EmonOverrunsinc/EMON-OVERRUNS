@@ -839,6 +839,9 @@
   function openPreview(title, pages, { landscape = false, size = "" } = {}) {
     closePreview();
     const cls = size ? " " + size : landscape ? " landscape" : "";
+    // Every printed page shows the date it was printed (reports and statements already carry their own).
+    const printed = dateTime(new Date().toISOString());
+    const dated = (p) => (/Date Printed|rp-stamp|rp-foot/.test(p) ? "" : `<div class="pg-date">Date Printed: ${esc(printed)}</div>`);
     S.docTitle = document.title;
     document.title = title; // "Save as PDF" uses this as the file name
     const pv = document.createElement("div");
@@ -851,7 +854,7 @@
         <select id="pvZoom" style="width:auto"><option>50</option><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
         <button type="button" class="btn" id="pvClose">Close</button>
       </div>
-      <div class="pv-desk" id="pvDesk">${pages.map((p) => `<div class="page${cls}"><img class="wm" src="${SEAL}" alt="">${p}</div>`).join("")}</div>
+      <div class="pv-desk" id="pvDesk">${pages.map((p) => `<div class="page${cls}"><img class="wm" src="${SEAL}" alt="">${dated(p)}${p}</div>`).join("")}</div>
       <div class="statusbar"><span id="pvCur">Current Page No: 1</span><span>Total Page No: ${pages.length}</span><span id="pvZf">Zoom Factor: 100%</span></div>`;
     document.body.appendChild(pv);
     document.body.classList.toggle("print-a5l", size === "a5l");

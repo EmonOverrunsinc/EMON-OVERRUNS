@@ -542,6 +542,9 @@ main h3 { margin: 14px 0 6px; color: var(--title-2); }
 }
 .page > :not(.wm) { position: relative; z-index: 1; }
 .page > .rp-stamp { position: relative; }
+/* The date the page was printed, small in the top right corner */
+.page > .pg-date { position: absolute; top: 4.5mm; right: 14mm; font-size: 8.5px; color: #333; }
+.page.a5l > .pg-date { top: 2.5mm; right: 11mm; }
 /* Logo images keep their colours on white */
 img.co-logo, img.tb-logo-img, img.hero-logo, img.ph-logo, img.login-logo, img.drawer-logo, img.soa-logo-img { background: #fff; border-radius: 6px; }
 
