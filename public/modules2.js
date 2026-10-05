@@ -674,7 +674,7 @@
   const bdt = (n) => `BDT ${peso(n)}`;
   const RATE_KEY = "eoLastRate";
   const lastRate = () => { try { return localStorage.getItem(RATE_KEY) || ""; } catch (_) { return ""; } };
-  const CUR = { PHP: "PHP", BDT: "BDT", BOTH: "PHP and BDT" };
+  const CUR = { PHP: "PHP", BDT: "BDT", BOTH: "PHP, BDT" };
   const curOf = (c) => (c && CUR[c.currency] ? c.currency : "BOTH");
   const showPhp = (cur) => cur !== "BDT";
   const showBdt = (cur) => cur !== "PHP";
@@ -718,8 +718,10 @@
     E.setRecords(`Companies: ${rows.length}`);
   };
 
-  const curChoice = (name, on = "BOTH") => `<div class="subj-grid">${Object.entries(CUR).map(([k, l]) => `<label class="subj"><input type="radio" name="${name}" value="${k}" ${k === on ? "checked" : ""}><span>${esc(l)}</span></label>`).join("")}</div>
-    <small class="muted">PHP or BDT: you type the amount in that currency. PHP and BDT: you type PHP and the exchange rate, and the BDT amount is worked out.</small>`;
+  // Two tick boxes: tick PHP, BDT or both.
+  const curChoice = (name, on = "BOTH") => `<div class="subj-grid">${["PHP", "BDT"].map((k) => `<label class="subj"><input type="checkbox" name="${name}" value="${k}" ${on === k || on === "BOTH" ? "checked" : ""}><span>${k}</span></label>`).join("")}</div>
+    <small class="muted">Tick one: you type the amount in that currency. Tick both: you type PHP and the exchange rate, and the BDT amount is worked out.</small>`;
+  const curPicked = (name) => { const on = [...document.querySelectorAll(`input[name=${name}]:checked`)].map((i) => i.value); return on.length === 2 ? "BOTH" : on[0] || ""; };
   V.newpaycompany = () => {
     if (!E.canWrite("billing")) { location.hash = "billing"; return; }
     E.shell("newpaycompany", "Billing — Add Company", `
@@ -744,11 +746,13 @@
       e.preventDefault();
       const v = (i) => $("#" + i).value.trim();
       if (!v("pcName")) return toast("Enter the company name.", true);
+      const currency = curPicked("pcCur");
+      if (!currency) return toast("Tick PHP, BDT or both.", true);
       E.setBusy(e.target, true, "Saving");
       const id = E.uuid();
       const photo_path = await uploadPhoto("pay_company", id, $("#pcPhoto").files[0]);
       const { data: co, error } = await sb.from("pay_companies").insert({ id, name: v("pcName"), contact_person: v("pcPerson") || null, contact: v("pcContact") || null,
-        address: v("pcAddr") || null, notes: v("pcNotes") || null, currency: $("input[name=pcCur]:checked").value, photo_path }).select().single();
+        address: v("pcAddr") || null, notes: v("pcNotes") || null, currency, photo_path }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the company"); }
       if (v("paName")) {
         const { error: e2 } = await sb.from("pay_accounts").insert({ company_id: co.id, account_name: v("paName"), account_number: v("paNo") || null, bank_name: v("paBank") || null, branch_name: v("paBranch") || null });

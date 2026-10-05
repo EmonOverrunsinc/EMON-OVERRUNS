@@ -59,7 +59,7 @@
     payslips: [F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
     projects: [F("title", "Title"), F("description", "Description", "textarea"), F("location", "Location"), F("start_date", "Start Date", "date"), F("end_date", "End Date", "date")],
     project_payments: [F("received_by", "Received By"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
-    pay_companies: [F("name", "Company Name"), F("country", "Country"), F("contact", "Contact"), F("notes", "Notes")],
+    pay_companies: [F("name", "Company Name"), F("contact_person", "Contact Person"), F("contact", "Phone / Email"), F("address", "Address"), F("currency", "Currency", "select", [["PHP", "PHP"], ["BDT", "BDT"], ["BOTH", "PHP, BDT"]]), F("notes", "Notes")],
     pay_accounts: [F("account_name", "Account Name"), F("account_number", "Account Number"), F("bank_name", "Bank Name"), F("branch_name", "Branch"), F("notes", "Notes")],
     pay_vouchers: [F("purpose", "Purpose"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
     job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife / Husband Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("apply_salary", "Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date")]

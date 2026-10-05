@@ -878,6 +878,8 @@ main h3.sec, main h3 { display: flex; align-items: center; gap: 6px; }
 .subj span:hover { border-color: var(--title-1); }
 .subj input:checked + span { background: linear-gradient(var(--title-1), var(--title-2)); color: #fff; border-color: var(--title-2); box-shadow: 0 3px 10px rgba(31,74,140,.3); }
 .subj input:focus-visible + span { outline: 2px solid #f0a500; }
+.subj input[type=checkbox] + span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 7px; vertical-align: -2px; border: 2px solid currentColor; border-radius: 3px; font-size: 11px; line-height: 12px; text-align: center; }
+.subj input[type=checkbox]:checked + span::before { content: "✔"; }
 .letter-box { padding: 10px 14px; border-radius: 9px; background: #fff; border: 1px solid var(--panel-line); }
 .letter-box p { margin: 4px 0 10px; line-height: 1.55; }
 .lb-h { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); }

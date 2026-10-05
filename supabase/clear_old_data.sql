@@ -16,7 +16,7 @@ begin
   end if;
   perform set_config('eo.allow_change', 'on', true);
   foreach t in array array[
-    'attachments','change_requests','record_changes','notifications','messages','community_posts','announcements','audit_logs',
+    'attachments','change_requests','record_changes','notifications','messages','community_posts','announcements',
     'order_letter_codes','order_letters',
     'payments_received','credit_memos','statements','customer_invoices','customer_events','customer_secrets','customers',
     'payslips','job_applications','job_positions',
@@ -24,7 +24,7 @@ begin
     'pay_vouchers','pay_accounts','pay_companies',
     'payment_allocations','payments','invoice_items','invoices','accounts',
     'supplier_payments','supplier_batches','suppliers',
-    'verification_log','document_files','documents','resolutions'] loop
+    'verification_log','document_files','documents','resolutions','audit_logs'] loop
     if to_regclass('public.' || t) is not null then
       execute format('delete from public.%I', t);
     end if;
