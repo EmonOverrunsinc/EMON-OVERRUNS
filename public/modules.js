@@ -543,9 +543,9 @@
       </section>
       <div class="tiles">
         <div class="tile"><div class="k">Total Invoiced</div><div class="v">₱ ${peso(b.total_invoiced)}</div></div>
-        <div class="tile"><div class="k">Charges (Orders)</div><div class="v">₱ ${peso(b.total_charges)}</div></div>
+        <div class="tile"><div class="k">Charges / Adjustments (+)</div><div class="v">₱ ${peso(b.total_charges)}</div></div>
         <div class="tile ok"><div class="k">Total Paid</div><div class="v">₱ ${peso(b.total_paid)}</div></div>
-        <div class="tile"><div class="k">Credits / Discounts</div><div class="v">₱ ${peso(b.total_credits)}</div></div>
+        <div class="tile"><div class="k">Credits / Discounts / Adj. (−)</div><div class="v">₱ ${peso(b.total_credits)}</div></div>
         <div class="tile ${num(b.balance_due) > 0 ? "warn" : "ok"}"><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
       </div>
       <div class="actionbar">
@@ -707,13 +707,17 @@
   const nextMonth = (iso) => { const d = new Date(monthStart(iso) + "T00:00:00"); d.setMonth(d.getMonth() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; };
   const dayBefore = (iso) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const monthName = (iso) => new Date(monthStart(iso) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  // Same rules as the database: invoices and approved Additional Charge orders (on the day they were carried out)
-  // debit; payments and approved credit/discount memos credit (on approval date).
+  // Same rules as the database: invoices, approved Additional Charge orders and Settlement Adjustments that add
+  // (on the day they were carried out) debit; payments, approved credit/discount memos (on approval date) and
+  // Settlement Adjustments that take money off credit.
   function txnsOf(invs, pays, memos, orders = []) {
     const t = [];
     invs.forEach((i) => t.push({ date: i.invoice_date, ref: i.invoice_no, desc: `Invoice${i.po_number ? " — PO " + i.po_number : ""}`, debit: num(i.total_amount), credit: 0, inv: i }));
-    orders.filter((o) => o.subject_type === "charge" && o.status === "applied" && o.applied_at)
-      .forEach((o) => t.push({ date: String(o.applied_at).slice(0, 10), ref: o.order_no, desc: `Additional Charge — ${o.subject || "Order"}`, debit: num(o.amount), credit: 0 }));
+    orders.filter((o) => ["charge", "settlement"].includes(o.subject_type) && o.status === "applied" && o.applied_at).forEach((o) => {
+      const off = o.subject_type === "settlement" && o.adjust_type === "reduce";
+      const what = o.subject_type === "charge" ? "Additional Charge" : `Settlement Adjustment (${off ? "Less" : "Add"})`;
+      t.push({ date: String(o.applied_at).slice(0, 10), ref: o.order_no, desc: `${what} — ${o.subject || "Order"}`, debit: off ? 0 : num(o.amount), credit: off ? num(o.amount) : 0 });
+    });
     pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: `Payment — ${METHOD[p.method] || p.method}${p.bank_name ? " " + p.bank_name : ""}${p.reference_no ? " Ref " + p.reference_no : ""}`, debit: 0, credit: num(p.amount), pay: p }));
     memos.filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action) && m.approved_at)
       .forEach((m) => t.push({ date: String(m.approved_at).slice(0, 10), ref: m.memo_no, desc: `Credit Memo — ${ACTION[m.requested_action]}${m.article ? " (" + m.article + ")" : ""}`, debit: 0, credit: num(m.request_amount) }));
@@ -847,7 +851,7 @@
     const dataFor = async (cid) => {
       const [i, p, m, o] = await Promise.all([
         sb.from("invoice_balances").select("*").eq("customer_id", cid), sb.from("payments_received").select("*").eq("customer_id", cid), sb.from("credit_memos").select("*").eq("customer_id", cid),
-        sb.from("order_letters").select("*").eq("customer_id", cid).eq("subject_type", "charge").eq("status", "applied")]);
+        sb.from("order_letters").select("*").eq("customer_id", cid).in("subject_type", ["charge", "settlement"]).eq("status", "applied")]);
       return { invs: i.data || [], txns: txnsOf(i.data || [], p.data || [], m.data || [], o.data || []) };
     };
     const asPeriod = (r) => ({ start: r.period_start, end: r.period_end, opening: num(r.opening_balance), closing: num(r.closing_balance), no: r.statement_no });

@@ -1,8 +1,9 @@
 -- =====================================================================
 -- EMON OVERRUNS E-PORTAL — Update 1.5
 -- Customers: a changed or removed photo also leaves the customer's Files.
--- Order letters: "Additional Charge". When it is approved, its amount is added to the customer's balance and
--- shows on the profile and in the Statement of Account, with the order number as the reference.
+-- Order letters: "Additional Charge" and "Settlement Adjustment". When approved, a charge is added to the customer's
+-- balance; a settlement adjustment is added to it or taken off it (chosen on the order). Both show on the profile and
+-- in the Statement of Account, with the order number as the reference.
 -- Run once in the Supabase SQL Editor after 007_update_1_4.sql. It is safe to run again.
 -- =====================================================================
 
@@ -40,31 +41,43 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- Order letters: Additional Charge (customers). The approved charge is added to the balance.
+-- Order letters: Additional Charge and Settlement Adjustment (customers). Once approved:
+--   charge                      → added to the balance (debit)
+--   settlement, adjust 'add'    → added to the balance (debit)
+--   settlement, adjust 'reduce' → taken off the balance (credit)
 -- ---------------------------------------------------------------------
+alter table public.order_letters add column if not exists adjust_type text;
+alter table public.order_letters drop constraint if exists order_letters_adjust_type_check;
+alter table public.order_letters add constraint order_letters_adjust_type_check check (adjust_type is null or adjust_type in ('add','reduce'));
 alter table public.order_letters drop constraint if exists order_letters_subject_type_check;
 alter table public.order_letters add constraint order_letters_subject_type_check check (subject_type in
-  ('suspension','closure','reactivation','reopen','termination','memo','unpaid','installment','unsettled_balance','promise_to_pay','balance_certificate','charge','other'));
+  ('suspension','closure','reactivation','reopen','termination','memo','unpaid','installment','unsettled_balance','promise_to_pay','balance_certificate',
+   'charge','settlement','other'));
 
--- What a customer owes: invoices and approved charges, less payments and approved credit/discount memos.
+-- What a customer owes: invoices and approved charges / added adjustments, less payments, approved credit/discount
+-- memos and settlement adjustments that take money off. total_charges = charges and added adjustments (+);
+-- total_credits = credit/discount memos and adjustments taken off (−).
 create or replace view public.customer_balances with (security_invoker = true) as
   select c.id as customer_id,
     coalesce((select sum(total_amount) from public.customer_invoices i where i.customer_id = c.id), 0)::numeric(14,2) as total_invoiced,
     coalesce((select sum(amount) from public.payments_received p where p.customer_id = c.id), 0)::numeric(14,2) as total_paid,
-    coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0)::numeric(14,2) as total_credits,
+    (coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0)
+      + coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.status = 'applied' and o.subject_type = 'settlement' and o.adjust_type = 'reduce'), 0))::numeric(14,2) as total_credits,
     (coalesce((select sum(total_amount) from public.customer_invoices i where i.customer_id = c.id), 0)
-      + coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.subject_type = 'charge' and o.status = 'applied'), 0)
+      + coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.status = 'applied' and (o.subject_type = 'charge' or (o.subject_type = 'settlement' and o.adjust_type = 'add'))), 0)
       - coalesce((select sum(amount) from public.payments_received p where p.customer_id = c.id), 0)
-      - coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0))::numeric(14,2) as balance_due,
-    coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.subject_type = 'charge' and o.status = 'applied'), 0)::numeric(14,2) as total_charges
+      - coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0)
+      - coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.status = 'applied' and o.subject_type = 'settlement' and o.adjust_type = 'reduce'), 0))::numeric(14,2) as balance_due,
+    coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.status = 'applied' and (o.subject_type = 'charge' or (o.subject_type = 'settlement' and o.adjust_type = 'add'))), 0)::numeric(14,2) as total_charges
   from public.customers c;
 
--- Balance of a customer before a date (for the statements): charges count from the day they were added.
+-- Balance of a customer before a date (for the statements): order charges and adjustments count from the day
+-- they were carried out.
 create or replace function public.balance_before(p_customer uuid, p_date date) returns numeric
 language sql stable security definer set search_path = '' as $$
   select coalesce((select sum(total_amount) from public.customer_invoices where customer_id = p_customer and invoice_date < p_date), 0)
-       + coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = p_customer and o.subject_type = 'charge' and o.status = 'applied'
-                   and o.applied_at::date < p_date), 0)
+       + coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = p_customer and o.status = 'applied' and (o.subject_type = 'charge' or (o.subject_type = 'settlement' and o.adjust_type = 'add')) and o.applied_at::date < p_date), 0)
+       - coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = p_customer and o.status = 'applied' and o.subject_type = 'settlement' and o.adjust_type = 'reduce' and o.applied_at::date < p_date), 0)
        - coalesce((select sum(amount) from public.payments_received where customer_id = p_customer and paid_date < p_date), 0)
        - coalesce((select sum(request_amount) from public.credit_memos where customer_id = p_customer and status in ('approved','paid')
                    and requested_action in ('credit','discount') and approved_at::date < p_date), 0);
@@ -72,7 +85,8 @@ $$;
 revoke execute on function public.balance_before(uuid, date) from public, anon;
 grant execute on function public.balance_before(uuid, date) to authenticated;
 
--- Monthly statements: the month's debit includes the charges added that month.
+-- Monthly statements: the month's debit includes the order charges and added adjustments of that month; its credit
+-- the adjustments taken off.
 create or replace function public.generate_statements(p_customer uuid default null) returns integer
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -102,11 +116,13 @@ begin
       if not exists (select 1 from public.statements s where s.customer_id = c.id and s.period_start = m) then
         op := public.balance_before(c.id, m);
         deb := coalesce((select sum(total_amount) from public.customer_invoices where customer_id = c.id and invoice_date >= m and invoice_date < nxt), 0)
-             + coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.subject_type = 'charge' and o.status = 'applied'
+             + coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.status = 'applied' and (o.subject_type = 'charge' or (o.subject_type = 'settlement' and o.adjust_type = 'add'))
                           and o.applied_at::date >= m and o.applied_at::date < nxt), 0);
         cre := coalesce((select sum(amount) from public.payments_received where customer_id = c.id and paid_date >= m and paid_date < nxt), 0)
              + coalesce((select sum(request_amount) from public.credit_memos where customer_id = c.id and status in ('approved','paid')
-                          and requested_action in ('credit','discount') and approved_at::date >= m and approved_at::date < nxt), 0);
+                          and requested_action in ('credit','discount') and approved_at::date >= m and approved_at::date < nxt), 0)
+             + coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.status = 'applied' and o.subject_type = 'settlement' and o.adjust_type = 'reduce'
+                          and o.applied_at::date >= m and o.applied_at::date < nxt), 0);
         insert into public.statements (statement_no, customer_id, period_start, period_end, opening_balance, total_debit, total_credit, closing_balance)
         values ('SOA-' || to_char(m, 'YYYYMM') || '-' || c.account_no, c.id, m, (nxt - 1), op, deb, cre, op + deb - cre);
         made := made + 1;
@@ -120,19 +136,21 @@ $$;
 revoke execute on function public.generate_statements(uuid) from public, anon;
 grant execute on function public.generate_statements(uuid) to authenticated;
 
--- Amount due and days overdue: charges are paid in date order together with the invoices.
+-- Amount due and days overdue: charges and added adjustments are paid in date order together with the invoices;
+-- adjustments taken off count like payments.
 create or replace function public.account_due(p_customer uuid) returns jsonb
 language sql stable security definer set search_path = '' as $$
   with paid as (
     select coalesce((select sum(p.amount) from public.payments_received p where p.customer_id = p_customer), 0)
          + coalesce((select sum(m.request_amount) from public.credit_memos m where m.customer_id = p_customer and m.status in ('approved','paid')
-                       and m.requested_action in ('credit','discount')), 0) as total
+                       and m.requested_action in ('credit','discount')), 0)
+         + coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = p_customer and o.status = 'applied' and o.subject_type = 'settlement' and o.adjust_type = 'reduce'), 0) as total
   ), inv as (
     select x.invoice_no, x.invoice_date, sum(x.amount) over (order by x.invoice_date, x.at, x.invoice_no) as running
     from (select i.invoice_no, i.invoice_date, i.created_at as at, i.total_amount as amount from public.customer_invoices i where i.customer_id = p_customer
           union all
           select o.order_no, o.applied_at::date, o.applied_at, o.amount from public.order_letters o
-          where o.customer_id = p_customer and o.subject_type = 'charge' and o.status = 'applied') x
+          where o.customer_id = p_customer and o.status = 'applied' and (o.subject_type = 'charge' or (o.subject_type = 'settlement' and o.adjust_type = 'add'))) x
   ), oldest as (
     select inv.invoice_no, inv.invoice_date from inv, paid where inv.running > paid.total order by inv.running limit 1
   )
@@ -191,6 +209,12 @@ begin
   if new.subject_type = 'charge' and coalesce(new.amount, 0) <= 0 then
     raise exception 'Enter the charge amount';
   end if;
+  if new.subject_type = 'settlement' then
+    if coalesce(new.amount, 0) <= 0 then raise exception 'Enter the adjustment amount'; end if;
+    if coalesce(new.adjust_type, '') not in ('add','reduce') then raise exception 'Choose whether the adjustment adds to the balance or takes it off'; end if;
+  else
+    new.adjust_type := null;
+  end if;
   new.order_no := 'ORDER-' || to_char(new.order_date, 'YYYY') || '-' || lpad(public.next_counter('ORDER' || to_char(new.order_date, 'YYYY'))::text, 3, '0');
   new.status := 'pending';
   new.approved_by := null; new.approved_by_name := null; new.approved_at := null;
@@ -222,6 +246,7 @@ begin
     if o.subject_type = 'reactivation' and c.status <> 'suspended' then raise exception 'Account % is % — only SUSPENDED accounts can be reactivated', c.account_no, upper(c.status); end if;
     if o.subject_type = 'reopen' and c.status <> 'closed' then raise exception 'Account % is % — only CLOSED accounts can be reopened', c.account_no, upper(c.status); end if;
     if o.subject_type = 'charge' and c.status not in ('active','suspended') then raise exception 'Account % is % — a charge cannot be added', c.account_no, upper(c.status); end if;
+    if o.subject_type = 'settlement' and c.status not in ('active','suspended','closed') then raise exception 'Account % is % — no settlement adjustment can be made', c.account_no, upper(c.status); end if;
     if newst is not null then
       update public.customers set status = newst, status_note = o.order_no || ': ' || o.subject || coalesce(' — ' || o.closure_reason, '') where id = c.id;
       res := 'Account ' || c.account_no || ' is now ' || upper(newst);
@@ -231,10 +256,16 @@ begin
         when o.subject_type = 'charge'
         then 'Charge of PHP ' || to_char(o.amount, 'FM999,999,999,990.00') || ' added to account ' || c.account_no || ' — new balance PHP '
           || to_char(coalesce((select b.balance_due from public.customer_balances b where b.customer_id = c.id), 0) + o.amount, 'FM999,999,999,990.00')
+        when o.subject_type = 'settlement'
+        then 'Settlement adjustment: PHP ' || to_char(o.amount, 'FM999,999,999,990.00') || case o.adjust_type when 'reduce' then ' taken off' else ' added to' end
+          || ' account ' || c.account_no || ' — new balance PHP '
+          || to_char(coalesce((select b.balance_due from public.customer_balances b where b.customer_id = c.id), 0)
+                     + case o.adjust_type when 'reduce' then -o.amount else o.amount end, 'FM999,999,999,990.00')
         else 'Order recorded on account ' || c.account_no end;
     end if;
     insert into public.customer_events (customer_id, action, note, actor, actor_name)
     values (c.id, case o.subject_type when 'reopen' then 'reopened' when 'charge' then 'charge PHP ' || to_char(o.amount, 'FM999,999,999,990.00')
+                  when 'settlement' then 'settlement adjustment ' || case o.adjust_type when 'reduce' then '−' else '+' end || 'PHP ' || to_char(o.amount, 'FM999,999,999,990.00')
                   else coalesce(newst, replace(o.subject_type, '_', ' ')) end || ' by ' || o.order_no, o.subject, auth.uid(), me);
   elsif o.employee_id is not null then
     select * into e from public.employees where id = o.employee_id for update;
@@ -279,7 +310,7 @@ end;
 $$;
 revoke execute on function public.carry_out_order(uuid) from public, anon, authenticated;
 
--- Verification: an Additional Charge order shows its amount.
+-- Verification: an Additional Charge or Settlement Adjustment order shows its amount.
 create or replace function public.verify_record(p_code text) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
 declare
@@ -366,6 +397,8 @@ begin
           jsonb_build_array('Subject', r.subject), jsonb_build_array('Type', initcap(replace(r.subject_type, '_', ' '))),
           case when r.subject_type = 'balance_certificate' then jsonb_build_array('Amount Due (PHP)', to_char(r.balance_due, 'FM999,999,999,990.00')) end,
           case when r.subject_type = 'charge' then jsonb_build_array('Charge (PHP)', to_char(r.amount, 'FM999,999,999,990.00')) end,
+          case when r.subject_type = 'settlement' then jsonb_build_array('Settlement Adjustment (PHP)',
+            case r.adjust_type when 'reduce' then 'Less ' else 'Add ' end || to_char(r.amount, 'FM999,999,999,990.00')) end,
           jsonb_build_array('Status', upper(r.status)), jsonb_build_array('Approved By', coalesce(r.approved_by_name, '—')))) f where f <> 'null'::jsonb));
     end if;
     select v.*, pc.name as company, pa.account_name, pa.account_number, pa.bank_name

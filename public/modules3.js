@@ -478,21 +478,23 @@
     termination: ["Termination", "Termination of Employment"], memo: ["Notice / Memo", "Memorandum"],
     unpaid: ["Unpaid", "Notice of Unpaid Balance"], installment: ["Installment", "Installment Payment Arrangement"], unsettled_balance: ["Unsettled Balance", "Demand for Unsettled Balance"],
     promise_to_pay: ["Promise to Pay", "Promise to Pay Agreement"], balance_certificate: ["Balance Certificate", "Account Balance Certificate"],
-    charge: ["Additional Charge", "Additional Charge"], other: ["Other", ""]
+    charge: ["Additional Charge", "Additional Charge"], settlement: ["Settlement Adjustment", "Settlement Adjustment"], other: ["Other", ""]
   };
   const TITLE = {
     suspension: "SUSPENSION ORDER", closure: "CLOSURE ORDER", reactivation: "REACTIVATION ORDER", reopen: "REOPENING ORDER", termination: "TERMINATION ORDER",
     memo: "MEMORANDUM ORDER", unpaid: "UNPAID BALANCE ORDER", installment: "INSTALLMENT ORDER", unsettled_balance: "UNSETTLED BALANCE ORDER", promise_to_pay: "PROMISE TO PAY ORDER",
-    balance_certificate: "ACCOUNT BALANCE CERTIFICATE", charge: "ADDITIONAL CHARGE ORDER", other: "ORDER"
+    balance_certificate: "ACCOUNT BALANCE CERTIFICATE", charge: "ADDITIONAL CHARGE ORDER", settlement: "SETTLEMENT ADJUSTMENT ORDER", other: "ORDER"
   };
-  const AMOUNT_TYPES = ["unpaid", "installment", "unsettled_balance", "promise_to_pay", "charge"];
-  // An Additional Charge is the only order that adds money to the balance (once approved); the others are about
-  // money the customer already owes.
+  const AMOUNT_TYPES = ["unpaid", "installment", "unsettled_balance", "promise_to_pay", "charge", "settlement"];
+  // Only two orders change the balance (once approved): an Additional Charge adds to it, and a Settlement Adjustment
+  // adds to it or takes it off (chosen on the order). The others are about money the customer already owes.
+  const ADJ = { reduce: ["−", "Less", "Take off the balance"], add: ["+", "Add", "Add to the balance"] };
+  const signedAmt = (o) => (o.subject_type === "settlement" && o.adjust_type === "reduce" ? "−" : "") + peso(o.amount);
   // Who an order is for, who may request it, and which orders fit each status.
   const KINDS = {
     customer: { label: "Customer", write: () => E.canWrite("orders") || E.canWrite("customers"), subject: {},
-      types: (st) => st === "suspended" ? ["reactivation", "closure", "charge", "balance_certificate"] : st === "closed" ? ["reopen", "balance_certificate"]
-        : ["suspension", "closure", "unpaid", "installment", "unsettled_balance", "promise_to_pay", "charge", "balance_certificate", "other"] },
+      types: (st) => st === "suspended" ? ["reactivation", "closure", "charge", "settlement", "balance_certificate"] : st === "closed" ? ["reopen", "settlement", "balance_certificate"]
+        : ["suspension", "closure", "unpaid", "installment", "unsettled_balance", "promise_to_pay", "charge", "settlement", "balance_certificate", "other"] },
     employee: { label: "Employee", write: () => E.canWrite("employees"), subject: { suspension: "Suspension from Work", reactivation: "Return to Work" },
       types: (st) => st === "suspended" ? ["reactivation", "termination", "memo"] : st === "terminated" ? ["memo"] : st === "waiting" ? ["termination", "memo"] : ["suspension", "termination", "memo"] },
     company: { label: "Billing Company", write: () => E.canWrite("billing"), subject: { suspension: "Suspension of Payments", reactivation: "Reactivation of Payments", memo: "Notice" },
@@ -527,7 +529,7 @@
     { label: "Order No", get: (r) => r.order_no }, { label: "Date", get: (r) => mdy(r.order_date) },
     { label: "For", get: (r) => `${KINDS[kindOf(r)].label}: ${forName(r) || "—"}` },
     { label: "Type", get: (r) => SUBJ[r.subject_type]?.[0] || r.subject_type }, { label: "Subject", get: (r) => r.subject },
-    { label: "Amount (₱)", num: true, get: (r) => (r.amount != null ? peso(r.amount) : r.subject_type === "balance_certificate" && r.balance_due != null ? peso(r.balance_due) : "") }, { label: "Status", html: (r) => pill(r.status) }
+    { label: "Amount (₱)", num: true, get: (r) => (r.amount != null ? signedAmt(r) : r.subject_type === "balance_certificate" && r.balance_due != null ? peso(r.balance_due) : "") }, { label: "Status", html: (r) => pill(r.status) }
   ];
   const canOrder = () => Object.values(KINDS).some((k) => k.write());
   V.orders = async () => {
@@ -582,6 +584,8 @@
       promise_to_pay: `I, ${name}, holder of account ${acct}, acknowledge an outstanding balance of PHP ${peso(d.bal)} as of ${when}${late}. I promise to pay ${p(d.amt)} on or before ${due}. I understand that if I do not pay on this date, ${C.company.name} may suspend my account.`,
       installment: `I, ${name}, holder of account ${acct}, agree to pay the balance of ${p(d.amt)} in ${d.n || "[number]"} installment(s) of ${p(d.each)} ${(EVERY[d.every] || EVERY.month).toLowerCase()}, starting ${due}, as shown in the installment schedule. I understand that if I miss a payment, ${C.company.name} may suspend my account.`,
       charge: `Please be informed that an additional charge of ${p(d.amt)} is added to your account ${acct} (${name}) effective ${when}. Your previous balance is PHP ${peso(d.bal)} and your new balance is PHP ${peso(d.bal + (d.amt || 0))}. Please pay on or before ${due}.`,
+      settlement: d.adj ? `As agreed for the settlement of account ${acct} (${name}), ${p(d.amt)} is ${d.adj === "reduce" ? "taken off" : "added to"} the balance effective ${when}. Previous balance: PHP ${peso(d.bal)}. New balance: PHP ${peso(d.bal + (d.adj === "reduce" ? -1 : 1) * (d.amt || 0))}.${d.due ? ` Please settle the balance on or before ${due}.` : ""}`
+        : `Settlement adjustment of ${p(d.amt)} on account ${acct} (${name}) effective ${when}. [Choose: take off the balance or add to it]`,
       balance_certificate: "This certificate is issued upon the request of the account holder for whatever purpose it may serve."
     }[t] || "";
   }
@@ -606,6 +610,7 @@
           <label for="noReason">Reason for Closure *</label><select id="noReason"><option value="">— Choose the reason —</option>${CLOSE_REASONS.map((r) => `<option>${esc(r)}</option>`).join("")}</select>
           <label for="noReason2" class="noOther">Other Reason *</label><input type="text" id="noReason2" class="noOther" placeholder="Write the reason"></div></fieldset>
         <fieldset class="opt" id="noAmtBox" hidden><legend id="noAmtLeg">Amount &amp; Terms</legend><div class="formgrid">
+          <div class="fields wide noAdjRow"><span>Adjustment *</span><div class="subj-grid" id="noAdj">${Object.entries(ADJ).map(([k, [sign, , label]]) => `<label class="subj"><input type="radio" name="noAdj" value="${k}"><span>${sign} ${esc(label)}</span></label>`).join("")}</div></div>
           <div class="fields wide"><label for="noAmt" id="noAmtL">Amount (₱)</label><input type="number" id="noAmt" min="0" step="0.01"><label for="noDue" id="noDueL">Due Date</label><input type="date" id="noDue"></div>
           <div class="fields wide noInst"><label for="noN">Number of Installments</label><input type="number" id="noN" min="1" step="1">
             <label for="noEvery">Pay</label><select id="noEvery">${Object.entries(EVERY).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join("")}</select>
@@ -631,12 +636,15 @@
       $("#noCloseBox").hidden = !(cust && t === "closure");
       $$(".noOther").forEach((x) => (x.hidden = $("#noReason").value !== "Other"));
       $$(".noInst").forEach((x) => (x.hidden = t !== "installment"));
+      $$(".noAdjRow").forEach((x) => (x.hidden = t !== "settlement"));
+      const adj = $("input[name=noAdj]:checked")?.value;
       const L = { promise_to_pay: ["Promise to Pay", "Amount the Customer Will Pay (₱)", "Promise Date (Due Date)"], installment: ["Installment Plan", "Total Amount (₱)", "First Due Date"],
         unpaid: ["Amount Due", "Amount Due (₱)", "Pay On or Before"], unsettled_balance: ["Amount Due", "Amount Due (₱)", "Settle On or Before"],
-        charge: ["Additional Charge — added to the balance once approved", "Charge Amount (₱)", "Pay On or Before"] }[t];
+        charge: ["Additional Charge — added to the balance once approved", "Charge Amount (₱)", "Pay On or Before"],
+        settlement: ["Settlement Adjustment — added to or taken off the balance once approved", "Adjustment Amount (₱)", "Settle On or Before (optional)"] }[t];
       if (L) { $("#noAmtLeg").textContent = L[0]; $("#noAmtL").textContent = L[1]; $("#noDueL").textContent = L[2]; }
-      if (amtOn && !touched.has("noAmt")) $("#noAmt").value = t !== "charge" && bal() > 0 ? bal().toFixed(2) : "";
-      if (amtOn && !touched.has("noDue")) $("#noDue").value = plusDays(t === "installment" ? 30 : 7);
+      if (amtOn && !touched.has("noAmt")) $("#noAmt").value = !["charge", "settlement"].includes(t) && bal() > 0 ? bal().toFixed(2) : "";
+      if (amtOn && !touched.has("noDue")) $("#noDue").value = t === "settlement" ? "" : plusDays(t === "installment" ? 30 : 7);
       const amt = num($("#noAmt").value), n = Math.floor(num($("#noN").value)), every = $("#noEvery").value;
       if (t === "installment" && n > 0 && amt > 0 && !touched.has("noInst")) $("#noInst").value = (Math.round((amt / n) * 100) / 100).toFixed(2);
       const each = num($("#noInst").value);
@@ -644,7 +652,7 @@
       $("#noSched").innerHTML = rows.length ? `<div class="sched-h">Installment Schedule</div>${E.grid({ cols: [{ label: "No.", get: (r) => r.no }, { label: "Due Date", get: (r) => mdy(r.date) }, { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) }, { label: "Balance After (₱)", num: true, get: (r) => peso(r.left) }], rows })}` : "";
       $("#noLetterLeg").textContent = t === "balance_certificate" ? "Certificate" : "Letter";
       $("#noDetailsL").textContent = t === "balance_certificate" ? "Purpose *" : "Details *";
-      if (!dirty) $("#noDetails").value = defaultDetails(kind, t, who, { bal: bal(), days: num(due?.days_overdue), amt, n, each, every, due: $("#noDue").value, date: $("#noDate").value, reason: reason() });
+      if (!dirty) $("#noDetails").value = defaultDetails(kind, t, who, { bal: bal(), days: num(due?.days_overdue), amt, n, each, every, due: $("#noDue").value, date: $("#noDate").value, reason: reason(), adj });
     };
     const showTypes = () => {
       $("#noTypes").innerHTML = types().map((k, i) => `<label class="subj"><input type="radio" name="noType" value="${k}" ${i ? "" : "checked"}><span>${esc(SUBJ[k][0])}</span></label>`).join("");
@@ -689,6 +697,7 @@
     $$("input[name=noKind]").forEach((r) => (r.onchange = () => { kind = r.value; showWho(null); }));
     ["noAmt", "noN", "noDue", "noInst"].forEach((id) => ($("#" + id).oninput = () => { touched.add(id); refresh(); }));
     ["noDate", "noEvery", "noReason", "noReason2"].forEach((id) => ($("#" + id).oninput = refresh));
+    $$("input[name=noAdj]").forEach((r) => (r.onchange = refresh));
     $("#noReason").onchange = refresh;
     $("#noDetails").oninput = () => (dirty = true);
     $("#noCancel").onclick = () => history.back();
@@ -704,6 +713,8 @@
       if (amtOn && amt <= 0) return toast("Enter the amount.", true);
       if (["promise_to_pay", "installment"].includes(t) && !$("#noDue").value) return toast("Enter the date.", true);
       if (t === "installment" && n < 1) return toast("Enter the number of installments.", true);
+      const adj = $("input[name=noAdj]:checked")?.value;
+      if (t === "settlement" && !adj) return toast("Choose: take the amount off the balance, or add it to the balance.", true);
       if (!$("#noDetails").value.trim()) return toast(t === "balance_certificate" ? "Write the purpose of the certificate." : "Write the details of the order.", true);
       E.setBusy(e.target, true, "Submitting");
       const { data, error } = await sb.from("order_letters").insert({
@@ -712,7 +723,8 @@
         details: $("#noDetails").value.trim(), resolution: $("#noRes").value.trim() || null,
         amount: amtOn ? amt : null, first_due_date: amtOn ? $("#noDue").value || null : null,
         installments: t === "installment" ? n : null, installment_amount: t === "installment" && $("#noInst").value ? num($("#noInst").value) : null,
-        installment_every: t === "installment" ? $("#noEvery").value : null, closure_reason: cust && t === "closure" ? reason() : null
+        installment_every: t === "installment" ? $("#noEvery").value : null, closure_reason: cust && t === "closure" ? reason() : null,
+        adjust_type: t === "settlement" ? adj : null
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the order"); }
       // The CEO's own order is approved and carried out at once.
@@ -753,6 +765,9 @@
       : t === "closure" && kind === "customer" ? `${tr("Reason for Closure", `<b>${v(o.closure_reason)}</b>`)}${o.balance_due != null ? tr("Closing Balance", php(o.balance_due)) : ""}`
       : t === "charge" ? `${o.balance_due != null ? tr("Previous Balance", php(o.balance_due)) : ""}${tr("Additional Charge", `<b>${php(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`)}
         ${o.balance_due != null ? tr("New Balance", `<b>${php(num(o.balance_due) + num(o.amount))}</b>`) : ""}${o.first_due_date ? tr("Pay On or Before", `<b>${v(E.mdy(o.first_due_date))}</b>`) : ""}`
+      : t === "settlement" ? `${o.balance_due != null ? tr("Previous Balance", php(o.balance_due)) : ""}
+        ${tr("Settlement Adjustment", `<b>${ADJ[o.adjust_type]?.[1] || ""} ${php(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`)}
+        ${o.balance_due != null ? tr("New Balance", `<b>${php(num(o.balance_due) + (o.adjust_type === "reduce" ? -1 : 1) * num(o.amount))}</b>`) : ""}${o.first_due_date ? tr("Settle On or Before", `<b>${v(E.mdy(o.first_due_date))}</b>`) : ""}`
       : o.amount != null ? tr("Amount", `PHP ${peso(o.amount)} <small>(${esc(words(o.amount))})</small>`) : "";
     const plan = t === "installment" ? schedule(num(o.amount), num(o.installments), o.first_due_date, o.installment_every, num(o.installment_amount)) : [];
     return `${E.printHead(TITLE[t] || "ORDER", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
@@ -836,8 +851,8 @@
           <span>Subject</span><b>${esc(o.subject)}</b><span>Order Date</span><span>${mdy(o.order_date)}</span>
           <span>Prepared By</span><span>${esc(o.created_by_name || "")}</span></div>
           <div class="fields wide">${o.balance_due != null ? `<span>Amount Due</span><span>₱ ${peso(o.balance_due)}${o.days_overdue ? ` · ${o.days_overdue} day(s) overdue` : ""}</span>` : ""}
-            ${o.closure_reason ? `<span>Reason for Closure</span><b>${esc(o.closure_reason)}</b>` : ""}${o.amount != null ? `<span>${o.subject_type === "promise_to_pay" ? "Amount to Pay" : o.subject_type === "charge" ? "Charge Amount" : "Amount"}</span><b>₱ ${peso(o.amount)}</b>` : ""}
-            ${o.subject_type === "charge" && o.balance_due != null ? `<span>New Balance</span><b>₱ ${peso(num(o.balance_due) + num(o.amount))}</b>` : ""}
+            ${o.closure_reason ? `<span>Reason for Closure</span><b>${esc(o.closure_reason)}</b>` : ""}${o.amount != null ? `<span>${o.subject_type === "promise_to_pay" ? "Amount to Pay" : o.subject_type === "charge" ? "Charge Amount" : o.subject_type === "settlement" ? "Adjustment" : "Amount"}</span><b>${o.subject_type === "settlement" ? `${ADJ[o.adjust_type]?.[0] || ""} ` : ""}₱ ${peso(o.amount)}</b>` : ""}
+            ${["charge", "settlement"].includes(o.subject_type) && o.balance_due != null ? `<span>New Balance</span><b>₱ ${peso(num(o.balance_due) + (o.adjust_type === "reduce" ? -1 : 1) * num(o.amount))}</b>` : ""}
             ${o.installments ? `<span>Installments</span><span>${o.installments} × ₱ ${peso(o.installment_amount)}, ${esc((EVERY[o.installment_every] || EVERY.month).toLowerCase())}</span>` : ""}${o.first_due_date ? `<span>${o.subject_type === "installment" ? "First Due Date" : "Due Date"}</span><span>${mdy(o.first_due_date)}</span>` : ""}</div></div>
         <div class="letter-box"><div class="lb-h">Details</div><p>${esc(o.details || "").replace(/\n/g, "<br>")}</p>${o.resolution ? `<div class="lb-h">Resolution / Terms</div><p>${esc(o.resolution).replace(/\n/g, "<br>")}</p>` : ""}</div>
         <div class="docgrid">${E.docCard({ key: "ol", title: `${o.subject_type === "balance_certificate" ? "Account Balance Certificate" : "Order"} ${o.order_no}`, sub: "Print it, have it signed, then upload the signed copy", ownerType: "order_letter", ownerId: o.id, att, print: () => E.openPreview(`Order ${o.order_no}`, [letterPage(o)]) })}</div>
