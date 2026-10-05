@@ -81,7 +81,7 @@ begin
     update public.profiles set
       role = new.role,
       modules = new.modules,
-      full_name = trim(new.first_name || ' ' || new.last_name),
+      full_name = case when lower(email) = 'emonoverruns@gmail.com' then 'EMON OVERRUNS' else trim(new.first_name || ' ' || new.last_name) end,
       status = case when new.status in ('inactive','terminated') then 'disabled' else 'active' end
     where id = new.profile_id;
   end if;
@@ -150,6 +150,9 @@ grant execute on function public.rehire_employee(uuid) to authenticated;
 grant execute on function public.set_employee_access(uuid, text, text[], text) to authenticated;
 
 -- New sign-ups: owner emails become admin; registered employees get their access; everyone else applies for a job.
+-- The company's own login (emonoverruns@gmail.com) is named EMON OVERRUNS, so what it approves or records shows the
+-- company name; a person's login shows the person's name.
+update public.profiles set full_name = 'EMON OVERRUNS' where lower(email) = 'emonoverruns@gmail.com';
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -168,7 +171,8 @@ begin
   insert into public.profiles (id, email, full_name, role, status, modules, username)
   values (
     new.id, new.email,
-    coalesce(case when emp.id is not null then trim(emp.first_name || ' ' || emp.last_name) end, new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    case when lower(new.email) = 'emonoverruns@gmail.com' then 'EMON OVERRUNS'
+         else coalesce(case when emp.id is not null then trim(emp.first_name || ' ' || emp.last_name) end, new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)) end,
     case when owner then 'admin' when emp.id is not null then emp.role else 'viewer' end,
     case when owner then 'active' when emp.id is not null then (case when emp.status = 'inactive' then 'disabled' else 'active' end) else 'pending' end,
     case when emp.id is not null and not owner then emp.modules end,
@@ -560,14 +564,17 @@ grant execute on function public.unread_messages_count() to authenticated;
 grant execute on function public.chat_contacts() to authenticated;
 
 -- =====================================================================
--- Order letters: the only way to suspend, close or reactivate an account
+-- Order requests and order letters: the only way to suspend, close, reactivate or reopen an account.
+--  * A request (suspend, close, unpaid notice, installment, …) is carried out as soon as the CEO approves it.
+--  * Reactivating a suspended account or reopening a closed one needs an approved order letter: its QR code
+--    (or verification code) is scanned to carry it out.
 -- =====================================================================
 create table if not exists public.order_letters (
   id uuid primary key default gen_random_uuid(),
   order_no text unique,
   customer_id uuid references public.customers(id) on delete set null,
   order_date date not null default current_date,
-  subject_type text not null check (subject_type in ('suspension','closure','reactivation','unpaid','installment','unsettled_balance','promise_to_pay','other')),
+  subject_type text not null check (subject_type in ('suspension','closure','reactivation','reopen','unpaid','installment','unsettled_balance','promise_to_pay','other')),
   subject text not null,
   details text,
   resolution text,
@@ -587,6 +594,8 @@ create table if not exists public.order_letters (
   created_by_name text,
   created_at timestamptz not null default now()
 );
+alter table public.order_letters drop constraint if exists order_letters_subject_type_check;
+alter table public.order_letters add constraint order_letters_subject_type_check check (subject_type in ('suspension','closure','reactivation','reopen','unpaid','installment','unsettled_balance','promise_to_pay','other'));
 alter table public.order_letters drop constraint if exists order_letters_status_check;
 alter table public.order_letters add constraint order_letters_status_check check (status in ('pending','approved','rejected','applied'));
 create index if not exists order_letters_customer_idx on public.order_letters(customer_id);
@@ -614,7 +623,7 @@ create trigger order_letters_bi before insert on public.order_letters
 create or replace function public.order_letters_after_insert() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
-  perform public.notify_admins('Order letter ' || new.order_no || ' needs approval', new.subject, 'order/' || new.id);
+  perform public.notify_admins('Order ' || new.order_no || ' needs approval', new.subject, 'order/' || new.id);
   return new;
 end;
 $$;
@@ -632,27 +641,71 @@ create policy "ol: insert" on public.order_letters for insert to authenticated
   with check ((select public.can_write('orders')) or (select public.can_write('customers')));
 create policy "olc: admin read" on public.order_letter_codes for select to authenticated using ((select public.is_admin()));
 
+-- Internal: carry out an order on its account (status change for suspend / close / reactivate / reopen).
+create or replace function public.carry_out_order(p_id uuid) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare
+  o public.order_letters;
+  c public.customers;
+  newst text;
+  res text;
+  me text := (select full_name from public.profiles where id = auth.uid());
+begin
+  select * into o from public.order_letters where id = p_id for update;
+  perform public.allow_record_change();
+  if o.customer_id is not null then
+    select * into c from public.customers where id = o.customer_id for update;
+    newst := case o.subject_type when 'suspension' then 'suspended' when 'closure' then 'closed' when 'reactivation' then 'active' when 'reopen' then 'active' else null end;
+    if o.subject_type = 'suspension' and c.status <> 'active' then raise exception 'Account % is % — only ACTIVE accounts can be suspended', c.account_no, upper(c.status); end if;
+    if o.subject_type = 'closure' and c.status not in ('active','suspended') then raise exception 'Account % is % and cannot be closed', c.account_no, upper(c.status); end if;
+    if o.subject_type = 'reactivation' and c.status <> 'suspended' then raise exception 'Account % is % — only SUSPENDED accounts can be reactivated', c.account_no, upper(c.status); end if;
+    if o.subject_type = 'reopen' and c.status <> 'closed' then raise exception 'Account % is % — only CLOSED accounts can be reopened', c.account_no, upper(c.status); end if;
+    if newst is not null then
+      update public.customers set status = newst, status_note = o.order_no || ': ' || o.subject where id = c.id;
+      res := 'Account ' || c.account_no || ' is now ' || upper(newst);
+    else
+      res := 'Order recorded on account ' || c.account_no;
+    end if;
+    insert into public.customer_events (customer_id, action, note, actor, actor_name)
+    values (c.id, case o.subject_type when 'reopen' then 'reopened' else coalesce(newst, replace(o.subject_type, '_', ' ')) end || ' by ' || o.order_no, o.subject, auth.uid(), me);
+  else
+    res := 'Order carried out';
+  end if;
+  update public.order_letters set status = 'applied', applied_at = now(), applied_by_name = me, applied_result = res where id = o.id;
+  return jsonb_build_object('order_no', o.order_no, 'result', res, 'status', newst);
+end;
+$$;
+revoke execute on function public.carry_out_order(uuid) from public, anon, authenticated;
+
+-- The CEO approves or rejects. A request is carried out straight away; a reactivation or reopening
+-- order letter gets its verification code instead (carried out when the code is scanned).
 create or replace function public.review_order_letter(p_id uuid, p_action text, p_note text default null) returns public.order_letters
 language plpgsql security definer set search_path = '' as $$
-declare o public.order_letters; me text;
+declare o public.order_letters; me text; r jsonb;
 begin
-  if not public.is_admin() then raise exception 'Only the CEO can approve order letters'; end if;
+  if not public.is_admin() then raise exception 'Only the CEO can approve orders'; end if;
   select * into o from public.order_letters where id = p_id for update;
-  if o.id is null then raise exception 'Order letter not found'; end if;
-  if o.status <> 'pending' then raise exception 'This order letter is already %', upper(o.status); end if;
+  if o.id is null then raise exception 'Order not found'; end if;
+  if o.status <> 'pending' then raise exception 'This order is already %', upper(o.status); end if;
   me := (select full_name from public.profiles where id = auth.uid());
   perform public.allow_record_change();
   if p_action = 'approve' then
     update public.order_letters set status = 'approved', approved_by = auth.uid(), approved_by_name = me, approved_at = now(), review_note = p_note
     where id = p_id returning * into o;
-    insert into public.order_letter_codes (order_id, code)
-    values (p_id, upper(substr(md5(gen_random_uuid()::text || clock_timestamp()::text), 1, 8)))
-    on conflict (order_id) do nothing;
-    perform public.notify_user(o.created_by, 'Order letter ' || o.order_no || ' approved', o.subject, 'order/' || o.id);
+    if o.subject_type in ('reactivation','reopen') then
+      insert into public.order_letter_codes (order_id, code)
+      values (p_id, upper(substr(md5(gen_random_uuid()::text || clock_timestamp()::text), 1, 8)))
+      on conflict (order_id) do nothing;
+      perform public.notify_user(o.created_by, 'Order letter ' || o.order_no || ' approved', o.subject, 'order/' || o.id);
+    else
+      r := public.carry_out_order(p_id);
+      select * into o from public.order_letters where id = p_id;
+      perform public.notify_user(o.created_by, 'Order ' || o.order_no || ' approved and carried out', r->>'result', 'order/' || o.id);
+    end if;
   elsif p_action = 'reject' then
     update public.order_letters set status = 'rejected', approved_by = auth.uid(), approved_by_name = me, approved_at = now(), review_note = p_note
     where id = p_id returning * into o;
-    perform public.notify_user(o.created_by, 'Order letter ' || o.order_no || ' rejected', coalesce(p_note, o.subject), 'order/' || o.id);
+    perform public.notify_user(o.created_by, 'Order ' || o.order_no || ' rejected', coalesce(p_note, o.subject), 'order/' || o.id);
   else
     raise exception 'Unknown action %', p_action;
   end if;
@@ -660,16 +713,12 @@ begin
 end;
 $$;
 
--- Scanning the order letter's QR (or typing its number and code) carries out the order.
+-- Scanning the order letter's QR (or typing its number and code) carries out a reactivation or reopening.
 create or replace function public.apply_order_letter(p_order_no text, p_code text, p_customer uuid default null) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare
   o public.order_letters;
-  c public.customers;
   k text;
-  newst text;
-  res text;
-  me text;
 begin
   if not (public.can_write('customers') or public.can_write('orders')) then raise exception 'You do not have permission to apply order letters'; end if;
   select * into o from public.order_letters where upper(order_no) = upper(trim(coalesce(p_order_no, ''))) for update;
@@ -679,27 +728,7 @@ begin
   select x.code into k from public.order_letter_codes x where x.order_id = o.id;
   if k is null or upper(trim(coalesce(p_code, ''))) <> k then raise exception 'The verification code does not match order letter %', o.order_no; end if;
   if p_customer is not null and o.customer_id is distinct from p_customer then raise exception 'Order letter % is for a different account', o.order_no; end if;
-  me := (select full_name from public.profiles where id = auth.uid());
-  perform public.allow_record_change();
-  if o.customer_id is not null then
-    select * into c from public.customers where id = o.customer_id for update;
-    newst := case o.subject_type when 'suspension' then 'suspended' when 'closure' then 'closed' when 'reactivation' then 'active' else null end;
-    if newst = 'suspended' and c.status <> 'active' then raise exception 'Account % is % — only ACTIVE accounts can be suspended', c.account_no, upper(c.status); end if;
-    if newst = 'closed' and c.status not in ('active','suspended') then raise exception 'Account % is % and cannot be closed', c.account_no, upper(c.status); end if;
-    if newst = 'active' and c.status <> 'suspended' then raise exception 'Account % is % — only SUSPENDED accounts can be reactivated', c.account_no, upper(c.status); end if;
-    if newst is not null then
-      update public.customers set status = newst, status_note = o.order_no || ': ' || o.subject where id = c.id;
-      res := 'Account ' || c.account_no || ' is now ' || upper(newst);
-    else
-      res := 'Order recorded on account ' || c.account_no;
-    end if;
-    insert into public.customer_events (customer_id, action, note, actor, actor_name)
-    values (c.id, coalesce(newst, replace(o.subject_type, '_', ' ')) || ' by ' || o.order_no, o.subject, auth.uid(), me);
-  else
-    res := 'Order applied';
-  end if;
-  update public.order_letters set status = 'applied', applied_at = now(), applied_by_name = me, applied_result = res where id = o.id;
-  return jsonb_build_object('order_no', o.order_no, 'result', res, 'status', newst);
+  return public.carry_out_order(o.id);
 end;
 $$;
 revoke execute on function public.review_order_letter(uuid, text, text) from public, anon;
@@ -707,7 +736,7 @@ revoke execute on function public.apply_order_letter(text, text, uuid) from publ
 grant execute on function public.review_order_letter(uuid, text, text) to authenticated;
 grant execute on function public.apply_order_letter(text, text, uuid) to authenticated;
 
--- Suspend / close / reactivate now require an approved order letter.
+-- Suspend / close / reactivate / reopen go through orders (see above).
 create or replace function public.customer_action(p_id uuid, p_action text, p_note text default null)
 returns public.customers
 language plpgsql security definer set search_path = '' as $$
@@ -717,11 +746,11 @@ declare
 begin
   if not public.is_admin() then raise exception 'Only the CEO can do this'; end if;
   if p_action in ('suspend','close','reactivate') then
-    raise exception 'Use an approved order letter to suspend, close or reactivate an account';
+    raise exception 'Use an approved order to suspend, close, reactivate or reopen an account';
   end if;
   select * into c from public.customers where id = p_id for update;
   if c.id is null then raise exception 'Customer not found'; end if;
-  if c.status = 'closed' then raise exception 'This account is permanently closed'; end if;
+  if c.status = 'closed' then raise exception 'This account is closed'; end if;
   new_status := case p_action
     when 'verify' then 'verified'
     when 'approve' then 'active'

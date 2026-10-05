@@ -473,11 +473,16 @@
   // 9. Order Letter — suspension, closure, reactivation, payment arrangements
   // ======================================================================
   const SUBJ = {
-    suspension: ["Suspension", "Suspension of Account"], closure: ["Closure", "Closure of Account"], reactivation: ["Reactivation", "Reactivation of Account"],
+    suspension: ["Suspension", "Suspension of Account"], closure: ["Closure", "Closure of Account"], reactivation: ["Reactivation", "Reactivation of Account"], reopen: ["Reopen", "Reopening of Account"],
     unpaid: ["Unpaid", "Notice of Unpaid Balance"], installment: ["Installment", "Installment Payment Arrangement"], unsettled_balance: ["Unsettled Balance", "Demand for Unsettled Balance"],
     promise_to_pay: ["Promise to Pay", "Promise to Pay Agreement"], other: ["Other", ""]
   };
   const AMOUNT_TYPES = ["unpaid", "installment", "unsettled_balance", "promise_to_pay"];
+  // Reactivating a suspended account or reopening a closed one needs an order letter with a verification code;
+  // every other order is a request that is carried out as soon as the CEO approves it.
+  const CODE_TYPES = ["reactivation", "reopen"];
+  const typesFor = (st) => st === "suspended" ? ["reactivation", "closure"] : st === "closed" ? ["reopen"]
+    : ["suspension", "closure", "unpaid", "installment", "unsettled_balance", "promise_to_pay", "other"];
   const ORDER_COLS = [
     { label: "Order No", get: (r) => r.order_no }, { label: "Date", get: (r) => dmy(r.order_date) },
     { label: "Account", get: (r) => r.customers ? `${r.customers.account_no} ${fullName(r.customers)}` : "—" },
@@ -488,9 +493,9 @@
   V.orders = async () => {
     E.shell("orders", "Order Letter", `
       <div class="tabs" id="olF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="applied">Applied</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
-      <div class="btnrow">${canApply() ? `<a class="btn primary" href="#neworder">${ic("plus")} New Order Letter</a><button type="button" class="btn" id="olApply">${ic("qr")} Apply Order Letter (Scan QR)</button>` : ""}</div>
+      <div class="btnrow">${canApply() ? `<a class="btn primary" href="#neworder">${ic("plus")} Request Order</a><button type="button" class="btn" id="olApply">${ic("qr")} Apply Order Letter (Scan QR)</button>` : ""}</div>
       <div id="olRes">${busy()}</div>`,
-      "Order letters suspend, close or reactivate an account, or record a payment arrangement. The CEO approves the letter; its QR code carries a verification code. Scanning the QR (or typing the code) carries out the order.");
+      "Requests (suspend, close, payment notices) are carried out as soon as the CEO approves them. Reactivating a suspended account or reopening a closed one needs an approved order letter: scan its QR code (or type its verification code) to carry it out.");
     const run = async (f) => {
       $("#olRes").innerHTML = busy();
       let q = sb.from("order_letters").select("*, customers(first_name,last_name,account_no,status)").order("created_at", { ascending: false }).limit(1000);
@@ -512,8 +517,9 @@
     const when = E.dLong(dt || isoToday()), dueTxt = due ? E.dLong(due) : "[due date]", a = amt ? `PHP ${peso(amt)}` : "PHP [amount]";
     return {
       suspension: `We regret to inform you that your account ${acct} is SUSPENDED effective ${when}. New orders and invoices are on hold until the account is reactivated by an approved order letter.`,
-      closure: `Please be informed that your account ${acct} is permanently CLOSED effective ${when}. No new invoices will be recorded on this account.`,
+      closure: `Please be informed that your account ${acct} is CLOSED effective ${when}. No new invoices will be recorded on this account.`,
       reactivation: `We are pleased to inform you that your account ${acct} is REACTIVATED effective ${when}. You may place orders again.`,
+      reopen: `We are pleased to inform you that your account ${acct} is REOPENED effective ${when}. You may place orders again.`,
       unpaid: `Our records show an unpaid balance of ${a} on your account ${acct}. Please settle it on or before ${dueTxt}.`,
       installment: `As agreed, the balance of ${a} on account ${acct} will be paid in ${n || "[number]"} installment(s) of PHP ${inst ? peso(inst) : "[amount]"} each, starting ${dueTxt}.`,
       unsettled_balance: `Despite previous reminders, the balance of ${a} on account ${acct} remains unsettled. Please settle it within seven (7) days from receipt of this letter.`,
@@ -523,12 +529,12 @@
   }
 
   V.neworder = async (custId) => {
-    if (!canApply()) { toast("You cannot create order letters.", true); location.hash = "orders"; return; }
-    E.shell("neworder", "New Order Letter", `
-      <form class="window" id="noForm" novalidate><div class="wtitle">Order Letter</div><div class="wbody">
+    if (!canApply()) { toast("You cannot request orders.", true); location.hash = "orders"; return; }
+    E.shell("neworder", "Request Order", `
+      <form class="window" id="noForm" novalidate><div class="wtitle" id="noTitle">Order Request</div><div class="wbody">
         <div class="summary-box"><div class="fields wide"><span>Order No</span><b>Assigned on save (ORDER-${new Date().getFullYear()}-###)</b><span>Prepared By</span><b>${esc(S.profile.full_name || "")}</b></div></div>
         <fieldset class="opt"><legend>Account</legend><div id="noCust"></div></fieldset>
-        <fieldset class="opt"><legend>Subject</legend><div class="subj-grid">${Object.entries(SUBJ).map(([k, [l]], i) => `<label class="subj"><input type="radio" name="noType" value="${k}" ${i ? "" : "checked"}><span>${esc(l)}</span></label>`).join("")}</div>
+        <fieldset class="opt"><legend>Subject</legend><div class="subj-grid" id="noTypes"></div>
           <div class="fields wide" style="margin-top:8px"><label for="noSubj">Subject *</label><input type="text" id="noSubj" value="${esc(SUBJ.suspension[1])}">
             <label for="noDate">Order Date</label><input type="date" id="noDate" value="${isoToday()}"></div></fieldset>
         <fieldset class="opt" id="noAmtBox" hidden><legend>Amount &amp; Terms</legend><div class="formgrid">
@@ -537,10 +543,23 @@
         <fieldset class="opt"><legend>Letter</legend><div class="fields wide">
           <label for="noDetails">Details *</label><textarea id="noDetails" rows="5"></textarea>
           <label for="noRes">Resolution / Terms</label><textarea id="noRes" rows="3" placeholder="Optional: conditions, what the customer must do"></textarea></div></fieldset>
-      </div><div class="wfoot"><a class="btn" href="#orders">Cancel</a><button type="submit" class="btn primary">Submit for Approval</button></div></form>`,
-      "After you submit, the CEO approves the letter. The approved letter gets a QR code; scanning it (or typing its verification code) carries out the order.");
+      </div><div class="wfoot"><a class="btn" href="#orders">Cancel</a><button type="submit" class="btn primary" id="noSubmit">Send for Approval</button></div></form>`,
+      "A request is carried out as soon as the CEO approves it. Reactivating a suspended account or reopening a closed one needs an order letter: once approved, scan its QR code (or type its verification code) to carry it out.");
     let cust = null, dirty = false;
-    const type = () => $("input[name=noType]:checked").value;
+    const type = () => $("input[name=noType]:checked")?.value || "suspension";
+    // The choices depend on the account: requests for an active account, a letter to reactivate or reopen.
+    const showTypes = () => {
+      const list = typesFor(cust?.status);
+      $("#noTypes").innerHTML = list.map((k, i) => `<label class="subj"><input type="radio" name="noType" value="${k}" ${i ? "" : "checked"}><span>${esc(SUBJ[k][0])}</span></label>`).join("");
+      $$("input[name=noType]").forEach((r) => (r.onchange = () => { pickType(); refresh(); }));
+      pickType();
+    };
+    const pickType = () => {
+      const t = type(), letter = CODE_TYPES.includes(t);
+      if (SUBJ[t][1]) $("#noSubj").value = SUBJ[t][1]; else { $("#noSubj").value = ""; }
+      $("#noTitle").textContent = letter ? "Order Letter (with verification code)" : "Order Request";
+      $("#noSubmit").textContent = isAdmin() ? (letter ? "Approve — Create QR Code" : "Approve & Carry Out") : "Send for Approval";
+    };
     const refresh = () => {
       const t = type();
       $("#noAmtBox").hidden = !AMOUNT_TYPES.includes(t);
@@ -549,8 +568,8 @@
       if (t === "installment" && n > 0 && amt > 0 && !$("#noInst").dataset.touched) $("#noInst").value = (Math.round((amt / n) * 100) / 100).toFixed(2);
       if (!dirty) $("#noDetails").value = defaultDetails(t, cust, amt, n, num($("#noInst").value), $("#noDue").value, $("#noDate").value);
     };
-    E.customerPicker($("#noCust"), { statuses: ["active", "suspended"], onPick: (c) => { cust = c; refresh(); }, preset: (await E.getCustomer(custId)) || undefined });
-    $$("input[name=noType]").forEach((r) => (r.onchange = () => { const t = type(); if (SUBJ[t][1]) $("#noSubj").value = SUBJ[t][1]; else { $("#noSubj").value = ""; $("#noSubj").focus(); } refresh(); }));
+    showTypes();
+    E.customerPicker($("#noCust"), { statuses: ["active", "suspended", "closed"], onPick: (c) => { cust = c; dirty = false; showTypes(); refresh(); }, preset: (await E.getCustomer(custId)) || undefined });
     ["noAmt", "noN", "noDue", "noDate"].forEach((id) => ($("#" + id).oninput = refresh));
     $("#noInst").oninput = () => { $("#noInst").dataset.touched = "1"; refresh(); };
     $("#noDetails").oninput = () => (dirty = true);
@@ -561,8 +580,7 @@
       if (!cust) return toast("Choose the account.", true);
       if (!$("#noSubj").value.trim()) return toast("Enter the subject.", true);
       if (!$("#noDetails").value.trim()) return toast("Write the details of the order.", true);
-      if (t === "suspension" && cust.status !== "active") return toast(`${cust.account_no} is ${cust.status.toUpperCase()} — only ACTIVE accounts can be suspended.`, true);
-      if (t === "reactivation" && cust.status !== "suspended") return toast(`${cust.account_no} is ${cust.status.toUpperCase()} — only SUSPENDED accounts can be reactivated.`, true);
+      if (!typesFor(cust.status).includes(t)) return toast(`${cust.account_no} is ${cust.status.toUpperCase()} — choose one of the orders shown.`, true);
       E.setBusy(e.target, true, "Submitting");
       const amtOn = AMOUNT_TYPES.includes(t);
       const { data, error } = await sb.from("order_letters").insert({
@@ -571,8 +589,13 @@
         amount: amtOn && $("#noAmt").value ? num($("#noAmt").value) : null, first_due_date: amtOn ? $("#noDue").value || null : null,
         installments: t === "installment" && $("#noN").value ? Math.floor(num($("#noN").value)) : null, installment_amount: t === "installment" && $("#noInst").value ? num($("#noInst").value) : null
       }).select().single();
-      if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the order letter"); }
-      toast(`Order letter ${data.order_no} sent for approval.`);
+      if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the order"); }
+      // The CEO's own order is approved at once (a request is carried out; a letter gets its QR code).
+      if (isAdmin()) {
+        const r = await sb.rpc("review_order_letter", { p_id: data.id, p_action: "approve", p_note: null });
+        if (r.error) { fail(r.error, `${data.order_no} was saved but could not be approved`); location.hash = "order/" + data.id; return; }
+        toast(CODE_TYPES.includes(t) ? `${data.order_no} approved. Print it — the QR code carries the verification code.` : `${data.order_no} carried out — ${r.data.applied_result || "done"}.`);
+      } else toast(`${data.order_no} sent to the CEO for approval.`);
       location.hash = "order/" + data.id;
     };
   };
@@ -612,7 +635,7 @@
     const c = o.customers || {};
     $(".band h1").textContent = `Order Letter — ${o.order_no}`;
     const banner = {
-      pending: `<div class="banner warn">Waiting for the CEO to approve this order letter.</div>`,
+      pending: `<div class="banner warn">Waiting for the CEO to approve. ${CODE_TYPES.includes(o.subject_type) ? "The approved letter gets a QR code that carries out the order when it is scanned." : "Once approved, it is carried out straight away."}</div>`,
       approved: `<div class="banner ok">✔ APPROVED by ${esc(o.approved_by_name || "")} on ${dmy(o.approved_at)}. ${isAdmin() ? "Print the letter: its QR code carries the verification code." : "The CEO prints the letter with its QR code."} Scan the QR (or type the code) to carry out the order.</div>`,
       applied: `<div class="banner ok">✔ APPLIED on ${dmy(o.applied_at)} by ${esc(o.applied_by_name || "")} — ${esc(o.applied_result || "")}</div>`,
       rejected: `<div class="banner closed">REJECTED by ${esc(o.approved_by_name || "")}${o.review_note ? " — " + esc(o.review_note) : ""}</div>`
@@ -628,7 +651,7 @@
         <div class="letter-box"><div class="lb-h">Details</div><p>${esc(o.details || "").replace(/\n/g, "<br>")}</p>${o.resolution ? `<div class="lb-h">Resolution / Terms</div><p>${esc(o.resolution).replace(/\n/g, "<br>")}</p>` : ""}</div>
         <div class="docgrid">${E.docCard({ key: "ol", title: `Order Letter ${o.order_no}`, sub: o.status === "approved" && !isAdmin() ? "Printed by the CEO with the QR code" : "Print it, have it signed, then upload the signed copy", ownerType: "order_letter", ownerId: o.id, att, print: () => E.openPreview(`Order Letter ${o.order_no}`, [letterPage(o, code)]) })}</div>
         ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>CEO Approval</legend><div class="fields wide"><label for="olNote">Note</label><input type="text" id="olNote" placeholder="Optional"></div>
-          <div class="btnrow"><button type="button" class="btn ok" id="olApprove">${ic("check")} Approve — Create QR Code</button><button type="button" class="btn danger" id="olReject">Reject</button></div></fieldset>` : ""}
+          <div class="btnrow"><button type="button" class="btn ok" id="olApprove">${ic("check")} ${CODE_TYPES.includes(o.subject_type) ? "Approve — Create QR Code" : "Approve & Carry Out"}</button><button type="button" class="btn danger" id="olReject">Reject</button></div></fieldset>` : ""}
         ${o.status === "approved" && canApply() ? `<fieldset class="opt review"><legend>Carry Out This Order</legend><p>Scan the QR code on the printed letter, or type its verification code.</p>
           <div class="btnrow"><button type="button" class="btn primary" id="olApplyBtn">${ic("qr")} Scan / Enter Code</button></div></fieldset>` : ""}
         ${rhBox("order_letters", o.id)}
@@ -636,13 +659,13 @@
     E.bindDocCards($("#main"), () => V.order(id));
     bindRecordTools($("#main"));
     const review = async (action) => {
-      const { error } = await sb.rpc("review_order_letter", { p_id: id, p_action: action, p_note: $("#olNote").value.trim() || null });
-      if (error) return fail(error, "Could not update the order letter");
-      toast(action === "approve" ? `${o.order_no} approved. Print it — the QR code carries the verification code.` : `${o.order_no} rejected.`);
+      const { data: r, error } = await sb.rpc("review_order_letter", { p_id: id, p_action: action, p_note: $("#olNote").value.trim() || null });
+      if (error) return fail(error, "Could not update the order");
+      toast(action !== "approve" ? `${o.order_no} rejected.` : CODE_TYPES.includes(o.subject_type) ? `${o.order_no} approved. Print it — the QR code carries the verification code.` : `${o.order_no} carried out — ${r?.applied_result || "done"}.`);
       V.order(id);
     };
     if ($("#olApprove")) $("#olApprove").onclick = () => review("approve");
-    if ($("#olReject")) $("#olReject").onclick = async () => { if (await E.confirmBox(`Reject order letter <b>${esc(o.order_no)}</b>?`, { ok: "Reject", danger: true })) review("reject"); };
+    if ($("#olReject")) $("#olReject").onclick = async () => { if (await E.confirmBox(`Reject order <b>${esc(o.order_no)}</b>?`, { ok: "Reject", danger: true })) review("reject"); };
     if ($("#olApplyBtn")) $("#olApplyBtn").onclick = () => applyOrderDialog({ preset: { no: o.order_no }, customer: c.id ? c : null, onDone: () => V.order(id) });
     E.setRecords(`Order: ${o.order_no}`);
   };

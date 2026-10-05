@@ -215,7 +215,7 @@
       [E.canWrite("invoices"), "#newinvoice", "+ Record Invoice"],
       [E.canWrite("payments") || E.canWrite("invoices"), "#newpayment", "+ Record Payment"],
       [E.canWrite("creditmemos"), "#newcreditmemo", "+ Credit Memo"],
-      [E.canWrite("orders") || E.canWrite("customers"), "#neworder", "+ Order Letter"],
+      [E.canWrite("orders") || E.canWrite("customers"), "#neworder", "+ Request Order"],
       [E.canWrite("billing"), "#newvoucher", "+ Payment Voucher"],
       [true, "#community", "Community"],
       [true, "#verify", "Verify a Record"]
@@ -308,7 +308,7 @@
       cnt(sb.from("credit_memos").select("id", head).eq("status", "pending"))
     ]);
     const el = $("#dTodo"); if (!el) return;
-    const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [orders, "Order letters to approve", "#orders"], [changes, "Corrections", "#changes"], [memos, "Credit memos", "#creditmemos"]];
+    const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [orders, "Orders to approve", "#orders"], [changes, "Corrections", "#changes"], [memos, "Credit memos", "#creditmemos"]];
     el.innerHTML = `<span class="todo-h">Waiting for you:</span>` + items.map(([n, label, href]) => `<a class="todo-chip ${n ? "hot" : ""}" href="${href}"><b>${n}</b> ${esc(label)}</a>`).join("");
   }
 
@@ -481,7 +481,7 @@
 
   // Suspended / closed accounts are marked for everyone who opens them.
   function statusBanner(c) {
-    if (c.status === "closed") return `<div class="banner closed">${ic("x")} CLOSED ACCOUNT — permanently closed. New invoices cannot be recorded.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
+    if (c.status === "closed") return `<div class="banner closed">${ic("x")} CLOSED ACCOUNT — new invoices cannot be recorded. It can be reopened only with an approved order letter.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
     if (c.status === "suspended") return `<div class="banner warn">⚠ SUSPENDED ACCOUNT — new invoices are blocked until the account is reactivated with an approved order letter.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
     if (c.status === "rejected") return `<div class="banner closed">REJECTED APPLICATION${c.status_note ? " — " + esc(c.status_note) : ""}</div>`;
     return "";
@@ -515,12 +515,14 @@
     const canInvoice = c.status === "active" && E.canWrite("invoices");
     const canPay = ["active", "suspended", "closed"].includes(c.status) && (E.canWrite("payments") || E.canWrite("invoices"));
     const canMemo = ["active", "suspended"].includes(c.status) && E.canWrite("creditmemos");
-    const canOrder = ["active", "suspended"].includes(c.status) && (E.canWrite("orders") || E.canWrite("customers"));
+    const canOrder = ["active", "suspended", "closed"].includes(c.status) && (E.canWrite("orders") || E.canWrite("customers"));
+    // Active accounts get order requests; a suspended account only a reactivation, a closed one only a reopening.
+    const orderBtn = { active: "Request Order", suspended: "Reactivate Account", closed: "Reopen Account" }[c.status];
     const history = [
       ...(ev.data || []).map((r) => ({ at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
       ...(chg.data || []).map((r) => ({ at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }))
     ].sort((x, y) => String(x.at).localeCompare(String(y.at)));
-    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Order Letters (${orders.length})`, `Files (${att.length})`, "History"];
+    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Orders (${orders.length})`, `Files (${att.length})`, "History"];
     $(".band h1").textContent = `Customer — ${fullName(c)}`;
     $("#main").innerHTML = `
       ${statusBanner(c)}
@@ -547,7 +549,7 @@
         ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">${ic("plus")} Record Invoice</a>` : ""}
         ${canPay ? `<a class="btn" href="#newpayment/${c.id}">${ic("plus")} Record Payment</a>` : ""}
         ${canMemo ? `<a class="btn" href="#newcreditmemo/${c.id}">${ic("plus")} Credit Memo</a>` : ""}
-        ${canOrder ? `<a class="btn" href="#neworder/${c.id}">${ic("doc")} New Order Letter</a><button type="button" class="btn" id="pfApply">${ic("qr")} Apply Order Letter</button>` : ""}
+        ${canOrder ? `<a class="btn" href="#neworder/${c.id}">${ic("doc")} ${orderBtn}</a>` : ""}
         <span class="grow"></span>
         ${tools("customers", c, `${c.account_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers") })}
       </div>
@@ -560,7 +562,7 @@
         <div data-p="2" hidden>${E.grid({ cols: INV_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: invs.data || [], onRow: true, empty: "No invoices yet." })}</div>
         <div data-p="3" hidden>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
         <div data-p="4" hidden>${E.grid({ cols: MEMO_COLS.filter((x) => x.label !== "Customer"), rows: memos.data || [], onRow: true, empty: "No credit memos." })}</div>
-        <div data-p="5" hidden>${E.grid({ cols: [{ label: "Order No", get: (r) => r.order_no }, { label: "Date", get: (r) => dmy(r.order_date) }, { label: "Subject", get: (r) => r.subject }, { label: "Type", get: (r) => r.subject_type.replace(/_/g, " ").toUpperCase() }, { label: "Status", html: (r) => pill(r.status) }, { label: "Result", get: (r) => r.applied_result || "" }], rows: orders, onRow: true, empty: "No order letters for this account." })}</div>
+        <div data-p="5" hidden>${E.grid({ cols: [{ label: "Order No", get: (r) => r.order_no }, { label: "Date", get: (r) => dmy(r.order_date) }, { label: "Subject", get: (r) => r.subject }, { label: "Type", get: (r) => r.subject_type.replace(/_/g, " ").toUpperCase() }, { label: "Status", html: (r) => pill(r.status) }, { label: "Result", get: (r) => r.applied_result || "" }], rows: orders, onRow: true, empty: "No orders for this account." })}</div>
         <div data-p="6" hidden>${filesHtml(att)}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple")}</div>` : ""}</div>
         <div data-p="7" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
       </div>`;
@@ -578,7 +580,6 @@
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.customer(c.id));
     bindTools($("#main"));
-    if ($("#pfApply")) $("#pfApply").onclick = () => E.applyOrderDialog && E.applyOrderDialog({ customer: c, onDone: () => V.customer(c.id) });
     if ($("#pvShow")) $("#pvShow").onclick = () => { const el = $("#pvCode"); const hidden = el.textContent.startsWith("•"); el.textContent = hidden ? el.dataset.code || "(none)" : "••••••••"; $("#pvShow").textContent = hidden ? "Hide" : "Show"; };
     if ($("#pfAdd")) $("#pfAdd").onchange = async (e) => { const f = await uploadRecords("customer", c.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed.` : "Uploaded.", f > 0); V.customer(c.id); };
     if (isAdmin() && ["pending", "verified"].includes(c.status)) bindReview(c);
@@ -1283,7 +1284,7 @@
     if (H("customers")) sections.push(["Customers", custs, [{ label: "Account No", get: (r) => r.account_no }, { label: "Name", get: fullName }, { label: "Business", get: (r) => r.business_name || "" }, { label: "Phone", get: (r) => r.phone || "" }, { label: "Status", html: (r) => pill(r.status) }], (r) => "customer/" + r.id]);
     if (H("invoices")) sections.push(["Invoices", iv.data || [], INV_COLS, (r) => "invoice/" + r.id]);
     if (H("payments")) sections.push(["Payments", pays, PAY_COLS, (r) => "payment/" + r.id]);
-    if ((ol.data || []).length) sections.push(["Order Letters", ol.data, [{ label: "Order No", get: (r) => r.order_no }, { label: "Customer", get: (r) => fullName(r.customers || {}) }, { label: "Subject", get: (r) => r.subject }, { label: "Status", html: (r) => pill(r.status) }], (r) => "order/" + r.id]);
+    if ((ol.data || []).length) sections.push(["Orders", ol.data, [{ label: "Order No", get: (r) => r.order_no }, { label: "Customer", get: (r) => fullName(r.customers || {}) }, { label: "Subject", get: (r) => r.subject }, { label: "Status", html: (r) => pill(r.status) }], (r) => "order/" + r.id]);
     if ((vo.data || []).length) sections.push(["Payment Vouchers", vo.data, [{ label: "Voucher No", get: (r) => r.voucher_no }, { label: "Company", get: (r) => r.pay_companies?.name || "" }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "PHP", num: true, get: (r) => peso(r.amount_php) }, { label: "BDT", num: true, get: (r) => peso(r.amount_bdt) }], (r) => "voucher/" + r.id]);
     if ((em.data || []).length) sections.push(["Employees", em.data, [{ label: "Employee No", get: (r) => r.employee_no }, { label: "Name", get: fullName }, { label: "Position", get: (r) => r.position || "" }, { label: "Status", html: (r) => pill(r.status) }], (r) => "employee/" + r.id]);
     const total = sections.reduce((s, x) => s + x[1].length, 0);
