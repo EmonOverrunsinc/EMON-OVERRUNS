@@ -1,7 +1,8 @@
 -- EMON OVERRUNS E-PORTAL — Update 1.1
 -- Usernames & presence, job positions and applications, employee termination and payslips,
 -- community (30-day posts), messages, order letters, billing v2 (PHP → BDT vouchers),
--- corrections and cancel records (saved records are never edited or deleted), and public record verification.
+-- corrections and cancel records (saved records are never edited or deleted), customer Public and Private IDs
+-- made from the customer's data, and public record verification.
 -- Run once after 002 (and 003). Safe to run again.
 
 -- =====================================================================
@@ -1334,6 +1335,87 @@ revoke execute on function public.credit_memo_action(uuid, text, text) from publ
 grant execute on function public.credit_memo_action(uuid, text, text) to authenticated;
 revoke execute on function public.project_action(uuid, text, text) from public, anon;
 grant execute on function public.project_action(uuid, text, text) to authenticated;
+
+-- =====================================================================
+-- Customer Public ID and Private ID, made from all of the customer's data
+--  * Public ID  = EO + the first 10 characters of the SHA-256 fingerprint of the whole application record.
+--  * Private ID = a fingerprint of the same data sealed with a secret key that never leaves the database,
+--    so it cannot be worked out from the data. Only admins can read it (customer_secrets).
+-- =====================================================================
+create schema if not exists private;
+revoke all on schema private from public, anon, authenticated;
+create table if not exists private.app_secrets (k text primary key, v text not null);
+revoke all on private.app_secrets from public, anon, authenticated;
+insert into private.app_secrets (k, v)
+values ('customer_id_key', md5(gen_random_uuid()::text || clock_timestamp()::text) || md5(gen_random_uuid()::text || random()::text))
+on conflict (k) do nothing;
+
+create or replace function public.customer_public_id(p_data jsonb) returns text
+language plpgsql stable security definer set search_path = '' as $$
+declare h text; n int := 0;
+begin
+  loop
+    h := 'EO' || upper(left(encode(sha256(convert_to(p_data::text || case when n > 0 then '#' || n else '' end, 'UTF8')), 'hex'), 10));
+    exit when not exists (select 1 from public.customers c where c.public_id = h);
+    n := n + 1;
+  end loop;
+  return h;
+end;
+$$;
+create or replace function public.customer_private_id(p_data jsonb) returns text
+language sql stable security definer set search_path = '' as $$
+  select regexp_replace(upper(left(encode(sha256(convert_to(k.v || '|' || p_data::text || '|' || k.v, 'UTF8')), 'hex'), 12)), '(.{4})(?!$)', '\1-', 'g')
+  from private.app_secrets k where k.k = 'customer_id_key';
+$$;
+revoke execute on function public.customer_public_id(jsonb) from public, anon, authenticated;
+revoke execute on function public.customer_private_id(jsonb) from public, anon, authenticated;
+
+create or replace function public.customers_before_insert() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  ym text := to_char(coalesce(new.application_date, current_date), 'YYYYMM');
+  yr text := to_char(coalesce(new.application_date, current_date), 'YYYY');
+  initials text := upper(left(regexp_replace(new.first_name, '[^A-Za-z]', '', 'g'), 1) || left(regexp_replace(new.last_name, '[^A-Za-z]', '', 'g'), 1));
+begin
+  if initials = '' or initials is null then initials := 'XX'; end if;
+  new.account_no := initials || '-' || ym || lpad(public.next_counter('ACC' || ym)::text, 3, '0');
+  new.application_no := 'EO-' || yr || '-' || lpad(public.next_counter('APP' || yr)::text, 5, '0');
+  new.status := 'pending';
+  new.issued_by := auth.uid();
+  new.issued_by_name := (select full_name from public.profiles where id = auth.uid());
+  new.reviewed_by := null;
+  new.reviewed_at := null;
+  new.facebook_verified := coalesce(new.facebook_verified, false);
+  new.public_id := public.customer_public_id(to_jsonb(new) - 'public_id');
+  return new;
+end;
+$$;
+create or replace function public.customers_after_insert() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.customer_secrets (customer_id, private_code)
+  values (new.id, public.customer_private_id(to_jsonb(new)));
+  insert into public.customer_events (customer_id, action, actor, actor_name)
+  values (new.id, 'application submitted', auth.uid(), new.issued_by_name);
+  insert into public.notifications (user_id, title, body, link)
+  select p.id, 'New customer application ' || new.application_no,
+         new.first_name || ' ' || new.last_name || ' (' || new.account_no || ') is waiting for review.',
+         'customer/' || new.id
+  from public.profiles p where p.role = 'admin' and p.status = 'active';
+  return new;
+end;
+$$;
+-- Customers saved before this update get their IDs made the same way, once.
+do $$
+begin
+  if not exists (select 1 from private.app_secrets where k = 'customer_ids_made') then
+    perform set_config('eo.allow_change', 'on', true);
+    update public.customers c set public_id = public.customer_public_id(to_jsonb(c) - 'public_id');
+    update public.customer_secrets s set private_code = public.customer_private_id(to_jsonb(c))
+      from public.customers c where c.id = s.customer_id;
+    insert into private.app_secrets (k, v) values ('customer_ids_made', now()::text);
+  end if;
+end $$;
 
 -- =====================================================================
 -- Public verification: anyone can check a record number, QR or barcode

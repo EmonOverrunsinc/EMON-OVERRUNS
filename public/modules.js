@@ -534,7 +534,7 @@
           <div class="ch-sub">${[c.business_name, c.phone, c.email].filter(Boolean).map(esc).join(" · ") || "—"}</div>
           <div class="ch-ids">
             ${idBox("Account No", c.account_no)}${idBox("Application No", c.application_no)}${idBox("Public ID", c.public_id)}${idBox("Opened", dmy(c.application_date))}
-            ${isAdmin() ? `<div class="idbox"><small>Private Code</small><b class="mono" id="pvCode" data-code="${esc(secret.data?.private_code || "")}">••••••••</b> <button type="button" class="linkbtn" id="pvShow">Show</button></div>` : ""}
+            ${isAdmin() ? `<div class="idbox"><small>Private ID</small><b class="mono" id="pvCode" data-code="${esc(secret.data?.private_code || "")}">••••••••</b> <button type="button" class="linkbtn" id="pvShow">Show</button></div>` : ""}
           </div>
           <div class="ch-flags">${c.address_verified ? `<span class="flag ok">${ic("check")} Address verified</span>` : ""}${c.facebook_verified ? `<span class="flag ok">${ic("check")} Facebook verified</span>` : ""}</div>
         </div>
