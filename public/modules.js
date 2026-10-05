@@ -509,7 +509,7 @@
       sb.from("order_letters").select("*").eq("customer_id", c.id).order("created_at", { ascending: false }),
       sb.from("record_changes").select("*").eq("target_table", "customers").eq("target_id", c.id).order("created_at")
     ]);
-    const b = bal.data || { total_invoiced: 0, total_paid: 0, total_credits: 0, balance_due: 0 };
+    const b = bal.data || { total_invoiced: 0, total_paid: 0, total_credits: 0, balance_due: 0, total_charges: 0 };
     const photoUrl = c.photo_path ? await signedUrl(c.photo_path) : "";
     const signed = att.filter((a) => a.kind === "signed_form");
     const orders = ords.data || [];
@@ -543,6 +543,7 @@
       </section>
       <div class="tiles">
         <div class="tile"><div class="k">Total Invoiced</div><div class="v">₱ ${peso(b.total_invoiced)}</div></div>
+        <div class="tile"><div class="k">Charges (Orders)</div><div class="v">₱ ${peso(b.total_charges)}</div></div>
         <div class="tile ok"><div class="k">Total Paid</div><div class="v">₱ ${peso(b.total_paid)}</div></div>
         <div class="tile"><div class="k">Credits / Discounts</div><div class="v">₱ ${peso(b.total_credits)}</div></div>
         <div class="tile ${num(b.balance_due) > 0 ? "warn" : "ok"}"><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
@@ -569,7 +570,9 @@
         <div data-p="7" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
-    // Change or remove the profile photo (a new photo is also kept in Files).
+    // Change or remove the profile photo. The new photo is kept in Files; the old one leaves Files (and, for the
+    // CEO, is deleted from storage too).
+    const dropOld = (old) => { if (old && isAdmin()) sb.storage.from("records").remove([old]).catch(() => {}); };
     if ($("#pfPhotoFile")) $("#pfPhotoFile").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
       if (!/^image\//.test(f.type)) return toast("Choose a photo (an image file).", true);
@@ -579,12 +582,14 @@
       const { error } = await sb.rpc("set_customer_photo", { p_id: c.id, p_path: path });
       if (error) return fail(error, "Could not save the photo");
       await sb.from("attachments").insert({ owner_type: "customer", owner_id: c.id, kind: "photo", storage_path: path, file_name: `${c.account_no} Profile Photo`, mime: f.type, size: f.size });
+      dropOld(c.photo_path);
       toast("Photo saved."); V.customer(c.id);
     };
     if ($("#pfPhotoDel")) $("#pfPhotoDel").onclick = async () => {
       if (!(await E.confirmBox(`Remove the photo of <b>${esc(fullName(c))}</b>? The profile will show no photo.`, { ok: "Remove Photo", danger: true }))) return;
       const { error } = await sb.rpc("set_customer_photo", { p_id: c.id, p_path: null });
       if (error) return fail(error, "Could not remove the photo");
+      dropOld(c.photo_path);
       toast("Photo removed."); V.customer(c.id);
     };
     $("#pfCopy").onclick = async () => {
@@ -599,7 +604,7 @@
     E.bindGrid($('[data-p="3"]'), pays.data || [], (r) => (location.hash = "payment/" + r.id));
     E.bindGrid($('[data-p="4"]'), memos.data || [], (r) => (location.hash = "creditmemo/" + r.id));
     E.bindGrid($('[data-p="5"]'), orders, (r) => (location.hash = "order/" + r.id));
-    if (!["pending", "verified", "rejected"].includes(c.status)) renderSoaTab(c, invs.data || [], pays.data || [], memos.data || []);
+    if (!["pending", "verified", "rejected"].includes(c.status)) renderSoaTab(c, invs.data || [], pays.data || [], memos.data || [], orders);
     else $("#pfSoa").innerHTML = `<div class="empty">Statements start after the account is approved.</div>`;
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.customer(c.id));
@@ -702,10 +707,13 @@
   const nextMonth = (iso) => { const d = new Date(monthStart(iso) + "T00:00:00"); d.setMonth(d.getMonth() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; };
   const dayBefore = (iso) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const monthName = (iso) => new Date(monthStart(iso) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  // Same rules as the database: invoices debit; payments and approved credit/discount memos credit (on approval date).
-  function txnsOf(invs, pays, memos) {
+  // Same rules as the database: invoices and approved Additional Charge orders (on the day they were carried out)
+  // debit; payments and approved credit/discount memos credit (on approval date).
+  function txnsOf(invs, pays, memos, orders = []) {
     const t = [];
     invs.forEach((i) => t.push({ date: i.invoice_date, ref: i.invoice_no, desc: `Invoice${i.po_number ? " — PO " + i.po_number : ""}`, debit: num(i.total_amount), credit: 0, inv: i }));
+    orders.filter((o) => o.subject_type === "charge" && o.status === "applied" && o.applied_at)
+      .forEach((o) => t.push({ date: String(o.applied_at).slice(0, 10), ref: o.order_no, desc: `Additional Charge — ${o.subject || "Order"}`, debit: num(o.amount), credit: 0 }));
     pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: `Payment — ${METHOD[p.method] || p.method}${p.bank_name ? " " + p.bank_name : ""}${p.reference_no ? " Ref " + p.reference_no : ""}`, debit: 0, credit: num(p.amount), pay: p }));
     memos.filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action) && m.approved_at)
       .forEach((m) => t.push({ date: String(m.approved_at).slice(0, 10), ref: m.memo_no, desc: `Credit Memo — ${ACTION[m.requested_action]}${m.article ? " (" + m.article + ")" : ""}`, debit: 0, credit: num(m.request_amount) }));
@@ -782,10 +790,10 @@
 
   // One SOA for every month, from the month the account opened (or its first record) to this month.
   // A month's saved statement is used when there is one; this month runs to date.
-  async function renderSoaTab(c, invs, pays, memos) {
+  async function renderSoaTab(c, invs, pays, memos, orders) {
     const box = $("#pfSoa"); if (!box) return;
     const { data } = await sb.from("statements").select("*").eq("customer_id", c.id).order("period_start");
-    const txns = txnsOf(invs, pays, memos);
+    const txns = txnsOf(invs, pays, memos, orders);
     const cm = monthStart(isoToday());
     const saved = new Map((data || []).map((s) => [s.period_start, s]));
     const rows = [];
@@ -837,9 +845,10 @@
       E.setRecords(`Statements: ${rows.length}`);
     };
     const dataFor = async (cid) => {
-      const [i, p, m] = await Promise.all([
-        sb.from("invoice_balances").select("*").eq("customer_id", cid), sb.from("payments_received").select("*").eq("customer_id", cid), sb.from("credit_memos").select("*").eq("customer_id", cid)]);
-      return { invs: i.data || [], txns: txnsOf(i.data || [], p.data || [], m.data || []) };
+      const [i, p, m, o] = await Promise.all([
+        sb.from("invoice_balances").select("*").eq("customer_id", cid), sb.from("payments_received").select("*").eq("customer_id", cid), sb.from("credit_memos").select("*").eq("customer_id", cid),
+        sb.from("order_letters").select("*").eq("customer_id", cid).eq("subject_type", "charge").eq("status", "applied")]);
+      return { invs: i.data || [], txns: txnsOf(i.data || [], p.data || [], m.data || [], o.data || []) };
     };
     const asPeriod = (r) => ({ start: r.period_start, end: r.period_end, opening: num(r.opening_balance), closing: num(r.closing_balance), no: r.statement_no });
     async function statementDialog(r) {

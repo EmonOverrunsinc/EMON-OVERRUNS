@@ -477,19 +477,22 @@
     suspension: ["Suspension", "Suspension of Account"], closure: ["Closure", "Closure of Account"], reactivation: ["Reactivation", "Reactivation of Account"], reopen: ["Reopen", "Reopening of Account"],
     termination: ["Termination", "Termination of Employment"], memo: ["Notice / Memo", "Memorandum"],
     unpaid: ["Unpaid", "Notice of Unpaid Balance"], installment: ["Installment", "Installment Payment Arrangement"], unsettled_balance: ["Unsettled Balance", "Demand for Unsettled Balance"],
-    promise_to_pay: ["Promise to Pay", "Promise to Pay Agreement"], balance_certificate: ["Balance Certificate", "Account Balance Certificate"], other: ["Other", ""]
+    promise_to_pay: ["Promise to Pay", "Promise to Pay Agreement"], balance_certificate: ["Balance Certificate", "Account Balance Certificate"],
+    charge: ["Additional Charge", "Additional Charge"], other: ["Other", ""]
   };
   const TITLE = {
     suspension: "SUSPENSION ORDER", closure: "CLOSURE ORDER", reactivation: "REACTIVATION ORDER", reopen: "REOPENING ORDER", termination: "TERMINATION ORDER",
     memo: "MEMORANDUM ORDER", unpaid: "UNPAID BALANCE ORDER", installment: "INSTALLMENT ORDER", unsettled_balance: "UNSETTLED BALANCE ORDER", promise_to_pay: "PROMISE TO PAY ORDER",
-    balance_certificate: "ACCOUNT BALANCE CERTIFICATE", other: "ORDER"
+    balance_certificate: "ACCOUNT BALANCE CERTIFICATE", charge: "ADDITIONAL CHARGE ORDER", other: "ORDER"
   };
-  const AMOUNT_TYPES = ["unpaid", "installment", "unsettled_balance", "promise_to_pay"];
+  const AMOUNT_TYPES = ["unpaid", "installment", "unsettled_balance", "promise_to_pay", "charge"];
+  // An Additional Charge is the only order that adds money to the balance (once approved); the others are about
+  // money the customer already owes.
   // Who an order is for, who may request it, and which orders fit each status.
   const KINDS = {
     customer: { label: "Customer", write: () => E.canWrite("orders") || E.canWrite("customers"), subject: {},
-      types: (st) => st === "suspended" ? ["reactivation", "closure", "balance_certificate"] : st === "closed" ? ["reopen", "balance_certificate"]
-        : ["suspension", "closure", "unpaid", "installment", "unsettled_balance", "promise_to_pay", "balance_certificate", "other"] },
+      types: (st) => st === "suspended" ? ["reactivation", "closure", "charge", "balance_certificate"] : st === "closed" ? ["reopen", "balance_certificate"]
+        : ["suspension", "closure", "unpaid", "installment", "unsettled_balance", "promise_to_pay", "charge", "balance_certificate", "other"] },
     employee: { label: "Employee", write: () => E.canWrite("employees"), subject: { suspension: "Suspension from Work", reactivation: "Return to Work" },
       types: (st) => st === "suspended" ? ["reactivation", "termination", "memo"] : st === "terminated" ? ["memo"] : st === "waiting" ? ["termination", "memo"] : ["suspension", "termination", "memo"] },
     company: { label: "Billing Company", write: () => E.canWrite("billing"), subject: { suspension: "Suspension of Payments", reactivation: "Reactivation of Payments", memo: "Notice" },
@@ -578,6 +581,7 @@
       unsettled_balance: `Despite previous reminders, the balance of ${p(d.amt)} on account ${acct} remains unsettled${late}. Please settle it on or before ${due}.`,
       promise_to_pay: `I, ${name}, holder of account ${acct}, acknowledge an outstanding balance of PHP ${peso(d.bal)} as of ${when}${late}. I promise to pay ${p(d.amt)} on or before ${due}. I understand that if I do not pay on this date, ${C.company.name} may suspend my account.`,
       installment: `I, ${name}, holder of account ${acct}, agree to pay the balance of ${p(d.amt)} in ${d.n || "[number]"} installment(s) of ${p(d.each)} ${(EVERY[d.every] || EVERY.month).toLowerCase()}, starting ${due}, as shown in the installment schedule. I understand that if I miss a payment, ${C.company.name} may suspend my account.`,
+      charge: `Please be informed that an additional charge of ${p(d.amt)} is added to your account ${acct} (${name}) effective ${when}. Your previous balance is PHP ${peso(d.bal)} and your new balance is PHP ${peso(d.bal + (d.amt || 0))}. Please pay on or before ${due}.`,
       balance_certificate: "This certificate is issued upon the request of the account holder for whatever purpose it may serve."
     }[t] || "";
   }
@@ -628,9 +632,10 @@
       $$(".noOther").forEach((x) => (x.hidden = $("#noReason").value !== "Other"));
       $$(".noInst").forEach((x) => (x.hidden = t !== "installment"));
       const L = { promise_to_pay: ["Promise to Pay", "Amount the Customer Will Pay (₱)", "Promise Date (Due Date)"], installment: ["Installment Plan", "Total Amount (₱)", "First Due Date"],
-        unpaid: ["Amount Due", "Amount Due (₱)", "Pay On or Before"], unsettled_balance: ["Amount Due", "Amount Due (₱)", "Settle On or Before"] }[t];
+        unpaid: ["Amount Due", "Amount Due (₱)", "Pay On or Before"], unsettled_balance: ["Amount Due", "Amount Due (₱)", "Settle On or Before"],
+        charge: ["Additional Charge — added to the balance once approved", "Charge Amount (₱)", "Pay On or Before"] }[t];
       if (L) { $("#noAmtLeg").textContent = L[0]; $("#noAmtL").textContent = L[1]; $("#noDueL").textContent = L[2]; }
-      if (amtOn && !touched.has("noAmt")) $("#noAmt").value = bal() > 0 ? bal().toFixed(2) : "";
+      if (amtOn && !touched.has("noAmt")) $("#noAmt").value = t !== "charge" && bal() > 0 ? bal().toFixed(2) : "";
       if (amtOn && !touched.has("noDue")) $("#noDue").value = plusDays(t === "installment" ? 30 : 7);
       const amt = num($("#noAmt").value), n = Math.floor(num($("#noN").value)), every = $("#noEvery").value;
       if (t === "installment" && n > 0 && amt > 0 && !touched.has("noInst")) $("#noInst").value = (Math.round((amt / n) * 100) / 100).toFixed(2);
@@ -746,6 +751,8 @@
         ${o.installments ? tr("Installments", `${o.installments} × ${php(o.installment_amount)}, ${esc((EVERY[o.installment_every] || EVERY.month).toLowerCase())}`) : ""}${o.first_due_date ? tr("First Due Date", v(E.mdy(o.first_due_date))) : ""}`
       : ["unpaid", "unsettled_balance"].includes(t) ? `${o.amount != null ? tr("Amount Due", `<b>${php(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`) : ""}${overdue}${o.first_due_date ? tr("Pay On or Before", `<b>${v(E.mdy(o.first_due_date))}</b>`) : ""}`
       : t === "closure" && kind === "customer" ? `${tr("Reason for Closure", `<b>${v(o.closure_reason)}</b>`)}${o.balance_due != null ? tr("Closing Balance", php(o.balance_due)) : ""}`
+      : t === "charge" ? `${o.balance_due != null ? tr("Previous Balance", php(o.balance_due)) : ""}${tr("Additional Charge", `<b>${php(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`)}
+        ${o.balance_due != null ? tr("New Balance", `<b>${php(num(o.balance_due) + num(o.amount))}</b>`) : ""}${o.first_due_date ? tr("Pay On or Before", `<b>${v(E.mdy(o.first_due_date))}</b>`) : ""}`
       : o.amount != null ? tr("Amount", `PHP ${peso(o.amount)} <small>(${esc(words(o.amount))})</small>`) : "";
     const plan = t === "installment" ? schedule(num(o.amount), num(o.installments), o.first_due_date, o.installment_every, num(o.installment_amount)) : [];
     return `${E.printHead(TITLE[t] || "ORDER", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
@@ -829,7 +836,8 @@
           <span>Subject</span><b>${esc(o.subject)}</b><span>Order Date</span><span>${mdy(o.order_date)}</span>
           <span>Prepared By</span><span>${esc(o.created_by_name || "")}</span></div>
           <div class="fields wide">${o.balance_due != null ? `<span>Amount Due</span><span>₱ ${peso(o.balance_due)}${o.days_overdue ? ` · ${o.days_overdue} day(s) overdue` : ""}</span>` : ""}
-            ${o.closure_reason ? `<span>Reason for Closure</span><b>${esc(o.closure_reason)}</b>` : ""}${o.amount != null ? `<span>${o.subject_type === "promise_to_pay" ? "Amount to Pay" : "Amount"}</span><b>₱ ${peso(o.amount)}</b>` : ""}
+            ${o.closure_reason ? `<span>Reason for Closure</span><b>${esc(o.closure_reason)}</b>` : ""}${o.amount != null ? `<span>${o.subject_type === "promise_to_pay" ? "Amount to Pay" : o.subject_type === "charge" ? "Charge Amount" : "Amount"}</span><b>₱ ${peso(o.amount)}</b>` : ""}
+            ${o.subject_type === "charge" && o.balance_due != null ? `<span>New Balance</span><b>₱ ${peso(num(o.balance_due) + num(o.amount))}</b>` : ""}
             ${o.installments ? `<span>Installments</span><span>${o.installments} × ₱ ${peso(o.installment_amount)}, ${esc((EVERY[o.installment_every] || EVERY.month).toLowerCase())}</span>` : ""}${o.first_due_date ? `<span>${o.subject_type === "installment" ? "First Due Date" : "Due Date"}</span><span>${mdy(o.first_due_date)}</span>` : ""}</div></div>
         <div class="letter-box"><div class="lb-h">Details</div><p>${esc(o.details || "").replace(/\n/g, "<br>")}</p>${o.resolution ? `<div class="lb-h">Resolution / Terms</div><p>${esc(o.resolution).replace(/\n/g, "<br>")}</p>` : ""}</div>
         <div class="docgrid">${E.docCard({ key: "ol", title: `${o.subject_type === "balance_certificate" ? "Account Balance Certificate" : "Order"} ${o.order_no}`, sub: "Print it, have it signed, then upload the signed copy", ownerType: "order_letter", ownerId: o.id, att, print: () => E.openPreview(`Order ${o.order_no}`, [letterPage(o)]) })}</div>

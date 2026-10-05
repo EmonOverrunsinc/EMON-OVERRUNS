@@ -30,7 +30,8 @@ All amounts are in **PHP (₱)**. Vouchers print the amount in words, for exampl
 Database scripts, run once each in this order in the Supabase SQL Editor: `portal_init.sql`, `002_customers_invoices_payments.sql`,
 `003_statements.sql`, `004_update_1_1.sql`, `005_update_1_2.sql` (orders for customers, employees and billing companies),
 `006_update_1_3.sql` (billing currency PHP / BDT / both, order details, balance certificate, wallet-style Public ID key),
-`007_update_1_4.sql` (change or remove a customer's photo).
+`007_update_1_4.sql` (change or remove a customer's photo),
+`008_update_1_5.sql` (order letter Additional Charge added to the balance and the SOA; old photos leave Files).
 
 ## Setup (one time)
 1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.
