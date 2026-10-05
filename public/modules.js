@@ -528,7 +528,8 @@
     $("#main").innerHTML = `
       ${statusBanner(c)}
       <section class="cust-hero st-${esc(c.status)}">
-        <div class="ch-photo">${photoUrl ? `<img src="${esc(photoUrl)}" alt="Photo of ${esc(fullName(c))}">` : `<span>${esc(((c.first_name || "")[0] || "") + ((c.last_name || "")[0] || ""))}</span>`}</div>
+        <div class="ch-pic"><div class="ch-photo">${photoUrl ? `<img src="${esc(photoUrl)}" alt="Photo of ${esc(fullName(c))}">` : `<span>${esc(((c.first_name || "")[0] || "") + ((c.last_name || "")[0] || ""))}</span>`}</div>
+          ${E.canWrite("customers") ? `<div class="ch-pic-tools"><label class="linkbtn" for="pfPhotoFile">${c.photo_path ? "Change" : "Add Photo"}</label><input type="file" id="pfPhotoFile" accept="image/*" hidden>${c.photo_path ? `<button type="button" class="linkbtn del" id="pfPhotoDel">Remove</button>` : ""}</div>` : ""}</div>
         <div class="ch-main">
           <div class="ch-name"><h2>${esc(fullName(c))}</h2>${pill(c.status)}</div>
           <div class="ch-sub">${[c.business_name, c.phone, c.email].filter(Boolean).map(esc).join(" · ") || "—"}</div>
@@ -568,6 +569,24 @@
         <div data-p="7" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
+    // Change or remove the profile photo (a new photo is also kept in Files).
+    if ($("#pfPhotoFile")) $("#pfPhotoFile").onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      if (!/^image\//.test(f.type)) return toast("Choose a photo (an image file).", true);
+      const path = `customer/${c.id}/Profile_Photo_${Date.now()}.${extOf(f)}`;
+      const up = await sb.storage.from("records").upload(path, f, { contentType: f.type });
+      if (up.error) return fail(up.error, "The photo could not be uploaded");
+      const { error } = await sb.rpc("set_customer_photo", { p_id: c.id, p_path: path });
+      if (error) return fail(error, "Could not save the photo");
+      await sb.from("attachments").insert({ owner_type: "customer", owner_id: c.id, kind: "photo", storage_path: path, file_name: `${c.account_no} Profile Photo`, mime: f.type, size: f.size });
+      toast("Photo saved."); V.customer(c.id);
+    };
+    if ($("#pfPhotoDel")) $("#pfPhotoDel").onclick = async () => {
+      if (!(await E.confirmBox(`Remove the photo of <b>${esc(fullName(c))}</b>? The profile will show no photo.`, { ok: "Remove Photo", danger: true }))) return;
+      const { error } = await sb.rpc("set_customer_photo", { p_id: c.id, p_path: null });
+      if (error) return fail(error, "Could not remove the photo");
+      toast("Photo removed."); V.customer(c.id);
+    };
     $("#pfCopy").onclick = async () => {
       try { await navigator.clipboard.writeText(c.public_id); toast("Public ID copied."); }
       catch (_) { getSelection().selectAllChildren($("#pfKey")); toast("Press Copy on your keyboard or phone to copy the selected Public ID."); }
