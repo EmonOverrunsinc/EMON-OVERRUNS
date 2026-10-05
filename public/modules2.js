@@ -3,7 +3,7 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, dmy, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy } = E;
+  const { sb, S, C, esc, peso, isoToday, mdy, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy } = E;
   const V = window.EO_VIEWS;
   const num = (v) => Number(v || 0);
   const fullName = (r) => `${r.first_name || ""} ${r.last_name || ""}`.trim();
@@ -136,13 +136,13 @@
     const advances = slips.reduce((s, p) => s + num(p.advance_amount), 0) - slips.reduce((s, p) => s + num(p.advance_deduction), 0);
     $(".band h1").textContent = `Employee — ${fullName(em)}`;
     $("#main").innerHTML = `
-      ${em.status === "terminated" ? `<div class="banner closed">TERMINATED on ${dmy(em.termination_date)} — ${esc(em.termination_reason || "")}. The login is disabled.</div>` : ""}
+      ${em.status === "terminated" ? `<div class="banner closed">TERMINATED on ${mdy(em.termination_date)} — ${esc(em.termination_reason || "")}. The login is disabled.</div>` : ""}
       ${em.status === "suspended" ? `<div class="banner warn">⚠ SUSPENDED — the login is closed until the employee is reactivated by an approved order.</div>` : ""}
       ${em.status === "waiting" ? `<div class="banner warn">No login yet. Ask ${esc(em.first_name)} to open the portal, tap <b>Create Account</b> and use <b>${esc(em.email)}</b>. They get in straight away with the access below.</div>` : ""}
       <section class="cust-hero st-${esc(em.status)}">${photoBox(photo, (em.first_name[0] || "") + (em.last_name[0] || ""))}
         <div class="ch-main"><div class="ch-name"><h2>${esc(fullName(em))}</h2>${verifiedBadge(verified)}${em.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(em.status)}</div>
           <div class="ch-sub">${esc(em.position || "—")} · ${esc(em.email)}${em.phone ? " · " + esc(em.phone) : ""}</div>
-          <div class="ch-ids">${E.idBox("Employee No", em.employee_no)}${E.idBox("Date Hired", dmy(em.date_hired))}${E.idBox("Monthly Salary (₱)", peso(em.monthly_salary))}${E.idBox("Role", E.roleName(em.role).toUpperCase())}</div></div></section>
+          <div class="ch-ids">${E.idBox("Employee No", em.employee_no)}${E.idBox("Date Hired", mdy(em.date_hired))}${E.idBox("Monthly Salary (₱)", peso(em.monthly_salary))}${E.idBox("Role", E.roleName(em.role).toUpperCase())}</div></div></section>
       <div class="tiles"><div class="tile ok"><div class="k">Total Paid (₱)</div><div class="v">₱ ${peso(paid)}</div></div>
         <div class="tile ${advances > 0 ? "warn" : ""}"><div class="k">Advance Balance (₱)</div><div class="v">₱ ${peso(Math.max(0, advances))}</div></div>
         <div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div></div>
@@ -168,7 +168,7 @@
         ${isAdmin() ? `<div data-p="3" hidden><fieldset class="opt"><legend>Access &amp; Status</legend><div class="fields wide">${accessFields(em.role, em.modules || [])}
           ${["active", "inactive"].includes(em.status) ? `<label for="emStatus">Login</label><select id="emStatus"><option value="active" ${em.status === "active" ? "selected" : ""}>Active — can sign in</option><option value="inactive" ${em.status === "inactive" ? "selected" : ""}>Inactive — blocked</option></select>` : ""}</div>
           <div class="btnrow"><button type="button" class="btn primary" id="emSave">Save Access</button></div></fieldset></div>` : ""}
-        <div data-p="${isAdmin() ? 4 : 3}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Address", em.address], ["Date Hired", dmy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${dmy(em.termination_date)} — ${em.termination_reason || ""}` : ""], ["Created By", em.created_by_name]].map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>${rhBox("employees", em.id)}</div>
+        <div data-p="${isAdmin() ? 4 : 3}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Address", em.address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""], ["Created By", em.created_by_name]].map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>${rhBox("employees", em.id)}</div>
       </div>`;
     $$("#emTabs button").forEach((t) => (t.onclick = () => { $$("#emTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#emPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
     E.bindGrid($("#emSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
@@ -207,11 +207,11 @@
     };
     $("#emPrint").onclick = () => E.openPreview(`Employee ${em.employee_no}`, [`${E.printHead("EMPLOYEE INFORMATION", `<img src="${E.pdf417DataUrl("EMONEMP|" + em.employee_no)}" alt="" class="ph-bar"><div class="mono">${esc(em.employee_no)}</div>`)}
       ${E.box("Employee", `<div class="pgrid"><div class="pphoto">${photo ? `<img src="${esc(photo)}" alt="">` : "PHOTO"}</div><div class="pgrid2">
-        ${E.cell("First Name", em.first_name)}${E.cell("Last Name", em.last_name)}${E.cell("Position", em.position)}${E.cell("Date Hired", dmy(em.date_hired))}
+        ${E.cell("First Name", em.first_name)}${E.cell("Last Name", em.last_name)}${E.cell("Position", em.position)}${E.cell("Date Hired", mdy(em.date_hired))}
         ${E.cell("Email", em.email)}${E.cell("Phone", em.phone)}${E.cell("Monthly Salary (PHP)", peso(em.monthly_salary))}${E.cell("Status", em.status.toUpperCase())}
         ${E.cell("Address", em.address, "span2")}</div></div>`)}
       ${E.box("Portal Access", `<div class="pgrid2">${E.cell("Role", E.roleName(em.role).toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
-      ${em.status === "terminated" ? E.box("Termination", `<div class="pgrid2">${E.cell("Date", dmy(em.termination_date))}${E.cell("Reason", em.termination_reason)}</div>`) : ""}
+      ${em.status === "terminated" ? E.box("Termination", `<div class="pgrid2">${E.cell("Date", mdy(em.termination_date))}${E.cell("Reason", em.termination_reason)}</div>`) : ""}
       ${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
       ${E.sigs("Employee Signature / Date", "Approved by / Date")}`]);
     E.setRecords(`Employee: ${em.employee_no}`);
@@ -221,7 +221,7 @@
   const PAY_TYPE = { salary: "Salary", advance: "Advance", bonus: "Bonus", other: "Other" };
   const SLIP_COLS = [
     { label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => PAY_TYPE[r.pay_type] || r.pay_type }, { label: "For Month", get: (r) => monthLabel(r.period_month) },
-    { label: "Pay Date", get: (r) => dmy(r.pay_date) }, { label: "Method", get: (r) => r.method || "" }, { label: "Net Pay (₱)", key: "net_pay", num: true, get: (r) => peso(r.net_pay) },
+    { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Method", get: (r) => r.method || "" }, { label: "Net Pay (₱)", key: "net_pay", num: true, get: (r) => peso(r.net_pay) },
     { label: "Recorded By", get: (r) => r.created_by_name || "" }
   ];
   function payslipDialog(em, onDone) {
@@ -296,7 +296,7 @@
     const gross = earn.reduce((s, x) => s + num(x[1]), 0), less = ded.reduce((s, x) => s + num(x[1]), 0);
     return `${E.printHead(title, `<img src="${E.pdf417DataUrl("EMONPS|" + p.payslip_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.payslip_no)}</div>`)}
       ${E.box("Employee", `<div class="pgrid2">${E.cell("Employee Name", fullName(em), "hl")}${E.cell("Employee No", em.employee_no)}${E.cell("Position", em.position)}${E.cell("Payslip No", p.payslip_no)}
-        ${E.cell("For Month", monthLabel(p.period_month))}${E.cell("Pay Date", dmy(p.pay_date))}${E.cell("Payment Method", p.method)}${E.cell("Reference No", p.reference_no)}</div>`)}
+        ${E.cell("For Month", monthLabel(p.period_month))}${E.cell("Pay Date", mdy(p.pay_date))}${E.cell("Payment Method", p.method)}${E.cell("Reference No", p.reference_no)}</div>`)}
       <div class="pgrid2 slip-cols">
         ${E.box("Earnings", `<table class="rp"><tbody>${earn.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${peso(v)}</td></tr>`).join("")}<tr class="sub"><td>Total</td><td class="num">${peso(gross)}</td></tr></tbody></table>`)}
         ${E.box("Deductions", `<table class="rp"><tbody>${ded.length ? ded.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${peso(v)}</td></tr>`).join("") : `<tr><td>None</td><td class="num">0.00</td></tr>`}<tr class="sub"><td>Total</td><td class="num">${peso(less)}</td></tr></tbody></table>`)}
@@ -317,7 +317,7 @@
     $(".band h1").textContent = `Payslip — ${p.payslip_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(p.payslip_no)} · ${esc(PAY_TYPE[p.pay_type])}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide"><span>Employee</span><span>${hr ? `<a href="#employee/${em.id}"><b>${esc(fullName(em))}</b></a>` : `<b>${esc(fullName(em))}</b>`} (${esc(em.employee_no)})</span>
-        <span>Position</span><span>${esc(em.position || "—")}</span><span>For Month</span><span>${esc(monthLabel(p.period_month))}</span><span>Pay Date</span><span>${dmy(p.pay_date)}</span>
+        <span>Position</span><span>${esc(em.position || "—")}</span><span>For Month</span><span>${esc(monthLabel(p.period_month))}</span><span>Pay Date</span><span>${mdy(p.pay_date)}</span>
         <span>Method</span><span>${esc(p.method || "—")}${p.reference_no ? " · Ref " + esc(p.reference_no) : ""}</span></div>
         <div class="fields wide"><span>Basic Pay</span><span>₱ ${peso(p.basic_pay)}</span><span>Allowances</span><span>₱ ${peso(p.allowances)}</span><span>Overtime</span><span>₱ ${peso(p.overtime_pay)}</span>
         <span>Bonus</span><span>₱ ${peso(p.bonus)}</span><span>Advance Given</span><span>₱ ${peso(p.advance_amount)}</span><span>Deductions</span><span>₱ ${peso(num(p.advance_deduction) + num(p.other_deductions))}</span>
@@ -353,7 +353,7 @@
       const byType = new Map(); rows.forEach((r) => { const t = byType.get(r.pay_type) || [0, 0]; t[0]++; t[1] += num(r.net_pay); byType.set(r.pay_type, t); });
       E.openPreview(`Payroll ${monthLabel($("#prMonth").value + "-01")}`, E.listingPages({
         title: "Payroll Listing", range: `For the month of ${monthLabel($("#prMonth").value + "-01")}`,
-        cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Employee", get: (r) => fullName(r.employees || {}) }, { label: "Emp No", get: (r) => r.employees?.employee_no || "" }, { label: "Type", get: (r) => PAY_TYPE[r.pay_type] }, { label: "Pay Date", get: (r) => dmy(r.pay_date) }, { label: "Method", get: (r) => r.method || "" }, { label: "Net Pay", num: true, get: (r) => peso(r.net_pay) }],
+        cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Employee", get: (r) => fullName(r.employees || {}) }, { label: "Emp No", get: (r) => r.employees?.employee_no || "" }, { label: "Type", get: (r) => PAY_TYPE[r.pay_type] }, { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Method", get: (r) => r.method || "" }, { label: "Net Pay", num: true, get: (r) => peso(r.net_pay) }],
         rows, summary: { title: "Summary by Type (PHP)", cols: ["Type", "Count", "Net Pay (₱)"], rows: [...byType].map(([t, v]) => [PAY_TYPE[t], String(v[0]), peso(v[1])]), total: ["Total:", String(rows.length), peso(rows.reduce((s, r) => s + num(r.net_pay), 0))] },
         criteria: `Month: ${$("#prMonth").value}`
       }));
@@ -404,7 +404,7 @@
 
   // ---------- job applications ----------
   const JA_COLS = [
-    { label: "Application No", get: (r) => r.application_no }, { label: "Date", get: (r) => dmy(r.created_at) }, { label: "Applicant", get: (r) => r.full_name },
+    { label: "Application No", get: (r) => r.application_no }, { label: "Date", get: (r) => mdy(r.created_at) }, { label: "Applicant", get: (r) => r.full_name },
     { label: "Position", get: (r) => r.position_title }, { label: "Company", get: (r) => r.company_name }, { label: "Phone", get: (r) => r.phone || "" },
     { label: "Status", html: (r) => pill(r.status) }, { label: "Approval No", get: (r) => r.approval_no || "" }
   ];
@@ -439,20 +439,20 @@
           <div class="ja-left">${E.logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</div></div></div>
           <div class="ja-ids"><div><span>Application No</span><b>${esc(a.application_no)}</b></div><div><span>Name</span><b>${esc(a.full_name)}</b></div>
             <div><span>Phone</span><b>${esc(a.phone || "")}</b></div><div><span>Email</span><b>${esc(a.email || "")}</b></div>
-            ${a.status === "approved" ? `<div class="ja-appr">( APPROVED ) ${esc(a.approval_no || "")} ${esc(E.dmy(a.approved_at))}</div>` : ""}</div></div>
+            ${a.status === "approved" ? `<div class="ja-appr">( APPROVED ) ${esc(a.approval_no || "")} ${esc(E.mdy(a.approved_at))}</div>` : ""}</div></div>
         <div class="ja-qr"><img src="${E.qrDataUrl("EMONJA|" + a.application_no)}" alt="QR code"><img class="ja-bar" src="${E.pdf417DataUrl("EMONJA|" + a.application_no)}" alt=""></div>
         <div class="ja-photo">${photoUrl ? `<img src="${esc(photoUrl)}" alt="">` : "PHOTO"}</div></div>
       <div class="ph-title">JOB APPLICATION FORM</div>
       ${E.box("Address Details", `<div class="pgrid2">${E.cell("Present Address", a.present_address)}${E.cell("Permanent Address", a.permanent_address)}</div>`)}
       ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Full Name", a.full_name, "hl")}${E.cell("Father's Name", a.father_name)}${E.cell("Mother's Name", a.mother_name)}${E.cell("Wife / Husband Name", a.spouse_name)}
-        ${E.cell("Date of Birth", E.dmy(a.date_of_birth))}${E.cell("Birth Place", a.birth_place)}${E.cell("BRC / NID / Passport No", a.id_number)}${E.cell("Gender", a.gender)}
+        ${E.cell("Date of Birth", E.mdy(a.date_of_birth))}${E.cell("Birth Place", a.birth_place)}${E.cell("BRC / NID / Passport No", a.id_number)}${E.cell("Gender", a.gender)}
         ${E.cell("Religion", a.religion)}${E.cell("Blood Group", a.blood_group)}</div>`)}
       ${E.box("Educational Qualifications", `<table class="rp ja-tbl"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>
         ${edu.length ? edu.map((r) => row4([r.exam, r.institute, r.result, r.year])).join("") : `<tr><td colspan="4">—</td></tr>`}</tbody></table>`)}
       ${E.box("Work Experience", `<table class="rp ja-tbl"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>
         ${exp.length ? exp.map((r) => row4([r.company, r.position, r.from, r.to])).join("") : `<tr><td colspan="4">No previous experience</td></tr>`}</tbody></table>`)}
       ${E.box("Apply Job Information", `<div class="pgrid2">${E.cell("Position", a.position_title, "hl")}${E.cell("Company", a.company_name, "hl")}${E.cell("Monthly Salary (PHP)", a.apply_salary != null ? peso(a.apply_salary) : "")}${E.cell("Duty Hours", a.apply_duty_hours)}
-        ${E.cell("Joining Date", E.dmy(a.apply_joining_date), "span2")}</div>`)}
+        ${E.cell("Joining Date", E.mdy(a.apply_joining_date), "span2")}</div>`)}
       ${E.box("Declaration", `<p class="pdecl" style="padding:4px 6px;margin:0">I hereby declare that all the information given above is true and correct to the best of my knowledge. If any information is found false, my application or employment may be cancelled.</p>`)}
       ${E.sigs("Applicant's Signature / Date", `Authorized Signature (${esc(C.company.name)}) / Date`)}`;
   }
@@ -472,12 +472,12 @@
     const kv = (rows) => `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
     $(".band h1").textContent = `Job Application — ${a.application_no}`;
     $("#main").innerHTML = `
-      ${a.status === "approved" ? `<div class="banner ok">✔ APPROVED ${esc(a.approval_no || "")} on ${dmy(a.approved_at)} by ${esc(a.approved_by_name || "")}${a.employee_id ? ` — <a href="#employee/${a.employee_id}">open employee record</a>` : ""}</div>` : ""}
+      ${a.status === "approved" ? `<div class="banner ok">✔ APPROVED ${esc(a.approval_no || "")} on ${mdy(a.approved_at)} by ${esc(a.approved_by_name || "")}${a.employee_id ? ` — <a href="#employee/${a.employee_id}">open employee record</a>` : ""}</div>` : ""}
       ${a.status === "rejected" ? `<div class="banner closed">NOT APPROVED${a.review_note ? " — " + esc(a.review_note) : ""}</div>` : ""}
       <section class="cust-hero st-${esc(a.status)}">${photoBox(photo, E.initials(a.full_name))}
         <div class="ch-main"><div class="ch-name"><h2>${esc(a.full_name)}</h2>${pill(a.status)}</div>
           <div class="ch-sub">${esc(a.position_title)} · ${esc(a.company_name)}</div>
-          <div class="ch-ids">${E.idBox("Application No", a.application_no)}${E.idBox("Submitted", dmy(a.created_at))}${E.idBox("Phone", a.phone)}${E.idBox("Email", a.email)}</div></div></section>
+          <div class="ch-ids">${E.idBox("Application No", a.application_no)}${E.idBox("Submitted", mdy(a.created_at))}${E.idBox("Phone", a.phone)}${E.idBox("Email", a.email)}</div></div></section>
       <div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${a.application_no}`, sub: "Print, sign (applicant and admin), then upload the signed copy", ownerType: "job_application", ownerId: a.id, att, print: () => printJobApp(a), canUpload: isAdmin() })}</div>
       ${isAdmin() && a.status === "submitted" ? `<fieldset class="opt review"><legend>CEO Approval</legend><ol class="steps">
         <li><b>Print</b> the job application form above. The applicant and the CEO both sign it.</li>
@@ -487,8 +487,8 @@
           <div class="btnrow"><button type="button" class="btn ok" id="jaApprove" ${signed ? "" : 'disabled title="Upload the signed application form first"'}>Approve — Create Employee</button><button type="button" class="btn danger" id="jaReject">Reject</button></div></li>
       </ol></fieldset>` : ""}
       <div class="cols">
-        <div><h3>Address &amp; Personal Information</h3>${kv([["Present Address", a.present_address], ["Permanent Address", a.permanent_address], ["Father's Name", a.father_name], ["Mother's Name", a.mother_name], ["Wife / Husband Name", a.spouse_name], ["Date of Birth", E.dmy(a.date_of_birth)], ["Birth Place", a.birth_place], ["BRC / NID / Passport No", a.id_number], ["Gender", a.gender], ["Religion", a.religion], ["Blood Group", a.blood_group]])}</div>
-        <div><h3>Apply Job Information</h3>${kv([["Position", a.position_title], ["Company", a.company_name], ["Monthly Salary (₱)", a.apply_salary != null ? peso(a.apply_salary) : ""], ["Duty Hours", a.apply_duty_hours], ["Joining Date", E.dmy(a.apply_joining_date)]])}</div>
+        <div><h3>Address &amp; Personal Information</h3>${kv([["Present Address", a.present_address], ["Permanent Address", a.permanent_address], ["Father's Name", a.father_name], ["Mother's Name", a.mother_name], ["Wife / Husband Name", a.spouse_name], ["Date of Birth", E.mdy(a.date_of_birth)], ["Birth Place", a.birth_place], ["BRC / NID / Passport No", a.id_number], ["Gender", a.gender], ["Religion", a.religion], ["Blood Group", a.blood_group]])}</div>
+        <div><h3>Apply Job Information</h3>${kv([["Position", a.position_title], ["Company", a.company_name], ["Monthly Salary (₱)", a.apply_salary != null ? peso(a.apply_salary) : ""], ["Duty Hours", a.apply_duty_hours], ["Joining Date", E.mdy(a.apply_joining_date)]])}</div>
       </div>
       <h3>Educational Qualifications</h3>${E.grid({ cols: [{ label: "Examination", get: (r) => r.exam || "" }, { label: "Institute / Board", get: (r) => r.institute || "" }, { label: "Result / GPA", get: (r) => r.result || "" }, { label: "Passing Year", get: (r) => r.year || "" }], rows: edu, empty: "None given." })}
       <h3>Work Experience</h3>${E.grid({ cols: [{ label: "Company", get: (r) => r.company || "" }, { label: "Position", get: (r) => r.position || "" }, { label: "From", get: (r) => r.from || "" }, { label: "To", get: (r) => r.to || "" }], rows: exp, empty: "No previous experience." })}
@@ -519,7 +519,7 @@
   // ======================================================================
   const PRJ_COLS = [
     { label: "Project No", get: (r) => r.project_no }, { label: "Title", get: (r) => r.title }, { label: "Location", get: (r) => r.location || "" },
-    { label: "Start", get: (r) => dmy(r.start_date) }, { label: "Total Cost (₱)", key: "total_cost", num: true, get: (r) => peso(r.total_cost) },
+    { label: "Start", get: (r) => mdy(r.start_date) }, { label: "Total Cost (₱)", key: "total_cost", num: true, get: (r) => peso(r.total_cost) },
     { label: "Paid (₱)", key: "total_paid", num: true, get: (r) => peso(r.total_paid) }, { label: "Remaining (₱)", key: "remaining", num: true, get: (r) => peso(r.remaining) },
     { label: "Status", html: (r) => pill(r.status) }
   ];
@@ -603,7 +603,7 @@
     const approved = att.some((a) => a.kind === "approval");
     const w = E.canWrite("projects");
     const printApp = () => E.openPreview(`Project ${pr.project_no}`, [`${E.printHead("PROJECT APPLICATION", `<img src="${E.pdf417DataUrl("EMONPRJ|" + pr.project_no)}" alt="" class="ph-bar"><div class="mono">${esc(pr.project_no)}</div>`)}
-      ${E.box("Project", `<div class="pgrid2">${E.cell("Project Title", pr.title, "span2")}${E.cell("Location", pr.location)}${E.cell("Start / End", `${dmy(pr.start_date)} → ${dmy(pr.end_date)}`)}${E.cell("Description", pr.description, "span2")}</div>`)}
+      ${E.box("Project", `<div class="pgrid2">${E.cell("Project Title", pr.title, "span2")}${E.cell("Location", pr.location)}${E.cell("Start / End", `${mdy(pr.start_date)} → ${mdy(pr.end_date)}`)}${E.cell("Description", pr.description, "span2")}</div>`)}
       ${E.box("Project Budget", `<table class="rp"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit Cost</th><th class="num">Amount</th></tr></thead><tbody>
         ${lines.map((l) => `<tr><td>${esc(l.description)}</td><td class="num">${l.qty}</td><td class="num">${peso(l.unit_cost)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
         <tr class="grand"><td colspan="3" class="num">TOTAL PROJECT COST (₱)</td><td class="num">${peso(pr.total_cost)}</td></tr></tbody></table>
@@ -613,8 +613,8 @@
     $("#main").innerHTML = `
       <div class="window"><div class="wtitle">${esc(pr.project_no)} — ${esc(pr.title)} ${pill(pr.status)}</div><div class="wbody">
         <div class="formgrid"><div class="fields wide"><span>Location</span><span>${esc(pr.location || "—")}</span><span>Description</span><span>${esc(pr.description || "—")}</span>
-          <span>Start / End</span><span>${dmy(pr.start_date) || "—"} → ${dmy(pr.end_date) || "—"}</span></div>
-          <div class="fields wide"><span>Submitted By</span><span>${esc(pr.created_by_name || "")}</span><span>Approved By</span><span>${esc(pr.approved_by_name || "—")} ${pr.approved_at ? dmy(pr.approved_at) : ""}</span>
+          <span>Start / End</span><span>${mdy(pr.start_date) || "—"} → ${mdy(pr.end_date) || "—"}</span></div>
+          <div class="fields wide"><span>Submitted By</span><span>${esc(pr.created_by_name || "")}</span><span>Approved By</span><span>${esc(pr.approved_by_name || "—")} ${pr.approved_at ? mdy(pr.approved_at) : ""}</span>
           <span>Note</span><span>${esc(pr.status_note || "—")}</span></div></div>
         <div class="tiles"><div class="tile"><div class="k">Total Project Cost</div><div class="v">₱ ${peso(pr.total_cost)}</div></div>
           <div class="tile ok"><div class="k">Paid</div><div class="v">₱ ${peso(pr.total_paid)}</div></div>
@@ -634,7 +634,7 @@
             <label for="ppRef">Reference No</label><input type="text" id="ppRef">
             ${E.fileField("ppRcpt", "Receipt", 'accept="image/*,application/pdf"')}</div></div>
           <div class="btnrow"><button class="btn primary" type="submit">Save Payment</button>${isAdmin() ? `<button class="btn" type="button" data-pa="complete">Mark Project Completed</button>` : ""}</div></form>` : ""}
-        <div><b>Payments</b>${E.grid({ cols: [{ label: "Payment No", get: (r) => r.payment_no }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "Received By", get: (r) => r.received_by }, { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }, { label: "Recorded By", get: (r) => r.created_by_name || "" },
+        <div><b>Payments</b>${E.grid({ cols: [{ label: "Payment No", get: (r) => r.payment_no }, { label: "Date", get: (r) => mdy(r.pay_date) }, { label: "Received By", get: (r) => r.received_by }, { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }, { label: "Recorded By", get: (r) => r.created_by_name || "" },
           { label: "", html: (r) => tools("project_payments", r, `Project payment ${r.payment_no}`, { reload: () => V.project(id) }) }], rows: payments, foot: { amount: peso(pr.total_paid) }, empty: pr.status === "approved" ? "No payments yet." : "Payments unlock after the project is approved." })}</div>
         <div><b>Other Files</b>${E.filesHtml(att.filter((a) => a.kind !== "approval"), "No other files.")}</div>
         ${rhBox("projects", pr.id)}
@@ -660,7 +660,7 @@
     };
     $("#pjStmt").onclick = () => E.openPreview(`Project payments ${pr.project_no}`, E.listingPages({
       title: "Project Payment Record", range: `${esc(pr.project_no)} — ${esc(pr.title)}`,
-      cols: [{ label: "Payment No", get: (r) => r.payment_no }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "Received By", get: (r) => r.received_by }, { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount", num: true, get: (r) => peso(r.amount) }],
+      cols: [{ label: "Payment No", get: (r) => r.payment_no }, { label: "Date", get: (r) => mdy(r.pay_date) }, { label: "Received By", get: (r) => r.received_by }, { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount", num: true, get: (r) => peso(r.amount) }],
       rows: payments,
       summary: { title: "Project Summary (PHP)", cols: ["Item", "", "Amount (₱)"], rows: [["Total Project Cost", "", peso(pr.total_cost)], ["Total Paid", String(payments.length) + " payment(s)", peso(pr.total_paid)]], total: ["Remaining:", "", peso(pr.remaining)] },
       criteria: `Project: ${pr.project_no}\nStatus: ${pr.status.toUpperCase()}\nApproved by: ${pr.approved_by_name || "-"}`
@@ -685,7 +685,7 @@
   const amountText = (v) => (v.amount_bdt != null ? bdt(v.amount_bdt) : `₱ ${peso(v.amount_php)}`);
   const amountWords = (v) => (v.amount_bdt != null ? words(v.amount_bdt, "TAKA") : words(v.amount_php));
   const voucherCols = (cur) => [
-    { label: "Voucher No", get: (r) => r.voucher_no }, { label: "Date", get: (r) => dmy(r.pay_date) },
+    { label: "Voucher No", get: (r) => r.voucher_no }, { label: "Date", get: (r) => mdy(r.pay_date) },
     { label: "Account", get: (r) => r.pay_accounts ? `${r.pay_accounts.account_name}${r.pay_accounts.account_number ? " · " + r.pay_accounts.account_number : ""}` : "—" },
     { label: "Purpose", get: (r) => r.purpose || "" },
     ...(showPhp(cur) ? [{ label: "Amount (PHP)", key: "amount_php", num: true, get: (r) => money(r.amount_php) }] : []),
@@ -713,7 +713,7 @@
       { label: "Currency", get: (r) => CUR[curOf(r)] }, { label: "Accounts", num: true, get: (r) => r.accounts_count }, { label: "Vouchers", num: true, get: (r) => r.vouchers_count },
       { label: "Total (PHP)", key: "total_php", num: true, get: (r) => php(r, "total_php") }, { label: "Total (BDT)", key: "total_bdt", num: true, html: (r) => tk(r, "total_bdt") },
       { label: "This Month (PHP)", key: "month_php", num: true, get: (r) => php(r, "month_php") }, { label: "This Month (BDT)", key: "month_bdt", num: true, html: (r) => tk(r, "month_bdt") },
-      { label: "Last Paid", get: (r) => dmy(r.last_paid) }],
+      { label: "Last Paid", get: (r) => mdy(r.last_paid) }],
       rows, onRow: true, foot: { total_php: peso(sum("total_php")), total_bdt: peso(sum("total_bdt")), month_php: peso(sum("month_php")), month_bdt: peso(sum("month_bdt")) }, empty: "No companies yet. Press Add Company." });
     E.bindGrid($("#blRes"), rows, (r) => (location.hash = "paycompany/" + r.id));
     E.setRecords(`Companies: ${rows.length}`);
@@ -793,7 +793,7 @@
       <section class="cust-hero">${photoBox(photo, E.initials(c.name))}
         <div class="ch-main"><div class="ch-name"><h2>${esc(c.name)}</h2>${pill(c.status || "active")}</div>
           <div class="ch-sub">${c.contact_person ? `<b>${esc(c.contact_person)}</b> · ` : ""}${esc([c.address || c.country, c.contact].filter(Boolean).join(" · ") || "—")}</div>
-          <div class="ch-ids">${E.idBox("Contact Person", c.contact_person || "—")}${E.idBox("Currency", CUR[cur])}${E.idBox("Accounts", String(accounts.length))}${E.idBox("Vouchers", String(vouchers.length))}${E.idBox("Last Paid", dmy(c.last_paid))}${E.idBox("Added By", c.created_by_name)}</div>
+          <div class="ch-ids">${E.idBox("Contact Person", c.contact_person || "—")}${E.idBox("Currency", CUR[cur])}${E.idBox("Accounts", String(accounts.length))}${E.idBox("Vouchers", String(vouchers.length))}${E.idBox("Last Paid", mdy(c.last_paid))}${E.idBox("Added By", c.created_by_name)}</div>
           ${w ? `<div class="btnrow"><label class="btn small" for="pcPhoto">${ic("camera")} ${photo ? "Change Photo" : "Add Photo"}</label><input type="file" id="pcPhoto" accept="image/*" hidden></div>` : ""}</div></section>
       <div class="tiles">${tiles.map(([k, l, v]) => `<div class="tile ${k}"><div class="k">${l}</div><div class="v">${v}</div></div>`).join("")}</div>
       <div class="actionbar">${w && !suspended ? `<a class="btn primary" href="#newvoucher/${c.id}">${ic("plus")} New Payment</a>` : ""}<button type="button" class="btn" id="pcRecord">${ic("download")} Download Payment Record</button>
@@ -848,7 +848,7 @@
     const pick = (php, tk) => [...(showPhp(cur) ? [peso(php)] : []), ...(showBdt(cur) ? [peso(tk)] : [])];
     E.openPreview(`Payment Record ${c.name}`, E.listingPages({
       title: "Payment Record", range: `${esc(c.name)} — ${esc(range)}`,
-      cols: [{ label: "Voucher No", get: (r) => r.voucher_no }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "Account", get: (r) => r.pay_accounts ? `${r.pay_accounts.account_name} ${r.pay_accounts.account_number || ""}` : "" }, { label: "Purpose", get: (r) => r.purpose || "" },
+      cols: [{ label: "Voucher No", get: (r) => r.voucher_no }, { label: "Date", get: (r) => mdy(r.pay_date) }, { label: "Account", get: (r) => r.pay_accounts ? `${r.pay_accounts.account_name} ${r.pay_accounts.account_number || ""}` : "" }, { label: "Purpose", get: (r) => r.purpose || "" },
         ...(showPhp(cur) ? [{ label: "PHP", num: true, get: (r) => money(r.amount_php) }] : []), ...(cur === "BOTH" ? [{ label: "Rate", num: true, get: (r) => rateText(r.exchange_rate) }] : []),
         ...(showBdt(cur) ? [{ label: "BDT", num: true, html: (r) => `<b>${money(r.amount_bdt)}</b>` }] : [])],
       rows,
@@ -954,7 +954,7 @@
   function voucherPage(v, receiptUrl) {
     const a = v.pay_accounts || {}, co = v.pay_companies || {};
     return `${E.printHead("PAYMENT VOUCHER", `<img src="${E.pdf417DataUrl("EMONBD|" + v.voucher_no)}" alt="" class="ph-bar"><div class="mono">${esc(v.voucher_no)}</div>`)}
-      <div class="vno-row"><span>Voucher No: <b>${esc(v.voucher_no)}</b></span><span>Issued by: <b>${esc(v.created_by_name || "")}</b></span><span>Date: <b>${esc(E.dmy(v.pay_date))}</b></span></div>
+      <div class="vno-row"><span>Voucher No: <b>${esc(v.voucher_no)}</b></span><span>Issued by: <b>${esc(v.created_by_name || "")}</b></span><span>Date: <b>${esc(E.mdy(v.pay_date))}</b></span></div>
       ${E.box("Paid To", `<div class="pgrid2">${E.cell("Company", co.name, "hl")}${E.cell("Contact Person", co.contact_person)}${E.cell("Account Name", a.account_name)}${E.cell("Account Number", a.account_number)}
         ${E.cell("Bank / Branch", [a.bank_name, a.branch_name].filter(Boolean).join(" — "))}${E.cell("Address", co.address || co.country)}</div>`)}
       ${E.box("Payment", `<div class="prow3">${E.cell("Purpose", v.purpose)}${E.cell("Method", v.method)}${E.cell("Reference No", v.reference_no)}</div>
@@ -981,12 +981,12 @@
       <div class="formgrid"><div class="fields wide">
         <span>Paid To</span><span><a href="#paycompany/${v.company_id}"><b>${esc(v.pay_companies?.name || "")}</b></a>${v.pay_companies?.contact_person ? " · " + esc(v.pay_companies.contact_person) : ""}</span>
         <span>Account</span><span>${esc([a.account_name, a.account_number, a.bank_name, a.branch_name].filter(Boolean).join(" · ") || "—")}</span>
-        <span>Date</span><span>${dmy(v.pay_date)}</span><span>Purpose</span><span>${esc(v.purpose || "—")}</span>
+        <span>Date</span><span>${mdy(v.pay_date)}</span><span>Purpose</span><span>${esc(v.purpose || "—")}</span>
         <span>Method</span><span>${esc(v.method || "—")}${v.reference_no ? " · Ref " + esc(v.reference_no) : ""}</span><span>Issued By</span><span>${esc(v.created_by_name || "")}</span></div>
         <div class="amt-panel">${v.amount_php != null ? `<div class="${v.amount_bdt == null ? "hl" : ""}"><small>Amount (PHP)</small><b>₱ ${peso(v.amount_php)}</b></div>` : ""}
           ${v.exchange_rate != null ? `<div><small>Exchange Rate</small><b>× ${rateText(v.exchange_rate)}</b></div>` : ""}
           ${v.amount_bdt != null ? `<div class="hl"><small>Amount (BDT)</small><b>${bdt(v.amount_bdt)}</b></div>` : ""}<small class="muted">${esc(amountWords(v))}</small></div></div>
-      <div class="docgrid">${E.docCard({ key: "pv", title: `Payment Voucher ${v.voucher_no}`, sub: `${amountText(v)} · ${dmy(v.pay_date)}`, ownerType: "pay_voucher", ownerId: v.id, att, print, canUpload: E.canWrite("billing") })}</div>
+      <div class="docgrid">${E.docCard({ key: "pv", title: `Payment Voucher ${v.voucher_no}`, sub: `${amountText(v)} · ${mdy(v.pay_date)}`, ownerType: "pay_voucher", ownerId: v.id, att, print, canUpload: E.canWrite("billing") })}</div>
       <div><b>Receipt</b>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No receipt uploaded.")}
         ${E.canWrite("billing") ? `<div class="fields wide" style="margin-top:6px">${E.fileField("vAddRcpt", "Add Receipt", 'accept="image/*,application/pdf"')}</div>` : ""}</div>
       ${rhBox("pay_vouchers", v.id)}</div>

@@ -17,14 +17,14 @@
   const peso = (n) => Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const pad = (n) => String(n).padStart(2, "0");
   const isoToday = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-  // Every date shows as DD-MM-YYYY (06-10-2026); with the time: 06-10-2026 3:15 PM.
-  const dmy = (iso) => { if (!iso) return ""; const [y, m, d] = String(iso).slice(0, 10).split("-"); return `${d}-${m}-${y}`; };
-  const stamp = (d = new Date()) => `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  // Every date shows month first, as MM-DD-YYYY (06-20-2026); with the time: 06-20-2026 3:15 PM.
+  const mdy = (iso) => { if (!iso) return ""; const [y, m, d] = String(iso).slice(0, 10).split("-"); return `${m}-${d}-${y}`; };
+  const stamp = (d = new Date()) => `${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   const longDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "2-digit" });
-  const dateTime = (iso) => { if (!iso) return ""; const d = new Date(iso), h = d.getHours(); return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "AM" : "PM"}`; };
-  // Dates the database writes as "05 Oct 2026" (record verification) show as 05-10-2026 too.
+  const dateTime = (iso) => { if (!iso) return ""; const d = new Date(iso), h = d.getHours(); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${d.getFullYear()} ${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "AM" : "PM"}`; };
+  // Dates the database writes as "20 Jun 2026" (record verification) show as 06-20-2026 too.
   const MONTH_NO = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
-  const fixDates = (v) => String(v ?? "").replace(/\b(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})\b/g, (_, d, m, y) => `${pad(d)}-${MONTH_NO[m]}-${y}`);
+  const fixDates = (v) => String(v ?? "").replace(/\b(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})\b/g, (_, d, m, y) => `${MONTH_NO[m]}-${pad(d)}-${y}`);
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const isAdmin = () => S.profile?.role === "admin";
@@ -41,7 +41,7 @@
     if (s < 3600) return `${Math.floor(s / 60)} min ago`;
     if (s < 86400) return `${Math.floor(s / 3600)} hr ago`;
     if (s < 7 * 86400) return `${Math.floor(s / 86400)} day${s < 2 * 86400 ? "" : "s"} ago`;
-    return dmy(iso);
+    return mdy(iso);
   }
   const busy = (text = "Loading") => `<div class="loading" role="status"><span class="spin"></span><span>${esc(text)}<span class="dots"></span></span></div>`;
 
@@ -933,7 +933,7 @@
       const rows = data || [];
       const cols = [
         { label: "Title", get: (r) => r.title }, { label: "Category", get: (r) => r.category }, { label: "File", get: (r) => r.file_name },
-        { label: "Downloads", num: true, get: (r) => r.downloads }, { label: "Uploaded", get: (r) => dmy(r.created_at) },
+        { label: "Downloads", num: true, get: (r) => r.downloads }, { label: "Uploaded", get: (r) => mdy(r.created_at) },
         { label: "", html: (r) => `<button type="button" class="btn" data-dl="${r.id}">${ic("download")} Download</button>${isAdmin() ? ` <button type="button" class="btn danger" data-rm="${r.id}">Remove</button>` : ""}` }
       ];
       $("#fmList").innerHTML = grid({ cols, rows, group: (r) => r.category, empty: isAdmin() ? "No forms yet. Upload the first one above." : "No forms have been posted yet." });
@@ -991,7 +991,7 @@
         { label: "Role", html: (r) => sel(r.id, "role", r.role, ["admin", "staff", "viewer"], roleName) },
         { label: "Status", html: (r) => sel(r.id, "status", r.status, ["pending", "active", "disabled"]) + " " + pill(r.status) },
         { label: "Last Seen", html: (r) => r.status === "active" && online(r.last_seen_at) ? `<span class="dot-on"></span> Active now` : esc(r.last_seen_at ? timeAgo(r.last_seen_at) : "—") },
-        { label: "Joined", get: (r) => dmy(r.created_at) },
+        { label: "Joined", get: (r) => mdy(r.created_at) },
         { label: "", html: (r) => r.id === me ? "<small>You</small>" : `<button type="button" class="btn primary" data-save="${r.id}">Save</button>` }
       ];
       $("#uList").innerHTML = grid({ cols, rows });
@@ -1062,7 +1062,7 @@
   window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words };
   // shared with modules.js, modules2.js and modules3.js
   Object.assign(window.EO, {
-    APP, VERSION, sb, S, C, esc, peso, pad, isoToday, dmy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
+    APP, VERSION, sb, S, C, esc, peso, pad, isoToday, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages,
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey,
