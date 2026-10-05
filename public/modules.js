@@ -221,7 +221,7 @@
       [true, "#community", "Community"],
       [true, "#verify", "Verify a Record"]
     ].filter((q) => q[0]);
-    const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    const today = `${new Date().toLocaleDateString("en-US", { weekday: "long" })}, ${dmy(isoToday())}`;
     E.shell("dashboard", "Dashboard", `
       <section class="hero">${E.logoHtml("hero-logo")}<div>
         <h2>${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span></h2><p>${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</p>
@@ -1250,7 +1250,7 @@
   };
   function memoPage(m) {
     const c = m.customers;
-    return `<div class="cm-head"><div><div class="cm-co">${esc(C.company.name)}</div><div class="cm-date">${esc(new Date(m.memo_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "2-digit", year: "numeric" }).toUpperCase())}</div></div>
+    return `<div class="cm-head"><div><div class="cm-co">${esc(C.company.name)}</div><div class="cm-date">${esc(dmy(m.memo_date))}</div></div>
         <div class="cm-rep"><div><span>REPORT:</span> <b>${esc(m.memo_no)}</b></div><img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt=""></div></div>
       <div class="ph-title" style="text-align:left">CUSTOMER COMPLAINT</div>
       ${box("Customer / Buyer Information", `<div class="pgrid2">${cell("Customer Name", fullName(c).toUpperCase(), "hl")}${cell("Customer ID", c.account_no, "hl")}

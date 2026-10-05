@@ -439,19 +439,19 @@
       <div class="ja-idrow">
         <div class="ja-ids"><div><span>Application No</span><b>${esc(a.application_no)}</b></div><div><span>Name</span><b>${esc(a.full_name)}</b></div>
           <div><span>Phone</span><b>${esc(a.phone || "")}</b></div><div><span>Email</span><b>${esc(a.email || "")}</b></div>
-          ${a.status === "approved" ? `<div class="ja-appr">( APPROVED ) ${esc(a.approval_no || "")} ${esc(E.dLong(a.approved_at).replace(/^0/, "").replace(/ (\w{3})\w* /, "-$1-"))}</div>` : ""}</div>
+          ${a.status === "approved" ? `<div class="ja-appr">( APPROVED ) ${esc(a.approval_no || "")} ${esc(E.dmy(a.approved_at))}</div>` : ""}</div>
         <div class="ja-qr"><img src="${E.qrDataUrl("EMONJA|" + a.application_no)}" alt="QR code"><img class="ja-bar" src="${E.pdf417DataUrl("EMONJA|" + a.application_no)}" alt=""></div></div>
       <div class="ph-title">JOB APPLICATION FORM</div>
       ${E.box("Address Details", `<div class="pgrid2">${E.cell("Present Address", a.present_address)}${E.cell("Permanent Address", a.permanent_address)}</div>`)}
       ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Full Name", a.full_name, "hl")}${E.cell("Father's Name", a.father_name)}${E.cell("Mother's Name", a.mother_name)}${E.cell("Wife / Husband Name", a.spouse_name)}
-        ${E.cell("Date of Birth", E.dLong(a.date_of_birth))}${E.cell("Birth Place", a.birth_place)}${E.cell("BRC / NID / Passport No", a.id_number)}${E.cell("Gender", a.gender)}
+        ${E.cell("Date of Birth", E.dmy(a.date_of_birth))}${E.cell("Birth Place", a.birth_place)}${E.cell("BRC / NID / Passport No", a.id_number)}${E.cell("Gender", a.gender)}
         ${E.cell("Religion", a.religion)}${E.cell("Blood Group", a.blood_group)}</div>`)}
       ${E.box("Educational Qualifications", `<table class="rp ja-tbl"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>
         ${edu.length ? edu.map((r) => row4([r.exam, r.institute, r.result, r.year])).join("") : `<tr><td colspan="4">—</td></tr>`}</tbody></table>`)}
       ${E.box("Work Experience", `<table class="rp ja-tbl"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>
         ${exp.length ? exp.map((r) => row4([r.company, r.position, r.from, r.to])).join("") : `<tr><td colspan="4">No previous experience</td></tr>`}</tbody></table>`)}
       ${E.box("Apply Job Information", `<div class="pgrid2">${E.cell("Position", a.position_title, "hl")}${E.cell("Company", a.company_name, "hl")}${E.cell("Monthly Salary (PHP)", a.apply_salary != null ? peso(a.apply_salary) : "")}${E.cell("Duty Hours", a.apply_duty_hours)}
-        ${E.cell("Joining Date", E.dmyDash(a.apply_joining_date), "span2")}</div>`)}
+        ${E.cell("Joining Date", E.dmy(a.apply_joining_date), "span2")}</div>`)}
       ${E.box("Declaration", `<p class="pdecl" style="padding:4px 6px;margin:0">I hereby declare that all the information given above is true and correct to the best of my knowledge. If any information is found false, my application or employment may be cancelled.</p>`)}
       ${E.sigs("Applicant's Signature / Date", `Authorized Signature (${esc(C.company.name)}) / Date`)}`;
   }
@@ -486,8 +486,8 @@
           <div class="btnrow"><button type="button" class="btn ok" id="jaApprove" ${signed ? "" : 'disabled title="Upload the signed application form first"'}>Approve — Create Employee</button><button type="button" class="btn danger" id="jaReject">Reject</button></div></li>
       </ol></fieldset>` : ""}
       <div class="cols">
-        <div><h3>Address &amp; Personal Information</h3>${kv([["Present Address", a.present_address], ["Permanent Address", a.permanent_address], ["Father's Name", a.father_name], ["Mother's Name", a.mother_name], ["Wife / Husband Name", a.spouse_name], ["Date of Birth", E.dLong(a.date_of_birth)], ["Birth Place", a.birth_place], ["BRC / NID / Passport No", a.id_number], ["Gender", a.gender], ["Religion", a.religion], ["Blood Group", a.blood_group]])}</div>
-        <div><h3>Apply Job Information</h3>${kv([["Position", a.position_title], ["Company", a.company_name], ["Monthly Salary (₱)", a.apply_salary != null ? peso(a.apply_salary) : ""], ["Duty Hours", a.apply_duty_hours], ["Joining Date", E.dmyDash(a.apply_joining_date)]])}</div>
+        <div><h3>Address &amp; Personal Information</h3>${kv([["Present Address", a.present_address], ["Permanent Address", a.permanent_address], ["Father's Name", a.father_name], ["Mother's Name", a.mother_name], ["Wife / Husband Name", a.spouse_name], ["Date of Birth", E.dmy(a.date_of_birth)], ["Birth Place", a.birth_place], ["BRC / NID / Passport No", a.id_number], ["Gender", a.gender], ["Religion", a.religion], ["Blood Group", a.blood_group]])}</div>
+        <div><h3>Apply Job Information</h3>${kv([["Position", a.position_title], ["Company", a.company_name], ["Monthly Salary (₱)", a.apply_salary != null ? peso(a.apply_salary) : ""], ["Duty Hours", a.apply_duty_hours], ["Joining Date", E.dmy(a.apply_joining_date)]])}</div>
       </div>
       <h3>Educational Qualifications</h3>${E.grid({ cols: [{ label: "Examination", get: (r) => r.exam || "" }, { label: "Institute / Board", get: (r) => r.institute || "" }, { label: "Result / GPA", get: (r) => r.result || "" }, { label: "Passing Year", get: (r) => r.year || "" }], rows: edu, empty: "None given." })}
       <h3>Work Experience</h3>${E.grid({ cols: [{ label: "Company", get: (r) => r.company || "" }, { label: "Position", get: (r) => r.position || "" }, { label: "From", get: (r) => r.from || "" }, { label: "To", get: (r) => r.to || "" }], rows: exp, empty: "No previous experience." })}
@@ -953,7 +953,7 @@
   function voucherPage(v, receiptUrl) {
     const a = v.pay_accounts || {}, co = v.pay_companies || {};
     return `${E.printHead("PAYMENT VOUCHER", `<img src="${E.pdf417DataUrl("EMONBD|" + v.voucher_no)}" alt="" class="ph-bar"><div class="mono">${esc(v.voucher_no)}</div>`)}
-      <div class="vno-row"><span>Voucher No: <b>${esc(v.voucher_no)}</b></span><span>Issued by: <b>${esc(v.created_by_name || "")}</b></span><span>Date: <b>${esc(E.dShort(v.pay_date))}</b></span></div>
+      <div class="vno-row"><span>Voucher No: <b>${esc(v.voucher_no)}</b></span><span>Issued by: <b>${esc(v.created_by_name || "")}</b></span><span>Date: <b>${esc(E.dmy(v.pay_date))}</b></span></div>
       ${E.box("Paid To", `<div class="pgrid2">${E.cell("Company", co.name, "hl")}${E.cell("Contact Person", co.contact_person)}${E.cell("Account Name", a.account_name)}${E.cell("Account Number", a.account_number)}
         ${E.cell("Bank / Branch", [a.bank_name, a.branch_name].filter(Boolean).join(" — "))}${E.cell("Address", co.address || co.country)}</div>`)}
       ${E.box("Payment", `<div class="prow3">${E.cell("Purpose", v.purpose)}${E.cell("Method", v.method)}${E.cell("Reference No", v.reference_no)}</div>

@@ -17,15 +17,14 @@
   const peso = (n) => Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const pad = (n) => String(n).padStart(2, "0");
   const isoToday = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-  const dmy = (iso) => { if (!iso) return ""; const [y, m, d] = String(iso).slice(0, 10).split("-"); return `${d}/${m}/${y}`; };
-  const stamp = (d = new Date()) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  // Every date shows as DD-MM-YYYY (06-10-2026); with the time: 06-10-2026 3:15 PM.
+  const dmy = (iso) => { if (!iso) return ""; const [y, m, d] = String(iso).slice(0, 10).split("-"); return `${d}-${m}-${y}`; };
+  const stamp = (d = new Date()) => `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   const longDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "2-digit" });
-  const asDate = (iso) => new Date(String(iso).slice(0, 10) + "T00:00:00");
-  // 01 FEBRUARY 1994 · 04 Oct 2026 · 01-01-2026 · 4 Oct 2026, 3:15 PM
-  const dLong = (iso) => iso ? asDate(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" }).toUpperCase() : "";
-  const dShort = (iso) => iso ? asDate(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "";
-  const dmyDash = (iso) => iso ? dmy(iso).replace(/\//g, "-") : "";
-  const dateTime = (iso) => iso ? new Date(iso).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "";
+  const dateTime = (iso) => { if (!iso) return ""; const d = new Date(iso), h = d.getHours(); return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "AM" : "PM"}`; };
+  // Dates the database writes as "05 Oct 2026" (record verification) show as 05-10-2026 too.
+  const MONTH_NO = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
+  const fixDates = (v) => String(v ?? "").replace(/\b(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})\b/g, (_, d, m, y) => `${pad(d)}-${MONTH_NO[m]}-${y}`);
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const isAdmin = () => S.profile?.role === "admin";
@@ -42,7 +41,7 @@
     if (s < 3600) return `${Math.floor(s / 60)} min ago`;
     if (s < 86400) return `${Math.floor(s / 3600)} hr ago`;
     if (s < 7 * 86400) return `${Math.floor(s / 86400)} day${s < 2 * 86400 ? "" : "s"} ago`;
-    return dShort(iso);
+    return dmy(iso);
   }
   const busy = (text = "Loading") => `<div class="loading" role="status"><span class="spin"></span><span>${esc(text)}<span class="dots"></span></span></div>`;
 
@@ -1060,7 +1059,7 @@
   window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words };
   // shared with modules.js, modules2.js and modules3.js
   Object.assign(window.EO, {
-    APP, VERSION, sb, S, C, esc, peso, pad, isoToday, dmy, stamp, longDate, dLong, dShort, dmyDash, dateTime, timeAgo, online, $, $$,
+    APP, VERSION, sb, S, C, esc, peso, pad, isoToday, dmy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages,
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey,
