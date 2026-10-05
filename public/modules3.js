@@ -797,8 +797,8 @@
       </div>
       <div class="rp-foot"><span>Scan the barcode in the ${esc(E.APP)} to verify this order.</span><span>${esc(o.order_no)}</span></div>`;
   }
-  // Account Balance Certificate: the customer's amount due as of the date, the account details and one line
-  // for the authorized representative.
+  // Account Balance Certificate: only the customer's name and account number (no personal details), the amount due
+  // as of the date and one line for the authorized representative.
   function certificatePage(o) {
     const c = o.customers || {};
     const v = (x) => (x == null || x === "" ? "—" : esc(x));
@@ -809,11 +809,10 @@
     return `${E.printHead("ACCOUNT BALANCE CERTIFICATE", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
       <div class="cert-no"><span>Certificate No: <b>${esc(o.order_no)}</b></span><span>Date Issued: <b>${issued ? esc(issued) : "—"}</b></span></div>
       <p class="cert-to">TO WHOM IT MAY CONCERN:</p>
-      <p class="cert-body">This is to certify that <b>${esc(fullName(c).toUpperCase())}</b>, holder of account <b>${esc(c.account_no || "")}</b> with ${esc(C.company.name)}${c.application_date ? ` since ${esc(E.mdy(c.application_date))}` : ""},
+      <p class="cert-body">This is to certify that <b>${esc(fullName(c).toUpperCase())}</b>, holder of account <b>${esc(c.account_no || "")}</b> with ${esc(C.company.name)},
         ${bal > 0 ? `has an outstanding balance of <b>PHP ${peso(bal)}</b> (${esc(words(bal))}) as of ${esc(asOf)}.` : `has <b>no outstanding balance</b> as of ${esc(asOf)}.`}</p>
       <div class="ol-sec">ACCOUNT DETAILS</div>
-      <table class="ol-grid"><tbody>${tr("Name of Customer", v(fullName(c)))}${tr("Account No", v(c.account_no))}${tr("Business Name", v(c.business_name))}${tr("Address", v(c.address))}
-        ${tr("Account Status", v(String(c.status || "").toUpperCase()))}${tr("Date Opened", v(c.application_date ? E.mdy(c.application_date) : ""))}</tbody></table>
+      <table class="ol-grid"><tbody>${tr("Name of Customer", v(fullName(c)))}${tr("Account No", v(c.account_no))}</tbody></table>
       <div class="ol-sec">BALANCE</div>
       <table class="ol-grid"><tbody>${tr("Current Amount Due", `<b>PHP ${peso(bal)}</b>`)}${tr("Amount in Words", esc(words(bal)))}${tr("As Of", esc(asOf))}
         ${bal > 0 ? tr("No. of Days Overdue", `${num(o.days_overdue)} day(s)`) : ""}</tbody></table>
