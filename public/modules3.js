@@ -750,6 +750,7 @@
         return;
       }
       const checked = new Date();
+      // Anyone can verify and view; only employees signed in to the portal get the Validated Print.
       // A cancelled record is still a real record, but it is marked CANCELLED and gets no validated print.
       const cx = !!data.cancelled;
       out.innerHTML = `<div class="vf-ok${cx ? " vf-void" : ""}">
@@ -759,7 +760,8 @@
         <div class="vf-type">${esc(data.type)} · <b class="mono">${esc(data.number)}</b> ${data.status ? pill(data.status) : ""}</div>
         <table class="vf-fields"><tbody>${(data.fields || []).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v ?? "")}</td></tr>`).join("")}</tbody></table>
         <div class="vf-when">Checked ${esc(E.dateTime(checked.toISOString()))}</div>
-        <div class="btnrow center">${cx ? "" : `<button type="button" class="btn primary" id="vfPrint">${ic("print")} Validated Print</button>`}${inside && OPEN[data.type] ? `<button type="button" class="btn" id="vfOpen">${ic("eye")} Open Record</button>` : ""}</div></div>`;
+        ${inside ? `<div class="btnrow center">${cx ? "" : `<button type="button" class="btn primary" id="vfPrint">${ic("print")} Validated Print</button>`}${OPEN[data.type] ? `<button type="button" class="btn" id="vfOpen">${ic("eye")} Open Record</button>` : ""}</div>`
+          : cx ? "" : `<div class="vf-staff">A validated printed copy can only be printed by ${esc(C.company.name)} staff.</div>`}</div>`;
       if ($("#vfPrint")) $("#vfPrint").onclick = () => validatedPrint(data, checked);
       if ($("#vfOpen")) $("#vfOpen").onclick = async () => {
         const [table, col, route, via] = OPEN[data.type];
