@@ -668,17 +668,28 @@
   };
 
   // ======================================================================
-  // 8. Billing — companies, their accounts, and payment vouchers (PHP × rate = BDT)
+  // 8. Billing — companies, their accounts and payment vouchers. Each company is paid in PHP, in BDT, or in
+  // both (PHP × rate = BDT), and all of its records show only that currency.
   // ======================================================================
   const bdt = (n) => `BDT ${peso(n)}`;
   const RATE_KEY = "eoLastRate";
   const lastRate = () => { try { return localStorage.getItem(RATE_KEY) || ""; } catch (_) { return ""; } };
-  const VOUCHER_COLS = [
+  const CUR = { PHP: "PHP only", BDT: "BDT only", BOTH: "PHP and BDT" };
+  const curOf = (c) => (c && CUR[c.currency] ? c.currency : "BOTH");
+  const showPhp = (cur) => cur !== "BDT";
+  const showBdt = (cur) => cur !== "PHP";
+  const money = (n) => (n == null ? "—" : peso(n));
+  const rateText = (r) => (r == null ? "—" : Number(r).toFixed(4));
+  // A voucher's main amount: taka when it has a BDT amount, otherwise pesos.
+  const amountText = (v) => (v.amount_bdt != null ? bdt(v.amount_bdt) : `₱ ${peso(v.amount_php)}`);
+  const amountWords = (v) => (v.amount_bdt != null ? words(v.amount_bdt, "TAKA") : words(v.amount_php));
+  const voucherCols = (cur) => [
     { label: "Voucher No", get: (r) => r.voucher_no }, { label: "Date", get: (r) => dmy(r.pay_date) },
     { label: "Account", get: (r) => r.pay_accounts ? `${r.pay_accounts.account_name}${r.pay_accounts.account_number ? " · " + r.pay_accounts.account_number : ""}` : "—" },
     { label: "Purpose", get: (r) => r.purpose || "" },
-    { label: "Amount (PHP)", key: "amount_php", num: true, get: (r) => peso(r.amount_php) }, { label: "Rate", num: true, get: (r) => Number(r.exchange_rate).toFixed(4) },
-    { label: "Amount (BDT)", key: "amount_bdt", num: true, html: (r) => `<b class="bdt">${peso(r.amount_bdt)}</b>` }
+    ...(showPhp(cur) ? [{ label: "Amount (PHP)", key: "amount_php", num: true, get: (r) => money(r.amount_php) }] : []),
+    ...(cur === "BOTH" ? [{ label: "Rate", num: true, get: (r) => rateText(r.exchange_rate) }] : []),
+    ...(showBdt(cur) ? [{ label: "Amount (BDT)", key: "amount_bdt", num: true, html: (r) => `<b class="bdt">${money(r.amount_bdt)}</b>` }] : [])
   ];
   const ym = (iso) => String(iso).slice(0, 7);
 
@@ -688,41 +699,56 @@
       <div class="tiles" id="blTiles">${["Companies", "Total Paid (PHP)", "Total Paid (BDT)", "This Month (BDT)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>
       <div class="btnrow">${w ? `<a class="btn primary" href="#newvoucher">${ic("plus")} New Payment</a><a class="btn" href="#newpaycompany">${ic("plus")} Add Company</a>` : ""}</div>
       <div id="blRes">${busy()}</div>`,
-      "Add a company, then its accounts. <b>New Payment</b> records the amount in PHP with the exchange rate; the BDT amount is worked out automatically and a payment voucher is created.");
+      "Add a company and choose its currency: PHP, BDT, or both. <b>New Payment</b> records the amount in that currency (for both: PHP × rate, and the BDT amount is worked out) and creates a payment voucher.");
     const { data, error } = await sb.from("pay_company_totals").select("*").order("name");
-    if (error) return fail(error, "Could not load billing (run the 1.1 database update)");
+    if (error) return fail(error, "Could not load billing (run the 1.3 database update)");
     const rows = data || [];
     const sum = (k) => rows.reduce((s, r) => s + num(r[k]), 0);
     const tiles = [["", rows.length], ["", "₱ " + peso(sum("total_php"))], ["ok", bdt(sum("total_bdt"))], ["ok", bdt(sum("month_bdt"))]];
     $$("#blTiles .tile").forEach((t, i) => { t.className = "tile " + tiles[i][0]; $(".v", t).textContent = tiles[i][1]; });
+    const php = (r, k) => (showPhp(curOf(r)) ? peso(r[k]) : "—"), tk = (r, k) => (showBdt(curOf(r)) ? `<b class="bdt">${peso(r[k])}</b>` : "—");
     $("#blRes").innerHTML = E.grid({ cols: [
-      { label: "Company", get: (r) => r.name }, { label: "Status", html: (r) => pill(r.status || "active") }, { label: "Country", get: (r) => r.country || "" }, { label: "Accounts", num: true, get: (r) => r.accounts_count }, { label: "Vouchers", num: true, get: (r) => r.vouchers_count },
-      { label: "Total (PHP)", key: "total_php", num: true, get: (r) => peso(r.total_php) }, { label: "Total (BDT)", key: "total_bdt", num: true, html: (r) => `<b class="bdt">${peso(r.total_bdt)}</b>` },
-      { label: "This Month (PHP)", key: "month_php", num: true, get: (r) => peso(r.month_php) }, { label: "This Month (BDT)", key: "month_bdt", num: true, get: (r) => peso(r.month_bdt) },
+      { label: "Company", get: (r) => r.name }, { label: "Contact Person", get: (r) => r.contact_person || "" }, { label: "Status", html: (r) => pill(r.status || "active") },
+      { label: "Currency", get: (r) => CUR[curOf(r)] }, { label: "Accounts", num: true, get: (r) => r.accounts_count }, { label: "Vouchers", num: true, get: (r) => r.vouchers_count },
+      { label: "Total (PHP)", key: "total_php", num: true, get: (r) => php(r, "total_php") }, { label: "Total (BDT)", key: "total_bdt", num: true, html: (r) => tk(r, "total_bdt") },
+      { label: "This Month (PHP)", key: "month_php", num: true, get: (r) => php(r, "month_php") }, { label: "This Month (BDT)", key: "month_bdt", num: true, html: (r) => tk(r, "month_bdt") },
       { label: "Last Paid", get: (r) => dmy(r.last_paid) }],
       rows, onRow: true, foot: { total_php: peso(sum("total_php")), total_bdt: peso(sum("total_bdt")), month_php: peso(sum("month_php")), month_bdt: peso(sum("month_bdt")) }, empty: "No companies yet. Press Add Company." });
     E.bindGrid($("#blRes"), rows, (r) => (location.hash = "paycompany/" + r.id));
     E.setRecords(`Companies: ${rows.length}`);
   };
 
+  const curChoice = (name, on = "BOTH") => `<div class="subj-grid">${Object.entries(CUR).map(([k, l]) => `<label class="subj"><input type="radio" name="${name}" value="${k}" ${k === on ? "checked" : ""}><span>${esc(l)}</span></label>`).join("")}</div>
+    <small class="muted">PHP only or BDT only: you type the amount in that currency. PHP and BDT: you type PHP and the exchange rate, and the BDT amount is worked out.</small>`;
   V.newpaycompany = () => {
     if (!E.canWrite("billing")) { location.hash = "billing"; return; }
     E.shell("newpaycompany", "Billing — Add Company", `
-      <form class="window" id="pcForm" novalidate><div class="wtitle">Company</div><div class="wbody"><div class="fields wide">
-        <label for="pcName">Company Name *</label><input type="text" id="pcName" required placeholder="e.g. Modina Apparels Pvt Ltd">
-        <label for="pcCountry">Country</label><input type="text" id="pcCountry" value="Bangladesh">
-        <label for="pcContact">Contact</label><input type="text" id="pcContact" placeholder="Person, phone or email">
-        <label for="pcNotes">Notes</label><input type="text" id="pcNotes"></div>
+      <form class="window" id="pcForm" novalidate><div class="wtitle">Company</div><div class="wbody">
+        <div class="formgrid"><div class="fields wide">
+          <label for="pcName">Company Name *</label><input type="text" id="pcName" required placeholder="e.g. Modina Apparels Pvt Ltd">
+          <label for="pcPerson">Contact Person</label><input type="text" id="pcPerson" placeholder="e.g. Mr. Abdur Rahman">
+          <label for="pcContact">Phone / Email</label><input type="text" id="pcContact" placeholder="e.g. 01711000000">
+          <label for="pcAddr">Address</label><input type="text" id="pcAddr" placeholder="e.g. Gulshan 1, Dhaka, Bangladesh">
+          <label for="pcNotes">Notes</label><input type="text" id="pcNotes"></div>
+          <div class="fields wide"><label for="pcPhoto">Profile Photo</label><input type="file" id="pcPhoto" accept="image/*"><span></span><div id="pcPrev" class="rcpt-prev">No photo chosen</div></div></div>
+        <fieldset class="opt"><legend>Currency — what every record of this company shows</legend>${curChoice("pcCur")}</fieldset>
         <fieldset class="opt"><legend>First Account (optional — you can add more later)</legend><div class="formgrid">
           <div class="fields wide"><label for="paName">Account Name</label><input type="text" id="paName"><label for="paNo">Account Number</label><input type="text" id="paNo"></div>
           <div class="fields wide"><label for="paBank">Bank Name</label><input type="text" id="paBank"><label for="paBranch">Branch</label><input type="text" id="paBranch"></div></div></fieldset>
       </div><div class="wfoot"><a class="btn" href="#billing">Cancel</a><button type="submit" class="btn primary">Save Company</button></div></form>`);
+    $("#pcPhoto").onchange = (e) => {
+      const f = e.target.files[0];
+      $("#pcPrev").innerHTML = f ? `<img src="${URL.createObjectURL(f)}" alt="Photo preview">` : "No photo chosen";
+    };
     $("#pcForm").onsubmit = async (e) => {
       e.preventDefault();
       const v = (i) => $("#" + i).value.trim();
       if (!v("pcName")) return toast("Enter the company name.", true);
       E.setBusy(e.target, true, "Saving");
-      const { data: co, error } = await sb.from("pay_companies").insert({ name: v("pcName"), country: v("pcCountry") || "Bangladesh", contact: v("pcContact") || null, notes: v("pcNotes") || null }).select().single();
+      const id = E.uuid();
+      const photo_path = await uploadPhoto("pay_company", id, $("#pcPhoto").files[0]);
+      const { data: co, error } = await sb.from("pay_companies").insert({ id, name: v("pcName"), contact_person: v("pcPerson") || null, contact: v("pcContact") || null,
+        address: v("pcAddr") || null, notes: v("pcNotes") || null, currency: $("input[name=pcCur]:checked").value, photo_path }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the company"); }
       if (v("paName")) {
         const { error: e2 } = await sb.from("pay_accounts").insert({ company_id: co.id, account_name: v("paName"), account_number: v("paNo") || null, bank_name: v("paBank") || null, branch_name: v("paBranch") || null });
@@ -740,41 +766,48 @@
       sb.from("pay_vouchers").select("*, pay_accounts(account_name,account_number,bank_name,branch_name)").eq("company_id", id).order("pay_date", { ascending: false }).order("voucher_no", { ascending: false }),
       sb.from("order_letters").select("*").eq("company_id", id).order("created_at", { ascending: false })
     ]);
-    if (location.hash !== "#paycompany/" + id) return; // another page was opened while this one loaded
     const c = co.data;
+    const photo = c?.photo_path ? await E.signedUrl(c.photo_path) : "";
+    if (location.hash !== "#paycompany/" + id) return; // another page was opened while this one loaded
     if (!c) { $("#main").innerHTML = `<div class="empty">Company not found. <a href="#billing">Back</a></div>`; return; }
     const accounts = accs.data || [], vouchers = vs.data || [], orders = ol.data || [];
     const w = E.canWrite("billing");
     const suspended = c.status === "suspended";
+    const cur = curOf(c);
     const months = [...new Set(vouchers.map((v) => ym(v.pay_date)))].sort().reverse().map((m) => {
       const list = vouchers.filter((v) => ym(v.pay_date) === m);
       return { month: m + "-01", count: list.length, php: list.reduce((s, v) => s + num(v.amount_php), 0), bdt: list.reduce((s, v) => s + num(v.amount_bdt), 0), list };
     });
     const accTotals = new Map(); vouchers.forEach((v) => { const t = accTotals.get(v.account_id) || [0, 0]; t[0] += num(v.amount_php); t[1] += num(v.amount_bdt); accTotals.set(v.account_id, t); });
+    const tiles = [
+      ...(showPhp(cur) ? [["", "Total Paid (PHP)", "₱ " + peso(c.total_php)]] : []), ...(showBdt(cur) ? [["ok", "Total Paid (BDT)", bdt(c.total_bdt)]] : []),
+      ...(showPhp(cur) ? [["", "This Month (PHP)", "₱ " + peso(c.month_php)]] : []), ...(showBdt(cur) ? [["ok", "This Month (BDT)", bdt(c.month_bdt)]] : [])];
     $(".band h1").textContent = `Billing — ${c.name}`;
     $("#main").innerHTML = `
       ${suspended ? `<div class="banner warn">⚠ SUSPENDED — new payments are blocked until the company is reactivated by an approved order.${c.status_note ? " " + esc(c.status_note) : ""}</div>` : ""}
-      <section class="cust-hero"><div class="ch-photo"><span>${esc(E.initials(c.name))}</span></div>
-        <div class="ch-main"><div class="ch-name"><h2>${esc(c.name)}</h2>${pill(c.status || "active")}</div><div class="ch-sub">${esc([c.country, c.contact].filter(Boolean).join(" · ") || "—")}</div>
-          <div class="ch-ids">${E.idBox("Accounts", String(accounts.length))}${E.idBox("Vouchers", String(vouchers.length))}${E.idBox("Last Paid", dmy(c.last_paid))}${E.idBox("Added By", c.created_by_name)}</div></div></section>
-      <div class="tiles"><div class="tile"><div class="k">Total Paid (PHP)</div><div class="v">₱ ${peso(c.total_php)}</div></div>
-        <div class="tile ok"><div class="k">Total Paid (BDT)</div><div class="v">${bdt(c.total_bdt)}</div></div>
-        <div class="tile"><div class="k">This Month (PHP)</div><div class="v">₱ ${peso(c.month_php)}</div></div>
-        <div class="tile ok"><div class="k">This Month (BDT)</div><div class="v">${bdt(c.month_bdt)}</div></div></div>
+      <section class="cust-hero">${photoBox(photo, E.initials(c.name))}
+        <div class="ch-main"><div class="ch-name"><h2>${esc(c.name)}</h2>${pill(c.status || "active")}</div>
+          <div class="ch-sub">${c.contact_person ? `<b>${esc(c.contact_person)}</b> · ` : ""}${esc([c.address || c.country, c.contact].filter(Boolean).join(" · ") || "—")}</div>
+          <div class="ch-ids">${E.idBox("Contact Person", c.contact_person || "—")}${E.idBox("Currency", CUR[cur])}${E.idBox("Accounts", String(accounts.length))}${E.idBox("Vouchers", String(vouchers.length))}${E.idBox("Last Paid", dmy(c.last_paid))}${E.idBox("Added By", c.created_by_name)}</div>
+          ${w ? `<div class="btnrow"><label class="btn small" for="pcPhoto">${ic("camera")} ${photo ? "Change Photo" : "Add Photo"}</label><input type="file" id="pcPhoto" accept="image/*" hidden></div>` : ""}</div></section>
+      <div class="tiles">${tiles.map(([k, l, v]) => `<div class="tile ${k}"><div class="k">${l}</div><div class="v">${v}</div></div>`).join("")}</div>
       <div class="actionbar">${w && !suspended ? `<a class="btn primary" href="#newvoucher/${c.id}">${ic("plus")} New Payment</a>` : ""}<button type="button" class="btn" id="pcRecord">${ic("download")} Download Payment Record</button>
         ${w ? `<a class="btn" href="#neworder/company/${c.id}">${ic("doc")} ${suspended ? "Reactivate Company" : "Request Order"}</a>` : ""}
         <span class="grow"></span>${tools("pay_companies", c, c.name, { reload: () => V.paycompany(id), afterDelete: () => (location.hash = "billing") })}</div>
       <div class="tabs" id="pcTabs"><button type="button" class="on" data-t="0">Payment Vouchers (${vouchers.length})</button><button type="button" data-t="1">Monthly Records (${months.length})</button><button type="button" data-t="2">Accounts (${accounts.length})</button><button type="button" data-t="3">Orders (${orders.length})</button></div>
       <div class="tabpanes" id="pcPanes">
-        <div data-p="0"><div id="pcVouchers">${E.grid({ cols: VOUCHER_COLS, rows: vouchers, onRow: true, foot: { amount_php: peso(c.total_php), amount_bdt: `<b class="bdt">${peso(c.total_bdt)}</b>` }, empty: "No payments yet." })}</div></div>
-        <div data-p="1" hidden><div id="pcMonths">${E.grid({ cols: [{ label: "Month", get: (r) => monthLabel(r.month) }, { label: "Vouchers", num: true, get: (r) => r.count }, { label: "Total (PHP)", num: true, get: (r) => peso(r.php) }, { label: "Total (BDT)", num: true, html: (r) => `<b class="bdt">${peso(r.bdt)}</b>` }, { label: "", html: () => `<span class="btn">${ic("download")} Download</span>` }], rows: months, onRow: true, empty: "No payments yet." })}</div></div>
+        <div data-p="0"><div id="pcVouchers">${E.grid({ cols: voucherCols(cur), rows: vouchers, onRow: true, foot: { amount_php: peso(c.total_php), amount_bdt: `<b class="bdt">${peso(c.total_bdt)}</b>` }, empty: "No payments yet." })}</div></div>
+        <div data-p="1" hidden><div id="pcMonths">${E.grid({ cols: [{ label: "Month", get: (r) => monthLabel(r.month) }, { label: "Vouchers", num: true, get: (r) => r.count },
+          ...(showPhp(cur) ? [{ label: "Total (PHP)", num: true, get: (r) => peso(r.php) }] : []), ...(showBdt(cur) ? [{ label: "Total (BDT)", num: true, html: (r) => `<b class="bdt">${peso(r.bdt)}</b>` }] : []),
+          { label: "", html: () => `<span class="btn">${ic("download")} Download</span>` }], rows: months, onRow: true, empty: "No payments yet." })}</div></div>
         <div data-p="2" hidden>
           ${w ? `<form class="opt inline-form" id="paForm" novalidate><b>Add Account</b><div class="formgrid">
             <div class="fields wide"><label for="paName">Account Name *</label><input type="text" id="paName"><label for="paNo">Account Number</label><input type="text" id="paNo"></div>
             <div class="fields wide"><label for="paBank">Bank Name</label><input type="text" id="paBank"><label for="paBranch">Branch</label><input type="text" id="paBranch"></div></div>
             <div class="btnrow"><button type="submit" class="btn primary">Save Account</button></div></form>` : ""}
           <div id="pcAccs">${E.grid({ cols: [{ label: "Account Name", get: (r) => r.account_name }, { label: "Account Number", get: (r) => r.account_number || "" }, { label: "Bank", get: (r) => r.bank_name || "" }, { label: "Branch", get: (r) => r.branch_name || "" },
-            { label: "Paid (PHP)", num: true, get: (r) => peso((accTotals.get(r.id) || [0, 0])[0]) }, { label: "Paid (BDT)", num: true, html: (r) => `<b class="bdt">${peso((accTotals.get(r.id) || [0, 0])[1])}</b>` },
+            ...(showPhp(cur) ? [{ label: "Paid (PHP)", num: true, get: (r) => peso((accTotals.get(r.id) || [0, 0])[0]) }] : []),
+            ...(showBdt(cur) ? [{ label: "Paid (BDT)", num: true, html: (r) => `<b class="bdt">${peso((accTotals.get(r.id) || [0, 0])[1])}</b>` }] : []),
             { label: "", html: (r) => tools("pay_accounts", r, `${r.account_name} (${c.name})`, { reload: () => V.paycompany(id) }) }], rows: accounts, empty: "No accounts yet." })}</div>
         </div>
         <div data-p="3" hidden><div id="pcOrders">${E.ordersGrid(orders, "No orders for this company.")}</div></div>
@@ -785,6 +818,13 @@
     E.bindGrid($("#pcOrders"), orders, (r) => (location.hash = "order/" + r.id));
     bindTools($("#main"));
     $("#pcRecord").onclick = () => printRecord(c, vouchers, "All payments");
+    if ($("#pcPhoto")) $("#pcPhoto").onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const path = await uploadPhoto("pay_company", id, f); if (!path) return;
+      const { error } = await sb.rpc("set_company_photo", { p_id: id, p_path: path });
+      if (error) return fail(error, "Could not save the photo");
+      toast("Photo saved."); V.paycompany(id);
+    };
     if ($("#paForm")) $("#paForm").onsubmit = async (e) => {
       e.preventDefault();
       const v = (i) => $("#" + i).value.trim();
@@ -795,17 +835,22 @@
     };
     E.setRecords(`Vouchers: ${vouchers.length}`);
   };
-  // Payment record (all, or one month) with PHP and BDT shown separately.
+  // Payment record (all, or one month) in the company's currency.
   function printRecord(c, list, range) {
+    const cur = curOf(c);
     const rows = list.slice().sort((a, b) => String(a.pay_date).localeCompare(String(b.pay_date)) || String(a.voucher_no).localeCompare(String(b.voucher_no)));
     const byMonth = new Map(); rows.forEach((v) => { const t = byMonth.get(ym(v.pay_date)) || [0, 0, 0]; t[0]++; t[1] += num(v.amount_php); t[2] += num(v.amount_bdt); byMonth.set(ym(v.pay_date), t); });
+    const pick = (php, tk) => [...(showPhp(cur) ? [peso(php)] : []), ...(showBdt(cur) ? [peso(tk)] : [])];
     E.openPreview(`Payment Record ${c.name}`, E.listingPages({
       title: "Payment Record", range: `${esc(c.name)} — ${esc(range)}`,
       cols: [{ label: "Voucher No", get: (r) => r.voucher_no }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "Account", get: (r) => r.pay_accounts ? `${r.pay_accounts.account_name} ${r.pay_accounts.account_number || ""}` : "" }, { label: "Purpose", get: (r) => r.purpose || "" },
-        { label: "PHP", num: true, get: (r) => peso(r.amount_php) }, { label: "Rate", num: true, get: (r) => Number(r.exchange_rate).toFixed(4) }, { label: "BDT", num: true, html: (r) => `<b>${peso(r.amount_bdt)}</b>` }],
+        ...(showPhp(cur) ? [{ label: "PHP", num: true, get: (r) => money(r.amount_php) }] : []), ...(cur === "BOTH" ? [{ label: "Rate", num: true, get: (r) => rateText(r.exchange_rate) }] : []),
+        ...(showBdt(cur) ? [{ label: "BDT", num: true, html: (r) => `<b>${money(r.amount_bdt)}</b>` }] : [])],
       rows,
-      summary: { title: "Monthly Totals", cols: ["Month", "Vouchers", "PHP", "BDT"], rows: [...byMonth].map(([m, t]) => [monthLabel(m + "-01"), String(t[0]), peso(t[1]), peso(t[2])]), total: ["Total:", String(rows.length), peso(rows.reduce((s, v) => s + num(v.amount_php), 0)), peso(rows.reduce((s, v) => s + num(v.amount_bdt), 0))] },
-      criteria: `Company: ${c.name}\nRange: ${range}`, logo: true
+      summary: { title: "Monthly Totals", cols: ["Month", "Vouchers", ...(showPhp(cur) ? ["PHP"] : []), ...(showBdt(cur) ? ["BDT"] : [])],
+        rows: [...byMonth].map(([m, t]) => [monthLabel(m + "-01"), String(t[0]), ...pick(t[1], t[2])]),
+        total: ["Total:", String(rows.length), ...pick(rows.reduce((s, v) => s + num(v.amount_php), 0), rows.reduce((s, v) => s + num(v.amount_bdt), 0))] },
+      criteria: `Company: ${c.name}${c.contact_person ? "\nContact Person: " + c.contact_person : ""}\nCurrency: ${CUR[cur]}\nRange: ${range}`, logo: true
     }));
   }
 
@@ -819,15 +864,16 @@
       <form class="window" id="nvForm" novalidate><div class="wtitle">Payment Voucher</div><div class="wbody">
         <div class="summary-box"><div class="fields wide"><span>Voucher No</span><b>Assigned on save (BD + date + number, e.g. BD${isoToday().replace(/-/g, "")}001)</b><span>Issued By</span><b>${esc(S.profile.full_name || "")}</b></div></div>
         <fieldset class="opt"><legend>Paid To</legend><div class="fields wide">
-          <label for="nvCo">Company *</label><select id="nvCo"><option value="">— Choose company —</option>${cos.map((c) => c.status === "suspended" ? `<option value="${c.id}" disabled>${esc(c.name)} (SUSPENDED)</option>` : `<option value="${c.id}" ${c.id === companyId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+          <label for="nvCo">Company *</label><select id="nvCo"><option value="">— Choose company —</option>${cos.map((c) => c.status === "suspended" ? `<option value="${c.id}" disabled>${esc(c.name)} (SUSPENDED)</option>` : `<option value="${c.id}" ${c.id === companyId ? "selected" : ""}>${esc(c.name)} — ${esc(CUR[curOf(c)])}</option>`).join("")}</select>
           <label for="nvAcc">Account *</label><select id="nvAcc"><option value="">— Choose the company first —</option></select></div></fieldset>
         <fieldset class="opt"><legend>Amount</legend><div class="formgrid">
           <div class="fields wide">
             <label for="nvDate">Payment Date</label><input type="date" id="nvDate" value="${isoToday()}">
-            <label for="nvPhp">Amount (PHP) *</label><input type="number" id="nvPhp" min="0.01" step="0.01" placeholder="e.g. 200">
-            <label for="nvRate">Exchange Rate *</label><input type="number" id="nvRate" min="0.0001" step="0.0001" value="${esc(lastRate())}" placeholder="BDT per 1 PHP, e.g. 2.05">
+            <label for="nvPhp" class="nv-php">Amount (PHP) *</label><input type="number" id="nvPhp" class="nv-php" min="0.01" step="0.01" placeholder="e.g. 200">
+            <label for="nvRate" class="nv-rate">Exchange Rate *</label><input type="number" id="nvRate" class="nv-rate" min="0.0001" step="0.0001" value="${esc(lastRate())}" placeholder="BDT per 1 PHP, e.g. 2.05">
+            <label for="nvTaka" class="nv-bdt">Amount (BDT) *</label><input type="number" id="nvTaka" class="nv-bdt" min="0.01" step="0.01" placeholder="e.g. 5000">
           </div>
-          <div class="bdt-calc"><small>Amount in BDT (automatic)</small><b id="nvBdt">BDT 0.00</b><span id="nvFormula">PHP × rate = BDT</span><small id="nvWords"></small></div></div></fieldset>
+          <div class="bdt-calc"><small id="nvCalcK">Amount in BDT (automatic)</small><b id="nvBdt">BDT 0.00</b><span id="nvFormula">PHP × rate = BDT</span><small id="nvWords"></small></div></div></fieldset>
         <fieldset class="opt"><legend>Details</legend><div class="fields wide">
           <label for="nvPurpose">Purpose</label><input type="text" id="nvPurpose" placeholder="e.g. Batch payment, monthly payment">
           <label for="nvMethod">Method</label><select id="nvMethod"><option>Bank Transfer</option><option>Cash</option><option>Online Transfer</option><option>Deposit</option></select>
@@ -836,6 +882,7 @@
           <label for="nvRcpt">Receipt</label><input type="file" id="nvRcpt" accept="image/*,application/pdf">
           <span></span><div id="nvPrev" class="rcpt-prev">No receipt chosen</div></div></fieldset>
       </div><div class="wfoot"><a class="btn" href="#billing">Cancel</a><button type="submit" class="btn primary">Save &amp; Create Voucher</button></div></form>`;
+    const curNow = () => curOf(cos.find((c) => c.id === $("#nvCo").value));
     const loadAcc = async () => {
       const sel = $("#nvAcc"), co = $("#nvCo").value;
       if (!co) { sel.innerHTML = `<option value="">— Choose the company first —</option>`; return; }
@@ -845,51 +892,72 @@
       sel.innerHTML = list.length ? list.map((a) => `<option value="${a.id}">${esc(a.account_name)}${a.account_number ? " · " + esc(a.account_number) : ""}${a.bank_name ? " · " + esc(a.bank_name) : ""}</option>`).join("")
         : `<option value="">— No accounts yet: add one in the company profile —</option>`;
     };
+    // The amount fields follow the company's currency.
     const calc = () => {
-      const php = num($("#nvPhp").value), rate = num($("#nvRate").value);
-      const b = Math.round(php * rate * 100) / 100;
-      $("#nvBdt").textContent = bdt(b);
-      $("#nvFormula").textContent = php && rate ? `${peso(php)} × ${rate} = ${peso(b)}` : "PHP × rate = BDT";
-      $("#nvWords").textContent = b ? words(b, "TAKA") : "";
+      const cur = curNow();
+      if (cur === "PHP") {
+        const p = num($("#nvPhp").value);
+        $("#nvCalcK").textContent = "Amount (PHP)"; $("#nvBdt").textContent = "₱ " + peso(p); $("#nvFormula").textContent = "Paid in Philippine Peso"; $("#nvWords").textContent = p ? words(p) : "";
+      } else if (cur === "BDT") {
+        const b = num($("#nvTaka").value);
+        $("#nvCalcK").textContent = "Amount (BDT)"; $("#nvBdt").textContent = bdt(b); $("#nvFormula").textContent = "Paid in Bangladeshi Taka"; $("#nvWords").textContent = b ? words(b, "TAKA") : "";
+      } else {
+        const php = num($("#nvPhp").value), rate = num($("#nvRate").value);
+        const b = Math.round(php * rate * 100) / 100;
+        $("#nvCalcK").textContent = "Amount in BDT (automatic)"; $("#nvBdt").textContent = bdt(b);
+        $("#nvFormula").textContent = php && rate ? `${peso(php)} × ${rate} = ${peso(b)}` : "PHP × rate = BDT";
+        $("#nvWords").textContent = b ? words(b, "TAKA") : "";
+      }
     };
-    $("#nvCo").onchange = loadAcc; loadAcc();
-    $("#nvPhp").oninput = calc; $("#nvRate").oninput = calc; calc();
+    const mode = () => {
+      const cur = curNow();
+      $$(".nv-php").forEach((x) => (x.hidden = cur === "BDT"));
+      $$(".nv-rate").forEach((x) => (x.hidden = cur !== "BOTH"));
+      $$(".nv-bdt").forEach((x) => (x.hidden = cur !== "BDT"));
+      calc();
+    };
+    $("#nvCo").onchange = () => { loadAcc(); mode(); }; loadAcc(); mode();
+    ["nvPhp", "nvRate", "nvTaka"].forEach((i) => ($("#" + i).oninput = calc));
     $("#nvRcpt").onchange = (e) => {
       const f = e.target.files[0];
       $("#nvPrev").innerHTML = !f ? "No receipt chosen" : /^image\//.test(f.type) ? `<img src="${URL.createObjectURL(f)}" alt="Receipt preview">` : esc(f.name);
     };
     $("#nvForm").onsubmit = async (e) => {
       e.preventDefault();
-      const co = $("#nvCo").value, acc = $("#nvAcc").value, php = num($("#nvPhp").value), rate = num($("#nvRate").value);
+      const co = $("#nvCo").value, acc = $("#nvAcc").value, cur = curNow();
+      const php = num($("#nvPhp").value), rate = num($("#nvRate").value), taka = num($("#nvTaka").value);
       if (!co) return toast("Choose the company.", true);
       if (!acc) return toast("Choose the account (add one in the company profile if the list is empty).", true);
-      if (php <= 0) return toast("Enter the amount in PHP.", true);
-      if (rate <= 0) return toast("Enter the exchange rate.", true);
+      if (cur !== "BDT" && php <= 0) return toast("Enter the amount in PHP.", true);
+      if (cur === "BOTH" && rate <= 0) return toast("Enter the exchange rate.", true);
+      if (cur === "BDT" && taka <= 0) return toast("Enter the amount in BDT.", true);
       E.setBusy(e.target, true, "Saving");
-      const { data: v, error: err } = await sb.from("pay_vouchers").insert({ company_id: co, account_id: acc, pay_date: $("#nvDate").value || isoToday(), amount_php: php, exchange_rate: rate,
+      const amounts = cur === "PHP" ? { amount_php: php } : cur === "BDT" ? { amount_bdt: taka } : { amount_php: php, exchange_rate: rate };
+      const { data: v, error: err } = await sb.from("pay_vouchers").insert({ company_id: co, account_id: acc, pay_date: $("#nvDate").value || isoToday(), ...amounts,
         purpose: $("#nvPurpose").value.trim() || null, method: $("#nvMethod").value, reference_no: $("#nvRef").value.trim() || null, notes: $("#nvNotes").value.trim() || null }).select().single();
       if (err) { E.setBusy(e.target, false); return fail(err, "Could not save the payment"); }
-      try { localStorage.setItem(RATE_KEY, String(rate)); } catch (_) {}
+      if (cur === "BOTH") { try { localStorage.setItem(RATE_KEY, String(rate)); } catch (_) {} }
       const f = await E.uploadRecords("pay_voucher", v.id, "receipt", E.filesOf("nvRcpt"));
-      toast(`Voucher ${v.voucher_no} created — BDT ${peso(v.amount_bdt)}.${f ? " The receipt failed to upload." : ""}`, f > 0);
+      toast(`Voucher ${v.voucher_no} created — ${amountText(v)}.${f ? " The receipt failed to upload." : ""}`, f > 0);
       location.hash = "voucher/" + v.id;
     };
     E.setRecords("New payment voucher");
   };
 
-  // The voucher: PDF417 barcode, BDT amount a little bigger, receipt photo fitted in its box.
-  // System-generated: no signature line.
+  // The voucher: PDF417 barcode, the amount in the company's currency (BDT a little bigger), receipt photo
+  // fitted in its box. System-generated: no signature line.
   function voucherPage(v, receiptUrl) {
-    const a = v.pay_accounts || {};
+    const a = v.pay_accounts || {}, co = v.pay_companies || {};
     return `${E.printHead("PAYMENT VOUCHER", `<img src="${E.pdf417DataUrl("EMONBD|" + v.voucher_no)}" alt="" class="ph-bar"><div class="mono">${esc(v.voucher_no)}</div>`)}
       <div class="vno-row"><span>Voucher No: <b>${esc(v.voucher_no)}</b></span><span>Issued by: <b>${esc(v.created_by_name || "")}</b></span><span>Date: <b>${esc(E.dShort(v.pay_date))}</b></span></div>
-      ${E.box("Paid To", `<div class="pgrid2">${E.cell("Company", v.pay_companies?.name, "hl")}${E.cell("Account Name", a.account_name)}${E.cell("Account Number", a.account_number)}${E.cell("Bank / Branch", [a.bank_name, a.branch_name].filter(Boolean).join(" — "))}</div>`)}
+      ${E.box("Paid To", `<div class="pgrid2">${E.cell("Company", co.name, "hl")}${E.cell("Contact Person", co.contact_person)}${E.cell("Account Name", a.account_name)}${E.cell("Account Number", a.account_number)}
+        ${E.cell("Bank / Branch", [a.bank_name, a.branch_name].filter(Boolean).join(" — "))}${E.cell("Address", co.address || co.country)}</div>`)}
       ${E.box("Payment", `<div class="prow3">${E.cell("Purpose", v.purpose)}${E.cell("Method", v.method)}${E.cell("Reference No", v.reference_no)}</div>
         <table class="rp v-amt"><tbody>
-          <tr><td>Amount (Philippine Peso)</td><td class="num">PHP ${peso(v.amount_php)}</td></tr>
-          <tr><td>Exchange Rate (BDT per 1 PHP)</td><td class="num">× ${Number(v.exchange_rate).toFixed(4)}</td></tr>
-          <tr class="v-bdt"><td>Amount (Bangladeshi Taka)</td><td class="num">BDT ${peso(v.amount_bdt)}</td></tr></tbody></table>
-        <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(v.amount_bdt, "TAKA"))}</div></div>`)}
+          ${v.amount_php != null ? `<tr class="${v.amount_bdt == null ? "v-bdt" : ""}"><td>Amount (Philippine Peso)</td><td class="num">PHP ${peso(v.amount_php)}</td></tr>` : ""}
+          ${v.exchange_rate != null ? `<tr><td>Exchange Rate (BDT per 1 PHP)</td><td class="num">× ${rateText(v.exchange_rate)}</td></tr>` : ""}
+          ${v.amount_bdt != null ? `<tr class="v-bdt"><td>Amount (Bangladeshi Taka)</td><td class="num">BDT ${peso(v.amount_bdt)}</td></tr>` : ""}</tbody></table>
+        <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(amountWords(v))}</div></div>`)}
       ${receiptUrl ? `<div class="pbox v-rcpt"><div class="pbox-h">Receipt</div><div class="v-rcpt-in"><img src="${esc(receiptUrl)}" alt="Receipt"></div></div>` : ""}
       ${v.notes ? `<p class="pdecl"><b>Notes:</b> ${esc(v.notes)}</p>` : ""}
       <div class="soa-sys">This is a system-generated voucher. No signature is required.</div>
@@ -897,7 +965,7 @@
   }
   V.voucher = async (id) => {
     E.shell("voucher", "Billing — Payment Voucher", busy());
-    const { data: v } = await sb.from("pay_vouchers").select("*, pay_companies(name,country), pay_accounts(account_name,account_number,bank_name,branch_name)").eq("id", id).maybeSingle();
+    const { data: v } = await sb.from("pay_vouchers").select("*, pay_companies(*), pay_accounts(account_name,account_number,bank_name,branch_name)").eq("id", id).maybeSingle();
     if (!v) { $("#main").innerHTML = `<div class="empty">Voucher not found. <a href="#billing">Back</a></div>`; return; }
     const att = await E.attachmentsOf("pay_voucher", id);
     const rcpt = att.find((a) => a.kind === "receipt" && E.isImage(a));
@@ -906,13 +974,14 @@
     $(".band h1").textContent = `Payment Voucher — ${v.voucher_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(v.voucher_no)} · ${esc(v.pay_companies?.name || "")}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
-        <span>Paid To</span><a href="#paycompany/${v.company_id}"><b>${esc(v.pay_companies?.name || "")}</b></a>
+        <span>Paid To</span><span><a href="#paycompany/${v.company_id}"><b>${esc(v.pay_companies?.name || "")}</b></a>${v.pay_companies?.contact_person ? " · " + esc(v.pay_companies.contact_person) : ""}</span>
         <span>Account</span><span>${esc([a.account_name, a.account_number, a.bank_name, a.branch_name].filter(Boolean).join(" · ") || "—")}</span>
         <span>Date</span><span>${dmy(v.pay_date)}</span><span>Purpose</span><span>${esc(v.purpose || "—")}</span>
         <span>Method</span><span>${esc(v.method || "—")}${v.reference_no ? " · Ref " + esc(v.reference_no) : ""}</span><span>Issued By</span><span>${esc(v.created_by_name || "")}</span></div>
-        <div class="amt-panel"><div><small>Amount (PHP)</small><b>₱ ${peso(v.amount_php)}</b></div><div><small>Exchange Rate</small><b>× ${Number(v.exchange_rate).toFixed(4)}</b></div>
-          <div class="hl"><small>Amount (BDT)</small><b>${bdt(v.amount_bdt)}</b></div><small class="muted">${esc(words(v.amount_bdt, "TAKA"))}</small></div></div>
-      <div class="docgrid">${E.docCard({ key: "pv", title: `Payment Voucher ${v.voucher_no}`, sub: `${bdt(v.amount_bdt)} · ${dmy(v.pay_date)}`, ownerType: "pay_voucher", ownerId: v.id, att, print, canUpload: E.canWrite("billing") })}</div>
+        <div class="amt-panel">${v.amount_php != null ? `<div class="${v.amount_bdt == null ? "hl" : ""}"><small>Amount (PHP)</small><b>₱ ${peso(v.amount_php)}</b></div>` : ""}
+          ${v.exchange_rate != null ? `<div><small>Exchange Rate</small><b>× ${rateText(v.exchange_rate)}</b></div>` : ""}
+          ${v.amount_bdt != null ? `<div class="hl"><small>Amount (BDT)</small><b>${bdt(v.amount_bdt)}</b></div>` : ""}<small class="muted">${esc(amountWords(v))}</small></div></div>
+      <div class="docgrid">${E.docCard({ key: "pv", title: `Payment Voucher ${v.voucher_no}`, sub: `${amountText(v)} · ${dmy(v.pay_date)}`, ownerType: "pay_voucher", ownerId: v.id, att, print, canUpload: E.canWrite("billing") })}</div>
       <div><b>Receipt</b>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No receipt uploaded.")}
         ${E.canWrite("billing") ? `<div class="fields wide" style="margin-top:6px">${E.fileField("vAddRcpt", "Add Receipt", 'accept="image/*,application/pdf"')}</div>` : ""}</div>
       ${rhBox("pay_vouchers", v.id)}</div>

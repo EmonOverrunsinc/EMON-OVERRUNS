@@ -477,17 +477,19 @@
     suspension: ["Suspension", "Suspension of Account"], closure: ["Closure", "Closure of Account"], reactivation: ["Reactivation", "Reactivation of Account"], reopen: ["Reopen", "Reopening of Account"],
     termination: ["Termination", "Termination of Employment"], memo: ["Notice / Memo", "Memorandum"],
     unpaid: ["Unpaid", "Notice of Unpaid Balance"], installment: ["Installment", "Installment Payment Arrangement"], unsettled_balance: ["Unsettled Balance", "Demand for Unsettled Balance"],
-    promise_to_pay: ["Promise to Pay", "Promise to Pay Agreement"], other: ["Other", ""]
+    promise_to_pay: ["Promise to Pay", "Promise to Pay Agreement"], balance_certificate: ["Balance Certificate", "Account Balance Certificate"], other: ["Other", ""]
   };
   const TITLE = {
     suspension: "SUSPENSION ORDER", closure: "CLOSURE ORDER", reactivation: "REACTIVATION ORDER", reopen: "REOPENING ORDER", termination: "TERMINATION ORDER",
-    memo: "MEMORANDUM ORDER", unpaid: "UNPAID BALANCE ORDER", installment: "INSTALLMENT ORDER", unsettled_balance: "UNSETTLED BALANCE ORDER", promise_to_pay: "PROMISE TO PAY ORDER", other: "ORDER"
+    memo: "MEMORANDUM ORDER", unpaid: "UNPAID BALANCE ORDER", installment: "INSTALLMENT ORDER", unsettled_balance: "UNSETTLED BALANCE ORDER", promise_to_pay: "PROMISE TO PAY ORDER",
+    balance_certificate: "ACCOUNT BALANCE CERTIFICATE", other: "ORDER"
   };
   const AMOUNT_TYPES = ["unpaid", "installment", "unsettled_balance", "promise_to_pay"];
   // Who an order is for, who may request it, and which orders fit each status.
   const KINDS = {
     customer: { label: "Customer", write: () => E.canWrite("orders") || E.canWrite("customers"), subject: {},
-      types: (st) => st === "suspended" ? ["reactivation", "closure"] : st === "closed" ? ["reopen"] : ["suspension", "closure", "unpaid", "installment", "unsettled_balance", "promise_to_pay", "other"] },
+      types: (st) => st === "suspended" ? ["reactivation", "closure", "balance_certificate"] : st === "closed" ? ["reopen", "balance_certificate"]
+        : ["suspension", "closure", "unpaid", "installment", "unsettled_balance", "promise_to_pay", "balance_certificate", "other"] },
     employee: { label: "Employee", write: () => E.canWrite("employees"), subject: { suspension: "Suspension from Work", reactivation: "Return to Work" },
       types: (st) => st === "suspended" ? ["reactivation", "termination", "memo"] : st === "terminated" ? ["memo"] : st === "waiting" ? ["termination", "memo"] : ["suspension", "termination", "memo"] },
     company: { label: "Billing Company", write: () => E.canWrite("billing"), subject: { suspension: "Suspension of Payments", reactivation: "Reactivation of Payments", memo: "Notice" },
@@ -499,11 +501,30 @@
   const ORDER_LIST = "*, customers(first_name,last_name,account_no,status), employees(first_name,last_name,employee_no,status), pay_companies(name,status)";
   const ORDER_ALL = "*, customers(*), employees(*), pay_companies(*)";
   const dayOf = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const EVERY = { month: "Every month", "15 days": "Every 15 days", week: "Every week" };
+  const CLOSE_REASONS = ["Requested by the customer", "Unpaid balance", "Violation of terms", "Business closed", "Other"];
+  // Installment plan: due dates from the first due date, the last installment takes what is left after rounding.
+  const nextDue = (iso, every, i) => {
+    const d = new Date(iso + "T00:00:00");
+    if (every === "week" || every === "15 days") d.setDate(d.getDate() + (every === "week" ? 7 : 15) * i);
+    else { const day = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + i); d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); }
+    return dayOf(d);
+  };
+  function schedule(amount, n, first, every, each) {
+    if (!(amount > 0) || !(n >= 1) || !first) return [];
+    const per = each > 0 ? each : Math.round((amount / n) * 100) / 100;
+    let left = amount;
+    return Array.from({ length: n }, (_, i) => {
+      const amt = i === n - 1 ? Math.round(left * 100) / 100 : Math.min(per, left);
+      left = Math.round((left - amt) * 100) / 100;
+      return { no: i + 1, date: nextDue(first, every, i), amount: amt, left };
+    });
+  }
   const ORDER_COLS = [
     { label: "Order No", get: (r) => r.order_no }, { label: "Date", get: (r) => dmy(r.order_date) },
     { label: "For", get: (r) => `${KINDS[kindOf(r)].label}: ${forName(r) || "—"}` },
     { label: "Type", get: (r) => SUBJ[r.subject_type]?.[0] || r.subject_type }, { label: "Subject", get: (r) => r.subject },
-    { label: "Amount (₱)", num: true, get: (r) => (r.amount != null ? peso(r.amount) : "") }, { label: "Status", html: (r) => pill(r.status) }
+    { label: "Amount (₱)", num: true, get: (r) => (r.amount != null ? peso(r.amount) : r.subject_type === "balance_certificate" && r.balance_due != null ? peso(r.balance_due) : "") }, { label: "Status", html: (r) => pill(r.status) }
   ];
   const canOrder = () => Object.values(KINDS).some((k) => k.write());
   V.orders = async () => {
@@ -517,7 +538,7 @@
       let q = sb.from("order_letters").select(ORDER_LIST).order("created_at", { ascending: false }).limit(1000);
       if (f === "applied") q = q.in("status", ["approved", "applied"]); else if (f) q = q.eq("status", f);
       const { data, error } = await q;
-      if (error) return fail(error, "Could not load orders (run the 1.2 database update)");
+      if (error) return fail(error, "Could not load orders (run the 1.3 database update)");
       const rows = data || [];
       $("#olRes").innerHTML = E.grid({ cols: ORDER_COLS, rows, onRow: true, empty: "No orders here." });
       E.bindGrid($("#olRes"), rows, (r) => (location.hash = "order/" + r.id));
@@ -529,8 +550,10 @@
   // Orders shown on a customer, employee or company page.
   const ordersGrid = (rows, empty) => E.grid({ cols: ORDER_COLS.filter((c) => c.label !== "For"), rows, onRow: true, empty });
 
-  function defaultDetails(kind, t, w, amt, n, inst, due, dt) {
-    const when = E.dLong(dt || isoToday());
+  // Ready-made wording for each kind of order (the request form fills it in; it can be changed).
+  // d: { name, acct, bal, days, amt, n, each, every, due, date, reason }
+  function defaultDetails(kind, t, w, d) {
+    const when = E.dLong(d.date || isoToday());
     if (kind === "employee") return {
       suspension: `This is to inform you that you are SUSPENDED from work effective ${when}. Your portal login is closed until you are reactivated by an approved order.`,
       reactivation: `This is to inform you that your suspension is lifted and you are REACTIVATED effective ${when}. Your portal login is open again and you may return to work.`,
@@ -543,17 +566,19 @@
         reactivation: `Please be informed that payments to ${name} are REACTIVATED effective ${when}.`
       }[t] || "";
     }
-    const acct = w ? `${w.account_no} (${fullName(w)})` : "[account]";
-    const dueTxt = due ? E.dLong(due) : "[due date]", a = amt ? `PHP ${peso(amt)}` : "PHP [amount]";
+    const name = w ? fullName(w).toUpperCase() : "[customer]", acct = w ? w.account_no : "[account]";
+    const p = (n) => (n ? `PHP ${peso(n)}` : "PHP [amount]"), due = d.due ? E.dLong(d.due) : "[date]";
+    const late = d.days ? `, which is ${d.days} day(s) overdue` : "";
     return {
-      suspension: `We regret to inform you that your account ${acct} is SUSPENDED effective ${when}. New orders and invoices are on hold until the account is reactivated by an approved order.`,
-      closure: `Please be informed that your account ${acct} is CLOSED effective ${when}. No new invoices will be recorded on this account.`,
-      reactivation: `We are pleased to inform you that your account ${acct} is REACTIVATED effective ${when}. You may place orders again.`,
-      reopen: `We are pleased to inform you that your account ${acct} is REOPENED effective ${when}. You may place orders again.`,
-      unpaid: `Our records show an unpaid balance of ${a} on your account ${acct}. Please settle it on or before ${dueTxt}.`,
-      installment: `As agreed, the balance of ${a} on account ${acct} will be paid in ${n || "[number]"} installment(s) of PHP ${inst ? peso(inst) : "[amount]"} each, starting ${dueTxt}.`,
-      unsettled_balance: `Despite previous reminders, the balance of ${a} on account ${acct} remains unsettled. Please settle it within seven (7) days from receipt of this letter.`,
-      promise_to_pay: `The account holder of ${acct} promises to pay ${a} on or before ${dueTxt} to settle the outstanding balance.`
+      suspension: `We regret to inform you that your account ${acct} (${name}) is SUSPENDED effective ${when}. New orders and invoices are on hold until the account is reactivated by an approved order.`,
+      closure: `Please be informed that your account ${acct} (${name}) is CLOSED effective ${when}. Reason: ${d.reason || "[reason]"}. ${d.bal > 0 ? `The remaining balance of PHP ${peso(d.bal)} must still be settled.` : "The account has no remaining balance."} No new invoices will be recorded on this account.`,
+      reactivation: `We are pleased to inform you that your account ${acct} (${name}) is REACTIVATED effective ${when}. You may place orders again.`,
+      reopen: `We are pleased to inform you that your account ${acct} (${name}) is REOPENED effective ${when}. You may place orders again.`,
+      unpaid: `Our records show an unpaid balance of ${p(d.amt)} on your account ${acct}${late}. Please settle it on or before ${due}.`,
+      unsettled_balance: `Despite previous reminders, the balance of ${p(d.amt)} on account ${acct} remains unsettled${late}. Please settle it on or before ${due}.`,
+      promise_to_pay: `I, ${name}, holder of account ${acct}, acknowledge an outstanding balance of PHP ${peso(d.bal)} as of ${when}${late}. I promise to pay ${p(d.amt)} on or before ${due}. I understand that if I do not pay on this date, ${C.company.name} may suspend my account.`,
+      installment: `I, ${name}, holder of account ${acct}, agree to pay the balance of ${p(d.amt)} in ${d.n || "[number]"} installment(s) of ${p(d.each)} ${(EVERY[d.every] || EVERY.month).toLowerCase()}, starting ${due}, as shown in the installment schedule. I understand that if I miss a payment, ${C.company.name} may suspend my account.`,
+      balance_certificate: "This certificate is issued upon the request of the account holder for whatever purpose it may serve."
     }[t] || "";
   }
 
@@ -569,42 +594,79 @@
         <div class="summary-box"><div class="fields wide"><span>Order No</span><b>Assigned on save (ORDER-${new Date().getFullYear()}-###)</b><span>Prepared By</span><b>${esc(S.profile.full_name || "")}</b></div></div>
         <fieldset class="opt"><legend>Order For</legend>
           ${allowed.length > 1 ? `<div class="subj-grid" id="noKinds">${allowed.map((k) => `<label class="subj"><input type="radio" name="noKind" value="${k}" ${k === kind ? "checked" : ""}><span>${esc(KINDS[k].label)}</span></label>`).join("")}</div>` : ""}
-          <div id="noWho"></div></fieldset>
+          <div id="noWho"></div><div class="due-info" id="noDueInfo" hidden></div></fieldset>
         <fieldset class="opt"><legend>Order</legend><div class="subj-grid" id="noTypes"></div>
           <div class="fields wide" style="margin-top:8px"><label for="noSubj">Subject *</label><input type="text" id="noSubj">
             <label for="noDate">Order Date</label><input type="date" id="noDate" value="${isoToday()}"></div></fieldset>
-        <fieldset class="opt" id="noAmtBox" hidden><legend>Amount &amp; Terms</legend><div class="formgrid">
-          <div class="fields wide"><label for="noAmt">Amount (₱)</label><input type="number" id="noAmt" min="0" step="0.01"><label for="noDue">First Due Date</label><input type="date" id="noDue"></div>
-          <div class="fields wide noInst"><label for="noN">Number of Installments</label><input type="number" id="noN" min="1" step="1"><label for="noInst">Installment Amount (₱)</label><input type="number" id="noInst" min="0" step="0.01"></div></div></fieldset>
-        <fieldset class="opt"><legend>Letter</legend><div class="fields wide">
-          <label for="noDetails">Details *</label><textarea id="noDetails" rows="5"></textarea>
+        <fieldset class="opt" id="noCloseBox" hidden><legend>Closure</legend><div class="fields wide">
+          <label for="noReason">Reason for Closure *</label><select id="noReason"><option value="">— Choose the reason —</option>${CLOSE_REASONS.map((r) => `<option>${esc(r)}</option>`).join("")}</select>
+          <label for="noReason2" class="noOther">Other Reason *</label><input type="text" id="noReason2" class="noOther" placeholder="Write the reason"></div></fieldset>
+        <fieldset class="opt" id="noAmtBox" hidden><legend id="noAmtLeg">Amount &amp; Terms</legend><div class="formgrid">
+          <div class="fields wide"><label for="noAmt" id="noAmtL">Amount (₱)</label><input type="number" id="noAmt" min="0" step="0.01"><label for="noDue" id="noDueL">Due Date</label><input type="date" id="noDue"></div>
+          <div class="fields wide noInst"><label for="noN">Number of Installments</label><input type="number" id="noN" min="1" step="1">
+            <label for="noEvery">Pay</label><select id="noEvery">${Object.entries(EVERY).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join("")}</select>
+            <label for="noInst">Installment Amount (₱)</label><input type="number" id="noInst" min="0" step="0.01"></div></div>
+          <div id="noSched"></div></fieldset>
+        <fieldset class="opt"><legend id="noLetterLeg">Letter</legend><div class="fields wide">
+          <label for="noDetails" id="noDetailsL">Details *</label><textarea id="noDetails" rows="5"></textarea>
           <label for="noRes">Resolution / Terms</label><textarea id="noRes" rows="3" placeholder="Optional: conditions, what must be done"></textarea></div></fieldset>
       </div><div class="wfoot"><button type="button" class="btn" id="noCancel">Cancel</button><button type="submit" class="btn primary" id="noSubmit">${isAdmin() ? "Approve &amp; Carry Out" : "Send for Approval"}</button></div></form>`,
-      "Choose who the order is for. The CEO approves it and it is carried out at once.");
-    let who = null, dirty = false;
+      "Choose who the order is for and the kind of order: the details are filled in for you. The CEO approves it and it is carried out at once.");
+    let who = null, due = null, dirty = false;
+    const touched = new Set();
     const types = () => KINDS[kind].types(who?.status);
     const type = () => $("input[name=noType]:checked")?.value || types()[0];
+    const bal = () => num(due?.balance_due);
+    const reason = () => ($("#noReason").value === "Other" ? $("#noReason2").value.trim() : $("#noReason").value);
+    const plusDays = (n) => { const x = new Date(); x.setDate(x.getDate() + n); return dayOf(x); };
+    // Amount, due date and wording for the chosen kind of order.
     const refresh = () => {
-      const t = type();
-      $("#noAmtBox").hidden = !(kind === "customer" && AMOUNT_TYPES.includes(t));
+      const t = type(), cust = kind === "customer";
+      const amtOn = cust && AMOUNT_TYPES.includes(t);
+      $("#noAmtBox").hidden = !amtOn;
+      $("#noCloseBox").hidden = !(cust && t === "closure");
+      $$(".noOther").forEach((x) => (x.hidden = $("#noReason").value !== "Other"));
       $$(".noInst").forEach((x) => (x.hidden = t !== "installment"));
-      const n = num($("#noN").value), amt = num($("#noAmt").value);
-      if (t === "installment" && n > 0 && amt > 0 && !$("#noInst").dataset.touched) $("#noInst").value = (Math.round((amt / n) * 100) / 100).toFixed(2);
-      if (!dirty) $("#noDetails").value = defaultDetails(kind, t, who, amt, n, num($("#noInst").value), $("#noDue").value, $("#noDate").value);
+      const L = { promise_to_pay: ["Promise to Pay", "Amount the Customer Will Pay (₱)", "Promise Date (Due Date)"], installment: ["Installment Plan", "Total Amount (₱)", "First Due Date"],
+        unpaid: ["Amount Due", "Amount Due (₱)", "Pay On or Before"], unsettled_balance: ["Amount Due", "Amount Due (₱)", "Settle On or Before"] }[t];
+      if (L) { $("#noAmtLeg").textContent = L[0]; $("#noAmtL").textContent = L[1]; $("#noDueL").textContent = L[2]; }
+      if (amtOn && !touched.has("noAmt")) $("#noAmt").value = bal() > 0 ? bal().toFixed(2) : "";
+      if (amtOn && !touched.has("noDue")) $("#noDue").value = plusDays(t === "installment" ? 30 : 7);
+      const amt = num($("#noAmt").value), n = Math.floor(num($("#noN").value)), every = $("#noEvery").value;
+      if (t === "installment" && n > 0 && amt > 0 && !touched.has("noInst")) $("#noInst").value = (Math.round((amt / n) * 100) / 100).toFixed(2);
+      const each = num($("#noInst").value);
+      const rows = t === "installment" ? schedule(amt, n, $("#noDue").value, every, each) : [];
+      $("#noSched").innerHTML = rows.length ? `<div class="sched-h">Installment Schedule</div>${E.grid({ cols: [{ label: "No.", get: (r) => r.no }, { label: "Due Date", get: (r) => dmy(r.date) }, { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) }, { label: "Balance After (₱)", num: true, get: (r) => peso(r.left) }], rows })}` : "";
+      $("#noLetterLeg").textContent = t === "balance_certificate" ? "Certificate" : "Letter";
+      $("#noDetailsL").textContent = t === "balance_certificate" ? "Purpose *" : "Details *";
+      if (!dirty) $("#noDetails").value = defaultDetails(kind, t, who, { bal: bal(), days: num(due?.days_overdue), amt, n, each, every, due: $("#noDue").value, date: $("#noDate").value, reason: reason() });
     };
     const showTypes = () => {
       $("#noTypes").innerHTML = types().map((k, i) => `<label class="subj"><input type="radio" name="noType" value="${k}" ${i ? "" : "checked"}><span>${esc(SUBJ[k][0])}</span></label>`).join("");
-      const pick = () => { $("#noSubj").value = KINDS[kind].subject[type()] || SUBJ[type()][1]; refresh(); };
+      const pick = () => { $("#noSubj").value = KINDS[kind].subject[type()] || SUBJ[type()][1]; touched.clear(); dirty = false; refresh(); };
       $$("input[name=noType]").forEach((r) => (r.onchange = pick));
       pick();
     };
+    // A customer's amount due today and days overdue, shown above the order and used in its wording.
+    const loadDue = async () => {
+      const box = $("#noDueInfo");
+      due = null; box.hidden = true;
+      if (kind !== "customer" || !who) return;
+      const { data } = await sb.rpc("account_due", { p_customer: who.id });
+      due = data || null;
+      if (!due) return;
+      box.hidden = false;
+      box.innerHTML = `Amount due today: <b>₱ ${peso(due.balance_due)}</b>${num(due.days_overdue) > 0 ? ` · <b>${due.days_overdue}</b> day(s) overdue (oldest unpaid invoice ${esc(due.oldest_invoice_no || "")} of ${dmy(due.oldest_invoice_date)})` : num(due.balance_due) > 0 ? "" : " · nothing overdue"}`;
+      refresh();
+    };
     // The customer, employee or company the order is for.
     const showWho = async (id) => {
-      who = null; dirty = false;
+      who = null; due = null; dirty = false;
+      $("#noDueInfo").hidden = true;
       const box = $("#noWho");
       if (kind === "customer") {
         box.innerHTML = "";
-        E.customerPicker(box, { statuses: ["active", "suspended", "closed"], onPick: (c) => { who = c; dirty = false; showTypes(); }, preset: (id && (await E.getCustomer(id))) || undefined });
+        E.customerPicker(box, { statuses: ["active", "suspended", "closed"], onPick: (c) => { who = c; dirty = false; showTypes(); loadDue(); }, preset: (id && (await E.getCustomer(id))) || undefined });
       } else {
         const emp = kind === "employee";
         box.innerHTML = busy();
@@ -620,26 +682,32 @@
       showTypes();
     };
     $$("input[name=noKind]").forEach((r) => (r.onchange = () => { kind = r.value; showWho(null); }));
-    ["noAmt", "noN", "noDue", "noDate"].forEach((id) => ($("#" + id).oninput = refresh));
-    $("#noInst").oninput = () => { $("#noInst").dataset.touched = "1"; refresh(); };
+    ["noAmt", "noN", "noDue", "noInst"].forEach((id) => ($("#" + id).oninput = () => { touched.add(id); refresh(); }));
+    ["noDate", "noEvery", "noReason", "noReason2"].forEach((id) => ($("#" + id).oninput = refresh));
+    $("#noReason").onchange = refresh;
     $("#noDetails").oninput = () => (dirty = true);
     $("#noCancel").onclick = () => history.back();
     await showWho(presetId);
     $("#noForm").onsubmit = async (e) => {
       e.preventDefault();
-      const t = type();
+      const t = type(), cust = kind === "customer";
       if (!who) return toast(`Choose the ${KINDS[kind].label.toLowerCase()}.`, true);
       if (!types().includes(t)) return toast(`This ${KINDS[kind].label.toLowerCase()} is ${String(who.status).toUpperCase()} — choose one of the orders shown.`, true);
       if (!$("#noSubj").value.trim()) return toast("Enter the subject.", true);
-      if (!$("#noDetails").value.trim()) return toast("Write the details of the order.", true);
+      if (cust && t === "closure" && !reason()) return toast("Choose the reason for closing the account.", true);
+      const amtOn = cust && AMOUNT_TYPES.includes(t), amt = num($("#noAmt").value), n = Math.floor(num($("#noN").value));
+      if (amtOn && amt <= 0) return toast("Enter the amount.", true);
+      if (["promise_to_pay", "installment"].includes(t) && !$("#noDue").value) return toast("Enter the date.", true);
+      if (t === "installment" && n < 1) return toast("Enter the number of installments.", true);
+      if (!$("#noDetails").value.trim()) return toast(t === "balance_certificate" ? "Write the purpose of the certificate." : "Write the details of the order.", true);
       E.setBusy(e.target, true, "Submitting");
-      const amtOn = kind === "customer" && AMOUNT_TYPES.includes(t);
       const { data, error } = await sb.from("order_letters").insert({
         [kind === "employee" ? "employee_id" : kind === "company" ? "company_id" : "customer_id"]: who.id,
         order_date: $("#noDate").value || isoToday(), subject_type: t, subject: $("#noSubj").value.trim(),
         details: $("#noDetails").value.trim(), resolution: $("#noRes").value.trim() || null,
-        amount: amtOn && $("#noAmt").value ? num($("#noAmt").value) : null, first_due_date: amtOn ? $("#noDue").value || null : null,
-        installments: t === "installment" && $("#noN").value ? Math.floor(num($("#noN").value)) : null, installment_amount: t === "installment" && $("#noInst").value ? num($("#noInst").value) : null
+        amount: amtOn ? amt : null, first_due_date: amtOn ? $("#noDue").value || null : null,
+        installments: t === "installment" ? n : null, installment_amount: t === "installment" && $("#noInst").value ? num($("#noInst").value) : null,
+        installment_every: t === "installment" ? $("#noEvery").value : null, closure_reason: cust && t === "closure" ? reason() : null
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the order"); }
       // The CEO's own order is approved and carried out at once.
@@ -653,20 +721,34 @@
   };
 
   // The printed order, laid out like an official order: details of the order, the customer / employee /
-  // company information, the order itself with the decision, then APPROVED / DISAPPROVED with the date signed
-  // and one line for the authorized representative.
+  // company information, the order itself with what it is about (amount due, promise, installment schedule,
+  // reason for closing) and the decision, then APPROVED / DISAPPROVED with the date signed and one line for
+  // the authorized representative. A balance certificate has its own layout.
   function letterPage(o) {
+    if (o.subject_type === "balance_certificate") return certificatePage(o);
     const kind = kindOf(o);
     const w = (kind === "employee" ? o.employees : kind === "company" ? o.pay_companies : o.customers) || {};
     const v = (x) => (x == null || x === "" ? "—" : esc(x));
     const tr = (k, html) => `<tr><th>${esc(k)}</th><td>${html}</td></tr>`;
+    const php = (n) => `PHP ${peso(n)}`;
     const contact = [w.phone, w.email].filter(Boolean).join(" · ");
     const info = kind === "employee" ? [["Name of Employee", fullName(w)], ["Employee No", w.employee_no], ["Position", w.position], ["Date Hired", w.date_hired ? E.dLong(w.date_hired) : ""], ["Contact Details", contact], ["Address", w.address]]
-      : kind === "company" ? [["Name of Company", w.name], ["Country", w.country], ["Contact Details", w.contact]]
+      : kind === "company" ? [["Name of Company", w.name], ["Contact Person", w.contact_person], ["Address", w.address || w.country], ["Contact Details", w.contact]]
       : [["Name of Customer", fullName(w)], ["Account No", w.account_no], ["Business Name", w.business_name], ["Address", w.address], ["Contact Details", contact]];
     const approved = ["approved", "applied"].includes(o.status), rejected = o.status === "rejected";
     const signed = (approved || rejected) && o.approved_at ? E.dLong(dayOf(o.approved_at)) : "";
-    return `${E.printHead(TITLE[o.subject_type] || "ORDER", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
+    const overdue = o.days_overdue != null ? tr("No. of Days Overdue", `${o.days_overdue} day(s)`) : "";
+    const t = o.subject_type;
+    // What the order is about, by kind of order.
+    const about = t === "promise_to_pay" ? `${o.balance_due != null ? tr("Amount Due Today", php(o.balance_due)) : ""}${overdue}
+        ${o.amount != null ? tr("Amount to Pay", `<b>${php(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`) : ""}${o.first_due_date ? tr("Promise Date (Due Date)", `<b>${v(E.dLong(o.first_due_date))}</b>`) : ""}`
+      : t === "installment" ? `${o.balance_due != null ? tr("Amount Due Today", php(o.balance_due)) : ""}${o.amount != null ? tr("Total Amount", `<b>${php(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`) : ""}
+        ${o.installments ? tr("Installments", `${o.installments} × ${php(o.installment_amount)}, ${esc((EVERY[o.installment_every] || EVERY.month).toLowerCase())}`) : ""}${o.first_due_date ? tr("First Due Date", v(E.dLong(o.first_due_date))) : ""}`
+      : ["unpaid", "unsettled_balance"].includes(t) ? `${o.amount != null ? tr("Amount Due", `<b>${php(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`) : ""}${overdue}${o.first_due_date ? tr("Pay On or Before", `<b>${v(E.dLong(o.first_due_date))}</b>`) : ""}`
+      : t === "closure" && kind === "customer" ? `${tr("Reason for Closure", `<b>${v(o.closure_reason)}</b>`)}${o.balance_due != null ? tr("Closing Balance", php(o.balance_due)) : ""}`
+      : o.amount != null ? tr("Amount", `PHP ${peso(o.amount)} <small>(${esc(words(o.amount))})</small>`) : "";
+    const plan = t === "installment" ? schedule(num(o.amount), num(o.installments), o.first_due_date, o.installment_every, num(o.installment_amount)) : [];
+    return `${E.printHead(TITLE[t] || "ORDER", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
       <div class="ol-sec">DETAILS OF ORDER</div>
       <table class="ol-kv"><tbody>${tr("Type of Order", v(o.subject))}${tr("Order For", v(KINDS[kind].label))}
         ${tr("Place of Issue", v(`${C.company.name} Main Office, ${C.company.address.join(", ")}`))}${tr("Order Date", v(E.dLong(o.order_date)))}${tr("Order No", `<b>${v(o.order_no)}</b>`)}</tbody></table>
@@ -675,19 +757,46 @@
       <table class="ol-grid"><tbody>${info.map(([k, x]) => tr(k, v(x))).join("")}</tbody></table>
       <div class="ol-sec">ORDER</div>
       <table class="ol-grid"><tbody>
-        ${tr("Subject", `<b>${v((o.subject || "").toUpperCase())}</b>`)}${tr("Details", o.details ? esc(o.details).replace(/\n/g, "<br>") : "—")}
-        ${o.amount != null ? tr("Amount", `PHP ${peso(o.amount)} <small>(${esc(words(o.amount))})</small>`) : ""}
-        ${o.installments ? tr("Installments", `${o.installments} × PHP ${peso(o.installment_amount)}`) : ""}
-        ${o.first_due_date ? tr(o.installments ? "First Due Date" : "Due Date", v(E.dLong(o.first_due_date))) : ""}
+        ${tr("Subject", `<b>${v((o.subject || "").toUpperCase())}</b>`)}${about}
+        ${tr(t === "promise_to_pay" || t === "installment" ? "Agreement" : "Details", o.details ? esc(o.details).replace(/\n/g, "<br>") : "—")}
         ${o.resolution ? tr("Resolution / Terms", esc(o.resolution).replace(/\n/g, "<br>")) : ""}
         ${tr("Effective Date", approved && o.approved_at ? v(signed) : "On approval")}
         <tr class="ol-dec"><th>DECISION</th><td>${approved ? "APPROVED" : rejected ? "DISAPPROVED" : "WAITING FOR APPROVAL"}</td></tr></tbody></table>
+      ${plan.length ? `<div class="ol-sec">INSTALLMENT SCHEDULE</div>
+        <table class="ol-grid ol-sched"><thead><tr><th>No.</th><th>Due Date</th><th>Amount (PHP)</th><th>Balance After (PHP)</th></tr></thead>
+        <tbody>${plan.map((r) => `<tr><td>${r.no}</td><td>${esc(E.dLong(r.date))}</td><td class="num">${peso(r.amount)}</td><td class="num">${peso(r.left)}</td></tr>`).join("")}</tbody></table>` : ""}
       <div class="ol-sign">
         <div class="ol-ad"><span class="${approved ? "on" : ""}">APPROVED</span> / <span class="${rejected ? "on" : ""}">DISAPPROVED</span>
           <div>Date Signed: <span class="ol-date">${signed ? esc(signed) : "&nbsp;"}</span></div></div>
         <div class="ol-auth"><div class="ol-auth-name">${approved ? esc(o.approved_by_name || "") : "&nbsp;"}</div><div class="line"></div>Authorized Representative</div>
       </div>
       <div class="rp-foot"><span>Scan the barcode in the ${esc(E.APP)} to verify this order.</span><span>${esc(o.order_no)}</span></div>`;
+  }
+  // Account Balance Certificate: the customer's amount due as of the date, the account details and one line
+  // for the authorized representative.
+  function certificatePage(o) {
+    const c = o.customers || {};
+    const v = (x) => (x == null || x === "" ? "—" : esc(x));
+    const tr = (k, html) => `<tr><th>${esc(k)}</th><td>${html}</td></tr>`;
+    const approved = ["approved", "applied"].includes(o.status);
+    const issued = approved && o.approved_at ? E.dLong(dayOf(o.approved_at)) : "";
+    const asOf = E.dLong(o.order_date), bal = num(o.balance_due);
+    return `${E.printHead("ACCOUNT BALANCE CERTIFICATE", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
+      <div class="cert-no"><span>Certificate No: <b>${esc(o.order_no)}</b></span><span>Date Issued: <b>${issued ? esc(issued) : "—"}</b></span></div>
+      <p class="cert-to">TO WHOM IT MAY CONCERN:</p>
+      <p class="cert-body">This is to certify that <b>${esc(fullName(c).toUpperCase())}</b>, holder of account <b>${esc(c.account_no || "")}</b> with ${esc(C.company.name)}${c.application_date ? ` since ${esc(E.dLong(c.application_date))}` : ""},
+        ${bal > 0 ? `has an outstanding balance of <b>PHP ${peso(bal)}</b> (${esc(words(bal))}) as of ${esc(asOf)}.` : `has <b>no outstanding balance</b> as of ${esc(asOf)}.`}</p>
+      <div class="ol-sec">ACCOUNT DETAILS</div>
+      <table class="ol-grid"><tbody>${tr("Name of Customer", v(fullName(c)))}${tr("Account No", v(c.account_no))}${tr("Business Name", v(c.business_name))}${tr("Address", v(c.address))}
+        ${tr("Account Status", v(String(c.status || "").toUpperCase()))}${tr("Date Opened", v(c.application_date ? E.dLong(c.application_date) : ""))}</tbody></table>
+      <div class="ol-sec">BALANCE</div>
+      <table class="ol-grid"><tbody>${tr("Current Amount Due", `<b>PHP ${peso(bal)}</b>`)}${tr("Amount in Words", esc(words(bal)))}${tr("As Of", esc(asOf))}
+        ${bal > 0 ? tr("No. of Days Overdue", `${num(o.days_overdue)} day(s)`) : ""}</tbody></table>
+      <p class="cert-body">${esc(o.details || "")}</p>
+      <p class="cert-body">Issued${issued ? ` on ${esc(issued)}` : ""} at ${esc(C.company.name)} Main Office, ${esc(C.company.address.join(", "))}.</p>
+      ${approved ? "" : `<div class="cert-wait">NOT VALID UNTIL APPROVED</div>`}
+      <div class="ol-sign one"><div class="ol-auth"><div class="ol-auth-name">${approved ? esc(o.approved_by_name || "") : "&nbsp;"}</div><div class="line"></div>Authorized Representative</div></div>
+      <div class="rp-foot"><span>Scan the barcode in the ${esc(E.APP)} to verify this certificate.</span><span>${esc(o.order_no)}</span></div>`;
   }
   // Print an order by its id (used from My Profile).
   async function printOrder(id) {
@@ -719,11 +828,13 @@
           <span>${esc(KINDS[kind].label)}</span><span>${whoHtml}</span>
           <span>Subject</span><b>${esc(o.subject)}</b><span>Order Date</span><span>${dmy(o.order_date)}</span>
           <span>Prepared By</span><span>${esc(o.created_by_name || "")}</span></div>
-          <div class="fields wide">${o.amount != null ? `<span>Amount</span><b>₱ ${peso(o.amount)}</b>` : ""}${o.installments ? `<span>Installments</span><span>${o.installments} × ₱ ${peso(o.installment_amount)}</span>` : ""}${o.first_due_date ? `<span>Due Date</span><span>${dmy(o.first_due_date)}</span>` : ""}</div></div>
+          <div class="fields wide">${o.balance_due != null ? `<span>Amount Due</span><span>₱ ${peso(o.balance_due)}${o.days_overdue ? ` · ${o.days_overdue} day(s) overdue` : ""}</span>` : ""}
+            ${o.closure_reason ? `<span>Reason for Closure</span><b>${esc(o.closure_reason)}</b>` : ""}${o.amount != null ? `<span>${o.subject_type === "promise_to_pay" ? "Amount to Pay" : "Amount"}</span><b>₱ ${peso(o.amount)}</b>` : ""}
+            ${o.installments ? `<span>Installments</span><span>${o.installments} × ₱ ${peso(o.installment_amount)}, ${esc((EVERY[o.installment_every] || EVERY.month).toLowerCase())}</span>` : ""}${o.first_due_date ? `<span>${o.subject_type === "installment" ? "First Due Date" : "Due Date"}</span><span>${dmy(o.first_due_date)}</span>` : ""}</div></div>
         <div class="letter-box"><div class="lb-h">Details</div><p>${esc(o.details || "").replace(/\n/g, "<br>")}</p>${o.resolution ? `<div class="lb-h">Resolution / Terms</div><p>${esc(o.resolution).replace(/\n/g, "<br>")}</p>` : ""}</div>
-        <div class="docgrid">${E.docCard({ key: "ol", title: `Order ${o.order_no}`, sub: "Print it, have it signed, then upload the signed copy", ownerType: "order_letter", ownerId: o.id, att, print: () => E.openPreview(`Order ${o.order_no}`, [letterPage(o)]) })}</div>
+        <div class="docgrid">${E.docCard({ key: "ol", title: `${o.subject_type === "balance_certificate" ? "Account Balance Certificate" : "Order"} ${o.order_no}`, sub: "Print it, have it signed, then upload the signed copy", ownerType: "order_letter", ownerId: o.id, att, print: () => E.openPreview(`Order ${o.order_no}`, [letterPage(o)]) })}</div>
         ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>CEO Approval</legend><div class="fields wide"><label for="olNote">Note</label><input type="text" id="olNote" placeholder="Optional"></div>
-          <div class="btnrow"><button type="button" class="btn ok" id="olApprove">${ic("check")} Approve &amp; Carry Out</button><button type="button" class="btn danger" id="olReject">Reject</button></div></fieldset>` : ""}
+          <div class="btnrow"><button type="button" class="btn ok" id="olApprove">${ic("check")} ${o.subject_type === "balance_certificate" ? "Approve &amp; Issue" : "Approve &amp; Carry Out"}</button><button type="button" class="btn danger" id="olReject">Reject</button></div></fieldset>` : ""}
         ${rhBox("order_letters", o.id)}
       </div><div class="wfoot">${recordTools("order_letters", o, `Order ${o.order_no}`, { reload: () => V.order(id), afterDelete: () => (location.hash = closeTo) })}<a class="btn" href="#${closeTo}">Close</a></div></div>`;
     E.bindDocCards($("#main"), () => V.order(id));
@@ -787,8 +898,8 @@
       // Anyone can verify and view; only employees signed in to the portal get the Validated Print.
       out.innerHTML = `<div class="vf-ok">
         <div class="vf-seal">${ic("check")}</div>
-        <div class="vf-title">TRUE RECORD</div>
-        <div class="vf-sub">VERIFIED BY ${esc(E.APP)}</div>
+        <div class="vf-title">RECORD FOUND</div>
+        <div class="vf-sub">VERIFIED BY ${esc(C.company.name)}</div>
         <div class="vf-type">${esc(data.type)} · <b class="mono">${esc(data.number)}</b> ${data.status ? pill(data.status) : ""}</div>
         <table class="vf-fields"><tbody>${(data.fields || []).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v ?? "")}</td></tr>`).join("")}</tbody></table>
         <div class="vf-when">Checked ${esc(E.dateTime(checked.toISOString()))}</div>
@@ -811,22 +922,29 @@
     };
     if (code) run(code); else $("#vfCode").focus();
   };
-  // Validated Print (A4): company head, "VERIFIED RECORD BY …", the TRUE RECORD seal, the record's details, then the
-  // validation number, time, the employee who printed it and a QR code to check it online. System-generated: no signature.
+  // Validated Print (A4), typewriter style: "VERIFIED BY …", RECORD FOUND with the search result, the record's details
+  // (a customer's Base64 Public ID decoded underneath), then the validation number, time, the employee who printed it
+  // and a QR code to check it online. System-generated: no signature.
   function validatedPrint(d, when) {
     const vno = "V" + when.toISOString().replace(/\D/g, "").slice(2, 14);
     const at = E.dateTime(when.toISOString());
     // Stored codes in plain words (cash → Cash); empty values are left out.
     const plain = (v) => /^[a-z][a-z ]*$/.test(String(v)) ? String(v).replace(/\b[a-z]/g, (x) => x.toUpperCase()) : String(v);
-    const fields = (d.fields || []).filter(([, v]) => v != null && !["", "—", "-"].includes(String(v).trim()) && String(v) !== String(d.number));
+    const fields = (d.fields || []).filter(([, v]) => v != null && !["", "—", "-"].includes(String(v).trim()));
+    const idField = fields.find(([, v]) => String(v) === String(d.number));
+    const idLabel = d.type === "Customer Account" ? "Customer ID" : idField ? idField[0] : "Record No";
+    const who = fields.find(([k]) => ["Account Name", "Customer", "Received From", "Employee", "Name", "Applicant", "Paid To", "Account", "Company"].includes(k));
+    const rest = fields.filter((f) => f !== idField);
+    const decoded = (v) => { try { const t = new TextDecoder().decode(Uint8Array.from(atob(v), (ch) => ch.charCodeAt(0))); return t.includes("|") ? t.replace("|", " · ") : ""; } catch (_) { return ""; } };
     const row = (k, v) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`;
-    const page = `${E.printHead(`VERIFIED RECORD BY ${C.company.name}`)}
-      <div class="vp-true"><span class="vp-seal">✔</span><div><b>TRUE RECORD</b><small>Checked in the ${esc(E.APP)} on ${esc(at)}</small></div></div>
-      ${E.box("Record Details", `<table class="vp-fields"><tbody>${row("Record Type", d.type)}${row("Record No", d.number)}
-        ${fields.map(([k, v]) => row(k, plain(v))).join("")}${d.status ? row("Status", String(d.status).toUpperCase()) : ""}</tbody></table>`)}
+    const rows = rest.map(([k, v]) => k === "Public ID" ? row("Public ID (Base64)", v) + (decoded(v) ? row("Decoded", decoded(v)) : "") : row(k, plain(v))).join("");
+    const page = `<div class="vp">${E.printHead(`VERIFIED BY ${C.company.name}`)}
+      <div class="vp-true"><span class="vp-seal">✔</span><div><b>RECORD FOUND</b><small>Search result: ${esc(d.number)}${who ? " · " + esc(who[1]) : ""}</small><small>Checked in the ${esc(E.APP)} on ${esc(at)}</small></div></div>
+      ${E.box("Record Details", `<table class="vp-fields"><tbody>${row("Record Type", d.type)}${row(idLabel, d.number)}${rows}
+        ${d.status && !rest.some(([k]) => /status/i.test(k)) ? row("Status", String(d.status).toUpperCase()) : ""}</tbody></table>`)}
       ${E.box("Validation", `<div class="vp-valid"><table class="vp-fields"><tbody>${row("Validation No", vno)}${row("Validated On", at)}${row("Validated By", S.profile?.full_name || "")}</tbody></table>
         <div class="vp-qr"><img src="${E.qrDataUrl(verifyUrl(d.number))}" alt="Verification QR code"><small>Scan to verify online</small></div></div>`)}
-      <div class="vp-sys">This is a system-generated document. No signature is required.</div>`;
+      <div class="vp-sys">This is a system-generated document. No signature is required.</div></div>`;
     E.openPreview(`Validated ${d.number}`, [page]);
   }
 
