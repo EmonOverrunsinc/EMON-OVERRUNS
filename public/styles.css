@@ -169,7 +169,7 @@ table.grid tfoot td { background: var(--grid-head); font-weight: bold; border-to
 /* ---------- Dialog-like edit window ---------- */
 .window { background: var(--panel); border: 1px solid var(--chrome-line); max-width: 920px; }
 .window .wtitle { padding: 5px 10px; color: #fff; font-weight: bold; background: linear-gradient(var(--title-1), var(--title-2)); }
-.window .wbody { padding: 10px; display: grid; gap: 10px; }
+.window .wbody { padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .window .wfoot { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--panel-line); flex-wrap: wrap; }
 .formgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 6px 20px; }
 .summary-box { background: #b9dfe6; border: 1px solid #7fb6c2; padding: 6px 10px; font-variant-numeric: tabular-nums; }
@@ -1057,6 +1057,20 @@ table.rp.v-amt { margin: 6px 0; }
 .me-main h2 { margin: 0; font: bold 22px var(--font-report); }
 .me-sub { margin: 2px 0 8px; color: var(--ink-soft); }
 .btn.small { padding: 2px 10px; font-size: 12px; }
+
+/* ---------- Records are only added: cancelled records, corrections ---------- */
+.pill.cancelled, .pill.void { color: #fff; border-color: #6f6f6f; background: #6f6f6f; }
+table.grid tr.voided td { color: #8a8a8a; background-image: repeating-linear-gradient(-45deg, transparent 0 8px, rgba(0,0,0,.03) 8px 16px); }
+table.grid tr.voided td.num { text-decoration: line-through; }
+.void-print { margin: 6px 0; padding: 5px 8px; border: 2px solid var(--bad); color: var(--bad); font-weight: bold; letter-spacing: .06em; text-align: center; text-transform: uppercase; }
+.rhist { margin-top: 10px; }
+.cr-kind { padding: 0 6px; border-radius: 3px; background: #1f5fbf; color: #fff; font-size: 11px; font-weight: bold; letter-spacing: .05em; }
+.cr-card.k-cancel .cr-kind { background: var(--bad); }
+.cr-cancel { margin: 6px 0; padding: 6px 8px; border-radius: 8px; background: #fdecea; color: var(--bad); }
+.vf-ok.vf-void { background: linear-gradient(160deg, #f4f4f4, #fff); border-color: #6f6f6f; box-shadow: 0 12px 30px rgba(0,0,0,.12); }
+.vf-void .vf-seal { background: #6f6f6f; box-shadow: 0 0 0 7px #e2e2e2; }
+.vf-void .vf-title { color: #555; }
+.vf-void .vf-sub { font-weight: normal; letter-spacing: 0; color: var(--ink); }
 
 @media (prefers-reduced-motion: reduce) {
   *:not(.spin) { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition: none !important; }

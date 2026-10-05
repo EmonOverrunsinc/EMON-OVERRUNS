@@ -567,7 +567,7 @@
   const canWrite = (m) => isAdmin() || (isStaff() && hasModule(m));
   const OTHER = [
     ["verify", "Verification", () => true],
-    ["changes", "Change Requests", () => true],
+    ["changes", "Corrections", () => true],
     ["logins", "User", () => isAdmin()],
     ["forms", "Download Forms", () => true]
   ];
@@ -803,7 +803,8 @@
   function grid({ cols, rows, onRow, foot, group, empty = "No records match these options." }) {
     if (!rows.length) return `<div class="grid-wrap"><div class="empty">${esc(empty)}</div></div>`;
     const head = cols.map((c) => `<th class="${c.num ? "num" : ""}" scope="col">${esc(c.label)}</th>`).join("");
-    const rowHtml = (r, i) => `<tr class="${onRow ? "click" : ""}" data-i="${i}">${cols.map((c) => `<td class="${c.num ? "num" : ""}">${c.html ? c.html(r) : esc(c.get(r))}</td>`).join("")}</tr>`;
+    // Cancelled records stay in every list, greyed out (they are left out of totals by each module).
+    const rowHtml = (r, i) => `<tr class="${onRow ? "click" : ""}${r && r.void_no ? " voided" : ""}" data-i="${i}">${cols.map((c) => `<td class="${c.num ? "num" : ""}">${c.html ? c.html(r) : esc(c.get(r))}</td>`).join("")}</tr>`;
     let bodyHtml = "";
     if (group) {
       const groups = new Map();

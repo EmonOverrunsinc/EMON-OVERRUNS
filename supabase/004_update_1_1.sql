@@ -1,7 +1,7 @@
 -- EMON OVERRUNS E-PORTAL — Update 1.1
 -- Usernames & presence, job positions and applications, employee termination and payslips,
 -- community (30-day posts), messages, order letters, billing v2 (PHP → BDT vouchers),
--- change requests with admin edit/delete, and public record verification.
+-- corrections and cancel records (saved records are never edited or deleted), and public record verification.
 -- Run once after 002 (and 003). Safe to run again.
 
 -- =====================================================================
@@ -19,6 +19,14 @@ language sql security definer set search_path = '' as $$
 $$;
 revoke execute on function public.notify_admins(text, text, text) from public, anon, authenticated;
 revoke execute on function public.notify_user(uuid, text, text, text) from public, anon, authenticated;
+
+-- Saved records are never edited or deleted (see "Records are only added" at the end of this script).
+-- Only the approval functions below may change a status or apply an approved correction; they call this first.
+create or replace function public.allow_record_change() returns void
+language sql set search_path = '' as $$
+  select set_config('eo.allow_change', 'on', true);
+$$;
+revoke execute on function public.allow_record_change() from public, anon, authenticated;
 
 -- =====================================================================
 -- Usernames, presence, sign-in by username
@@ -94,6 +102,7 @@ begin
   if e.id is null then raise exception 'Employee not found'; end if;
   if e.profile_id = auth.uid() then raise exception 'You cannot terminate your own account'; end if;
   if coalesce(trim(p_reason), '') = '' then raise exception 'Enter the reason for termination'; end if;
+  perform public.allow_record_change();
   update public.employees set status = 'terminated', termination_date = coalesce(p_date, current_date), termination_reason = p_reason
   where id = p_id returning * into e;
   perform public.notify_admins('Employee terminated: ' || e.first_name || ' ' || e.last_name, e.employee_no || ' — ' || p_reason, 'employee/' || e.id);
@@ -105,6 +114,7 @@ language plpgsql security definer set search_path = '' as $$
 declare e public.employees;
 begin
   if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  perform public.allow_record_change();
   update public.employees set status = case when profile_id is null then 'waiting' else 'active' end,
     termination_date = null, termination_reason = null
   where id = p_id returning * into e;
@@ -112,10 +122,31 @@ begin
   return e;
 end;
 $$;
+-- Portal access (role, menu access, login on/off) is set here; personal details change only by an approved correction.
+create or replace function public.set_employee_access(p_id uuid, p_role text, p_modules text[], p_status text default null) returns public.employees
+language plpgsql security definer set search_path = '' as $$
+declare e public.employees;
+begin
+  if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  if p_role not in ('admin','staff','viewer') then raise exception 'Choose a role'; end if;
+  select * into e from public.employees where id = p_id for update;
+  if e.id is null then raise exception 'Employee not found'; end if;
+  if e.profile_id = auth.uid() then raise exception 'You cannot change your own access'; end if;
+  if p_status is not null and (p_status not in ('active','inactive') or e.status not in ('active','inactive')) then
+    raise exception 'The login can only be switched between Active and Inactive';
+  end if;
+  perform public.allow_record_change();
+  update public.employees set role = p_role, modules = coalesce(p_modules, '{}'), status = coalesce(p_status, status)
+  where id = p_id returning * into e;
+  return e;
+end;
+$$;
 revoke execute on function public.terminate_employee(uuid, date, text) from public, anon;
 revoke execute on function public.rehire_employee(uuid) from public, anon;
+revoke execute on function public.set_employee_access(uuid, text, text[], text) from public, anon;
 grant execute on function public.terminate_employee(uuid, date, text) to authenticated;
 grant execute on function public.rehire_employee(uuid) to authenticated;
+grant execute on function public.set_employee_access(uuid, text, text[], text) to authenticated;
 
 -- New sign-ups: owner emails become admin; registered employees get their access; everyone else applies for a job.
 create or replace function public.handle_new_user() returns trigger
@@ -178,9 +209,21 @@ create trigger job_positions_bi before insert or update on public.job_positions
 alter table public.job_positions enable row level security;
 drop policy if exists "pos: read" on public.job_positions;
 drop policy if exists "pos: admin write" on public.job_positions;
+drop policy if exists "pos: admin insert" on public.job_positions;
 create policy "pos: read" on public.job_positions for select to authenticated using (true);
-create policy "pos: admin write" on public.job_positions for all to authenticated
-  using ((select public.is_admin())) with check ((select public.is_admin()));
+create policy "pos: admin insert" on public.job_positions for insert to authenticated with check ((select public.is_admin()));
+-- Positions are never edited or deleted; the admin opens or closes them for applications.
+create or replace function public.set_position_open(p_id uuid, p_open boolean) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  perform public.allow_record_change();
+  update public.job_positions set is_open = coalesce(p_open, false) where id = p_id;
+  if not found then raise exception 'Position not found'; end if;
+end;
+$$;
+revoke execute on function public.set_position_open(uuid, boolean) from public, anon;
+grant execute on function public.set_position_open(uuid, boolean) to authenticated;
 
 create table if not exists public.job_applications (
   id uuid primary key default gen_random_uuid(),
@@ -248,21 +291,9 @@ drop trigger if exists job_applications_bi on public.job_applications;
 create trigger job_applications_bi before insert on public.job_applications
   for each row execute function public.job_applications_before_insert();
 
--- Applicants may correct their own application while it is under review, but never its status.
-create or replace function public.job_applications_before_update() returns trigger
-language plpgsql security definer set search_path = '' as $$
-begin
-  if not public.is_admin() then
-    new.status := old.status; new.application_no := old.application_no; new.approval_no := old.approval_no;
-    new.approved_at := old.approved_at; new.approved_by_name := old.approved_by_name; new.review_note := old.review_note;
-    new.employee_id := old.employee_id; new.profile_id := old.profile_id; new.company_code := old.company_code;
-  end if;
-  return new;
-end;
-$$;
+-- A submitted application is never edited (earlier drafts of 1.1 let the applicant edit it).
 drop trigger if exists job_applications_bu on public.job_applications;
-create trigger job_applications_bu before update on public.job_applications
-  for each row execute function public.job_applications_before_update();
+drop function if exists public.job_applications_before_update();
 
 create or replace function public.job_applications_after_insert() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -284,10 +315,19 @@ create policy "ja: read" on public.job_applications for select to authenticated
   using (profile_id = (select auth.uid()) or (select public.is_admin()) or (select public.has_module('employees')));
 create policy "ja: insert" on public.job_applications for insert to authenticated
   with check (profile_id = (select auth.uid()) or (select public.is_admin()));
-create policy "ja: update" on public.job_applications for update to authenticated
-  using ((profile_id = (select auth.uid()) and status = 'submitted') or (select public.is_admin()))
-  with check ((profile_id = (select auth.uid()) and status = 'submitted') or (select public.is_admin()));
-create policy "ja: admin delete" on public.job_applications for delete to authenticated using ((select public.is_admin()));
+-- A submitted application is not edited; the applicant only adds the photo (once) right after submitting.
+create or replace function public.set_application_photo(p_id uuid, p_path text) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if coalesce(p_path, '') !~ ('^job_application/' || p_id::text || '/') then raise exception 'Invalid photo'; end if;
+  perform public.allow_record_change();
+  update public.job_applications set photo_path = p_path
+  where id = p_id and photo_path is null and status = 'submitted' and (profile_id = auth.uid() or public.is_admin());
+  if not found then raise exception 'The photo can only be added once, while the application is under review'; end if;
+end;
+$$;
+revoke execute on function public.set_application_photo(uuid, text) from public, anon;
+grant execute on function public.set_application_photo(uuid, text) to authenticated;
 
 -- Approve (creates or re-activates the employee with the chosen access) or reject.
 create or replace function public.review_job_application(p_id uuid, p_action text, p_role text default 'staff', p_modules text[] default '{}', p_note text default null)
@@ -305,6 +345,7 @@ begin
   if a.id is null then raise exception 'Job application not found'; end if;
   if a.status <> 'submitted' then raise exception 'This application is already %', upper(a.status); end if;
   me := (select full_name from public.profiles where id = auth.uid());
+  perform public.allow_record_change();
   if p_action = 'reject' then
     update public.job_applications set status = 'rejected', review_note = p_note, approved_by_name = me, approved_at = now() where id = p_id returning * into a;
     perform public.notify_user(a.profile_id, 'Job application ' || a.application_no || ' was not approved', coalesce(p_note, ''), 'dashboard');
@@ -366,10 +407,18 @@ create table if not exists public.payslips (
   method text,
   reference_no text,
   notes text,
+  void_no text,
+  voided_at timestamptz,
+  void_reason text,
+  voided_by_name text,
   created_by uuid references public.profiles(id) default auth.uid(),
   created_by_name text,
   created_at timestamptz not null default now()
 );
+alter table public.payslips add column if not exists void_no text;
+alter table public.payslips add column if not exists voided_at timestamptz;
+alter table public.payslips add column if not exists void_reason text;
+alter table public.payslips add column if not exists voided_by_name text;
 create index if not exists payslips_employee_idx on public.payslips(employee_id);
 create index if not exists payslips_created_by_idx on public.payslips(created_by);
 create or replace function public.payslips_before_insert() returns trigger
@@ -533,7 +582,7 @@ create table if not exists public.order_letters (
   installments integer,
   installment_amount numeric(14,2),
   first_due_date date,
-  status text not null default 'pending' check (status in ('pending','approved','rejected','applied')),
+  status text not null default 'pending',
   review_note text,
   approved_by uuid references public.profiles(id),
   approved_by_name text,
@@ -541,10 +590,20 @@ create table if not exists public.order_letters (
   applied_by_name text,
   applied_at timestamptz,
   applied_result text,
+  void_no text,
+  voided_at timestamptz,
+  void_reason text,
+  voided_by_name text,
   created_by uuid references public.profiles(id) default auth.uid(),
   created_by_name text,
   created_at timestamptz not null default now()
 );
+alter table public.order_letters add column if not exists void_no text;
+alter table public.order_letters add column if not exists voided_at timestamptz;
+alter table public.order_letters add column if not exists void_reason text;
+alter table public.order_letters add column if not exists voided_by_name text;
+alter table public.order_letters drop constraint if exists order_letters_status_check;
+alter table public.order_letters add constraint order_letters_status_check check (status in ('pending','approved','rejected','applied','cancelled'));
 create index if not exists order_letters_customer_idx on public.order_letters(customer_id);
 create index if not exists order_letters_created_by_idx on public.order_letters(created_by);
 create index if not exists order_letters_approved_by_idx on public.order_letters(approved_by);
@@ -597,6 +656,7 @@ begin
   if o.id is null then raise exception 'Order letter not found'; end if;
   if o.status <> 'pending' then raise exception 'This order letter is already %', upper(o.status); end if;
   me := (select full_name from public.profiles where id = auth.uid());
+  perform public.allow_record_change();
   if p_action = 'approve' then
     update public.order_letters set status = 'approved', approved_by = auth.uid(), approved_by_name = me, approved_at = now(), review_note = p_note
     where id = p_id returning * into o;
@@ -635,6 +695,7 @@ begin
   if k is null or upper(trim(coalesce(p_code, ''))) <> k then raise exception 'The verification code does not match order letter %', o.order_no; end if;
   if p_customer is not null and o.customer_id is distinct from p_customer then raise exception 'Order letter % is for a different account', o.order_no; end if;
   me := (select full_name from public.profiles where id = auth.uid());
+  perform public.allow_record_change();
   if o.customer_id is not null then
     select * into c from public.customers where id = o.customer_id for update;
     newst := case o.subject_type when 'suspension' then 'suspended' when 'closure' then 'closed' when 'reactivation' then 'active' else null end;
@@ -685,6 +746,7 @@ begin
     else null end;
   if new_status is null then raise exception 'Unknown action %', p_action; end if;
   if p_action = 'approve' and c.status not in ('pending','verified') then raise exception 'Only pending or verified applications can be approved'; end if;
+  perform public.allow_record_change();
   update public.customers set
     status = new_status,
     status_note = coalesce(p_note, status_note),
@@ -739,10 +801,18 @@ create table if not exists public.pay_vouchers (
   method text,
   reference_no text,
   notes text,
+  void_no text,
+  voided_at timestamptz,
+  void_reason text,
+  voided_by_name text,
   created_by uuid references public.profiles(id) default auth.uid(),
   created_by_name text,
   created_at timestamptz not null default now()
 );
+alter table public.pay_vouchers add column if not exists void_no text;
+alter table public.pay_vouchers add column if not exists voided_at timestamptz;
+alter table public.pay_vouchers add column if not exists void_reason text;
+alter table public.pay_vouchers add column if not exists voided_by_name text;
 create index if not exists pay_vouchers_company_idx on public.pay_vouchers(company_id);
 create index if not exists pay_vouchers_account_idx on public.pay_vouchers(account_id);
 create index if not exists pay_vouchers_created_by_idx on public.pay_vouchers(created_by);
@@ -774,15 +844,16 @@ drop trigger if exists pay_vouchers_bi on public.pay_vouchers;
 create trigger pay_vouchers_bi before insert on public.pay_vouchers
   for each row execute function public.pay_vouchers_before_insert();
 
+-- Cancelled vouchers stay listed but are left out of every total.
 create or replace view public.pay_company_totals with (security_invoker = true) as
   select c.*,
     (select count(*) from public.pay_accounts a where a.company_id = c.id)::int as accounts_count,
-    (select count(*) from public.pay_vouchers v where v.company_id = c.id)::int as vouchers_count,
-    coalesce((select sum(v.amount_php) from public.pay_vouchers v where v.company_id = c.id), 0)::numeric(16,2) as total_php,
-    coalesce((select sum(v.amount_bdt) from public.pay_vouchers v where v.company_id = c.id), 0)::numeric(16,2) as total_bdt,
-    coalesce((select sum(v.amount_php) from public.pay_vouchers v where v.company_id = c.id and date_trunc('month', v.pay_date) = date_trunc('month', current_date)), 0)::numeric(16,2) as month_php,
-    coalesce((select sum(v.amount_bdt) from public.pay_vouchers v where v.company_id = c.id and date_trunc('month', v.pay_date) = date_trunc('month', current_date)), 0)::numeric(16,2) as month_bdt,
-    (select max(v.pay_date) from public.pay_vouchers v where v.company_id = c.id) as last_paid
+    (select count(*) from public.pay_vouchers v where v.company_id = c.id and v.void_no is null)::int as vouchers_count,
+    coalesce((select sum(v.amount_php) from public.pay_vouchers v where v.company_id = c.id and v.void_no is null), 0)::numeric(16,2) as total_php,
+    coalesce((select sum(v.amount_bdt) from public.pay_vouchers v where v.company_id = c.id and v.void_no is null), 0)::numeric(16,2) as total_bdt,
+    coalesce((select sum(v.amount_php) from public.pay_vouchers v where v.company_id = c.id and v.void_no is null and date_trunc('month', v.pay_date) = date_trunc('month', current_date)), 0)::numeric(16,2) as month_php,
+    coalesce((select sum(v.amount_bdt) from public.pay_vouchers v where v.company_id = c.id and v.void_no is null and date_trunc('month', v.pay_date) = date_trunc('month', current_date)), 0)::numeric(16,2) as month_bdt,
+    (select max(v.pay_date) from public.pay_vouchers v where v.company_id = c.id and v.void_no is null) as last_paid
   from public.pay_companies c;
 revoke select on public.pay_company_totals from anon;
 
@@ -803,32 +874,245 @@ create policy "pv: read" on public.pay_vouchers for select to authenticated usin
 create policy "pv: insert" on public.pay_vouchers for insert to authenticated with check ((select public.can_write('billing')));
 
 -- =====================================================================
--- Change requests, admin edit/delete, and the change history
+-- Corrections and cancel records
+--  * wrong details (a phone number, a reference) → add a CORRECTION record; it keeps the original values;
+--  * a wrong money record (invoice, payment, credit memo, payslip, voucher, project payment, order letter)
+--    → add a CANCEL record; the original stays, marked CANCELLED and left out of every total;
+--    then record the right one as a new record.
+-- Staff ask; the admin approves. The admin's own corrections and cancels are added straight away.
 -- =====================================================================
+alter table public.customer_invoices add column if not exists void_no text;
+alter table public.customer_invoices add column if not exists voided_at timestamptz;
+alter table public.customer_invoices add column if not exists void_reason text;
+alter table public.customer_invoices add column if not exists voided_by_name text;
+alter table public.payments_received add column if not exists void_no text;
+alter table public.payments_received add column if not exists voided_at timestamptz;
+alter table public.payments_received add column if not exists void_reason text;
+alter table public.payments_received add column if not exists voided_by_name text;
+alter table public.credit_memos add column if not exists void_no text;
+alter table public.credit_memos add column if not exists voided_at timestamptz;
+alter table public.credit_memos add column if not exists void_reason text;
+alter table public.credit_memos add column if not exists voided_by_name text;
+alter table public.project_payments add column if not exists void_no text;
+alter table public.project_payments add column if not exists voided_at timestamptz;
+alter table public.project_payments add column if not exists void_reason text;
+alter table public.project_payments add column if not exists voided_by_name text;
+
+-- A new record never starts out cancelled.
+create or replace function public.records_insert_clean() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  new.void_no := null; new.voided_at := null; new.void_reason := null; new.voided_by_name := null;
+  return new;
+end;
+$$;
+do $$
+declare t text;
+begin
+  foreach t in array array['customer_invoices','payments_received','credit_memos','payslips','pay_vouchers','project_payments','order_letters'] loop
+    execute format('drop trigger if exists records_insert_clean on public.%I', t);
+    execute format('create trigger records_insert_clean before insert on public.%I for each row execute function public.records_insert_clean()', t);
+  end loop;
+end $$;
+
+-- A payment cannot be recorded against a cancelled invoice.
+create or replace function public.payments_before_insert() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare st text;
+begin
+  select status into st from public.customers where id = new.customer_id;
+  if st is null then raise exception 'Customer not found'; end if;
+  if st in ('pending','verified','rejected') then raise exception 'Payments can only be recorded for approved accounts (this account is %)', upper(st); end if;
+  if new.invoice_id is not null and not exists (select 1 from public.customer_invoices i where i.id = new.invoice_id and i.customer_id = new.customer_id) then
+    raise exception 'That invoice belongs to a different customer';
+  end if;
+  if new.invoice_id is not null and exists (select 1 from public.customer_invoices i where i.id = new.invoice_id and i.void_no is not null) then
+    raise exception 'That invoice was cancelled. Record the payment against the new invoice or as a general payment';
+  end if;
+  new.receipt_no := 'A-' || to_char(new.paid_date, 'YYYY') || '-' || to_char(new.paid_date, 'MMDD') || '-' || lpad(public.next_counter('PAY' || to_char(new.paid_date, 'YYYYMMDD'))::text, 3, '0');
+  new.created_by := auth.uid();
+  new.created_by_name := (select full_name from public.profiles where id = auth.uid());
+  return new;
+end;
+$$;
+
+-- Approval steps change only the status of a record, never its details.
+create or replace function public.credit_memo_action(p_id uuid, p_action text, p_note text default null)
+returns public.credit_memos
+language plpgsql security definer set search_path = '' as $$
+declare m public.credit_memos; me text;
+begin
+  if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  select * into m from public.credit_memos where id = p_id for update;
+  if m.id is null then raise exception 'Credit memo not found'; end if;
+  if m.void_no is not null then raise exception 'This credit memo was cancelled (%)', m.void_no; end if;
+  me := (select full_name from public.profiles where id = auth.uid());
+  perform public.allow_record_change();
+  if p_action = 'approve' and m.status = 'pending' then
+    update public.credit_memos set status = 'approved', approved_by = auth.uid(), approved_by_name = me, approved_at = now(), status_note = coalesce(p_note, status_note) where id = p_id returning * into m;
+  elsif p_action = 'reject' and m.status = 'pending' then
+    update public.credit_memos set status = 'rejected', approved_by = auth.uid(), approved_by_name = me, approved_at = now(), status_note = coalesce(p_note, status_note) where id = p_id returning * into m;
+  elsif p_action = 'paid' and m.status = 'approved' then
+    update public.credit_memos set status = 'paid', paid_by_name = me, paid_at = now(), status_note = coalesce(p_note, status_note) where id = p_id returning * into m;
+  else
+    raise exception 'Cannot % a % credit memo', p_action, m.status;
+  end if;
+  insert into public.customer_events (customer_id, action, note, actor, actor_name)
+  values (m.customer_id, 'credit memo ' || m.memo_no || ' ' || m.status, p_note, auth.uid(), me);
+  return m;
+end;
+$$;
+create or replace function public.project_action(p_id uuid, p_action text, p_note text default null)
+returns public.projects
+language plpgsql security definer set search_path = '' as $$
+declare pr public.projects; me text;
+begin
+  if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  select * into pr from public.projects where id = p_id for update;
+  if pr.id is null then raise exception 'Project not found'; end if;
+  me := (select full_name from public.profiles where id = auth.uid());
+  perform public.allow_record_change();
+  if p_action = 'approve' and pr.status = 'pending' then
+    if not exists (select 1 from public.attachments a where a.owner_type = 'project' and a.owner_id = p_id and a.kind = 'approval') then
+      raise exception 'Upload the approved project document first';
+    end if;
+    update public.projects set status = 'approved', approved_by_name = me, approved_at = now(), status_note = coalesce(p_note, status_note) where id = p_id returning * into pr;
+  elsif p_action = 'reject' and pr.status = 'pending' then
+    update public.projects set status = 'rejected', approved_by_name = me, approved_at = now(), status_note = coalesce(p_note, status_note) where id = p_id returning * into pr;
+  elsif p_action = 'complete' and pr.status = 'approved' then
+    update public.projects set status = 'completed', status_note = coalesce(p_note, status_note) where id = p_id returning * into pr;
+  else
+    raise exception 'Cannot % a % project', p_action, pr.status;
+  end if;
+  return pr;
+end;
+$$;
+
+-- Balances leave cancelled records out.
+drop view if exists public.invoice_balances;
+create view public.invoice_balances with (security_invoker = true) as
+  select i.*, c.first_name, c.last_name, c.account_no, c.business_name, c.status as customer_status,
+    x.paid::numeric(14,2) as amount_paid,
+    (case when i.void_no is not null then 0 else i.total_amount - x.paid end)::numeric(14,2) as balance,
+    case when i.void_no is not null then 'void' when x.paid >= i.total_amount then 'paid' when x.paid > 0 then 'partial' else 'unpaid' end as pay_status
+  from public.customer_invoices i
+  join public.customers c on c.id = i.customer_id
+  cross join lateral (select coalesce(sum(p.amount), 0) as paid from public.payments_received p where p.invoice_id = i.id and p.void_no is null) x;
+create or replace view public.customer_balances with (security_invoker = true) as
+  select c.id as customer_id,
+    coalesce((select sum(total_amount) from public.customer_invoices i where i.customer_id = c.id and i.void_no is null), 0)::numeric(14,2) as total_invoiced,
+    coalesce((select sum(amount) from public.payments_received p where p.customer_id = c.id and p.void_no is null), 0)::numeric(14,2) as total_paid,
+    coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.void_no is null and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0)::numeric(14,2) as total_credits,
+    (coalesce((select sum(total_amount) from public.customer_invoices i where i.customer_id = c.id and i.void_no is null), 0)
+      - coalesce((select sum(amount) from public.payments_received p where p.customer_id = c.id and p.void_no is null), 0)
+      - coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.void_no is null and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0))::numeric(14,2) as balance_due
+  from public.customers c;
+create or replace view public.project_balances with (security_invoker = true) as
+  select p.*,
+    coalesce((select sum(amount) from public.project_payments x where x.project_id = p.id and x.void_no is null), 0)::numeric(14,2) as total_paid,
+    (p.total_cost - coalesce((select sum(amount) from public.project_payments x where x.project_id = p.id and x.void_no is null), 0))::numeric(14,2) as remaining
+  from public.projects p;
+revoke select on public.invoice_balances, public.customer_balances, public.project_balances from anon;
+
+-- Statements of account: a cancelled record shows as a reversal on the day it was cancelled,
+-- so a statement already issued never changes and each closing balance is the next opening balance.
+create or replace function public.balance_before(p_customer uuid, p_date date) returns numeric
+language sql stable security definer set search_path = '' as $$
+  select coalesce((select sum(total_amount) from public.customer_invoices where customer_id = p_customer and invoice_date < p_date), 0)
+       - coalesce((select sum(total_amount) from public.customer_invoices where customer_id = p_customer and void_no is not null and voided_at::date < p_date), 0)
+       - coalesce((select sum(amount) from public.payments_received where customer_id = p_customer and paid_date < p_date), 0)
+       + coalesce((select sum(amount) from public.payments_received where customer_id = p_customer and void_no is not null and voided_at::date < p_date), 0)
+       - coalesce((select sum(request_amount) from public.credit_memos where customer_id = p_customer and status in ('approved','paid')
+                   and requested_action in ('credit','discount') and approved_at::date < p_date), 0)
+       + coalesce((select sum(request_amount) from public.credit_memos where customer_id = p_customer and status in ('approved','paid')
+                   and requested_action in ('credit','discount') and void_no is not null and voided_at::date < p_date), 0);
+$$;
+create or replace function public.generate_statements(p_customer uuid default null) returns integer
+language plpgsql security definer set search_path = '' as $$
+declare
+  c record;
+  m date;
+  first_m date;
+  last_m date := (date_trunc('month', current_date) - interval '1 month')::date;
+  stop_m date;
+  nxt date;
+  op numeric; deb numeric; cre numeric;
+  made integer := 0;
+begin
+  if auth.uid() is not null and not public.is_active() then raise exception 'Not allowed'; end if;
+  for c in select * from public.customers cu where cu.status in ('active','suspended','closed') and (p_customer is null or cu.id = p_customer) loop
+    first_m := date_trunc('month', least(
+      c.application_date,
+      coalesce((select min(invoice_date) from public.customer_invoices where customer_id = c.id), c.application_date),
+      coalesce((select min(paid_date) from public.payments_received where customer_id = c.id), c.application_date)))::date;
+    stop_m := last_m;
+    if c.status = 'closed' then
+      stop_m := least(last_m, coalesce((select date_trunc('month', max(created_at))::date from public.customer_events
+                                        where customer_id = c.id and (action = 'close' or action like 'closed by %')), last_m));
+    end if;
+    m := first_m;
+    while m <= stop_m loop
+      nxt := (m + interval '1 month')::date;
+      if not exists (select 1 from public.statements s where s.customer_id = c.id and s.period_start = m) then
+        op := public.balance_before(c.id, m);
+        -- debits: invoices, plus cancelled payments and cancelled credits (reversals)
+        deb := coalesce((select sum(total_amount) from public.customer_invoices where customer_id = c.id and invoice_date >= m and invoice_date < nxt), 0)
+             + coalesce((select sum(amount) from public.payments_received where customer_id = c.id and void_no is not null and voided_at::date >= m and voided_at::date < nxt), 0)
+             + coalesce((select sum(request_amount) from public.credit_memos where customer_id = c.id and status in ('approved','paid') and requested_action in ('credit','discount')
+                          and void_no is not null and voided_at::date >= m and voided_at::date < nxt), 0);
+        -- credits: payments and approved credits, plus cancelled invoices (reversals)
+        cre := coalesce((select sum(amount) from public.payments_received where customer_id = c.id and paid_date >= m and paid_date < nxt), 0)
+             + coalesce((select sum(request_amount) from public.credit_memos where customer_id = c.id and status in ('approved','paid')
+                          and requested_action in ('credit','discount') and approved_at::date >= m and approved_at::date < nxt), 0)
+             + coalesce((select sum(total_amount) from public.customer_invoices where customer_id = c.id and void_no is not null and voided_at::date >= m and voided_at::date < nxt), 0);
+        insert into public.statements (statement_no, customer_id, period_start, period_end, opening_balance, total_debit, total_credit, closing_balance)
+        values ('SOA-' || to_char(m, 'YYYYMM') || '-' || c.account_no, c.id, m, (nxt - 1), op, deb, cre, op + deb - cre);
+        made := made + 1;
+      end if;
+      m := nxt;
+    end loop;
+  end loop;
+  return made;
+end;
+$$;
+
+-- Details that can be corrected. Amounts, transaction dates and record numbers are never corrected:
+-- a wrong money record is cancelled and recorded again.
 create or replace function public.editable_columns(p_table text) returns text[]
 language sql immutable set search_path = '' as $$
   select case p_table
     when 'customers' then array['first_name','last_name','phone','email','address','business_name','business_start_date','facebook_name','has_extra_facebook','extra_facebook_name','facebook_verified']
-    when 'customer_invoices' then array['invoice_date','purchase_date','po_number','total_boxes','total_pcs','total_amount']
-    when 'payments_received' then array['paid_date','amount','method','bank_name','bank_account','reference_no','notes']
-    when 'credit_memos' then array['memo_date','payment_ref','po_number','article','brand','style','batch_no','serial_no','qty','purchase_date','defect_category','defect_detail','requested_action','rate','request_amount','assigned_by','inspection_notes','factory_status']
+    when 'customer_invoices' then array['purchase_date','po_number','total_boxes','total_pcs']
+    when 'payments_received' then array['method','bank_name','bank_account','reference_no','notes']
+    when 'credit_memos' then array['payment_ref','po_number','article','brand','style','batch_no','serial_no','purchase_date','defect_category','defect_detail','assigned_by','inspection_notes','factory_status']
     when 'employees' then array['first_name','last_name','position','phone','address','date_hired','monthly_salary']
-    when 'payslips' then array['pay_date','period_month','basic_pay','allowances','overtime_pay','bonus','advance_amount','advance_deduction','other_deductions','method','reference_no','notes']
+    when 'payslips' then array['method','reference_no','notes']
     when 'projects' then array['title','description','location','start_date','end_date']
-    when 'project_payments' then array['pay_date','amount','received_by','method','reference_no','notes']
+    when 'project_payments' then array['received_by','method','reference_no','notes']
     when 'pay_companies' then array['name','country','contact','notes']
     when 'pay_accounts' then array['account_name','account_number','bank_name','branch_name','notes']
-    when 'pay_vouchers' then array['pay_date','amount_php','exchange_rate','purpose','method','reference_no','notes']
-    when 'job_applications' then array['full_name','phone','email','present_address','permanent_address','father_name','mother_name','spouse_name','date_of_birth','birth_place','id_number','gender','religion','blood_group','education','experience','apply_salary','apply_duty_hours','apply_joining_date','position_title','company_name']
-    when 'order_letters' then array['subject','details','resolution','amount','installments','installment_amount','first_due_date']
-    when 'job_positions' then array['title','company_name','company_code','monthly_salary','duty_hours','description','is_open']
-    when 'community_posts' then array['body']
+    when 'pay_vouchers' then array['purpose','method','reference_no','notes']
+    when 'job_applications' then array['full_name','phone','email','present_address','permanent_address','father_name','mother_name','spouse_name','date_of_birth','birth_place','id_number','gender','religion','blood_group','apply_salary','apply_duty_hours','apply_joining_date']
     else null end;
+$$;
+create or replace function public.cancellable_table(p_table text) returns boolean
+language sql immutable set search_path = '' as $$
+  select coalesce(p_table in ('customer_invoices','payments_received','credit_memos','payslips','pay_vouchers','project_payments','order_letters'), false);
+$$;
+-- Who may see (and so ask to correct or cancel) each kind of record.
+create or replace function public.can_see_table(p_table text) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select case
+    when p_table in ('employees','payslips','job_applications') then public.is_admin() or public.has_module('employees')
+    when p_table in ('pay_companies','pay_accounts','pay_vouchers') then public.has_module('billing')
+    when p_table in ('projects','project_payments') then public.has_module('projects')
+    else public.is_active() end;
 $$;
 
 create table if not exists public.change_requests (
   id uuid primary key default gen_random_uuid(),
   request_no text unique,
+  kind text not null default 'correction',
   target_table text not null,
   target_id uuid not null,
   target_label text,
@@ -843,6 +1127,9 @@ create table if not exists public.change_requests (
   requested_by_name text,
   created_at timestamptz not null default now()
 );
+alter table public.change_requests add column if not exists kind text not null default 'correction';
+alter table public.change_requests drop constraint if exists change_requests_kind_check;
+alter table public.change_requests add constraint change_requests_kind_check check (kind in ('correction','cancel'));
 create index if not exists change_requests_target_idx on public.change_requests(target_table, target_id);
 create index if not exists change_requests_requested_by_idx on public.change_requests(requested_by);
 create table if not exists public.record_changes (
@@ -865,10 +1152,11 @@ alter table public.record_changes enable row level security;
 drop policy if exists "cr: read" on public.change_requests;
 drop policy if exists "rc: read" on public.record_changes;
 create policy "cr: read" on public.change_requests for select to authenticated
-  using (requested_by = (select auth.uid()) or (select public.is_admin()));
-create policy "rc: read" on public.record_changes for select to authenticated using ((select public.is_active()));
+  using (requested_by = (select auth.uid()) or (select public.is_admin()) or public.can_see_table(target_table));
+create policy "rc: read" on public.record_changes for select to authenticated
+  using ((select public.is_admin()) or public.can_see_table(target_table));
 
--- Internal: apply allowed field changes and return the previous values of those fields.
+-- Internal: put approved corrected details on the record and return the values they replace.
 create or replace function public.apply_record_changes(p_table text, p_id uuid, p_changes jsonb) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -877,67 +1165,83 @@ declare
   setlist text := '';
   old jsonb;
 begin
-  if cols is null then raise exception 'This kind of record cannot be changed here'; end if;
-  if p_changes is null or jsonb_typeof(p_changes) <> 'object' or p_changes = '{}'::jsonb then raise exception 'Nothing to change'; end if;
+  if cols is null then raise exception 'This kind of record cannot be corrected'; end if;
+  if p_changes is null or jsonb_typeof(p_changes) <> 'object' or p_changes = '{}'::jsonb then raise exception 'Nothing to correct'; end if;
   for k in select jsonb_object_keys(p_changes) loop
-    if not (k = any(cols)) then raise exception 'The field "%" cannot be changed', k; end if;
+    if not (k = any(cols)) then raise exception 'The field "%" cannot be corrected', k; end if;
     setlist := setlist || case when setlist = '' then '' else ', ' end || format('%I = r.%I', k, k);
   end loop;
-  execute format('select to_jsonb(t) from public.%I t where t.id = $1', p_table) into old using p_id;
+  execute format('select to_jsonb(t) from public.%I t where t.id = $1 for update', p_table) into old using p_id;
   if old is null then raise exception 'Record not found'; end if;
+  if old->>'void_no' is not null then raise exception 'This record is cancelled (%)', old->>'void_no'; end if;
+  perform public.allow_record_change();
   execute format('update public.%I t set %s from jsonb_populate_record(null::public.%I, $1) r where t.id = $2', p_table, setlist, p_table)
     using p_changes, p_id;
   return (select jsonb_object_agg(x, old -> x) from jsonb_object_keys(p_changes) x);
 end;
 $$;
-revoke execute on function public.apply_record_changes(text, uuid, jsonb) from public, anon, authenticated;
 
-create or replace function public.submit_change_request(p_table text, p_id uuid, p_changes jsonb, p_reason text, p_label text default null)
-returns public.change_requests
+-- Internal: mark a money record CANCELLED (it stays in the system, left out of totals).
+create or replace function public.apply_record_cancel(p_table text, p_id uuid, p_request_no text, p_reason text, p_by text) returns void
 language plpgsql security definer set search_path = '' as $$
-declare
-  cols text[] := public.editable_columns(p_table);
-  k text;
-  old jsonb;
-  cr public.change_requests;
+declare j jsonb; cust uuid; what text;
 begin
-  if not public.is_active() then raise exception 'Not allowed'; end if;
-  if cols is null then raise exception 'This kind of record cannot be changed here'; end if;
-  if coalesce(trim(p_reason), '') = '' then raise exception 'Explain why the change is needed'; end if;
-  if p_changes is null or jsonb_typeof(p_changes) <> 'object' or p_changes = '{}'::jsonb then raise exception 'Nothing to change'; end if;
-  for k in select jsonb_object_keys(p_changes) loop
-    if not (k = any(cols)) then raise exception 'The field "%" cannot be changed', k; end if;
-  end loop;
-  execute format('select to_jsonb(t) from public.%I t where t.id = $1', p_table) into old using p_id;
-  if old is null then raise exception 'Record not found'; end if;
-  insert into public.change_requests (request_no, target_table, target_id, target_label, changes, previous, reason, requested_by, requested_by_name)
-  values ('CR-' || to_char(current_date, 'YYYY') || '-' || lpad(public.next_counter('CR' || to_char(current_date, 'YYYY'))::text, 4, '0'),
-          p_table, p_id, p_label, p_changes, (select jsonb_object_agg(x, old -> x) from jsonb_object_keys(p_changes) x), p_reason,
-          auth.uid(), (select full_name from public.profiles where id = auth.uid()))
-  returning * into cr;
-  perform public.notify_admins('Change request ' || cr.request_no, coalesce(p_label, p_table) || ' — ' || p_reason, 'changes');
-  return cr;
+  if not public.cancellable_table(p_table) then raise exception 'This kind of record cannot be cancelled'; end if;
+  execute format('select to_jsonb(t) from public.%I t where t.id = $1 for update', p_table) into j using p_id;
+  if j is null then raise exception 'Record not found'; end if;
+  if j->>'void_no' is not null then raise exception 'This record is already cancelled (%)', j->>'void_no'; end if;
+  if p_table = 'customer_invoices' and exists (select 1 from public.payments_received p where p.invoice_id = p_id and p.void_no is null) then
+    raise exception 'This invoice has payments. Cancel its payments first, then cancel the invoice';
+  end if;
+  if p_table = 'order_letters' and j->>'status' not in ('pending','approved') then
+    raise exception 'This order letter is already % and cannot be cancelled', upper(j->>'status');
+  end if;
+  perform public.allow_record_change();
+  if p_table = 'order_letters' then
+    update public.order_letters set status = 'cancelled', void_no = p_request_no, voided_at = now(), void_reason = p_reason, voided_by_name = p_by where id = p_id;
+  else
+    execute format('update public.%I set void_no = $1, voided_at = now(), void_reason = $2, voided_by_name = $3 where id = $4', p_table)
+      using p_request_no, p_reason, p_by, p_id;
+  end if;
+  cust := nullif(j->>'customer_id', '')::uuid;
+  what := case p_table when 'customer_invoices' then 'invoice ' || (j->>'invoice_no') when 'payments_received' then 'payment ' || (j->>'receipt_no')
+            when 'credit_memos' then 'credit memo ' || (j->>'memo_no') when 'order_letters' then 'order letter ' || (j->>'order_no') end;
+  if cust is not null and what is not null then
+    insert into public.customer_events (customer_id, action, note, actor, actor_name)
+    values (cust, what || ' cancelled by ' || p_request_no, p_reason, auth.uid(), p_by);
+  end if;
 end;
 $$;
 
-create or replace function public.review_change_request(p_id uuid, p_action text, p_note text default null) returns public.change_requests
+-- Internal: approve (add the correction or cancel record) or reject a request.
+create or replace function public.decide_change_request(p_id uuid, p_action text, p_note text) returns public.change_requests
 language plpgsql security definer set search_path = '' as $$
-declare cr public.change_requests; me text; prev jsonb;
+declare cr public.change_requests; me text; prev jsonb; word text;
 begin
-  if not public.is_admin() then raise exception 'Only an admin can review change requests'; end if;
   select * into cr from public.change_requests where id = p_id for update;
-  if cr.id is null then raise exception 'Change request not found'; end if;
+  if cr.id is null then raise exception 'Request not found'; end if;
   if cr.status <> 'pending' then raise exception 'This request is already %', upper(cr.status); end if;
   me := (select full_name from public.profiles where id = auth.uid());
+  word := case cr.kind when 'cancel' then 'Cancel request ' else 'Correction ' end;
+  perform public.allow_record_change();
   if p_action = 'approve' then
-    prev := public.apply_record_changes(cr.target_table, cr.target_id, cr.changes);
-    insert into public.record_changes (target_table, target_id, action, changes, previous, request_no, target_label, actor, actor_name)
-    values (cr.target_table, cr.target_id, 'update', cr.changes, prev, cr.request_no, cr.target_label, auth.uid(), me);
-    update public.change_requests set status = 'approved', review_note = p_note, reviewed_by_name = me, reviewed_at = now() where id = p_id returning * into cr;
-    perform public.notify_user(cr.requested_by, 'Change request ' || cr.request_no || ' approved', coalesce(cr.target_label, cr.target_table), 'changes');
+    if cr.kind = 'cancel' then
+      perform public.apply_record_cancel(cr.target_table, cr.target_id, cr.request_no, cr.reason, me);
+      insert into public.record_changes (target_table, target_id, action, changes, previous, request_no, target_label, actor, actor_name)
+      values (cr.target_table, cr.target_id, 'cancel', null, null, cr.request_no, cr.target_label, auth.uid(), me);
+    else
+      prev := public.apply_record_changes(cr.target_table, cr.target_id, cr.changes);
+      insert into public.record_changes (target_table, target_id, action, changes, previous, request_no, target_label, actor, actor_name)
+      values (cr.target_table, cr.target_id, 'correction', cr.changes, prev, cr.request_no, cr.target_label, auth.uid(), me);
+    end if;
+    update public.change_requests set status = 'approved', previous = coalesce(prev, previous), review_note = p_note, reviewed_by_name = me, reviewed_at = now()
+    where id = p_id returning * into cr;
+    if cr.requested_by is distinct from auth.uid() then
+      perform public.notify_user(cr.requested_by, word || cr.request_no || ' approved', coalesce(cr.target_label, cr.target_table), 'changes');
+    end if;
   elsif p_action = 'reject' then
     update public.change_requests set status = 'rejected', review_note = p_note, reviewed_by_name = me, reviewed_at = now() where id = p_id returning * into cr;
-    perform public.notify_user(cr.requested_by, 'Change request ' || cr.request_no || ' rejected', coalesce(p_note, ''), 'changes');
+    perform public.notify_user(cr.requested_by, word || cr.request_no || ' rejected', coalesce(p_note, ''), 'changes');
   else
     raise exception 'Unknown action %', p_action;
   end if;
@@ -945,47 +1249,103 @@ begin
 end;
 $$;
 
-create or replace function public.admin_update_record(p_table text, p_id uuid, p_changes jsonb, p_label text default null) returns jsonb
+drop function if exists public.submit_change_request(text, uuid, jsonb, text, text);
+create or replace function public.submit_change_request(p_table text, p_id uuid, p_changes jsonb, p_reason text, p_label text default null, p_kind text default 'correction')
+returns public.change_requests
 language plpgsql security definer set search_path = '' as $$
-declare prev jsonb;
+declare
+  cols text[] := public.editable_columns(p_table);
+  k text;
+  old jsonb;
+  cr public.change_requests;
+  kind text := coalesce(p_kind, 'correction');
 begin
-  if not public.is_admin() then raise exception 'Only an admin can edit records directly'; end if;
-  prev := public.apply_record_changes(p_table, p_id, p_changes);
-  insert into public.record_changes (target_table, target_id, action, changes, previous, target_label, actor, actor_name)
-  values (p_table, p_id, 'update', p_changes, prev, p_label, auth.uid(), (select full_name from public.profiles where id = auth.uid()));
-  return prev;
+  if not public.is_active() then raise exception 'Not allowed'; end if;
+  if kind not in ('correction','cancel') then raise exception 'Unknown request type %', kind; end if;
+  if kind = 'cancel' and not public.cancellable_table(p_table) then raise exception 'This kind of record cannot be cancelled'; end if;
+  if kind = 'correction' and cols is null then raise exception 'This kind of record cannot be corrected'; end if;
+  if not public.can_see_table(p_table) then raise exception 'You do not have access to this kind of record'; end if;
+  if coalesce(trim(p_reason), '') = '' then raise exception 'Write the reason'; end if;
+  if kind = 'correction' then
+    if p_changes is null or jsonb_typeof(p_changes) <> 'object' or p_changes = '{}'::jsonb then raise exception 'Nothing to correct'; end if;
+    for k in select jsonb_object_keys(p_changes) loop
+      if not (k = any(cols)) then raise exception 'The field "%" cannot be corrected. Cancel the record and add a new one instead', k; end if;
+    end loop;
+  end if;
+  execute format('select to_jsonb(t) from public.%I t where t.id = $1', p_table) into old using p_id;
+  if old is null then raise exception 'Record not found'; end if;
+  if old->>'void_no' is not null then raise exception 'This record is cancelled (%)', old->>'void_no'; end if;
+  if kind = 'cancel' then
+    if p_table = 'customer_invoices' and exists (select 1 from public.payments_received p where p.invoice_id = p_id and p.void_no is null) then
+      raise exception 'This invoice has payments. Cancel its payments first, then cancel the invoice';
+    end if;
+    if p_table = 'order_letters' and old->>'status' not in ('pending','approved') then
+      raise exception 'This order letter is already % and cannot be cancelled', upper(old->>'status');
+    end if;
+    if exists (select 1 from public.change_requests x where x.target_table = p_table and x.target_id = p_id and x.kind = 'cancel' and x.status = 'pending') then
+      raise exception 'A cancel request for this record is already waiting for approval';
+    end if;
+  end if;
+  insert into public.change_requests (request_no, kind, target_table, target_id, target_label, changes, previous, reason, requested_by, requested_by_name)
+  values ('CR-' || to_char(current_date, 'YYYY') || '-' || lpad(public.next_counter('CR' || to_char(current_date, 'YYYY'))::text, 4, '0'), kind,
+          p_table, p_id, p_label, case when kind = 'cancel' then '{}'::jsonb else p_changes end,
+          case when kind = 'cancel' then null else (select jsonb_object_agg(x, old -> x) from jsonb_object_keys(p_changes) x) end,
+          trim(p_reason), auth.uid(), (select full_name from public.profiles where id = auth.uid()))
+  returning * into cr;
+  -- The administrator's own correction or cancel is added straight away.
+  if public.is_admin() then
+    return public.decide_change_request(cr.id, 'approve', null);
+  end if;
+  perform public.notify_admins(case when kind = 'cancel' then 'Cancel request ' else 'Correction request ' end || cr.request_no,
+                               coalesce(p_label, p_table) || ' — ' || trim(p_reason), 'changes');
+  return cr;
 end;
 $$;
 
-create or replace function public.admin_delete_record(p_table text, p_id uuid, p_label text default null) returns void
+create or replace function public.review_change_request(p_id uuid, p_action text, p_note text default null) returns public.change_requests
 language plpgsql security definer set search_path = '' as $$
-declare old jsonb;
 begin
-  if not public.is_admin() then raise exception 'Only an admin can delete records'; end if;
-  if public.editable_columns(p_table) is null then raise exception 'This kind of record cannot be deleted here'; end if;
-  execute format('select to_jsonb(t) from public.%I t where t.id = $1', p_table) into old using p_id;
-  if old is null then raise exception 'Record not found'; end if;
-  begin
-    execute format('delete from public.%I where id = $1', p_table) using p_id;
-  exception when foreign_key_violation then
-    raise exception 'This record is linked to other records, so it cannot be deleted. Delete or change those first.';
-  end;
-  insert into public.record_changes (target_table, target_id, action, changes, previous, target_label, actor, actor_name)
-  values (p_table, p_id, 'delete', null, old, p_label, auth.uid(), (select full_name from public.profiles where id = auth.uid()));
+  if not public.is_admin() then raise exception 'Only an admin can approve corrections and cancels'; end if;
+  return public.decide_change_request(p_id, p_action, p_note);
 end;
 $$;
-revoke execute on function public.submit_change_request(text, uuid, jsonb, text, text) from public, anon;
+
+-- No direct editing or deleting of records (earlier drafts of 1.1 had these).
+drop function if exists public.admin_update_record(text, uuid, jsonb, text);
+drop function if exists public.admin_delete_record(text, uuid, text);
+
+revoke execute on function public.records_insert_clean() from public, anon, authenticated;
+revoke execute on function public.apply_record_changes(text, uuid, jsonb) from public, anon, authenticated;
+revoke execute on function public.apply_record_cancel(text, uuid, text, text, text) from public, anon, authenticated;
+revoke execute on function public.decide_change_request(uuid, text, text) from public, anon, authenticated;
+revoke execute on function public.cancellable_table(text) from public, anon;
+revoke execute on function public.can_see_table(text) from public, anon;
+grant execute on function public.cancellable_table(text) to authenticated;
+grant execute on function public.can_see_table(text) to authenticated;
+revoke execute on function public.submit_change_request(text, uuid, jsonb, text, text, text) from public, anon;
 revoke execute on function public.review_change_request(uuid, text, text) from public, anon;
-revoke execute on function public.admin_update_record(text, uuid, jsonb, text) from public, anon;
-revoke execute on function public.admin_delete_record(text, uuid, text) from public, anon;
-grant execute on function public.submit_change_request(text, uuid, jsonb, text, text) to authenticated;
+grant execute on function public.submit_change_request(text, uuid, jsonb, text, text, text) to authenticated;
 grant execute on function public.review_change_request(uuid, text, text) to authenticated;
-grant execute on function public.admin_update_record(text, uuid, jsonb, text) to authenticated;
-grant execute on function public.admin_delete_record(text, uuid, text) to authenticated;
+revoke execute on function public.balance_before(uuid, date) from public, anon;
+grant execute on function public.balance_before(uuid, date) to authenticated;
+revoke execute on function public.generate_statements(uuid) from public, anon;
+grant execute on function public.generate_statements(uuid) to authenticated;
+revoke execute on function public.credit_memo_action(uuid, text, text) from public, anon;
+grant execute on function public.credit_memo_action(uuid, text, text) to authenticated;
+revoke execute on function public.project_action(uuid, text, text) from public, anon;
+grant execute on function public.project_action(uuid, text, text) to authenticated;
 
 -- =====================================================================
 -- Public verification: anyone can check a record number, QR or barcode
 -- =====================================================================
+-- A cancelled record still verifies as a real record, clearly marked CANCELLED with its cancel record.
+create or replace function public.void_fields(p_void_no text, p_at timestamptz, p_reason text) returns jsonb
+language sql stable set search_path = '' as $$
+  select case when p_void_no is null then '[]'::jsonb
+    else jsonb_build_array(jsonb_build_array('Cancelled', to_char(p_at, 'DD Mon YYYY') || ' by ' || p_void_no), jsonb_build_array('Cancel Reason', coalesce(p_reason, '—'))) end;
+$$;
+revoke execute on function public.void_fields(text, timestamptz, text) from public, anon, authenticated;
+
 create or replace function public.verify_record(p_code text) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
 declare
@@ -1012,39 +1372,41 @@ begin
           jsonb_build_array('Opened', to_char(r.application_date, 'DD Mon YYYY')), jsonb_build_array('Account Status', upper(r.status))));
     end if;
     select i.*, cu.first_name, cu.last_name, cu.account_no as acct,
-      coalesce((select sum(p.amount) from public.payments_received p where p.invoice_id = i.id), 0) as paid
+      coalesce((select sum(p.amount) from public.payments_received p where p.invoice_id = i.id and p.void_no is null), 0) as paid
       into r from public.customer_invoices i join public.customers cu on cu.id = i.customer_id where upper(i.invoice_no) = c limit 1;
     if found then
-      return jsonb_build_object('found', true, 'type', 'Invoice', 'number', r.invoice_no,
-        'status', case when r.paid >= r.total_amount then 'paid' when r.paid > 0 then 'partial' else 'unpaid' end,
+      return jsonb_build_object('found', true, 'type', 'Invoice', 'number', r.invoice_no, 'cancelled', r.void_no is not null,
+        'status', case when r.void_no is not null then 'cancelled' when r.paid >= r.total_amount then 'paid' when r.paid > 0 then 'partial' else 'unpaid' end,
         'fields', jsonb_build_array(
           jsonb_build_array('Invoice No', r.invoice_no), jsonb_build_array('Customer', r.first_name || ' ' || r.last_name),
           jsonb_build_array('Account No', r.acct), jsonb_build_array('Invoice Date', to_char(r.invoice_date, 'DD Mon YYYY')),
           jsonb_build_array('PO Number', coalesce(r.po_number, '—')), jsonb_build_array('Boxes / Pcs', r.total_boxes || ' / ' || r.total_pcs),
           jsonb_build_array('Amount (PHP)', to_char(r.total_amount, 'FM999,999,999,990.00')),
-          jsonb_build_array('Paid (PHP)', to_char(r.paid, 'FM999,999,999,990.00'))));
+          jsonb_build_array('Paid (PHP)', to_char(r.paid, 'FM999,999,999,990.00'))) || public.void_fields(r.void_no, r.voided_at, r.void_reason));
     end if;
     select p.*, cu.first_name, cu.last_name, cu.account_no as acct, i.invoice_no as inv
       into r from public.payments_received p join public.customers cu on cu.id = p.customer_id left join public.customer_invoices i on i.id = p.invoice_id
       where upper(p.receipt_no) = c limit 1;
     if found then
-      return jsonb_build_object('found', true, 'type', 'Payment Receipt', 'number', r.receipt_no, 'status', 'received',
+      return jsonb_build_object('found', true, 'type', 'Payment Receipt', 'number', r.receipt_no, 'cancelled', r.void_no is not null,
+        'status', case when r.void_no is not null then 'cancelled' else 'received' end,
         'fields', jsonb_build_array(
           jsonb_build_array('Receipt No', r.receipt_no), jsonb_build_array('Received From', r.first_name || ' ' || r.last_name),
           jsonb_build_array('Account No', r.acct), jsonb_build_array('Date Paid', to_char(r.paid_date, 'DD Mon YYYY')),
           jsonb_build_array('Amount (PHP)', to_char(r.amount, 'FM999,999,999,990.00')), jsonb_build_array('Method', replace(r.method, '_', ' ')),
           jsonb_build_array('Reference', coalesce(r.reference_no, '—')), jsonb_build_array('Invoice', coalesce(r.inv, 'General payment')),
-          jsonb_build_array('Verified By', coalesce(r.created_by_name, '—'))));
+          jsonb_build_array('Verified By', coalesce(r.created_by_name, '—'))) || public.void_fields(r.void_no, r.voided_at, r.void_reason));
     end if;
     select m.*, cu.first_name, cu.last_name, cu.account_no as acct
       into r from public.credit_memos m join public.customers cu on cu.id = m.customer_id where upper(m.memo_no) = c limit 1;
     if found then
-      return jsonb_build_object('found', true, 'type', 'Credit Memo', 'number', r.memo_no, 'status', r.status,
+      return jsonb_build_object('found', true, 'type', 'Credit Memo', 'number', r.memo_no, 'cancelled', r.void_no is not null,
+        'status', case when r.void_no is not null then 'cancelled' else r.status end,
         'fields', jsonb_build_array(
           jsonb_build_array('Report No', r.memo_no), jsonb_build_array('Customer', r.first_name || ' ' || r.last_name),
           jsonb_build_array('Customer ID', r.acct), jsonb_build_array('Date', to_char(r.memo_date, 'DD Mon YYYY')),
           jsonb_build_array('Request', replace(r.requested_action, '_', ' ')), jsonb_build_array('Amount (PHP)', to_char(r.request_amount, 'FM999,999,999,990.00')),
-          jsonb_build_array('Status', upper(r.status))));
+          jsonb_build_array('Status', case when r.void_no is not null then 'CANCELLED' else upper(r.status) end)) || public.void_fields(r.void_no, r.voided_at, r.void_reason));
     end if;
     select s.*, cu.first_name, cu.last_name, cu.account_no as acct
       into r from public.statements s join public.customers cu on cu.id = s.customer_id where upper(s.statement_no) = c limit 1;
@@ -1059,18 +1421,19 @@ begin
     select o.*, cu.first_name, cu.last_name, cu.account_no as acct
       into r from public.order_letters o left join public.customers cu on cu.id = o.customer_id where upper(o.order_no) = c limit 1;
     if found then
-      return jsonb_build_object('found', true, 'type', 'Order Letter', 'number', r.order_no, 'status', r.status,
+      return jsonb_build_object('found', true, 'type', 'Order Letter', 'number', r.order_no, 'status', r.status, 'cancelled', r.void_no is not null,
         'fields', jsonb_build_array(
           jsonb_build_array('Order No', r.order_no), jsonb_build_array('Date', to_char(r.order_date, 'DD Mon YYYY')),
           jsonb_build_array('Account', coalesce(r.first_name || ' ' || r.last_name || ' (' || r.acct || ')', '—')),
           jsonb_build_array('Subject', r.subject), jsonb_build_array('Type', initcap(replace(r.subject_type, '_', ' '))),
-          jsonb_build_array('Status', upper(r.status)), jsonb_build_array('Approved By', coalesce(r.approved_by_name, '—'))));
+          jsonb_build_array('Status', upper(r.status)), jsonb_build_array('Approved By', coalesce(r.approved_by_name, '—'))) || public.void_fields(r.void_no, r.voided_at, r.void_reason));
     end if;
     select v.*, pc.name as company, pa.account_name, pa.account_number, pa.bank_name
       into r from public.pay_vouchers v join public.pay_companies pc on pc.id = v.company_id left join public.pay_accounts pa on pa.id = v.account_id
       where upper(v.voucher_no) = c limit 1;
     if found then
-      return jsonb_build_object('found', true, 'type', 'Payment Voucher', 'number', r.voucher_no, 'status', 'paid',
+      return jsonb_build_object('found', true, 'type', 'Payment Voucher', 'number', r.voucher_no, 'cancelled', r.void_no is not null,
+        'status', case when r.void_no is not null then 'cancelled' else 'paid' end,
         'fields', jsonb_build_array(
           jsonb_build_array('Voucher No', r.voucher_no), jsonb_build_array('Paid To', r.company),
           jsonb_build_array('Account', coalesce(r.account_name || ' ' || coalesce(r.account_number, '') || ' ' || coalesce(r.bank_name, ''), '—')),
@@ -1078,17 +1441,18 @@ begin
           jsonb_build_array('Amount (PHP)', to_char(r.amount_php, 'FM999,999,999,990.00')),
           jsonb_build_array('Exchange Rate', to_char(r.exchange_rate, 'FM999,990.0000')),
           jsonb_build_array('Amount (BDT)', to_char(r.amount_bdt, 'FM999,999,999,990.00')),
-          jsonb_build_array('Issued By', coalesce(r.created_by_name, '—'))));
+          jsonb_build_array('Issued By', coalesce(r.created_by_name, '—'))) || public.void_fields(r.void_no, r.voided_at, r.void_reason));
     end if;
     select s.*, e.first_name, e.last_name, e.employee_no, e.position
       into r from public.payslips s join public.employees e on e.id = s.employee_id where upper(s.payslip_no) = c limit 1;
     if found then
-      return jsonb_build_object('found', true, 'type', 'Payslip', 'number', r.payslip_no, 'status', 'paid',
+      return jsonb_build_object('found', true, 'type', 'Payslip', 'number', r.payslip_no, 'cancelled', r.void_no is not null,
+        'status', case when r.void_no is not null then 'cancelled' else 'paid' end,
         'fields', jsonb_build_array(
           jsonb_build_array('Payslip No', r.payslip_no), jsonb_build_array('Employee', r.first_name || ' ' || r.last_name),
           jsonb_build_array('Employee No', r.employee_no), jsonb_build_array('Type', initcap(r.pay_type)),
           jsonb_build_array('Period', to_char(r.period_month, 'FMMonth YYYY')), jsonb_build_array('Pay Date', to_char(r.pay_date, 'DD Mon YYYY')),
-          jsonb_build_array('Net Pay (PHP)', to_char(r.net_pay, 'FM999,999,999,990.00'))));
+          jsonb_build_array('Net Pay (PHP)', to_char(r.net_pay, 'FM999,999,999,990.00'))) || public.void_fields(r.void_no, r.voided_at, r.void_reason));
     end if;
     select * into r from public.job_applications j where upper(j.application_no) = c or upper(j.approval_no) = c limit 1;
     if found then
@@ -1115,11 +1479,12 @@ begin
     end if;
     select x.*, p.project_no, p.title into r from public.project_payments x join public.projects p on p.id = x.project_id where upper(x.payment_no) = c limit 1;
     if found then
-      return jsonb_build_object('found', true, 'type', 'Project Payment', 'number', r.payment_no, 'status', 'paid',
+      return jsonb_build_object('found', true, 'type', 'Project Payment', 'number', r.payment_no, 'cancelled', r.void_no is not null,
+        'status', case when r.void_no is not null then 'cancelled' else 'paid' end,
         'fields', jsonb_build_array(
           jsonb_build_array('Payment No', r.payment_no), jsonb_build_array('Project', r.project_no || ' — ' || r.title),
           jsonb_build_array('Date', to_char(r.pay_date, 'DD Mon YYYY')), jsonb_build_array('Amount (PHP)', to_char(r.amount, 'FM999,999,999,990.00')),
-          jsonb_build_array('Received By', r.received_by)));
+          jsonb_build_array('Received By', r.received_by)) || public.void_fields(r.void_no, r.voided_at, r.void_reason));
     end if;
     select * into r from public.documents d where upper(d.doc_no) = c limit 1;
     if found then
@@ -1177,7 +1542,6 @@ create policy "storage records: staff upload" on storage.objects for insert to a
 -- =====================================================================
 revoke execute on function public.job_positions_normalize() from public, anon, authenticated;
 revoke execute on function public.job_applications_before_insert() from public, anon, authenticated;
-revoke execute on function public.job_applications_before_update() from public, anon, authenticated;
 revoke execute on function public.job_applications_after_insert() from public, anon, authenticated;
 revoke execute on function public.payslips_before_insert() from public, anon, authenticated;
 revoke execute on function public.community_posts_before_insert() from public, anon, authenticated;
@@ -1197,3 +1561,45 @@ begin
 exception when others then
   raise notice 'pg_cron not available (%); old community posts are hidden after 30 days and removed when an admin opens Community.', sqlerrm;
 end $$;
+
+-- =====================================================================
+-- Records are only added
+-- Saved records are never edited or deleted, by anyone. Only the approval steps above
+-- (status changes and approved corrections / cancel records) may change a saved row.
+-- =====================================================================
+create or replace function public.keep_records() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  -- Allowed: an approval step of this portal, or a change made by the database itself (inside another trigger).
+  if pg_trigger_depth() > 1 or current_setting('eo.allow_change', true) = 'on' then
+    return case when tg_level = 'STATEMENT' then null when tg_op = 'DELETE' then old else new end;
+  end if;
+  raise exception 'Saved records cannot be edited or deleted. Add a correction or a cancel record instead.';
+end;
+$$;
+revoke execute on function public.keep_records() from public, anon, authenticated;
+do $$
+declare t text;
+begin
+  foreach t in array array['customers','customer_secrets','customer_events','customer_invoices','payments_received','credit_memos','statements',
+                           'employees','job_positions','job_applications','payslips','order_letters','order_letter_codes',
+                           'pay_companies','pay_accounts','pay_vouchers','projects','project_items','project_payments',
+                           'attachments','change_requests','record_changes'] loop
+    execute format('drop trigger if exists keep_records on public.%I', t);
+    execute format('create trigger keep_records before update or delete on public.%I for each row execute function public.keep_records()', t);
+    execute format('drop trigger if exists keep_records_truncate on public.%I', t);
+    execute format('create trigger keep_records_truncate before truncate on public.%I for each statement execute function public.keep_records()', t);
+  end loop;
+end $$;
+
+-- Remove the old direct edit / delete permissions.
+drop policy if exists "customers: admin update" on public.customers;
+drop policy if exists "inv: admin delete" on public.customer_invoices;
+drop policy if exists "pay: admin delete" on public.payments_received;
+drop policy if exists "att: admin delete" on public.attachments;
+drop policy if exists "emp: admin update" on public.employees;
+drop policy if exists "emp: admin delete" on public.employees;
+-- Uploaded record files stay; only community photos (removed after 30 days) can be deleted.
+drop policy if exists "storage records: admin delete" on storage.objects;
+create policy "storage records: admin delete" on storage.objects for delete to authenticated
+  using (bucket_id = 'records' and (storage.foldername(name))[1] = 'community' and (select public.is_admin()));

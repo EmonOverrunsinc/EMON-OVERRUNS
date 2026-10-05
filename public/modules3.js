@@ -1,5 +1,6 @@
 /* EMON OVERRUNS E-PORTAL — job applicant portal, 6 Community, 9 Order Letter, Verification (public),
-   Messages (chat), Change Requests, and the Edit / Request Change / Delete tools used on every record. */
+   Messages (chat), Corrections, and the Add Correction / Cancel Record tools used on every record
+   (saved records are never edited or deleted). */
 (function () {
   "use strict";
   const E = window.EO;
@@ -40,36 +41,36 @@
   const avatarOf = (c) => c.avatar_path ? `<img src="${esc(E.publicUrl("avatars", c.avatar_path))}" alt="">` : `<span>${esc(E.initials(c.full_name))}</span>`;
 
   // ======================================================================
-  // Edit / Request Change / Delete (every record)
+  // Records are only added: Add Correction / Cancel Record on every record
+  // (staff: Request Correction / Request Cancel, approved by the administrator)
   // ======================================================================
   const F = (k, label, type = "text", opts) => ({ k, label, type, opts });
   const METHODS = [["cash", "Cash"], ["bank_transfer", "Bank Transfer"], ["online_transfer", "Online Transfer"], ["deposit", "Bank Deposit"]];
-  // Must match editable_columns() in the database.
+  // Details that can be corrected — must match editable_columns() in the database. Amounts, transaction dates and
+  // record numbers are never corrected: a wrong money record is cancelled and recorded again.
   const FIELDS = {
     customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Date Starting in Business", "date"), F("facebook_name", "Facebook Name"), F("has_extra_facebook", "Has Additional Facebook", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool")],
-    customer_invoices: [F("invoice_date", "Invoice Date", "date"), F("purchase_date", "Date of Purchase", "date"), F("po_number", "PO Number"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int"), F("total_amount", "Total Amount (₱)", "money")],
-    payments_received: [F("paid_date", "Date Paid", "date"), F("amount", "Amount (₱)", "money"), F("method", "Method", "select", METHODS), F("bank_name", "Bank Name"), F("bank_account", "Deposit Account"), F("reference_no", "Reference No"), F("notes", "Notes")],
-    credit_memos: [F("memo_date", "Report Date", "date"), F("payment_ref", "Payment Reference"), F("po_number", "Purchase Order"), F("article", "Article"), F("brand", "Brand"), F("style", "Style"), F("batch_no", "Batch No"), F("serial_no", "Serial No"), F("qty", "Qty", "int"), F("purchase_date", "Purchase Date", "date"),
+    customer_invoices: [F("purchase_date", "Date of Purchase", "date"), F("po_number", "PO Number"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int")],
+    payments_received: [F("method", "Method", "select", METHODS), F("bank_name", "Bank Name"), F("bank_account", "Deposit Account"), F("reference_no", "Reference No"), F("notes", "Notes")],
+    credit_memos: [F("payment_ref", "Payment Reference"), F("po_number", "Purchase Order"), F("article", "Article"), F("brand", "Brand"), F("style", "Style"), F("batch_no", "Batch No"), F("serial_no", "Serial No"), F("purchase_date", "Purchase Date", "date"),
       F("defect_category", "Defect Category", "select", [["fabric_damage", "Fabric Damage"], ["color_issue", "Color Issue"], ["wrong_box", "Wrong Box Delivered"], ["wrong_bundle", "Wrong Bundle"], ["other", "Other"]]), F("defect_detail", "Defect Details"),
-      F("requested_action", "Requested Action", "select", [["replacement", "Replacement / Exchange"], ["refund", "Full Refund Transfer"], ["credit", "Credit"], ["discount", "Discount"]]), F("rate", "Rate per pc (₱)", "money"), F("request_amount", "Request Amount (₱)", "money"),
       F("assigned_by", "Assigned By"), F("inspection_notes", "Inspection Notes", "textarea"), F("factory_status", "Factory Status", "textarea")],
     employees: [F("first_name", "First Name"), F("last_name", "Last Name"), F("position", "Position"), F("phone", "Phone"), F("address", "Address"), F("date_hired", "Date Hired", "date"), F("monthly_salary", "Monthly Salary (₱)", "money")],
-    payslips: [F("pay_date", "Pay Date", "date"), F("period_month", "For Month (1st day)", "date"), F("basic_pay", "Basic Pay (₱)", "money"), F("allowances", "Allowances (₱)", "money"), F("overtime_pay", "Overtime Pay (₱)", "money"), F("bonus", "Bonus (₱)", "money"), F("advance_amount", "Advance Amount (₱)", "money"), F("advance_deduction", "Advance Deduction (₱)", "money"), F("other_deductions", "Other Deductions (₱)", "money"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
+    payslips: [F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
     projects: [F("title", "Title"), F("description", "Description", "textarea"), F("location", "Location"), F("start_date", "Start Date", "date"), F("end_date", "End Date", "date")],
-    project_payments: [F("pay_date", "Date", "date"), F("amount", "Amount (₱)", "money"), F("received_by", "Received By"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
+    project_payments: [F("received_by", "Received By"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
     pay_companies: [F("name", "Company Name"), F("country", "Country"), F("contact", "Contact"), F("notes", "Notes")],
     pay_accounts: [F("account_name", "Account Name"), F("account_number", "Account Number"), F("bank_name", "Bank Name"), F("branch_name", "Branch"), F("notes", "Notes")],
-    pay_vouchers: [F("pay_date", "Payment Date", "date"), F("amount_php", "Amount (PHP)", "money"), F("exchange_rate", "Exchange Rate", "rate"), F("purpose", "Purpose"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
-    job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife / Husband Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("position_title", "Position"), F("company_name", "Company"), F("apply_salary", "Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date")],
-    order_letters: [F("subject", "Subject"), F("details", "Details", "textarea"), F("resolution", "Resolution / Terms", "textarea"), F("amount", "Amount (₱)", "money"), F("installments", "Number of Installments", "int"), F("installment_amount", "Installment Amount (₱)", "money"), F("first_due_date", "First Due Date", "date")],
-    job_positions: [F("title", "Position Title"), F("company_name", "Company Name"), F("company_code", "Company Code"), F("monthly_salary", "Monthly Salary (₱)", "money"), F("duty_hours", "Duty Hours"), F("description", "Description"), F("is_open", "Open for applications", "bool")],
-    community_posts: [F("body", "Post", "textarea")]
+    pay_vouchers: [F("purpose", "Purpose"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
+    job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife / Husband Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("apply_salary", "Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date")]
   };
-  const TABLE_NAME = { customers: "Customer", customer_invoices: "Invoice", payments_received: "Payment", credit_memos: "Credit Memo", employees: "Employee", payslips: "Payslip", projects: "Project", project_payments: "Project Payment", pay_companies: "Billing Company", pay_accounts: "Billing Account", pay_vouchers: "Payment Voucher", job_applications: "Job Application", order_letters: "Order Letter", job_positions: "Job Position", community_posts: "Community Post" };
+  // Money records that are cancelled (never deleted) when wrong — must match cancellable_table() in the database.
+  const CANCELLABLE = ["customer_invoices", "payments_received", "credit_memos", "payslips", "pay_vouchers", "project_payments", "order_letters"];
+  const TABLE_NAME = { customers: "Customer", customer_invoices: "Invoice", payments_received: "Payment", credit_memos: "Credit Memo", employees: "Employee", payslips: "Payslip", projects: "Project", project_payments: "Project Payment", pay_companies: "Billing Company", pay_accounts: "Billing Account", pay_vouchers: "Payment Voucher", job_applications: "Job Application", order_letters: "Order Letter" };
   const ROUTE_OF = { customers: "customer", customer_invoices: "invoice", payments_received: "payment", credit_memos: "creditmemo", employees: "employee", payslips: "payslip", projects: "project", pay_companies: "paycompany", pay_vouchers: "voucher", job_applications: "jobapp", order_letters: "order" };
-  const OWNER_OF = { customers: "customer", customer_invoices: "invoice", payments_received: "payment", credit_memos: "credit_memo", employees: "employee", payslips: "payslip", projects: "project", project_payments: "project_payment", pay_companies: "pay_company", pay_accounts: "pay_account", pay_vouchers: "pay_voucher", job_applications: "job_application", order_letters: "order_letter" };
   const fieldLabel = (table, k) => (FIELDS[table] || []).find((f) => f.k === k)?.label || k.replace(/_/g, " ");
   const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v) : String(v));
+  const changeList = (table, ch, prev) => Object.keys(ch || {}).map((k) => `${fieldLabel(table, k)}: ${showVal(prev?.[k])} → ${showVal(ch[k])}`).join("; ");
 
   function fieldInput(f, v) {
     const id = "ed_" + f.k;
@@ -97,108 +98,140 @@
     return String(a ?? "") === String(b ?? "");
   };
 
-  // Admins edit directly (logged); everyone else sends a change request for the admin to approve.
-  function editRecord(table, row, label, reload) {
+  // The saved record is not edited: a correction record is added with the new details and keeps the original ones.
+  function correctRecord(table, row, label, reload) {
     const fields = FIELDS[table];
-    if (!fields) return toast("This record cannot be changed here.", true);
+    if (!fields) return toast("This record cannot be corrected.", true);
     const admin = isAdmin();
-    const m = E.modal(`${admin ? "Edit" : "Request Change"} — ${label}`, `
-      <div class="hint">${admin ? "Changes are saved straight away and recorded in the change log." : "Correct the fields that are wrong and say why. The administrator reviews the request; once approved, the new details show on the record."}</div>
+    const m = E.modal(`${admin ? "Add Correction" : "Request Correction"} — ${label}`, `
+      <div class="hint">The saved record is not edited. ${admin ? "A correction record is added" : "When the administrator approves, a correction record is added"} with the new details, and the original details stay in the record's history.</div>
       <div class="fields wide edit-grid">${fields.map((f) => fieldInput(f, row[f.k])).join("")}</div>
-      ${admin ? "" : `<label class="fl" for="edReason">Reason for the change *</label><textarea id="edReason" rows="2" placeholder="e.g. Wrong phone number was typed"></textarea>`}`,
-      `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${admin ? "Save Changes" : "Submit Request"}</button>`, { wide: true });
+      ${CANCELLABLE.includes(table) ? `<small class="muted">Amounts and dates cannot be corrected. If they are wrong, cancel this record and record it again.</small>` : ""}
+      <label class="fl" for="edReason">Reason for the correction *</label><textarea id="edReason" rows="2" placeholder="e.g. Wrong phone number was typed"></textarea>`,
+      `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn primary" data-ok>${admin ? "Add Correction" : "Send for Approval"}</button>`, { wide: true });
     $("[data-x]", m.el).onclick = m.close;
     $("[data-ok]", m.el).onclick = async () => {
       const changes = {};
       for (const f of fields) { const v = readField(f, m.el); if (!same(f, row[f.k], v)) changes[f.k] = v; }
       if (!Object.keys(changes).length) return toast("Nothing was changed.", true);
+      const reason = $("#edReason", m.el).value.trim();
+      if (!reason) return toast("Write the reason for the correction.", true);
       const btn = $("[data-ok]", m.el); btn.disabled = true;
-      let r;
-      if (admin) r = await sb.rpc("admin_update_record", { p_table: table, p_id: row.id, p_changes: changes, p_label: label });
-      else {
-        const reason = $("#edReason", m.el).value.trim();
-        if (!reason) { btn.disabled = false; return toast("Explain why the change is needed.", true); }
-        r = await sb.rpc("submit_change_request", { p_table: table, p_id: row.id, p_changes: changes, p_reason: reason, p_label: label });
-      }
+      const { data, error } = await sb.rpc("submit_change_request", { p_table: table, p_id: row.id, p_changes: changes, p_reason: reason, p_label: label, p_kind: "correction" });
       btn.disabled = false;
-      if (r.error) return fail(r.error, admin ? "Could not save the changes" : "Could not send the request");
+      if (error) return fail(error, admin ? "Could not add the correction" : "Could not send the correction");
       m.close();
-      toast(admin ? "Changes saved." : `Change request ${r.data.request_no} sent to the administrator.`);
-      if (admin && reload) reload();
+      toast(admin ? `Correction ${data.request_no} added.` : `Correction ${data.request_no} sent to the administrator for approval.`);
+      if (reload) reload();
     };
   }
-  async function deleteRecord(table, id, label, afterDelete) {
-    if (!(await E.confirmBox(`Delete <b>${esc(label)}</b> permanently? This cannot be undone.`, { title: "Delete record", ok: "Delete", danger: true }))) return;
-    const { error } = await sb.rpc("admin_delete_record", { p_table: table, p_id: id, p_label: label });
-    if (error) return fail(error, "Could not delete");
-    const ot = OWNER_OF[table];
-    if (ot) {
-      const { data } = await sb.from("attachments").select("id, storage_path").eq("owner_type", ot).eq("owner_id", id);
-      if (data?.length) { await sb.storage.from("records").remove(data.map((a) => a.storage_path)); await sb.from("attachments").delete().in("id", data.map((a) => a.id)); }
-    }
-    toast(`${label} deleted.`);
-    if (afterDelete) afterDelete();
+  // A wrong money record is cancelled, never deleted: it stays, marked CANCELLED, and is left out of every total.
+  function cancelRecord(table, row, label, reload) {
+    const admin = isAdmin();
+    const m = E.modal(`${admin ? "Cancel Record" : "Request Cancel"} — ${label}`, `
+      <div class="banner warn">${esc(label)} is not deleted. It stays in the system marked <b>CANCELLED</b> with a cancel record, and is left out of all totals and balances.${table === "customer_invoices" ? " If the invoice has payments, cancel those payments first." : ""} Then record the correct one as a new record.</div>
+      <label class="fl" for="cxReason">Reason for cancelling *</label><textarea id="cxReason" rows="2" placeholder="e.g. Wrong amount was typed — recorded again"></textarea>
+      ${admin ? "" : `<small class="muted">The administrator approves the cancel.</small>`}`,
+      `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn danger" data-ok>${admin ? "Cancel This Record" : "Send for Approval"}</button>`);
+    $("[data-x]", m.el).onclick = m.close;
+    $("[data-ok]", m.el).onclick = async () => {
+      const reason = $("#cxReason", m.el).value.trim();
+      if (!reason) return toast("Write the reason for cancelling.", true);
+      const btn = $("[data-ok]", m.el); btn.disabled = true;
+      const { data, error } = await sb.rpc("submit_change_request", { p_table: table, p_id: row.id, p_changes: null, p_reason: reason, p_label: label, p_kind: "cancel" });
+      btn.disabled = false;
+      if (error) return fail(error, admin ? "Could not cancel the record" : "Could not send the cancel request");
+      m.close();
+      toast(admin ? `${label} is now CANCELLED (${data.request_no}).` : `Cancel request ${data.request_no} sent to the administrator.`);
+      if (reload) reload();
+    };
   }
   const RT = new Map();
   function recordTools(table, row, label, opts = {}) {
-    if (!FIELDS[table] || !S.profile) return "";
+    if (!S.profile || !row || row.void_no) return "";
+    const fix = !!FIELDS[table];
+    const cancel = CANCELLABLE.includes(table) && (table !== "order_letters" || ["pending", "approved"].includes(row.status));
+    if (!fix && !cancel) return "";
     if (RT.size > 300) RT.clear();
     const id = "rt" + Math.random().toString(36).slice(2, 9);
     RT.set(id, { table, row, label, ...opts });
-    return `<span class="rtools" data-rt="${id}">${isAdmin()
-      ? `<button type="button" class="btn" data-rt-edit>${ic("edit")} Edit</button><button type="button" class="btn danger" data-rt-del>${ic("trash")} Delete</button>`
-      : `<button type="button" class="btn" data-rt-edit>${ic("edit")} Request Change</button>`}</span>`;
+    const admin = isAdmin();
+    return `<span class="rtools" data-rt="${id}">${fix ? `<button type="button" class="btn" data-rt-fix>${ic("edit")} ${admin ? "Add Correction" : "Request Correction"}</button>` : ""}${cancel ? `<button type="button" class="btn danger" data-rt-cancel>${ic("x")} ${admin ? "Cancel Record" : "Request Cancel"}</button>` : ""}</span>`;
   }
   function bindRecordTools(root = document) {
     $$("[data-rt]", root).forEach((w) => {
       const o = RT.get(w.dataset.rt); if (!o) return;
-      const ed = $("[data-rt-edit]", w), del = $("[data-rt-del]", w);
-      if (ed) ed.onclick = (e) => { e.stopPropagation(); editRecord(o.table, o.row, o.label, o.reload); };
-      if (del) del.onclick = (e) => { e.stopPropagation(); deleteRecord(o.table, o.row.id, o.label, o.afterDelete); };
+      const fx = $("[data-rt-fix]", w), cx = $("[data-rt-cancel]", w);
+      if (fx) fx.onclick = (e) => { e.stopPropagation(); correctRecord(o.table, o.row, o.label, o.reload); };
+      if (cx) cx.onclick = (e) => { e.stopPropagation(); cancelRecord(o.table, o.row, o.label, o.reload); };
     });
+    $$("[data-rh]", root).forEach((el) => { const [t, id] = el.dataset.rh.split(":"); recordHistory(el, t, id); });
+  }
+  // Cancelled records stay, clearly marked, on screen and on paper.
+  const voidBanner = (r) => r?.void_no ? `<div class="banner closed">${ic("x")} CANCELLED on ${dmy(r.voided_at)} by cancel record <b class="mono">${esc(r.void_no)}</b>${r.voided_by_name ? ` (${esc(r.voided_by_name)})` : ""} — ${esc(r.void_reason || "")}. Kept for reference only; it is left out of all totals and balances.</div>` : "";
+  const voidPrint = (r) => r?.void_no ? `<div class="void-print">CANCELLED · ${esc(r.void_no)} · ${dmy(r.voided_at)} · ${esc(r.void_reason || "")}</div>` : "";
+  // Corrections and cancel records added to one record (with requests still waiting), newest first.
+  const rhBox = (table, id) => `<div class="rhist" data-rh="${esc(table)}:${esc(id)}" hidden></div>`;
+  async function recordHistory(el, table, id) {
+    const [done, reqs] = await Promise.all([
+      sb.from("record_changes").select("*").eq("target_table", table).eq("target_id", id).order("created_at", { ascending: false }),
+      sb.from("change_requests").select("*").eq("target_table", table).eq("target_id", id).order("created_at", { ascending: false })
+    ]);
+    if (!el.isConnected) return;
+    const why = new Map((reqs.data || []).map((r) => [r.request_no, r.reason]));
+    const rows = [
+      ...(reqs.data || []).filter((r) => r.status === "pending").map((r) => ({ at: r.created_at, no: r.request_no, st: "pending", what: r.kind === "cancel" ? "Cancel request" : "Correction request", detail: r.kind === "cancel" ? "" : changeList(table, r.changes, r.previous), why: r.reason, by: r.requested_by_name })),
+      ...(done.data || []).map((r) => ({ at: r.created_at, no: r.request_no || "", st: r.action === "cancel" ? "cancelled" : "approved", what: r.action === "cancel" ? "Cancel record" : "Correction", detail: r.action === "cancel" ? "" : changeList(table, r.changes, r.previous), why: why.get(r.request_no) || "", by: r.actor_name }))
+    ];
+    if (!rows.length) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = `<b>Corrections &amp; Cancel Records</b>${E.grid({ cols: [
+      { label: "Date / Time", get: (r) => E.stamp(new Date(r.at)) }, { label: "Record No", get: (r) => r.no }, { label: "Type", html: (r) => `${esc(r.what)} ${pill(r.st)}` },
+      { label: "Original → Corrected", get: (r) => r.detail || "—" }, { label: "Reason", get: (r) => r.why || "" }, { label: "By", get: (r) => r.by || "" }], rows })}`;
   }
 
   // ======================================================================
-  // Change Requests
+  // Corrections (requests and the log)
   // ======================================================================
   V.changes = async () => {
     const admin = isAdmin();
-    E.shell("changes", "Change Requests", `
-      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting Review</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button>${admin ? `<button type="button" data-f="log">Change Log</button>` : ""}</div>
+    E.shell("changes", "Corrections", `
+      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button>${admin ? `<button type="button" data-f="log">Correction Log</button>` : ""}</div>
       <div id="crRes">${busy()}</div>`,
-      admin ? "Requests from staff to correct records. <b>Approve</b> applies the new values to the record; every change is kept in the <b>Change Log</b>."
-        : "Your requests to correct records. To ask for a correction, open the record and press <b>Request Change</b>.");
+      admin ? "Saved records are never edited or deleted. Staff send <b>corrections</b> (wrong details) and <b>cancels</b> (wrong money records) here; <b>Approve</b> adds the correction or cancel record. Your own are added straight away."
+        : "Saved records are never edited or deleted. To fix one, open it and press <b>Request Correction</b> or <b>Request Cancel</b>; the administrator approves it here.");
     const run = async (f) => {
       $("#crRes").innerHTML = busy();
       if (f === "log") {
         const { data, error } = await sb.from("record_changes").select("*").order("created_at", { ascending: false }).limit(500);
-        if (error) return fail(error, "Could not load the change log");
+        if (error) return fail(error, "Could not load the correction log");
         const rows = data || [];
         $("#crRes").innerHTML = E.grid({ cols: [
           { label: "Date / Time", get: (r) => E.stamp(new Date(r.created_at)) }, { label: "Record", get: (r) => `${TABLE_NAME[r.target_table] || r.target_table}: ${r.target_label || ""}` },
-          { label: "Action", get: (r) => r.action.toUpperCase() }, { label: "Changes", get: (r) => r.action === "delete" ? "Record deleted" : Object.keys(r.changes || {}).map((k) => `${fieldLabel(r.target_table, k)}: ${showVal(r.previous?.[k])} → ${showVal(r.changes[k])}`).join("; ") },
-          { label: "By", get: (r) => r.actor_name || "" }, { label: "Request", get: (r) => r.request_no || "Direct edit" }], rows, empty: "No changes yet." });
-        return E.setRecords(`Changes: ${rows.length}`);
+          { label: "Type", get: (r) => r.action === "cancel" ? "CANCEL RECORD" : "CORRECTION" }, { label: "Original → Corrected", get: (r) => r.action === "cancel" ? "Marked CANCELLED" : changeList(r.target_table, r.changes, r.previous) },
+          { label: "By", get: (r) => r.actor_name || "" }, { label: "Record No", get: (r) => r.request_no || "" }], rows, empty: "No corrections yet." });
+        return E.setRecords(`Corrections: ${rows.length}`);
       }
       let q = sb.from("change_requests").select("*").order("created_at", { ascending: false }).limit(300);
       if (f) q = q.eq("status", f);
       const { data, error } = await q;
-      if (error) return fail(error, "Could not load change requests");
+      if (error) return fail(error, "Could not load corrections");
       const rows = data || [];
-      $("#crRes").innerHTML = rows.length ? rows.map((r) => `<article class="cr-card st-${esc(r.status)}">
-          <header><b class="mono">${esc(r.request_no)}</b>${pill(r.status)}<span>${esc(TABLE_NAME[r.target_table] || r.target_table)}: ${ROUTE_OF[r.target_table] ? `<a href="#${ROUTE_OF[r.target_table]}/${r.target_id}">${esc(r.target_label || "open record")}</a>` : esc(r.target_label || "")}</span><small>${esc(E.dateTime(r.created_at))} · by ${esc(r.requested_by_name || "")}</small></header>
+      $("#crRes").innerHTML = rows.length ? rows.map((r) => `<article class="cr-card st-${esc(r.status)}${r.kind === "cancel" ? " k-cancel" : ""}">
+          <header><b class="mono">${esc(r.request_no)}</b><span class="cr-kind">${r.kind === "cancel" ? "CANCEL RECORD" : "CORRECTION"}</span>${pill(r.status)}<span>${esc(TABLE_NAME[r.target_table] || r.target_table)}: ${ROUTE_OF[r.target_table] ? `<a href="#${ROUTE_OF[r.target_table]}/${r.target_id}">${esc(r.target_label || "open record")}</a>` : esc(r.target_label || "")}</span><small>${esc(E.dateTime(r.created_at))} · by ${esc(r.requested_by_name || "")}</small></header>
           <div class="cr-reason"><b>Reason:</b> ${esc(r.reason)}</div>
-          <table class="grid cr-diff"><thead><tr><th>Field</th><th>Current</th><th>Requested</th></tr></thead><tbody>
-            ${Object.keys(r.changes || {}).map((k) => `<tr><td>${esc(fieldLabel(r.target_table, k))}</td><td class="old">${esc(showVal(r.previous?.[k]))}</td><td class="new">${esc(showVal(r.changes[k]))}</td></tr>`).join("")}</tbody></table>
+          ${r.kind === "cancel" ? `<div class="cr-cancel">${ic("x")} The record is marked <b>CANCELLED</b>. It stays in the system and is left out of all totals and balances.</div>`
+            : `<table class="grid cr-diff"><thead><tr><th>Field</th><th>Original</th><th>Corrected</th></tr></thead><tbody>
+            ${Object.keys(r.changes || {}).map((k) => `<tr><td>${esc(fieldLabel(r.target_table, k))}</td><td class="old">${esc(showVal(r.previous?.[k]))}</td><td class="new">${esc(showVal(r.changes[k]))}</td></tr>`).join("")}</tbody></table>`}
           ${r.status !== "pending" ? `<div class="cr-done">${r.status === "approved" ? "Approved" : "Rejected"} by ${esc(r.reviewed_by_name || "")} · ${esc(E.dateTime(r.reviewed_at))}${r.review_note ? " — " + esc(r.review_note) : ""}</div>`
-            : admin ? `<div class="cr-act"><input type="text" placeholder="Note (optional)" data-note="${r.id}"><button type="button" class="btn ok" data-cr="${r.id}" data-a="approve">${ic("check")} Approve</button><button type="button" class="btn danger" data-cr="${r.id}" data-a="reject">Reject</button></div>` : `<div class="cr-done">Waiting for the administrator.</div>`}
-        </article>`).join("") : `<div class="empty">${f === "pending" ? "No requests waiting." : "No requests here."}</div>`;
+            : admin ? `<div class="cr-act"><input type="text" placeholder="Note (optional)" data-note="${r.id}"><button type="button" class="btn ok" data-cr="${r.id}" data-k="${esc(r.kind)}" data-a="approve">${ic("check")} Approve</button><button type="button" class="btn danger" data-cr="${r.id}" data-a="reject">Reject</button></div>` : `<div class="cr-done">Waiting for the administrator.</div>`}
+        </article>`).join("") : `<div class="empty">${f === "pending" ? "Nothing waiting for approval." : "Nothing here."}</div>`;
       $$("[data-cr]").forEach((b) => (b.onclick = async () => {
         const note = $(`[data-note="${b.dataset.cr}"]`).value.trim() || null;
         b.disabled = true;
         const { error: e2 } = await sb.rpc("review_change_request", { p_id: b.dataset.cr, p_action: b.dataset.a, p_note: note });
-        if (e2) { b.disabled = false; return fail(e2, "Could not review the request"); }
-        toast(b.dataset.a === "approve" ? "Approved — the record now shows the new details." : "Request rejected."); run(f); E.refreshBadge();
+        if (e2) { b.disabled = false; return fail(e2, "Could not decide the request"); }
+        toast(b.dataset.a === "reject" ? "Request rejected." : b.dataset.k === "cancel" ? "Approved — the record is now CANCELLED." : "Approved — the correction was added to the record."); run(f); E.refreshBadge();
       }));
       E.setRecords(`Requests: ${rows.length}`);
     };
@@ -243,60 +276,60 @@
 
   const eduRow = (r = {}) => `<tr><td><input type="text" class="e1" value="${esc(r.exam || "")}" placeholder="e.g. SSC"></td><td><input type="text" class="e2" value="${esc(r.institute || "")}"></td><td><input type="text" class="e3" value="${esc(r.result || "")}"></td><td><input type="text" class="e4" value="${esc(r.year || "")}" inputmode="numeric"></td><td><button type="button" class="btn danger" aria-label="Remove row">✕</button></td></tr>`;
   const expRow = (r = {}) => `<tr><td><input type="text" class="x1" value="${esc(r.company || "")}"></td><td><input type="text" class="x2" value="${esc(r.position || "")}"></td><td><input type="text" class="x3" value="${esc(r.from || "")}" placeholder="2022"></td><td><input type="text" class="x4" value="${esc(r.to || "")}" placeholder="2024"></td><td><button type="button" class="btn danger" aria-label="Remove row">✕</button></td></tr>`;
-  // The job application form (same fields as the printed company template). `existing` = edit while under review.
-  function applicationForm(pos, existing) {
-    const a = existing || {};
-    const v = (k, d = "") => esc(a[k] ?? d);
-    $(".band h1").textContent = existing ? `Edit Application ${existing.application_no}` : "Job Application Form";
+  // The job application form (same fields as the printed company template). Once submitted it is not edited.
+  function applicationForm(pos) {
+    const v = (d = "") => esc(d ?? "");
+    $(".band h1").textContent = "Job Application Form";
     $("#main").innerHTML = `
-      <form class="window jaform" id="jaForm" novalidate><div class="wtitle">Job Application — ${esc(existing ? existing.position_title : pos ? pos.title : "Other Position")}</div><div class="wbody">
+      <form class="window jaform" id="jaForm" novalidate><div class="wtitle">Job Application — ${esc(pos ? pos.title : "Other Position")}</div><div class="wbody">
         <fieldset class="opt"><legend>Apply Job Information</legend><div class="formgrid">
           <div class="fields wide">
-            ${pos || existing ? `<span>Position</span><b>${esc(existing ? existing.position_title : pos.title)}</b><span>Company</span><b>${esc(existing ? existing.company_name : pos.company_name)}</b>`
+            ${pos ? `<span>Position</span><b>${esc(pos.title)}</b><span>Company</span><b>${esc(pos.company_name)}</b>`
               : `<label for="jaPos">Position *</label><input type="text" id="jaPos" placeholder="Position you apply for">`}
-            <label for="jaSal">Expected Monthly Salary (₱)</label><input type="number" id="jaSal" min="0" step="0.01" value="${v("apply_salary", pos ? pos.monthly_salary : "")}">
+            <label for="jaSal">Expected Monthly Salary (₱)</label><input type="number" id="jaSal" min="0" step="0.01" value="${v(pos ? pos.monthly_salary : "")}">
           </div>
           <div class="fields wide">
-            <label for="jaHrs">Duty Hours</label><input type="text" id="jaHrs" value="${v("apply_duty_hours", pos ? pos.duty_hours || "" : "")}">
-            <label for="jaJoin">Joining Date</label><input type="date" id="jaJoin" value="${v("apply_joining_date")}">
+            <label for="jaHrs">Duty Hours</label><input type="text" id="jaHrs" value="${v(pos ? pos.duty_hours || "" : "")}">
+            <label for="jaJoin">Joining Date</label><input type="date" id="jaJoin">
           </div></div></fieldset>
         <fieldset class="opt"><legend>Applicant</legend><div class="formgrid">
           <div class="fields wide">
-            <label for="jaName">Full Name *</label><input type="text" id="jaName" value="${v("full_name", S.profile.full_name || "")}">
-            <label for="jaPhone">Phone *</label><input type="tel" id="jaPhone" value="${v("phone")}">
-            <label for="jaEmail">Email</label><input type="email" id="jaEmail" value="${v("email", S.session.user.email)}">
+            <label for="jaName">Full Name *</label><input type="text" id="jaName" value="${v(S.profile.full_name || "")}">
+            <label for="jaPhone">Phone *</label><input type="tel" id="jaPhone">
+            <label for="jaEmail">Email</label><input type="email" id="jaEmail" value="${v(S.session.user.email)}">
           </div>
           <div class="fields wide">
-            <label for="jaPhoto">Photo ${existing ? "" : "*"}</label><input type="file" id="jaPhoto" accept="image/*">
-            <span></span><div id="jaPhotoPrev" class="photo-prev">${existing?.photo_path ? "Photo on file" : "No photo"}</div>
+            <label for="jaPhoto">Photo *</label><input type="file" id="jaPhoto" accept="image/*">
+            <span></span><div id="jaPhotoPrev" class="photo-prev">No photo</div>
           </div></div></fieldset>
         <fieldset class="opt"><legend>Address Details</legend><div class="fields wide">
-          <label for="jaPres">Present Address *</label><input type="text" id="jaPres" value="${v("present_address")}">
-          <label for="jaPerm">Permanent Address</label><input type="text" id="jaPerm" value="${v("permanent_address")}"></div></fieldset>
+          <label for="jaPres">Present Address *</label><input type="text" id="jaPres">
+          <label for="jaPerm">Permanent Address</label><input type="text" id="jaPerm"></div></fieldset>
         <fieldset class="opt"><legend>Personal Information</legend><div class="formgrid">
           <div class="fields wide">
-            <label for="jaFather">Father's Name</label><input type="text" id="jaFather" value="${v("father_name")}">
-            <label for="jaMother">Mother's Name</label><input type="text" id="jaMother" value="${v("mother_name")}">
-            <label for="jaSpouse">Wife / Husband Name</label><input type="text" id="jaSpouse" value="${v("spouse_name")}">
-            <label for="jaDob">Date of Birth</label><input type="date" id="jaDob" value="${v("date_of_birth")}">
-            <label for="jaBirth">Birth Place</label><input type="text" id="jaBirth" value="${v("birth_place")}">
+            <label for="jaFather">Father's Name</label><input type="text" id="jaFather">
+            <label for="jaMother">Mother's Name</label><input type="text" id="jaMother">
+            <label for="jaSpouse">Wife / Husband Name</label><input type="text" id="jaSpouse">
+            <label for="jaDob">Date of Birth</label><input type="date" id="jaDob">
+            <label for="jaBirth">Birth Place</label><input type="text" id="jaBirth">
           </div>
           <div class="fields wide">
-            <label for="jaIdNo">BRC / NID / Passport No</label><input type="text" id="jaIdNo" value="${v("id_number")}">
-            <label for="jaGender">Gender</label><select id="jaGender">${["", "Male", "Female"].map((g) => `<option ${a.gender === g ? "selected" : ""}>${g}</option>`).join("")}</select>
-            <label for="jaRel">Religion</label><input type="text" id="jaRel" value="${v("religion")}">
-            <label for="jaBlood">Blood Group</label><select id="jaBlood">${["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((g) => `<option ${a.blood_group === g ? "selected" : ""}>${g}</option>`).join("")}</select>
+            <label for="jaIdNo">BRC / NID / Passport No</label><input type="text" id="jaIdNo">
+            <label for="jaGender">Gender</label><select id="jaGender">${["", "Male", "Female"].map((g) => `<option>${g}</option>`).join("")}</select>
+            <label for="jaRel">Religion</label><input type="text" id="jaRel">
+            <label for="jaBlood">Blood Group</label><select id="jaBlood">${["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((g) => `<option>${g}</option>`).join("")}</select>
           </div></div></fieldset>
         <fieldset class="opt"><legend>Educational Qualifications</legend>
-          <div class="grid-scroll"><table class="grid budget"><thead><tr>${E.EDU_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="jaEdu">${(a.education?.length ? a.education : [{ exam: "SSC" }, { exam: "HSC" }]).map(eduRow).join("")}</tbody></table></div>
+          <div class="grid-scroll"><table class="grid budget"><thead><tr>${E.EDU_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="jaEdu">${[{ exam: "SSC" }, { exam: "HSC" }].map(eduRow).join("")}</tbody></table></div>
           <div class="btnrow"><button type="button" class="btn" id="jaEduAdd">+ Add Row</button></div></fieldset>
         <fieldset class="opt"><legend>Work Experience</legend>
-          <div class="grid-scroll"><table class="grid budget"><thead><tr>${E.EXP_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="jaExp">${(a.experience || []).map(expRow).join("")}</tbody></table></div>
+          <div class="grid-scroll"><table class="grid budget"><thead><tr>${E.EXP_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="jaExp"></tbody></table></div>
           <div class="btnrow"><button type="button" class="btn" id="jaExpAdd">+ Add Experience</button></div></fieldset>
         <fieldset class="opt"><legend>Requirements</legend><div class="fields wide">${E.fileField("jaReq", "Upload Requirements", 'multiple accept="image/*,application/pdf"')}</div>
           <small>NID or birth certificate, certificates, CV, police clearance — photos or PDF.</small></fieldset>
-        <label class="decl"><input type="checkbox" id="jaDecl" ${a.declaration ? "checked" : ""}> I hereby declare that all the information given above is true and correct to the best of my knowledge.</label>
-      </div><div class="wfoot"><button type="button" class="btn" id="jaCancel">Cancel</button><button type="submit" class="btn primary">${existing ? "Save Changes" : "Submit Application"}</button></div></form>`;
+        <label class="decl"><input type="checkbox" id="jaDecl"> I hereby declare that all the information given above is true and correct to the best of my knowledge.</label>
+        <small class="muted">Check everything before you submit: a submitted application cannot be changed.</small>
+      </div><div class="wfoot"><button type="button" class="btn" id="jaCancel">Cancel</button><button type="submit" class="btn primary">Submit Application</button></div></form>`;
     const rows = (sel, html) => { $(sel).insertAdjacentHTML("beforeend", html); bindRemove(); };
     const bindRemove = () => $$("#jaEdu button, #jaExp button").forEach((b) => (b.onclick = () => b.closest("tr").remove()));
     bindRemove();
@@ -307,12 +340,12 @@
     $("#jaForm").onsubmit = async (e) => {
       e.preventDefault();
       const g = (id) => ($("#" + id)?.value || "").trim();
-      if (!pos && !existing && !g("jaPos")) return toast("Enter the position you apply for.", true);
+      if (!pos && !g("jaPos")) return toast("Enter the position you apply for.", true);
       if (!g("jaName")) return toast("Enter your full name.", true);
       if (!g("jaPhone")) return toast("Enter your phone number.", true);
       if (!g("jaPres")) return toast("Enter your present address.", true);
       const photo = $("#jaPhoto").files[0];
-      if (!existing && !photo) return toast("Add your photo.", true);
+      if (!photo) return toast("Add your photo.", true);
       if (!$("#jaDecl").checked) return toast("Tick the declaration to confirm the information is true.", true);
       const education = $$("#jaEdu tr").map((tr) => ({ exam: $(".e1", tr).value.trim(), institute: $(".e2", tr).value.trim(), result: $(".e3", tr).value.trim(), year: $(".e4", tr).value.trim() })).filter((r) => r.exam || r.institute);
       const experience = $$("#jaExp tr").map((tr) => ({ company: $(".x1", tr).value.trim(), position: $(".x2", tr).value.trim(), from: $(".x3", tr).value.trim(), to: $(".x4", tr).value.trim() })).filter((r) => r.company || r.position);
@@ -323,29 +356,26 @@
         education, experience, apply_salary: g("jaSal") === "" ? null : num(g("jaSal")), apply_duty_hours: g("jaHrs") || null, apply_joining_date: g("jaJoin") || null, declaration: true
       };
       E.setBusy(e.target, true, "Submitting");
-      let app;
-      if (existing) {
-        const { data, error } = await sb.from("job_applications").update(rec).eq("id", existing.id).select().single();
-        if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the changes"); }
-        app = data;
-      } else {
-        const id = E.uuid();
-        const { data, error } = await sb.from("job_applications").insert({ id, ...rec, position_id: pos?.id || null, position_title: pos ? pos.title : g("jaPos"), company_name: pos ? pos.company_name : C.company.name, company_code: pos ? pos.company_code : "EO" }).select().single();
-        if (error) { E.setBusy(e.target, false); return fail(error, "Could not submit the application"); }
-        app = data;
-      }
-      if (photo) {
-        const f = await shrinkImage(photo, 900);
-        const path = `job_application/${app.id}/Photo_${Date.now()}.${E.extOf(f)}`;
-        const up = await sb.storage.from("records").upload(path, f, { contentType: f.type });
-        if (!up.error) { await sb.from("job_applications").update({ photo_path: path }).eq("id", app.id); app.photo_path = path; }
-        else toast("The photo could not be uploaded. Add it again from Edit Application.", true);
-      }
+      const id = E.uuid();
+      const { data: app, error } = await sb.from("job_applications").insert({ id, ...rec, position_id: pos?.id || null, position_title: pos ? pos.title : g("jaPos"), company_name: pos ? pos.company_name : C.company.name, company_code: pos ? pos.company_code : "EO" }).select().single();
+      if (error) { E.setBusy(e.target, false); return fail(error, "Could not submit the application"); }
+      if (!(await addApplicationPhoto(app, photo))) toast("The photo could not be uploaded. Add it from My Job Application.", true);
       const failed = await E.uploadRecords("job_application", app.id, "requirement", E.filesOf("jaReq"));
       if (failed) toast(`${failed} requirement file(s) failed to upload.`, true);
-      toast(existing ? "Application updated." : `Application ${app.application_no} submitted. The administrator has been notified.`);
+      toast(`Application ${app.application_no} submitted. The administrator has been notified.`);
       applicantStatus(app);
     };
+  }
+  // The photo is added once, right after submitting (or later from the status page if that upload failed).
+  async function addApplicationPhoto(app, file) {
+    const f = await shrinkImage(file, 900);
+    const path = `job_application/${app.id}/Photo_${Date.now()}.${E.extOf(f)}`;
+    const up = await sb.storage.from("records").upload(path, f, { contentType: f.type });
+    if (up.error) return false;
+    const { error } = await sb.rpc("set_application_photo", { p_id: app.id, p_path: path });
+    if (error) return false;
+    app.photo_path = path;
+    return true;
   }
   async function applicantStatus(a) {
     $(".band h1").textContent = "My Job Application";
@@ -359,11 +389,11 @@
       <div class="ch-ids big-ids">${E.idBox("Application No", a.application_no)}${E.idBox("Position", a.position_title)}${E.idBox("Company", a.company_name)}${E.idBox("Submitted", dmy(a.created_at))}${E.idBox("Status", a.status.toUpperCase())}</div>
       <div class="docgrid">${E.docCard({ key: "myja", title: `Job Application Form ${a.application_no}`, sub: "Download, print and sign", ownerType: "job_application", ownerId: a.id, att, print: () => E.printJobApp(a), canUpload: false, printLabel: "Download / Print Form" })}</div>
       <h3>My Requirements</h3>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No requirements uploaded yet.")}
-      ${a.status === "submitted" ? `<div class="fields wide" style="margin:8px 0">${E.fileField("asReq", "Add Requirements", 'multiple accept="image/*,application/pdf"')}</div>
-        <div class="btnrow"><button type="button" class="btn" id="asEdit">${ic("edit")} Edit Application</button><button type="button" class="btn" id="asCheck">Check Status</button></div>` : ""}`;
+      ${a.status === "submitted" ? `<div class="fields wide" style="margin:8px 0">${E.fileField("asReq", "Add Requirements", 'multiple accept="image/*,application/pdf"')}${a.photo_path ? "" : E.fileField("asPhoto", "Add Your Photo", 'accept="image/*"')}</div>
+        <div class="btnrow"><button type="button" class="btn" id="asCheck">Check Status</button></div>` : ""}`;
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), () => applicantStatus(a));
-    if ($("#asEdit")) $("#asEdit").onclick = () => applicationForm(null, a);
+    if ($("#asPhoto")) $("#asPhoto").onchange = async (e) => { const f = e.target.files[0]; if (!f) return; const ok = await addApplicationPhoto(a, f); toast(ok ? "Photo added." : "The photo could not be added.", !ok); applicantStatus(a); };
     if ($("#asCheck")) $("#asCheck").onclick = async () => { S.profile = null; E.route(); };
     if ($("#asReq")) $("#asReq").onchange = async (e) => { const f = await E.uploadRecords("job_application", a.id, "requirement", Array.from(e.target.files)); toast(f ? "Upload failed." : "Uploaded.", f > 0); applicantStatus(a); };
   }
@@ -471,7 +501,7 @@
   const canApply = () => E.canWrite("orders") || E.canWrite("customers");
   V.orders = async () => {
     E.shell("orders", "Order Letter", `
-      <div class="tabs" id="olF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="applied">Applied</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
+      <div class="tabs" id="olF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="applied">Applied</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="cancelled">Cancelled</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${canApply() ? `<a class="btn primary" href="#neworder">${ic("plus")} New Order Letter</a><button type="button" class="btn" id="olApply">${ic("qr")} Apply Order Letter (Scan QR)</button>` : ""}</div>
       <div id="olRes">${busy()}</div>`,
       "Order letters suspend, close or reactivate an account, or record a payment arrangement. The admin approves the letter; its QR code carries a verification code. Scanning the QR (or typing the code) carries out the order.");
@@ -566,7 +596,7 @@
     const c = o.customers || {};
     const qr = code ? E.qrDataUrl(orderQr(o, code)) : "";
     const dear = c.first_name ? `Dear ${esc(fullName(c))},` : "Dear Sir / Madam,";
-    return `${E.printHead("ORDER LETTER", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
+    return `${E.printHead("ORDER LETTER", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}${voidPrint(o)}
       <div class="ol-top"><div><div><b>Order No:</b> ${esc(o.order_no)}</div><div><b>Date:</b> ${esc(E.dLong(o.order_date))}</div></div>
         <div class="ol-to"><b>To:</b> ${esc(fullName(c).toUpperCase())}<br>Account No: ${esc(c.account_no || "")}<br>${esc(c.address || "")}</div></div>
       <div class="ol-subj">SUBJECT: ${esc((o.subject || "").toUpperCase())}</div>
@@ -599,7 +629,8 @@
       pending: `<div class="banner warn">Waiting for the administrator to approve this order letter.</div>`,
       approved: `<div class="banner ok">✔ APPROVED by ${esc(o.approved_by_name || "")} on ${dmy(o.approved_at)}. ${isAdmin() ? "Print the letter: its QR code carries the verification code." : "The administrator prints the letter with its QR code."} Scan the QR (or type the code) to carry out the order.</div>`,
       applied: `<div class="banner ok">✔ APPLIED on ${dmy(o.applied_at)} by ${esc(o.applied_by_name || "")} — ${esc(o.applied_result || "")}</div>`,
-      rejected: `<div class="banner closed">REJECTED by ${esc(o.approved_by_name || "")}${o.review_note ? " — " + esc(o.review_note) : ""}</div>`
+      rejected: `<div class="banner closed">REJECTED by ${esc(o.approved_by_name || "")}${o.review_note ? " — " + esc(o.review_note) : ""}</div>`,
+      cancelled: voidBanner(o)
     }[o.status] || "";
     $("#main").innerHTML = `${banner}
       <div class="window"><div class="wtitle">${esc(o.order_no)} — ${esc(SUBJ[o.subject_type]?.[0] || "")} ${pill(o.status)}</div><div class="wbody">
@@ -615,7 +646,8 @@
           <div class="btnrow"><button type="button" class="btn ok" id="olApprove">${ic("check")} Approve — Create QR Code</button><button type="button" class="btn danger" id="olReject">Reject</button></div></fieldset>` : ""}
         ${o.status === "approved" && canApply() ? `<fieldset class="opt review"><legend>Carry Out This Order</legend><p>Scan the QR code on the printed letter, or type its verification code.</p>
           <div class="btnrow"><button type="button" class="btn primary" id="olApplyBtn">${ic("qr")} Scan / Enter Code</button></div></fieldset>` : ""}
-      </div><div class="wfoot">${o.status === "pending" || isAdmin() ? recordTools("order_letters", o, `Order letter ${o.order_no}`, { reload: () => V.order(id), afterDelete: () => (location.hash = "orders") }) : ""}<a class="btn" href="#orders">Close</a></div></div>`;
+        ${rhBox("order_letters", o.id)}
+      </div><div class="wfoot">${recordTools("order_letters", o, `Order letter ${o.order_no}`, { reload: () => V.order(id) })}<a class="btn" href="#orders">Close</a></div></div>`;
     E.bindDocCards($("#main"), () => V.order(id));
     bindRecordTools($("#main"));
     const review = async (action) => {
@@ -718,15 +750,17 @@
         return;
       }
       const checked = new Date();
-      out.innerHTML = `<div class="vf-ok">
-        <div class="vf-seal">${ic("check")}</div>
-        <div class="vf-title">TRUE RECORD</div>
-        <div class="vf-sub">VERIFIED BY ${esc(E.APP)}</div>
+      // A cancelled record is still a real record, but it is marked CANCELLED and gets no validated print.
+      const cx = !!data.cancelled;
+      out.innerHTML = `<div class="vf-ok${cx ? " vf-void" : ""}">
+        <div class="vf-seal">${cx ? ic("x") : ic("check")}</div>
+        <div class="vf-title">${cx ? "CANCELLED RECORD" : "TRUE RECORD"}</div>
+        <div class="vf-sub">${cx ? `This record was cancelled. It is kept for reference only and is not valid.` : `VERIFIED BY ${esc(E.APP)}`}</div>
         <div class="vf-type">${esc(data.type)} · <b class="mono">${esc(data.number)}</b> ${data.status ? pill(data.status) : ""}</div>
         <table class="vf-fields"><tbody>${(data.fields || []).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v ?? "")}</td></tr>`).join("")}</tbody></table>
         <div class="vf-when">Checked ${esc(E.dateTime(checked.toISOString()))}</div>
-        <div class="btnrow center"><button type="button" class="btn primary" id="vfPrint">${ic("print")} Validated Print</button>${inside && OPEN[data.type] ? `<button type="button" class="btn" id="vfOpen">${ic("eye")} Open Record</button>` : ""}</div></div>`;
-      $("#vfPrint").onclick = () => validatedPrint(data, checked);
+        <div class="btnrow center">${cx ? "" : `<button type="button" class="btn primary" id="vfPrint">${ic("print")} Validated Print</button>`}${inside && OPEN[data.type] ? `<button type="button" class="btn" id="vfOpen">${ic("eye")} Open Record</button>` : ""}</div></div>`;
+      if ($("#vfPrint")) $("#vfPrint").onclick = () => validatedPrint(data, checked);
       if ($("#vfOpen")) $("#vfOpen").onclick = async () => {
         const [table, col, route, via] = OPEN[data.type];
         const { data: row } = await sb.from(table).select(via ? `id, ${via}` : "id").eq(col, data.number).maybeSingle();
@@ -899,5 +933,5 @@
     if (CH.tick % 4 === 0) loadContacts();
   }
 
-  Object.assign(E, { recordTools, bindRecordTools, editRecord, deleteRecord, fieldLabel, applyOrderDialog, applyOrderScan, openChat, closeChat, shrinkImage, signedMap, lightbox });
+  Object.assign(E, { recordTools, bindRecordTools, correctRecord, cancelRecord, voidBanner, voidPrint, rhBox, fieldLabel, applyOrderDialog, applyOrderScan, openChat, closeChat, shrinkImage, signedMap, lightbox });
 })();
