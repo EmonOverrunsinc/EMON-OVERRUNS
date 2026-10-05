@@ -839,9 +839,9 @@
   function openPreview(title, pages, { landscape = false, size = "" } = {}) {
     closePreview();
     const cls = size ? " " + size : landscape ? " landscape" : "";
-    // Every printed page shows the date it was printed (reports and statements already carry their own).
+    // Every printed page shows the date it was printed (report listings and statements already carry their own).
     const printed = dateTime(new Date().toISOString());
-    const dated = (p) => (/Date Printed|rp-stamp|rp-foot/.test(p) ? "" : `<div class="pg-date">Date Printed: ${esc(printed)}</div>`);
+    const dated = (p) => (/Date Printed|rp-stamp|Printed \d/.test(p) ? "" : `<div class="pg-date">Date Printed: ${esc(printed)}</div>`);
     S.docTitle = document.title;
     document.title = title; // "Save as PDF" uses this as the file name
     const pv = document.createElement("div");
