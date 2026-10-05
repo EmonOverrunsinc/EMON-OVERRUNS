@@ -923,14 +923,14 @@
     if (code) run(code); else $("#vfCode").focus();
   };
   // Validated Print (A4), typewriter style: "VERIFIED BY …", RECORD FOUND with the search result, the record's details
-  // (a customer's Base64 Public ID decoded underneath), then the validation number, time, the employee who printed it
-  // and a QR code to check it online. System-generated: no signature.
+  // (a customer's Base64 Public ID decoded underneath; no amount due), then the validation number, time, the employee
+  // who printed it and a QR code to check it online. System-generated: no signature.
   function validatedPrint(d, when) {
     const vno = "V" + when.toISOString().replace(/\D/g, "").slice(2, 14);
     const at = E.dateTime(when.toISOString());
     // Stored codes in plain words (cash → Cash); empty values are left out.
     const plain = (v) => /^[a-z][a-z ]*$/.test(String(v)) ? String(v).replace(/\b[a-z]/g, (x) => x.toUpperCase()) : String(v);
-    const fields = (d.fields || []).filter(([, v]) => v != null && !["", "—", "-"].includes(String(v).trim()));
+    const fields = (d.fields || []).filter(([k, v]) => v != null && !["", "—", "-"].includes(String(v).trim()) && !/^amount due/i.test(k));
     const idField = fields.find(([, v]) => String(v) === String(d.number));
     const idLabel = d.type === "Customer Account" ? "Customer ID" : idField ? idField[0] : "Record No";
     const who = fields.find(([k]) => ["Account Name", "Customer", "Received From", "Employee", "Name", "Applicant", "Paid To", "Account", "Company"].includes(k));

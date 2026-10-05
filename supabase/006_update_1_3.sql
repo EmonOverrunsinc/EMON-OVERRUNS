@@ -293,7 +293,8 @@ language sql immutable set search_path = '' as $$
 $$;
 revoke execute on function public.editable_columns(text) from public, anon;
 
--- Public verification: a voucher shows its own currency; a balance certificate shows the amount due.
+-- Public verification: a voucher shows its own currency; a balance certificate shows the amount due;
+-- a customer account shows the amount due to signed-in portal users.
 create or replace function public.verify_record(p_code text) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
 declare
@@ -320,11 +321,14 @@ begin
     -- customer account (account no, application no or public ID)
     select * into r from public.customers cu where upper(cu.account_no) = c or upper(cu.application_no) = c or upper(cu.public_id) = c limit 1;
     if found then
+      -- The amount due shows only to signed-in portal users (not on the public page) and never on the Validated Print.
       return jsonb_build_object('found', true, 'type', 'Customer Account', 'number', r.account_no, 'status', r.status,
-        'fields', jsonb_build_array(
+        'fields', (select jsonb_agg(f) from jsonb_array_elements(jsonb_build_array(
           jsonb_build_array('Customer ID', r.account_no), jsonb_build_array('Account Name', r.first_name || ' ' || r.last_name),
+          case when public.is_active() then jsonb_build_array('Amount Due (PHP)',
+            to_char(coalesce((select b.balance_due from public.customer_balances b where b.customer_id = r.id), 0), 'FM999,999,999,990.00')) end,
           jsonb_build_array('Application No', r.application_no), jsonb_build_array('Public ID', r.public_id),
-          jsonb_build_array('Opened', to_char(r.application_date, 'DD Mon YYYY')), jsonb_build_array('Account Status', upper(r.status))));
+          jsonb_build_array('Opened', to_char(r.application_date, 'DD Mon YYYY')), jsonb_build_array('Account Status', upper(r.status)))) f where f <> 'null'::jsonb));
     end if;
     select i.*, cu.first_name, cu.last_name, cu.account_no as acct,
       coalesce((select sum(p.amount) from public.payments_received p where p.invoice_id = i.id), 0) as paid
