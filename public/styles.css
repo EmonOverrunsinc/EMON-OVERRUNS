@@ -118,12 +118,18 @@ textarea { resize: vertical; }
 .btn.ok { color: var(--ok); }
 
 /* ---------- Tabs ---------- */
-.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--panel-line); }
+.tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--panel-line); }
 .tabs button {
   border: 1px solid var(--panel-line); border-bottom: 0; background: var(--chrome-2);
   padding: 3px 12px; cursor: pointer; border-radius: 3px 3px 0 0;
 }
 .tabs button.on { background: #fff; font-weight: bold; position: relative; top: 1px; }
+/* On a phone the tabs wrap onto more rows instead of pushing the page sideways; each tab keeps its own border. */
+@media (max-width: 620px) {
+  .tabs { gap: 3px; border-bottom: 0; }
+  .tabs button { border-bottom: 1px solid var(--panel-line); border-radius: 3px; padding: 4px 10px; }
+  .tabs button.on { top: 0; border-color: var(--title-2); }
+}
 
 /* ---------- Data grid ---------- */
 .grid-wrap { border: 1px solid var(--chrome-line); background: #fff; }
@@ -457,6 +463,9 @@ a.btn { display: inline-block; text-decoration: none; color: var(--ink); text-al
 @media (max-width: 640px) { .profile { grid-template-columns: 80px minmax(0, 1fr); } .pf-photo { width: 80px; height: 80px; } .pf-qr { grid-column: 1 / -1; } }
 .kv-table th { width: 34%; background: var(--grid-alt); font-weight: bold; text-align: left; white-space: normal; }
 .kv-table td { white-space: normal; }
+/* Long values (addresses, keys, emails) wrap instead of making the page wider than a phone. */
+table.grid.kv-table th, table.grid.kv-table td { white-space: normal; }
+table.grid.kv-table td { overflow-wrap: anywhere; }
 .tabpanes > div { padding-top: 6px; }
 .filelist { display: grid; gap: 4px; }
 .file { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 8px; align-items: center; background: #fff; border: 1px solid var(--grid-head); padding: 4px 8px; }

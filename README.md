@@ -5,33 +5,35 @@
 Business portal for **EMON OVERRUNS**, Ignacio Street, Pasay City, Metro Manila 1300.
 It is laid out like AutoCount: option panel, then Inquiry, Preview and Print, then a grid, and printable report pages.
 
-## Modules
-| Menu | What it does | Who |
-|---|---|---|
-| Dashboard | Totals, monthly ₱ chart, recent documents, announcements, Monthly Analysis report | Everyone |
-| Documents | Filter by date, type and status. Inquiry grid, Group By, and a printable **Document Listing** with summary and criteria | Everyone |
-| Upload | New document with attachments. Gets an auto number (INV-, OR-, DN-, CN-, DEP-, PV-) and a **PDF417 barcode** | Staff, Admin |
-| Verification | Pending queue with Verify, Reject and Reopen, plus a printable **Verification Audit Trail Listing** | Admin acts, everyone views |
-| Search | Keyword search, or **scan a PDF417** by camera or from a photo to open the document | Everyone |
-| Download Forms | Blank company forms by category, with download counts | Admin uploads, everyone downloads |
-| Announcements | Post and pin notices. The newest show on the Dashboard | Admin posts |
-| Users | Activate sign-ups and set roles (admin, staff, viewer) | Admin |
+## Modules (side menu)
+| Menu | What it does |
+|---|---|
+| Dashboard | Totals, what is waiting for the CEO (applications, orders, corrections, credit memos) and the monthly chart |
+| 1. Customer | Application with photo and requirements, account no, wallet-style Public ID with its QR, approval, profile with balance, monthly SOA and history |
+| 2. Invoice | Sales for ACTIVE customers (PO, boxes, pcs, amount, receipts, delivery receipt) |
+| 3. Payment | Cash, bank transfer, online transfer or deposit, with a printable acknowledgment receipt |
+| 4. Credit Memo | Complaints and defect claims; approved credits and discounts reduce the balance due |
+| 5. Employee | Employees, job applications, positions, payroll and payslips |
+| 6. Community | Company posts (kept 30 days) and chat |
+| 7. Project | Projects with their costs and payments |
+| 8. Billing | Billing companies (PHP, BDT or both) and payment vouchers |
+| 9. Order Letter | Requests for customers, employees and billing companies (closure, reactivation, additional charge, settlement adjustment, balance certificate and more); the CEO approves and it is carried out at once |
+| Verification | Anyone can check a record by its number or by scanning its QR / PDF417 code, without signing in |
+| Corrections | Records are only added; corrections and cancellations are approved by the CEO |
+| User | Logins, roles and which modules each person can open (CEO) |
+| Download Forms | Blank company forms |
 
-All amounts are in **PHP (₱)**. Vouchers print the amount in words, for example "PESOS ONE THOUSAND … AND 50/100 ONLY".
+Amounts are in **PHP (₱)** (Billing also uses BDT). Dates show as MM-DD-YYYY in Manila time. Vouchers print the amount in words, for example "PESOS ONE THOUSAND … AND 50/100 ONLY".
 
-## Business modules (side menu)
-1. **Customer:** application form with address check, photo, Facebook and requirement uploads. It assigns the account no (initials-YYYYMM###, e.g. EH-202610001), application no, QR public ID and a hidden private code, then prints an application for signing. Admin review covers the duplicate check, the signed-form upload and approve/reject.
-2. **Invoice:** record a sale for an ACTIVE customer (PO, boxes, pcs, amount, paid or unpaid with cash or bank details, receipts, delivery receipt, PO upload).
-3. **Payment:** cash, bank transfer, online transfer or deposit. Receipt no A-YYYY-MMDD-###, with a printable acknowledgment receipt.
-4. **Credit Memo:** customer complaint or defect claim (report no EOC-YYYYMM###). Admin approve/reject and mark paid. Approved credit or discount amounts reduce the balance due.
-5. **User Resolution:** suspend, reactivate or permanently close accounts. Closed accounts cannot get new invoices and are hidden from the top search.
-7. **Project** and 8. **Billing:** coming soon.
+Numbers: account no initials-YYYYMM### (e.g. EH-202610001), payment receipt A-YYYY-MMDD-###, credit memo EOC-YYYYMM###, order letter ORDER-YYYY-###.
 
 Database scripts, run once each in this order in the Supabase SQL Editor: `portal_init.sql`, `002_customers_invoices_payments.sql`,
 `003_statements.sql`, `004_update_1_1.sql`, `005_update_1_2.sql` (orders for customers, employees and billing companies),
 `006_update_1_3.sql` (billing currency PHP / BDT / both, order details, balance certificate, wallet-style Public ID key),
 `007_update_1_4.sql` (change or remove a customer's photo),
-`008_update_1_5.sql` (order letter Additional Charge added to the balance and the SOA; old photos leave Files).
+`008_update_1_5.sql` (order letter Additional Charge added to the balance and the SOA; old photos leave Files),
+`009_update_1_6.sql` (dates follow Manila time: between midnight and 8 AM the database no longer uses the day before;
+run it again after any later update that replaces a function, so the replaced function keeps Manila time).
 
 ## Setup (one time)
 1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.

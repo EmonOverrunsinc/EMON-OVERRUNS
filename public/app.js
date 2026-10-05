@@ -16,9 +16,16 @@
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const peso = (n) => Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const pad = (n) => String(n).padStart(2, "0");
-  const isoToday = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const isoToday = () => isoDay(new Date());
   // Every date shows month first, as MM-DD-YYYY (06-20-2026); with the time: 06-20-2026 3:15 PM.
-  const mdy = (iso) => { if (!iso) return ""; const [y, m, d] = String(iso).slice(0, 10).split("-"); return `${m}-${d}-${y}`; };
+  // A saved time (2026-10-05T17:30:00+00:00) shows the day it was where the user is, not the server's UTC day.
+  const mdy = (iso) => {
+    if (!iso) return "";
+    let s = String(iso);
+    if (/^\d{4}-\d\d-\d\d[T ]\d\d:\d\d/.test(s)) { const t = new Date(s.replace(" ", "T").replace(/([+-]\d\d)$/, "$1:00")); if (!isNaN(t)) s = isoDay(t); }
+    const [y, m, d] = s.slice(0, 10).split("-"); return `${m}-${d}-${y}`;
+  };
   const stamp = (d = new Date()) => `${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   const longDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "2-digit" });
   const dateTime = (iso) => { if (!iso) return ""; const d = new Date(iso), h = d.getHours(); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${d.getFullYear()} ${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "AM" : "PM"}`; };
@@ -232,6 +239,8 @@
   }
 
   // ---------- sign in, create account, email codes ----------
+  // Sign out of this device only; the same account stays signed in on the user's other phones and computers.
+  const signOut = () => sb.auth.signOut({ scope: "local" });
   async function loadProfile() {
     if (!S.session) { S.profile = null; return; }
     const { data, error } = await sb.from("profiles").select("*").eq("id", S.session.user.id).maybeSingle();
@@ -301,6 +310,10 @@
       <div class="login-links"><button type="button" class="linkbtn" id="toForgot">Forgot password?</button></div>
     </form>`);
     bindEyes();
+    if (linkError) {
+      $("#lgForm .seg").insertAdjacentHTML("beforebegin", `<div class="hint err small" id="lgLinkMsg"><b>${esc(linkError)}</b><br>Sign in below — if your email is not confirmed yet, we will email you a new code. If you forgot your password, press <b>Forgot password?</b>.</div>`);
+      linkError = "";
+    }
     $(preset ? "#lgPass" : "#lgId").focus();
     $("#toSignup").onclick = () => renderSignup();
     $("#toForgot").onclick = () => renderForgot($("#lgId").value.trim());
@@ -513,14 +526,14 @@
       <div class="banner closed">This account (${esc(S.session.user.email)}) is disabled.</div>
       <p>Contact the CEO of ${esc(C.company.name)} if you think this is a mistake.</p>
       <button class="btn big" id="dsOut">Sign Out</button></div>`);
-    $("#dsOut").onclick = () => sb.auth.signOut();
+    $("#dsOut").onclick = signOut;
   }
   function renderPending() {
     authFrame("Waiting for Approval", `<div class="wbody login-form">${brandBlock()}
       <p>Signed in as <b>${esc(S.session.user.email)}</b>. Your account is waiting for the CEO.</p>
       <div class="login-links"><button class="btn" id="pRefresh">Check Again</button><button class="btn" id="pOut">Sign Out</button></div></div>`);
     $("#pRefresh").onclick = async () => { S.profile = null; route(); };
-    $("#pOut").onclick = () => sb.auth.signOut();
+    $("#pOut").onclick = signOut;
   }
 
   // Simple page frame (company header + slim bar) for applicants and the public verification page.
@@ -536,7 +549,7 @@
           : `<a class="btn light" href="#dashboard">${ic("user")} Sign In</a>`}</div>
       </div>
       <div class="content mini-content"><div class="band"><h1>${esc(title)}</h1></div><main id="main">${body}</main></div>`;
-    if ($("#msOut")) $("#msOut").onclick = () => sb.auth.signOut();
+    if ($("#msOut")) $("#msOut").onclick = signOut;
   }
 
   // ---------- shell: company header, top bar, slide-out menu ----------
@@ -693,7 +706,7 @@
     $("#tbMenu").onclick = () => drawerOpen(!document.body.classList.contains("drawer-open"));
     $("#scrim").onclick = () => drawerOpen(false);
     $$("#drawer a").forEach((a) => (a.onclick = () => { if (isPhone()) drawerOpen(false); }));
-    $("#signOut").onclick = () => sb.auth.signOut();
+    $("#signOut").onclick = signOut;
     $("#chPw").onclick = () => renderSetPassword(false);
     $("#tbInstall").onclick = installApp;
     if ($("#upInstall")) $("#upInstall").onclick = installApp;
@@ -1011,6 +1024,7 @@
   // ---------- router ----------
   const BUILTIN = { forms: viewForms, logins: viewUsers };
   async function route() {
+    takeLinkError();
     closePreview();
     $$(".pop").forEach((p) => (p.hidden = true));
     const [rawKey, id, extra] = (location.hash.slice(1) || "dashboard").split("/");
@@ -1025,11 +1039,12 @@
       return renderLogin();
     }
     if (recovering) { recovering = false; return renderSetPassword(true); }
+    if (linkError) { toast(linkError + " You are already signed in."); linkError = ""; }
     if (!S.profile) await loadProfile();
     if (!S.profile) {
       authFrame("Sign In", `<div class="wbody login-form">${brandBlock()}<p>Your profile could not be loaded. Check the connection and try again.</p>
         <div class="login-links"><button class="btn" id="npRetry">Try Again</button><button class="btn" id="npOut">Sign Out</button></div></div>`);
-      $("#npRetry").onclick = route; $("#npOut").onclick = () => sb.auth.signOut();
+      $("#npRetry").onclick = route; $("#npOut").onclick = signOut;
       return;
     }
     if (S.profile.status === "disabled") return renderDisabled();
@@ -1049,6 +1064,17 @@
   let booted = false;
   // A reset-email link arrives as #access_token=…&type=recovery; remember it before supabase-js clears the hash.
   let recovering = /type=recovery/.test(location.hash);
+  // An email link that has expired or was already used arrives as #error=…&error_code=otp_expired&error_description=…;
+  // keep the reason for the Sign In page and take it out of the address bar.
+  let linkError = "";
+  function takeLinkError() {
+    const h = new URLSearchParams(location.hash.slice(1)), q = new URLSearchParams(location.search);
+    const code = h.get("error_code") || q.get("error_code") || "", text = h.get("error_description") || q.get("error_description") || "";
+    if (!code && !text) return;
+    history.replaceState(null, "", location.pathname);
+    linkError = /expired/i.test(code + " " + text) ? "This email link has expired or was already used." : `This email link did not work: ${text || code}.`;
+  }
+  takeLinkError();
   sb.auth.onAuthStateChange((event, session) => {
     const changedUser = (session?.user?.id || null) !== (S.session?.user?.id || null);
     S.session = session;
@@ -1062,7 +1088,7 @@
   window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words };
   // shared with modules.js, modules2.js and modules3.js
   Object.assign(window.EO, {
-    APP, VERSION, sb, S, C, esc, peso, pad, isoToday, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
+    APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages,
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey,

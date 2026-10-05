@@ -4,7 +4,7 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy } = E;
+  const { sb, S, C, esc, peso, isoToday, isoDay, mdy, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy } = E;
   const V = (window.EO_VIEWS = window.EO_VIEWS || {});
 
   const fullName = (c) => `${c.first_name || ""} ${c.last_name || ""}`.trim();
@@ -717,11 +717,11 @@
     orders.filter((o) => ["charge", "settlement"].includes(o.subject_type) && o.status === "applied" && o.applied_at).forEach((o) => {
       const off = o.subject_type === "settlement" && o.adjust_type === "reduce";
       const what = o.subject_type === "charge" ? "Additional Charge" : "Settlement Adjustment";
-      t.push({ date: String(o.applied_at).slice(0, 10), ref: o.order_no, desc: o.subject && o.subject !== what ? `${what} — ${o.subject}` : what, debit: off ? 0 : num(o.amount), credit: off ? num(o.amount) : 0 });
+      t.push({ date: isoDay(new Date(o.applied_at)), ref: o.order_no, desc: o.subject && o.subject !== what ? `${what} — ${o.subject}` : what, debit: off ? 0 : num(o.amount), credit: off ? num(o.amount) : 0 });
     });
     pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: `Payment — ${METHOD[p.method] || p.method}${p.bank_name ? " " + p.bank_name : ""}${p.reference_no ? " Ref " + p.reference_no : ""}`, debit: 0, credit: num(p.amount), pay: p }));
     memos.filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action) && m.approved_at)
-      .forEach((m) => t.push({ date: String(m.approved_at).slice(0, 10), ref: m.memo_no, desc: `Credit Memo — ${ACTION[m.requested_action]}${m.article ? " (" + m.article + ")" : ""}`, debit: 0, credit: num(m.request_amount) }));
+      .forEach((m) => t.push({ date: isoDay(new Date(m.approved_at)), ref: m.memo_no, desc: `Credit Memo — ${ACTION[m.requested_action]}${m.article ? " (" + m.article + ")" : ""}`, debit: 0, credit: num(m.request_amount) }));
     return t.sort((a, b) => a.date.localeCompare(b.date) || (b.debit - a.debit));
   }
   const before = (txns, d) => txns.filter((x) => x.date < d).reduce((s, x) => s + x.debit - x.credit, 0);
