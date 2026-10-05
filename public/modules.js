@@ -509,7 +509,7 @@
       sb.from("order_letters").select("*").eq("customer_id", c.id).order("created_at", { ascending: false }),
       sb.from("record_changes").select("*").eq("target_table", "customers").eq("target_id", c.id).order("created_at")
     ]);
-    const b = bal.data || { total_invoiced: 0, total_paid: 0, total_credits: 0, balance_due: 0, total_charges: 0 };
+    const b = bal.data || { total_invoiced: 0, total_paid: 0, total_credits: 0, balance_due: 0, total_charges: 0, total_settlement: 0 };
     const photoUrl = c.photo_path ? await signedUrl(c.photo_path) : "";
     const signed = att.filter((a) => a.kind === "signed_form");
     const orders = ords.data || [];
@@ -543,9 +543,10 @@
       </section>
       <div class="tiles">
         <div class="tile"><div class="k">Total Invoiced</div><div class="v">₱ ${peso(b.total_invoiced)}</div></div>
-        <div class="tile"><div class="k">Charges / Adjustments (+)</div><div class="v">₱ ${peso(b.total_charges)}</div></div>
+        <div class="tile"><div class="k">Additional Charge</div><div class="v">₱ ${peso(b.total_charges)}</div></div>
+        <div class="tile"><div class="k">Settlement Adjustment</div><div class="v">${num(b.total_settlement) < 0 ? "− " : num(b.total_settlement) > 0 ? "+ " : ""}₱ ${peso(Math.abs(num(b.total_settlement)))}</div></div>
         <div class="tile ok"><div class="k">Total Paid</div><div class="v">₱ ${peso(b.total_paid)}</div></div>
-        <div class="tile"><div class="k">Credits / Discounts / Adj. (−)</div><div class="v">₱ ${peso(b.total_credits)}</div></div>
+        <div class="tile"><div class="k">Credits / Discounts</div><div class="v">₱ ${peso(b.total_credits)}</div></div>
         <div class="tile ${num(b.balance_due) > 0 ? "warn" : "ok"}"><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
       </div>
       <div class="actionbar">
@@ -715,8 +716,8 @@
     invs.forEach((i) => t.push({ date: i.invoice_date, ref: i.invoice_no, desc: `Invoice${i.po_number ? " — PO " + i.po_number : ""}`, debit: num(i.total_amount), credit: 0, inv: i }));
     orders.filter((o) => ["charge", "settlement"].includes(o.subject_type) && o.status === "applied" && o.applied_at).forEach((o) => {
       const off = o.subject_type === "settlement" && o.adjust_type === "reduce";
-      const what = o.subject_type === "charge" ? "Additional Charge" : `Settlement Adjustment (${off ? "Less" : "Add"})`;
-      t.push({ date: String(o.applied_at).slice(0, 10), ref: o.order_no, desc: `${what} — ${o.subject || "Order"}`, debit: off ? 0 : num(o.amount), credit: off ? num(o.amount) : 0 });
+      const what = o.subject_type === "charge" ? "Additional Charge" : "Settlement Adjustment";
+      t.push({ date: String(o.applied_at).slice(0, 10), ref: o.order_no, desc: o.subject && o.subject !== what ? `${what} — ${o.subject}` : what, debit: off ? 0 : num(o.amount), credit: off ? num(o.amount) : 0 });
     });
     pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: `Payment — ${METHOD[p.method] || p.method}${p.bank_name ? " " + p.bank_name : ""}${p.reference_no ? " Ref " + p.reference_no : ""}`, debit: 0, credit: num(p.amount), pay: p }));
     memos.filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action) && m.approved_at)

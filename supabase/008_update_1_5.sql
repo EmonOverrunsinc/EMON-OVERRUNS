@@ -59,21 +59,22 @@ alter table public.order_letters add constraint order_letters_subject_type_check
   ('suspension','closure','reactivation','reopen','termination','memo','unpaid','installment','unsettled_balance','promise_to_pay','balance_certificate',
    'charge','settlement','other'));
 
--- What a customer owes: invoices and approved charges / added adjustments, less payments, approved credit/discount
--- memos and settlement adjustments that take money off. total_charges = charges and added adjustments (+);
--- total_credits = credit/discount memos and adjustments taken off (−).
+-- What a customer owes: invoices, approved Additional Charges and Settlement Adjustments that add, less payments,
+-- approved credit/discount memos and Settlement Adjustments that take money off.
+-- total_charges = Additional Charges; total_settlement = Settlement Adjustments (added minus taken off).
 create or replace view public.customer_balances with (security_invoker = true) as
   select c.id as customer_id,
     coalesce((select sum(total_amount) from public.customer_invoices i where i.customer_id = c.id), 0)::numeric(14,2) as total_invoiced,
     coalesce((select sum(amount) from public.payments_received p where p.customer_id = c.id), 0)::numeric(14,2) as total_paid,
-    (coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0)
-      + coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.status = 'applied' and o.subject_type = 'settlement' and o.adjust_type = 'reduce'), 0))::numeric(14,2) as total_credits,
+    coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0)::numeric(14,2) as total_credits,
     (coalesce((select sum(total_amount) from public.customer_invoices i where i.customer_id = c.id), 0)
       + coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.status = 'applied' and (o.subject_type = 'charge' or (o.subject_type = 'settlement' and o.adjust_type = 'add'))), 0)
       - coalesce((select sum(amount) from public.payments_received p where p.customer_id = c.id), 0)
       - coalesce((select sum(request_amount) from public.credit_memos m where m.customer_id = c.id and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0)
       - coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.status = 'applied' and o.subject_type = 'settlement' and o.adjust_type = 'reduce'), 0))::numeric(14,2) as balance_due,
-    coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.status = 'applied' and (o.subject_type = 'charge' or (o.subject_type = 'settlement' and o.adjust_type = 'add'))), 0)::numeric(14,2) as total_charges
+    coalesce((select sum(o.amount) from public.order_letters o where o.customer_id = c.id and o.status = 'applied' and o.subject_type = 'charge'), 0)::numeric(14,2) as total_charges,
+    coalesce((select sum(case o.adjust_type when 'reduce' then -o.amount else o.amount end) from public.order_letters o
+              where o.customer_id = c.id and o.status = 'applied' and o.subject_type = 'settlement'), 0)::numeric(14,2) as total_settlement
   from public.customers c;
 
 -- Balance of a customer before a date (for the statements): order charges and adjustments count from the day
