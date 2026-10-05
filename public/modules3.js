@@ -470,252 +470,274 @@
   }
 
   // ======================================================================
-  // 9. Order Letter — suspension, closure, reactivation, payment arrangements
+  // 9. Order Letter — for a customer, an employee or a billing company. Staff send a request; the CEO approves
+  // it and it is carried out at once (the CEO's own order is carried out straight away). No verification code.
   // ======================================================================
   const SUBJ = {
     suspension: ["Suspension", "Suspension of Account"], closure: ["Closure", "Closure of Account"], reactivation: ["Reactivation", "Reactivation of Account"], reopen: ["Reopen", "Reopening of Account"],
+    termination: ["Termination", "Termination of Employment"], memo: ["Notice / Memo", "Memorandum"],
     unpaid: ["Unpaid", "Notice of Unpaid Balance"], installment: ["Installment", "Installment Payment Arrangement"], unsettled_balance: ["Unsettled Balance", "Demand for Unsettled Balance"],
     promise_to_pay: ["Promise to Pay", "Promise to Pay Agreement"], other: ["Other", ""]
   };
+  const TITLE = {
+    suspension: "SUSPENSION ORDER", closure: "CLOSURE ORDER", reactivation: "REACTIVATION ORDER", reopen: "REOPENING ORDER", termination: "TERMINATION ORDER",
+    memo: "MEMORANDUM ORDER", unpaid: "UNPAID BALANCE ORDER", installment: "INSTALLMENT ORDER", unsettled_balance: "UNSETTLED BALANCE ORDER", promise_to_pay: "PROMISE TO PAY ORDER", other: "ORDER"
+  };
   const AMOUNT_TYPES = ["unpaid", "installment", "unsettled_balance", "promise_to_pay"];
-  // Reactivating a suspended account or reopening a closed one needs an order letter with a verification code;
-  // every other order is a request that is carried out as soon as the CEO approves it.
-  const CODE_TYPES = ["reactivation", "reopen"];
-  const typesFor = (st) => st === "suspended" ? ["reactivation", "closure"] : st === "closed" ? ["reopen"]
-    : ["suspension", "closure", "unpaid", "installment", "unsettled_balance", "promise_to_pay", "other"];
+  // Who an order is for, who may request it, and which orders fit each status.
+  const KINDS = {
+    customer: { label: "Customer", write: () => E.canWrite("orders") || E.canWrite("customers"), subject: {},
+      types: (st) => st === "suspended" ? ["reactivation", "closure"] : st === "closed" ? ["reopen"] : ["suspension", "closure", "unpaid", "installment", "unsettled_balance", "promise_to_pay", "other"] },
+    employee: { label: "Employee", write: () => E.canWrite("employees"), subject: { suspension: "Suspension from Work", reactivation: "Return to Work" },
+      types: (st) => st === "suspended" ? ["reactivation", "termination", "memo"] : st === "terminated" ? ["memo"] : st === "waiting" ? ["termination", "memo"] : ["suspension", "termination", "memo"] },
+    company: { label: "Billing Company", write: () => E.canWrite("billing"), subject: { suspension: "Suspension of Payments", reactivation: "Reactivation of Payments", memo: "Notice" },
+      types: (st) => st === "suspended" ? ["reactivation", "memo"] : ["suspension", "memo"] }
+  };
+  const kindOf = (o) => o.employee_id ? "employee" : o.company_id ? "company" : "customer";
+  const forName = (o) => o.employee_id ? (o.employees ? `${o.employees.employee_no} ${fullName(o.employees)}` : "")
+    : o.company_id ? (o.pay_companies?.name || "") : o.customers ? `${o.customers.account_no} ${fullName(o.customers)}` : "";
+  const ORDER_LIST = "*, customers(first_name,last_name,account_no,status), employees(first_name,last_name,employee_no,status), pay_companies(name,status)";
+  const ORDER_ALL = "*, customers(*), employees(*), pay_companies(*)";
+  const dayOf = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const ORDER_COLS = [
     { label: "Order No", get: (r) => r.order_no }, { label: "Date", get: (r) => dmy(r.order_date) },
-    { label: "Account", get: (r) => r.customers ? `${r.customers.account_no} ${fullName(r.customers)}` : "—" },
+    { label: "For", get: (r) => `${KINDS[kindOf(r)].label}: ${forName(r) || "—"}` },
     { label: "Type", get: (r) => SUBJ[r.subject_type]?.[0] || r.subject_type }, { label: "Subject", get: (r) => r.subject },
     { label: "Amount (₱)", num: true, get: (r) => (r.amount != null ? peso(r.amount) : "") }, { label: "Status", html: (r) => pill(r.status) }
   ];
-  const canApply = () => E.canWrite("orders") || E.canWrite("customers");
+  const canOrder = () => Object.values(KINDS).some((k) => k.write());
   V.orders = async () => {
     E.shell("orders", "Order Letter", `
-      <div class="tabs" id="olF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="applied">Applied</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
-      <div class="btnrow">${canApply() ? `<a class="btn primary" href="#neworder">${ic("plus")} Request Order</a><button type="button" class="btn" id="olApply">${ic("qr")} Apply Order Letter (Scan QR)</button>` : ""}</div>
+      <div class="tabs" id="olF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="applied">Applied</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
+      <div class="btnrow">${canOrder() ? `<a class="btn primary" href="#neworder">${ic("plus")} Request Order</a>` : ""}</div>
       <div id="olRes">${busy()}</div>`,
-      "Requests (suspend, close, payment notices) are carried out as soon as the CEO approves them. Reactivating a suspended account or reopening a closed one needs an approved order letter: scan its QR code (or type its verification code) to carry it out.");
+      "Orders for customers, employees and billing companies. Staff send a request; the CEO approves it and it is carried out at once.");
     const run = async (f) => {
       $("#olRes").innerHTML = busy();
-      let q = sb.from("order_letters").select("*, customers(first_name,last_name,account_no,status)").order("created_at", { ascending: false }).limit(1000);
-      if (f) q = q.eq("status", f);
+      let q = sb.from("order_letters").select(ORDER_LIST).order("created_at", { ascending: false }).limit(1000);
+      if (f === "applied") q = q.in("status", ["approved", "applied"]); else if (f) q = q.eq("status", f);
       const { data, error } = await q;
-      if (error) return fail(error, "Could not load order letters (run the 1.1 database update)");
+      if (error) return fail(error, "Could not load orders (run the 1.2 database update)");
       const rows = data || [];
-      $("#olRes").innerHTML = E.grid({ cols: ORDER_COLS, rows, onRow: true, empty: "No order letters here." });
+      $("#olRes").innerHTML = E.grid({ cols: ORDER_COLS, rows, onRow: true, empty: "No orders here." });
       E.bindGrid($("#olRes"), rows, (r) => (location.hash = "order/" + r.id));
-      E.setRecords(`Order letters: ${rows.length}`);
+      E.setRecords(`Orders: ${rows.length}`);
     };
     $$("#olF button").forEach((b) => (b.onclick = () => { $$("#olF button").forEach((x) => x.classList.toggle("on", x === b)); run(b.dataset.f); }));
-    if ($("#olApply")) $("#olApply").onclick = () => applyOrderDialog({ onDone: () => run("applied") });
     run("pending");
   };
+  // Orders shown on a customer, employee or company page.
+  const ordersGrid = (rows, empty) => E.grid({ cols: ORDER_COLS.filter((c) => c.label !== "For"), rows, onRow: true, empty });
 
-  function defaultDetails(t, c, amt, n, inst, due, dt) {
-    const acct = c ? `${c.account_no} (${fullName(c)})` : "[account]";
-    const when = E.dLong(dt || isoToday()), dueTxt = due ? E.dLong(due) : "[due date]", a = amt ? `PHP ${peso(amt)}` : "PHP [amount]";
+  function defaultDetails(kind, t, w, amt, n, inst, due, dt) {
+    const when = E.dLong(dt || isoToday());
+    if (kind === "employee") return {
+      suspension: `This is to inform you that you are SUSPENDED from work effective ${when}. Your portal login is closed until you are reactivated by an approved order.`,
+      reactivation: `This is to inform you that your suspension is lifted and you are REACTIVATED effective ${when}. Your portal login is open again and you may return to work.`,
+      termination: `This is to inform you that your employment with ${C.company.name} is TERMINATED effective ${when}. Your portal login is closed. Please settle your clearance with the office.`
+    }[t] || "";
+    if (kind === "company") {
+      const name = w?.name || "[company]";
+      return {
+        suspension: `Please be informed that payments to ${name} are SUSPENDED effective ${when}. No new payment vouchers will be issued until the company is reactivated by an approved order.`,
+        reactivation: `Please be informed that payments to ${name} are REACTIVATED effective ${when}.`
+      }[t] || "";
+    }
+    const acct = w ? `${w.account_no} (${fullName(w)})` : "[account]";
+    const dueTxt = due ? E.dLong(due) : "[due date]", a = amt ? `PHP ${peso(amt)}` : "PHP [amount]";
     return {
-      suspension: `We regret to inform you that your account ${acct} is SUSPENDED effective ${when}. New orders and invoices are on hold until the account is reactivated by an approved order letter.`,
+      suspension: `We regret to inform you that your account ${acct} is SUSPENDED effective ${when}. New orders and invoices are on hold until the account is reactivated by an approved order.`,
       closure: `Please be informed that your account ${acct} is CLOSED effective ${when}. No new invoices will be recorded on this account.`,
       reactivation: `We are pleased to inform you that your account ${acct} is REACTIVATED effective ${when}. You may place orders again.`,
       reopen: `We are pleased to inform you that your account ${acct} is REOPENED effective ${when}. You may place orders again.`,
       unpaid: `Our records show an unpaid balance of ${a} on your account ${acct}. Please settle it on or before ${dueTxt}.`,
       installment: `As agreed, the balance of ${a} on account ${acct} will be paid in ${n || "[number]"} installment(s) of PHP ${inst ? peso(inst) : "[amount]"} each, starting ${dueTxt}.`,
       unsettled_balance: `Despite previous reminders, the balance of ${a} on account ${acct} remains unsettled. Please settle it within seven (7) days from receipt of this letter.`,
-      promise_to_pay: `The account holder of ${acct} promises to pay ${a} on or before ${dueTxt} to settle the outstanding balance.`,
-      other: ""
+      promise_to_pay: `The account holder of ${acct} promises to pay ${a} on or before ${dueTxt} to settle the outstanding balance.`
     }[t] || "";
   }
 
-  V.neworder = async (custId) => {
-    if (!canApply()) { toast("You cannot request orders.", true); location.hash = "orders"; return; }
+  // #neworder, #neworder/<customer id>, #neworder/employee/<id>, #neworder/company/<id>
+  V.neworder = async (a, b) => {
+    const allowed = Object.keys(KINDS).filter((k) => KINDS[k].write());
+    if (!allowed.length) { toast("You cannot request orders.", true); location.hash = "dashboard"; return; }
+    let kind = KINDS[a] ? a : "customer";
+    let presetId = KINDS[a] ? b : a;
+    if (!allowed.includes(kind)) { kind = allowed[0]; presetId = null; }
     E.shell("neworder", "Request Order", `
-      <form class="window" id="noForm" novalidate><div class="wtitle" id="noTitle">Order Request</div><div class="wbody">
+      <form class="window" id="noForm" novalidate><div class="wtitle">Order Request</div><div class="wbody">
         <div class="summary-box"><div class="fields wide"><span>Order No</span><b>Assigned on save (ORDER-${new Date().getFullYear()}-###)</b><span>Prepared By</span><b>${esc(S.profile.full_name || "")}</b></div></div>
-        <fieldset class="opt"><legend>Account</legend><div id="noCust"></div></fieldset>
-        <fieldset class="opt"><legend>Subject</legend><div class="subj-grid" id="noTypes"></div>
-          <div class="fields wide" style="margin-top:8px"><label for="noSubj">Subject *</label><input type="text" id="noSubj" value="${esc(SUBJ.suspension[1])}">
+        <fieldset class="opt"><legend>Order For</legend>
+          ${allowed.length > 1 ? `<div class="subj-grid" id="noKinds">${allowed.map((k) => `<label class="subj"><input type="radio" name="noKind" value="${k}" ${k === kind ? "checked" : ""}><span>${esc(KINDS[k].label)}</span></label>`).join("")}</div>` : ""}
+          <div id="noWho"></div></fieldset>
+        <fieldset class="opt"><legend>Order</legend><div class="subj-grid" id="noTypes"></div>
+          <div class="fields wide" style="margin-top:8px"><label for="noSubj">Subject *</label><input type="text" id="noSubj">
             <label for="noDate">Order Date</label><input type="date" id="noDate" value="${isoToday()}"></div></fieldset>
         <fieldset class="opt" id="noAmtBox" hidden><legend>Amount &amp; Terms</legend><div class="formgrid">
           <div class="fields wide"><label for="noAmt">Amount (₱)</label><input type="number" id="noAmt" min="0" step="0.01"><label for="noDue">First Due Date</label><input type="date" id="noDue"></div>
           <div class="fields wide noInst"><label for="noN">Number of Installments</label><input type="number" id="noN" min="1" step="1"><label for="noInst">Installment Amount (₱)</label><input type="number" id="noInst" min="0" step="0.01"></div></div></fieldset>
         <fieldset class="opt"><legend>Letter</legend><div class="fields wide">
           <label for="noDetails">Details *</label><textarea id="noDetails" rows="5"></textarea>
-          <label for="noRes">Resolution / Terms</label><textarea id="noRes" rows="3" placeholder="Optional: conditions, what the customer must do"></textarea></div></fieldset>
-      </div><div class="wfoot"><a class="btn" href="#orders">Cancel</a><button type="submit" class="btn primary" id="noSubmit">Send for Approval</button></div></form>`,
-      "A request is carried out as soon as the CEO approves it. Reactivating a suspended account or reopening a closed one needs an order letter: once approved, scan its QR code (or type its verification code) to carry it out.");
-    let cust = null, dirty = false;
-    const type = () => $("input[name=noType]:checked")?.value || "suspension";
-    // The choices depend on the account: requests for an active account, a letter to reactivate or reopen.
-    const showTypes = () => {
-      const list = typesFor(cust?.status);
-      $("#noTypes").innerHTML = list.map((k, i) => `<label class="subj"><input type="radio" name="noType" value="${k}" ${i ? "" : "checked"}><span>${esc(SUBJ[k][0])}</span></label>`).join("");
-      $$("input[name=noType]").forEach((r) => (r.onchange = () => { pickType(); refresh(); }));
-      pickType();
-    };
-    const pickType = () => {
-      const t = type(), letter = CODE_TYPES.includes(t);
-      if (SUBJ[t][1]) $("#noSubj").value = SUBJ[t][1]; else { $("#noSubj").value = ""; }
-      $("#noTitle").textContent = letter ? "Order Letter (with verification code)" : "Order Request";
-      $("#noSubmit").textContent = isAdmin() ? (letter ? "Approve — Create QR Code" : "Approve & Carry Out") : "Send for Approval";
-    };
+          <label for="noRes">Resolution / Terms</label><textarea id="noRes" rows="3" placeholder="Optional: conditions, what must be done"></textarea></div></fieldset>
+      </div><div class="wfoot"><button type="button" class="btn" id="noCancel">Cancel</button><button type="submit" class="btn primary" id="noSubmit">${isAdmin() ? "Approve &amp; Carry Out" : "Send for Approval"}</button></div></form>`,
+      "Choose who the order is for. The CEO approves it and it is carried out at once.");
+    let who = null, dirty = false;
+    const types = () => KINDS[kind].types(who?.status);
+    const type = () => $("input[name=noType]:checked")?.value || types()[0];
     const refresh = () => {
       const t = type();
-      $("#noAmtBox").hidden = !AMOUNT_TYPES.includes(t);
+      $("#noAmtBox").hidden = !(kind === "customer" && AMOUNT_TYPES.includes(t));
       $$(".noInst").forEach((x) => (x.hidden = t !== "installment"));
       const n = num($("#noN").value), amt = num($("#noAmt").value);
       if (t === "installment" && n > 0 && amt > 0 && !$("#noInst").dataset.touched) $("#noInst").value = (Math.round((amt / n) * 100) / 100).toFixed(2);
-      if (!dirty) $("#noDetails").value = defaultDetails(t, cust, amt, n, num($("#noInst").value), $("#noDue").value, $("#noDate").value);
+      if (!dirty) $("#noDetails").value = defaultDetails(kind, t, who, amt, n, num($("#noInst").value), $("#noDue").value, $("#noDate").value);
     };
-    showTypes();
-    E.customerPicker($("#noCust"), { statuses: ["active", "suspended", "closed"], onPick: (c) => { cust = c; dirty = false; showTypes(); refresh(); }, preset: (await E.getCustomer(custId)) || undefined });
+    const showTypes = () => {
+      $("#noTypes").innerHTML = types().map((k, i) => `<label class="subj"><input type="radio" name="noType" value="${k}" ${i ? "" : "checked"}><span>${esc(SUBJ[k][0])}</span></label>`).join("");
+      const pick = () => { $("#noSubj").value = KINDS[kind].subject[type()] || SUBJ[type()][1]; refresh(); };
+      $$("input[name=noType]").forEach((r) => (r.onchange = pick));
+      pick();
+    };
+    // The customer, employee or company the order is for.
+    const showWho = async (id) => {
+      who = null; dirty = false;
+      const box = $("#noWho");
+      if (kind === "customer") {
+        box.innerHTML = "";
+        E.customerPicker(box, { statuses: ["active", "suspended", "closed"], onPick: (c) => { who = c; dirty = false; showTypes(); }, preset: (id && (await E.getCustomer(id))) || undefined });
+      } else {
+        const emp = kind === "employee";
+        box.innerHTML = busy();
+        const { data, error } = emp ? await sb.from("employees").select("*").order("first_name") : await sb.from("pay_companies").select("*").order("name");
+        if (error) { box.innerHTML = ""; return fail(error, "Could not load the list"); }
+        // An order is never for your own employee record.
+        const list = (data || []).filter((r) => !(emp && r.profile_id === S.profile.id));
+        box.innerHTML = `<div class="fields wide"><label for="noPick">${emp ? "Employee" : "Company"} *</label><select id="noPick"><option value="">— Choose ${emp ? "the employee" : "the company"} —</option>
+          ${list.map((r) => `<option value="${r.id}" ${r.id === id ? "selected" : ""}>${esc(emp ? `${r.employee_no} — ${fullName(r)}` : r.name)} (${esc(String(r.status).toUpperCase())})</option>`).join("")}</select></div>`;
+        $("#noPick").onchange = () => { who = list.find((r) => r.id === $("#noPick").value) || null; dirty = false; showTypes(); };
+        who = list.find((r) => r.id === id) || null;
+      }
+      showTypes();
+    };
+    $$("input[name=noKind]").forEach((r) => (r.onchange = () => { kind = r.value; showWho(null); }));
     ["noAmt", "noN", "noDue", "noDate"].forEach((id) => ($("#" + id).oninput = refresh));
     $("#noInst").oninput = () => { $("#noInst").dataset.touched = "1"; refresh(); };
     $("#noDetails").oninput = () => (dirty = true);
-    refresh();
+    $("#noCancel").onclick = () => history.back();
+    await showWho(presetId);
     $("#noForm").onsubmit = async (e) => {
       e.preventDefault();
       const t = type();
-      if (!cust) return toast("Choose the account.", true);
+      if (!who) return toast(`Choose the ${KINDS[kind].label.toLowerCase()}.`, true);
+      if (!types().includes(t)) return toast(`This ${KINDS[kind].label.toLowerCase()} is ${String(who.status).toUpperCase()} — choose one of the orders shown.`, true);
       if (!$("#noSubj").value.trim()) return toast("Enter the subject.", true);
       if (!$("#noDetails").value.trim()) return toast("Write the details of the order.", true);
-      if (!typesFor(cust.status).includes(t)) return toast(`${cust.account_no} is ${cust.status.toUpperCase()} — choose one of the orders shown.`, true);
       E.setBusy(e.target, true, "Submitting");
-      const amtOn = AMOUNT_TYPES.includes(t);
+      const amtOn = kind === "customer" && AMOUNT_TYPES.includes(t);
       const { data, error } = await sb.from("order_letters").insert({
-        customer_id: cust.id, order_date: $("#noDate").value || isoToday(), subject_type: t, subject: $("#noSubj").value.trim(),
+        [kind === "employee" ? "employee_id" : kind === "company" ? "company_id" : "customer_id"]: who.id,
+        order_date: $("#noDate").value || isoToday(), subject_type: t, subject: $("#noSubj").value.trim(),
         details: $("#noDetails").value.trim(), resolution: $("#noRes").value.trim() || null,
         amount: amtOn && $("#noAmt").value ? num($("#noAmt").value) : null, first_due_date: amtOn ? $("#noDue").value || null : null,
         installments: t === "installment" && $("#noN").value ? Math.floor(num($("#noN").value)) : null, installment_amount: t === "installment" && $("#noInst").value ? num($("#noInst").value) : null
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the order"); }
-      // The CEO's own order is approved at once (a request is carried out; a letter gets its QR code).
+      // The CEO's own order is approved and carried out at once.
       if (isAdmin()) {
         const r = await sb.rpc("review_order_letter", { p_id: data.id, p_action: "approve", p_note: null });
-        if (r.error) { fail(r.error, `${data.order_no} was saved but could not be approved`); location.hash = "order/" + data.id; return; }
-        toast(CODE_TYPES.includes(t) ? `${data.order_no} approved. Print it — the QR code carries the verification code.` : `${data.order_no} carried out — ${r.data.applied_result || "done"}.`);
+        if (r.error) { fail(r.error, `${data.order_no} was saved but could not be carried out`); location.hash = "order/" + data.id; return; }
+        toast(`${data.order_no} carried out — ${r.data.applied_result || "done"}.`);
       } else toast(`${data.order_no} sent to the CEO for approval.`);
       location.hash = "order/" + data.id;
     };
   };
 
-  const orderQr = (o, code) => `EMONORDER|${o.order_no}|${code}`;
-  function letterPage(o, code) {
-    const c = o.customers || {};
-    const qr = code ? E.qrDataUrl(orderQr(o, code)) : "";
-    const dear = c.first_name ? `Dear ${esc(fullName(c))},` : "Dear Sir / Madam,";
-    return `${E.printHead("ORDER LETTER", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
-      <div class="ol-top"><div><div><b>Order No:</b> ${esc(o.order_no)}</div><div><b>Date:</b> ${esc(E.dLong(o.order_date))}</div></div>
-        <div class="ol-to"><b>To:</b> ${esc(fullName(c).toUpperCase())}<br>Account No: ${esc(c.account_no || "")}<br>${esc(c.address || "")}</div></div>
-      <div class="ol-subj">SUBJECT: ${esc((o.subject || "").toUpperCase())}</div>
-      <p>${dear}</p>
-      <div class="ol-body">${esc(o.details || "").replace(/\n/g, "<br>")}</div>
-      ${o.amount != null ? `<table class="rp ol-amt"><tbody><tr><td>Amount</td><td class="num">PHP ${peso(o.amount)}</td></tr>
-        ${o.installments ? `<tr><td>Installments</td><td class="num">${o.installments} × PHP ${peso(o.installment_amount)}</td></tr>` : ""}
-        ${o.first_due_date ? `<tr><td>${o.installments ? "First Due Date" : "Due Date"}</td><td class="num">${esc(E.dLong(o.first_due_date))}</td></tr>` : ""}</tbody></table>
-        <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(o.amount))}</div></div>` : ""}
-      ${o.resolution ? `<div class="ol-res"><b>Resolution / Terms:</b><br>${esc(o.resolution).replace(/\n/g, "<br>")}</div>` : ""}
-      <p class="pdecl">This order is issued by ${esc(C.company.name)} and takes effect once verified through the ${esc(E.APP)}.</p>
-      <div class="ol-foot">
-        <div class="ol-sigs">${E.sigs(`Prepared by: <b>${esc(o.created_by_name || "")}</b>`, `Approved by: <b>${esc(o.approved_by_name || "")}</b>`)}</div>
-        ${qr ? `<div class="ol-qr"><img src="${qr}" alt="Order QR code"><div>Verification Code</div><b class="mono">${esc(code)}</b><small>Scan in the E-Portal to verify and carry out this order</small></div>` : ""}
-      </div>`;
+  // The printed order, laid out like an official order: details of the order, the customer / employee /
+  // company information, the order itself with the decision, then APPROVED / DISAPPROVED with the date signed
+  // and one line for the authorized representative.
+  function letterPage(o) {
+    const kind = kindOf(o);
+    const w = (kind === "employee" ? o.employees : kind === "company" ? o.pay_companies : o.customers) || {};
+    const v = (x) => (x == null || x === "" ? "—" : esc(x));
+    const tr = (k, html) => `<tr><th>${esc(k)}</th><td>${html}</td></tr>`;
+    const contact = [w.phone, w.email].filter(Boolean).join(" · ");
+    const info = kind === "employee" ? [["Name of Employee", fullName(w)], ["Employee No", w.employee_no], ["Position", w.position], ["Date Hired", w.date_hired ? E.dLong(w.date_hired) : ""], ["Contact Details", contact], ["Address", w.address]]
+      : kind === "company" ? [["Name of Company", w.name], ["Country", w.country], ["Contact Details", w.contact]]
+      : [["Name of Customer", fullName(w)], ["Account No", w.account_no], ["Business Name", w.business_name], ["Address", w.address], ["Contact Details", contact]];
+    const approved = ["approved", "applied"].includes(o.status), rejected = o.status === "rejected";
+    const signed = (approved || rejected) && o.approved_at ? E.dLong(dayOf(o.approved_at)) : "";
+    return `${E.printHead(TITLE[o.subject_type] || "ORDER", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
+      <div class="ol-sec">DETAILS OF ORDER</div>
+      <table class="ol-kv"><tbody>${tr("Type of Order", v(o.subject))}${tr("Order For", v(KINDS[kind].label))}
+        ${tr("Place of Issue", v(`${C.company.name} Main Office, ${C.company.address.join(", ")}`))}${tr("Order Date", v(E.dLong(o.order_date)))}${tr("Order No", `<b>${v(o.order_no)}</b>`)}</tbody></table>
+      <p class="ol-intro">The following contains important information about this order, including the date it takes effect. Please keep this order for your records.</p>
+      <div class="ol-sec">${esc(KINDS[kind].label.toUpperCase())} INFORMATION</div>
+      <table class="ol-grid"><tbody>${info.map(([k, x]) => tr(k, v(x))).join("")}</tbody></table>
+      <div class="ol-sec">ORDER</div>
+      <table class="ol-grid"><tbody>
+        ${tr("Subject", `<b>${v((o.subject || "").toUpperCase())}</b>`)}${tr("Details", o.details ? esc(o.details).replace(/\n/g, "<br>") : "—")}
+        ${o.amount != null ? tr("Amount", `PHP ${peso(o.amount)} <small>(${esc(words(o.amount))})</small>`) : ""}
+        ${o.installments ? tr("Installments", `${o.installments} × PHP ${peso(o.installment_amount)}`) : ""}
+        ${o.first_due_date ? tr(o.installments ? "First Due Date" : "Due Date", v(E.dLong(o.first_due_date))) : ""}
+        ${o.resolution ? tr("Resolution / Terms", esc(o.resolution).replace(/\n/g, "<br>")) : ""}
+        ${tr("Effective Date", approved && o.approved_at ? v(signed) : "On approval")}
+        <tr class="ol-dec"><th>DECISION</th><td>${approved ? "APPROVED" : rejected ? "DISAPPROVED" : "WAITING FOR APPROVAL"}</td></tr></tbody></table>
+      <div class="ol-sign">
+        <div class="ol-ad"><span class="${approved ? "on" : ""}">APPROVED</span> / <span class="${rejected ? "on" : ""}">DISAPPROVED</span>
+          <div>Date Signed: <span class="ol-date">${signed ? esc(signed) : "&nbsp;"}</span></div></div>
+        <div class="ol-auth"><div class="ol-auth-name">${approved ? esc(o.approved_by_name || "") : "&nbsp;"}</div><div class="line"></div>Authorized Representative</div>
+      </div>
+      <div class="rp-foot"><span>Scan the barcode in the ${esc(E.APP)} to verify this order.</span><span>${esc(o.order_no)}</span></div>`;
+  }
+  // Print an order by its id (used from My Profile).
+  async function printOrder(id) {
+    const { data: o, error } = await sb.from("order_letters").select(ORDER_ALL).eq("id", id).maybeSingle();
+    if (error || !o) return toast("This order could not be opened.", true);
+    E.openPreview(`Order ${o.order_no}`, [letterPage(o)]);
   }
 
   V.order = async (id) => {
     E.shell("order", "Order Letter", busy());
-    const { data: o } = await sb.from("order_letters").select("*, customers(*)").eq("id", id).maybeSingle();
-    if (!o) { $("#main").innerHTML = `<div class="empty">Order letter not found. <a href="#orders">Back</a></div>`; return; }
-    const [att, codeRes] = await Promise.all([
-      E.attachmentsOf("order_letter", id),
-      isAdmin() && ["approved", "applied"].includes(o.status) ? sb.from("order_letter_codes").select("code").eq("order_id", id).maybeSingle() : Promise.resolve({ data: null })
-    ]);
-    const code = codeRes.data?.code || "";
-    const c = o.customers || {};
-    $(".band h1").textContent = `Order Letter — ${o.order_no}`;
+    const { data: o } = await sb.from("order_letters").select(ORDER_ALL).eq("id", id).maybeSingle();
+    if (!o) { $("#main").innerHTML = `<div class="empty">Order not found. <a href="#orders">Back</a></div>`; return; }
+    const att = await E.attachmentsOf("order_letter", id);
+    const kind = kindOf(o);
+    const w = kind === "employee" ? o.employees : kind === "company" ? o.pay_companies : o.customers;
+    const page = { customer: "customer/" + o.customer_id, employee: "employee/" + o.employee_id, company: "paycompany/" + o.company_id }[kind];
+    const whoHtml = !w ? "—" : `<a href="#${page}"><b>${esc(kind === "company" ? w.name : fullName(w))}</b>${kind === "company" ? "" : ` (${esc(kind === "employee" ? w.employee_no : w.account_no)})`}</a> ${pill(w.status)}`;
+    const closeTo = E.canOpen("orders") ? "orders" : page;
+    $(".band h1").textContent = `Order — ${o.order_no}`;
     const banner = {
-      pending: `<div class="banner warn">Waiting for the CEO to approve. ${CODE_TYPES.includes(o.subject_type) ? "The approved letter gets a QR code that carries out the order when it is scanned." : "Once approved, it is carried out straight away."}</div>`,
-      approved: `<div class="banner ok">✔ APPROVED by ${esc(o.approved_by_name || "")} on ${dmy(o.approved_at)}. ${isAdmin() ? "Print the letter: its QR code carries the verification code." : "The CEO prints the letter with its QR code."} Scan the QR (or type the code) to carry out the order.</div>`,
-      applied: `<div class="banner ok">✔ APPLIED on ${dmy(o.applied_at)} by ${esc(o.applied_by_name || "")} — ${esc(o.applied_result || "")}</div>`,
-      rejected: `<div class="banner closed">REJECTED by ${esc(o.approved_by_name || "")}${o.review_note ? " — " + esc(o.review_note) : ""}</div>`
+      pending: `<div class="banner warn">Waiting for the CEO to approve. Once approved, it is carried out straight away.</div>`,
+      approved: `<div class="banner ok">✔ APPROVED by ${esc(o.approved_by_name || "")} on ${dmy(dayOf(o.approved_at))}.</div>`,
+      applied: `<div class="banner ok">✔ APPROVED by ${esc(o.approved_by_name || "")} and carried out on ${dmy(dayOf(o.applied_at))} — ${esc(o.applied_result || "")}</div>`,
+      rejected: `<div class="banner closed">DISAPPROVED by ${esc(o.approved_by_name || "")}${o.review_note ? " — " + esc(o.review_note) : ""}</div>`
     }[o.status] || "";
     $("#main").innerHTML = `${banner}
       <div class="window"><div class="wtitle">${esc(o.order_no)} — ${esc(SUBJ[o.subject_type]?.[0] || "")} ${pill(o.status)}</div><div class="wbody">
         <div class="formgrid"><div class="fields wide">
-          <span>Account</span><span>${c.id ? `<a href="#customer/${c.id}"><b>${esc(fullName(c))}</b> (${esc(c.account_no)})</a> ${pill(c.status)}` : "—"}</span>
+          <span>${esc(KINDS[kind].label)}</span><span>${whoHtml}</span>
           <span>Subject</span><b>${esc(o.subject)}</b><span>Order Date</span><span>${dmy(o.order_date)}</span>
           <span>Prepared By</span><span>${esc(o.created_by_name || "")}</span></div>
-          <div class="fields wide">${o.amount != null ? `<span>Amount</span><b>₱ ${peso(o.amount)}</b>` : ""}${o.installments ? `<span>Installments</span><span>${o.installments} × ₱ ${peso(o.installment_amount)}</span>` : ""}${o.first_due_date ? `<span>Due Date</span><span>${dmy(o.first_due_date)}</span>` : ""}
-          ${isAdmin() && code ? `<span>Verification Code</span><b class="mono code-chip">${esc(code)}</b>` : ""}</div></div>
+          <div class="fields wide">${o.amount != null ? `<span>Amount</span><b>₱ ${peso(o.amount)}</b>` : ""}${o.installments ? `<span>Installments</span><span>${o.installments} × ₱ ${peso(o.installment_amount)}</span>` : ""}${o.first_due_date ? `<span>Due Date</span><span>${dmy(o.first_due_date)}</span>` : ""}</div></div>
         <div class="letter-box"><div class="lb-h">Details</div><p>${esc(o.details || "").replace(/\n/g, "<br>")}</p>${o.resolution ? `<div class="lb-h">Resolution / Terms</div><p>${esc(o.resolution).replace(/\n/g, "<br>")}</p>` : ""}</div>
-        <div class="docgrid">${E.docCard({ key: "ol", title: `Order Letter ${o.order_no}`, sub: o.status === "approved" && !isAdmin() ? "Printed by the CEO with the QR code" : "Print it, have it signed, then upload the signed copy", ownerType: "order_letter", ownerId: o.id, att, print: () => E.openPreview(`Order Letter ${o.order_no}`, [letterPage(o, code)]) })}</div>
+        <div class="docgrid">${E.docCard({ key: "ol", title: `Order ${o.order_no}`, sub: "Print it, have it signed, then upload the signed copy", ownerType: "order_letter", ownerId: o.id, att, print: () => E.openPreview(`Order ${o.order_no}`, [letterPage(o)]) })}</div>
         ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>CEO Approval</legend><div class="fields wide"><label for="olNote">Note</label><input type="text" id="olNote" placeholder="Optional"></div>
-          <div class="btnrow"><button type="button" class="btn ok" id="olApprove">${ic("check")} ${CODE_TYPES.includes(o.subject_type) ? "Approve — Create QR Code" : "Approve & Carry Out"}</button><button type="button" class="btn danger" id="olReject">Reject</button></div></fieldset>` : ""}
-        ${o.status === "approved" && canApply() ? `<fieldset class="opt review"><legend>Carry Out This Order</legend><p>Scan the QR code on the printed letter, or type its verification code.</p>
-          <div class="btnrow"><button type="button" class="btn primary" id="olApplyBtn">${ic("qr")} Scan / Enter Code</button></div></fieldset>` : ""}
+          <div class="btnrow"><button type="button" class="btn ok" id="olApprove">${ic("check")} Approve &amp; Carry Out</button><button type="button" class="btn danger" id="olReject">Reject</button></div></fieldset>` : ""}
         ${rhBox("order_letters", o.id)}
-      </div><div class="wfoot">${recordTools("order_letters", o, `Order letter ${o.order_no}`, { reload: () => V.order(id), afterDelete: () => (location.hash = "orders") })}<a class="btn" href="#orders">Close</a></div></div>`;
+      </div><div class="wfoot">${recordTools("order_letters", o, `Order ${o.order_no}`, { reload: () => V.order(id), afterDelete: () => (location.hash = closeTo) })}<a class="btn" href="#${closeTo}">Close</a></div></div>`;
     E.bindDocCards($("#main"), () => V.order(id));
     bindRecordTools($("#main"));
     const review = async (action) => {
       const { data: r, error } = await sb.rpc("review_order_letter", { p_id: id, p_action: action, p_note: $("#olNote").value.trim() || null });
       if (error) return fail(error, "Could not update the order");
-      toast(action !== "approve" ? `${o.order_no} rejected.` : CODE_TYPES.includes(o.subject_type) ? `${o.order_no} approved. Print it — the QR code carries the verification code.` : `${o.order_no} carried out — ${r?.applied_result || "done"}.`);
+      toast(action === "approve" ? `${o.order_no} carried out — ${r?.applied_result || "done"}.` : `${o.order_no} rejected.`);
       V.order(id);
     };
     if ($("#olApprove")) $("#olApprove").onclick = () => review("approve");
     if ($("#olReject")) $("#olReject").onclick = async () => { if (await E.confirmBox(`Reject order <b>${esc(o.order_no)}</b>?`, { ok: "Reject", danger: true })) review("reject"); };
-    if ($("#olApplyBtn")) $("#olApplyBtn").onclick = () => applyOrderDialog({ preset: { no: o.order_no }, customer: c.id ? c : null, onDone: () => V.order(id) });
     E.setRecords(`Order: ${o.order_no}`);
   };
-
-  // Scan the order letter's QR (or type its number and code); a match carries out the order.
-  function parseOrder(text) {
-    const p = String(text || "").trim().split("|").map((x) => x.trim());
-    if (/^(EMON)?ORDER$/i.test(p[0])) return { no: p[1] || "", code: p[2] || "" };
-    if (/^ORDER-/i.test(p[0])) return { no: p[0], code: p[1] || "" };
-    return null;
-  }
-  function applyOrderDialog({ customer = null, preset = {}, onDone, auto = false } = {}) {
-    const m = E.modal("Apply Order Letter", `
-      <p>Scan the QR code on the approved order letter, or type the order number and its verification code.</p>
-      <div class="btnrow center"><button type="button" class="btn primary" data-scan>${ic("scan")} Scan QR Code</button></div>
-      <div class="fields wide"><label for="apNo">Order No</label><input type="text" id="apNo" placeholder="ORDER-${new Date().getFullYear()}-001" value="${esc(preset.no || "")}" autocapitalize="characters">
-        <label for="apCode">Verification Code</label><input type="text" id="apCode" class="mono" placeholder="8 characters" value="${esc(preset.code || "")}" autocapitalize="characters"></div>
-      ${customer ? `<small class="muted">Only an order letter for <b>${esc(customer.account_no)}</b> ${esc(fullName(customer))} can be applied here.</small>` : ""}
-      <div id="apMsg"></div>`,
-      `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn primary" data-ok>${ic("check")} Verify &amp; Apply</button>`);
-    const d = m.el;
-    $("[data-x]", d).onclick = m.close;
-    const apply = async () => {
-      const no = $("#apNo", d).value.trim().toUpperCase(), code = $("#apCode", d).value.trim().toUpperCase();
-      if (!no || !code) return toast("Enter the order number and the verification code, or scan the QR code.", true);
-      const msg = $("#apMsg", d);
-      msg.innerHTML = busy("Checking the order letter");
-      const { data, error } = await sb.rpc("apply_order_letter", { p_order_no: no, p_code: code, p_customer: customer?.id || null });
-      if (error) { msg.innerHTML = `<div class="vf-bad small"><b>✖ NOT APPLIED</b><span>${esc(error.message)}</span></div>`; return; }
-      msg.innerHTML = `<div class="vf-ok small"><b>✔ TRUE — ${esc(data.order_no)} VERIFIED</b><span>${esc(data.result)}</span></div>`;
-      $("[data-ok]", d).remove();
-      toast(data.result);
-      if (onDone) onDone(data);
-    };
-    $("[data-ok]", d).onclick = apply;
-    $("[data-scan]", d).onclick = () => E.scanDialog((text) => {
-      const p = parseOrder(text);
-      if (!p) return toast("That QR code is not an order letter.", true);
-      $("#apNo", d).value = p.no; $("#apCode", d).value = p.code;
-      if (p.no && p.code) apply();
-    }, { title: "Scan Order Letter QR" });
-    if (auto && preset.no && preset.code) apply();
-  }
-  // From the top-bar scanner: staff carry out the order; everyone else sees the verification.
-  function applyOrderScan(text) {
-    const p = parseOrder(text);
-    if (!p) return;
-    if (canApply()) applyOrderDialog({ preset: p, auto: true });
-    else location.hash = "verify/" + encodeURIComponent(p.no);
-  }
 
   // ======================================================================
   // Verification — anyone can check a record by number, QR code or barcode
@@ -945,5 +967,5 @@
     if (CH.tick % 4 === 0) loadContacts();
   }
 
-  Object.assign(E, { recordTools, bindRecordTools, correctRecord, deleteRecord, rhBox, fieldLabel, applyOrderDialog, applyOrderScan, openChat, closeChat, shrinkImage, signedMap, lightbox });
+  Object.assign(E, { recordTools, bindRecordTools, correctRecord, deleteRecord, rhBox, fieldLabel, ordersGrid, printOrder, openChat, closeChat, shrinkImage, signedMap, lightbox });
 })();

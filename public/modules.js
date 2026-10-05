@@ -215,7 +215,7 @@
       [E.canWrite("invoices"), "#newinvoice", "+ Record Invoice"],
       [E.canWrite("payments") || E.canWrite("invoices"), "#newpayment", "+ Record Payment"],
       [E.canWrite("creditmemos"), "#newcreditmemo", "+ Credit Memo"],
-      [E.canWrite("orders") || E.canWrite("customers"), "#neworder", "+ Request Order"],
+      [["orders", "customers", "employees", "billing"].some(E.canWrite), "#neworder", "+ Request Order"],
       [E.canWrite("billing"), "#newvoucher", "+ Payment Voucher"],
       [true, "#community", "Community"],
       [true, "#verify", "Verify a Record"]
@@ -1280,7 +1280,7 @@
       H("customers") ? sb.from("customers").select("*").neq("status", "closed").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,account_no.ilike.%${w}%,public_id.ilike.%${w}%,business_name.ilike.%${w}%,phone.ilike.%${w}%`).limit(100) : none,
       H("invoices") ? sb.from("invoice_balances").select("*").neq("customer_status", "closed").or(`invoice_no.ilike.%${w}%,po_number.ilike.%${w}%`).limit(50) : none,
       H("payments") ? sb.from("payments_received").select("*, customers(first_name,last_name,account_no,status)").or(`receipt_no.ilike.%${w}%,reference_no.ilike.%${w}%`).limit(50) : none,
-      E.canOpen("orders") ? sb.from("order_letters").select("*, customers(first_name,last_name,account_no)").or(`order_no.ilike.%${w}%,subject.ilike.%${w}%`).limit(30) : none,
+      E.canOpen("orders") || H("employees") || H("billing") ? sb.from("order_letters").select("*, customers(first_name,last_name,account_no), employees(first_name,last_name,employee_no), pay_companies(name)").or(`order_no.ilike.%${w}%,subject.ilike.%${w}%`).limit(30) : none,
       H("billing") ? sb.from("pay_vouchers").select("*, pay_companies(name)").or(`voucher_no.ilike.%${w}%,reference_no.ilike.%${w}%,purpose.ilike.%${w}%`).limit(30) : none,
       H("employees") ? sb.from("employees").select("*").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,employee_no.ilike.%${w}%,email.ilike.%${w}%`).limit(30) : none
     ]);
@@ -1293,7 +1293,8 @@
     if (H("customers")) sections.push(["Customers", custs, [{ label: "Account No", get: (r) => r.account_no }, { label: "Name", get: fullName }, { label: "Business", get: (r) => r.business_name || "" }, { label: "Phone", get: (r) => r.phone || "" }, { label: "Status", html: (r) => pill(r.status) }], (r) => "customer/" + r.id]);
     if (H("invoices")) sections.push(["Invoices", iv.data || [], INV_COLS, (r) => "invoice/" + r.id]);
     if (H("payments")) sections.push(["Payments", pays, PAY_COLS, (r) => "payment/" + r.id]);
-    if ((ol.data || []).length) sections.push(["Orders", ol.data, [{ label: "Order No", get: (r) => r.order_no }, { label: "Customer", get: (r) => fullName(r.customers || {}) }, { label: "Subject", get: (r) => r.subject }, { label: "Status", html: (r) => pill(r.status) }], (r) => "order/" + r.id]);
+    const orderFor = (r) => r.employees ? `Employee: ${fullName(r.employees)}` : r.pay_companies ? `Company: ${r.pay_companies.name}` : r.customers ? `Customer: ${fullName(r.customers)}` : "";
+    if ((ol.data || []).length) sections.push(["Orders", ol.data, [{ label: "Order No", get: (r) => r.order_no }, { label: "For", get: orderFor }, { label: "Subject", get: (r) => r.subject }, { label: "Status", html: (r) => pill(r.status) }], (r) => "order/" + r.id]);
     if ((vo.data || []).length) sections.push(["Payment Vouchers", vo.data, [{ label: "Voucher No", get: (r) => r.voucher_no }, { label: "Company", get: (r) => r.pay_companies?.name || "" }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "PHP", num: true, get: (r) => peso(r.amount_php) }, { label: "BDT", num: true, get: (r) => peso(r.amount_bdt) }], (r) => "voucher/" + r.id]);
     if ((em.data || []).length) sections.push(["Employees", em.data, [{ label: "Employee No", get: (r) => r.employee_no }, { label: "Name", get: fullName }, { label: "Position", get: (r) => r.position || "" }, { label: "Status", html: (r) => pill(r.status) }], (r) => "employee/" + r.id]);
     const total = sections.reduce((s, x) => s + x[1].length, 0);
@@ -1314,6 +1315,8 @@
     E.shell("profile", "My Profile", busy());
     const { data: emp } = await sb.from("employees").select("*").eq("profile_id", S.profile.id).maybeSingle();
     const slips = emp ? (await sb.from("payslips").select("*").eq("employee_id", emp.id).order("pay_date", { ascending: false })).data || [] : [];
+    // Approved orders about me (memo, suspension, reactivation): tap one to see and print the letter.
+    const myOrders = emp ? (await sb.from("order_letters").select("*").eq("employee_id", emp.id).in("status", ["approved", "applied"]).order("created_at", { ascending: false })).data || [] : [];
     const netTotal = slips.reduce((s, p) => s + num(p.net_pay), 0);
     $("#main").innerHTML = `
       <section class="me-card">
@@ -1334,8 +1337,10 @@
       </div>
       ${emp ? `<h3>My Payslip History</h3>
         <div class="tiles"><div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div><div class="tile ok"><div class="k">Total Received (₱)</div><div class="v">₱ ${peso(netTotal)}</div></div></div>
-        <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => dmy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}`;
+        <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => dmy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}
+      ${myOrders.length ? `<h3>My Orders</h3><div id="mpOrders">${E.ordersGrid(myOrders, "")}</div>` : ""}`;
     if (emp) E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
+    if (myOrders.length) E.bindGrid($("#mpOrders"), myOrders, (r) => E.printOrder(r.id));
     $("#mpPw").onclick = () => E.changePassword();
     $("#mpFile").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;

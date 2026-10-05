@@ -6,7 +6,7 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "1.1";
+  const VERSION = "1.2";
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -561,7 +561,7 @@
     employees: "employees", newemployee: "employees", employee: "employees", jobapps: "employees", jobapp: "employees", positions: "employees", payroll: "employees",
     projects: "projects", newproject: "projects", project: "projects",
     billing: "billing", newpaycompany: "billing", paycompany: "billing", newvoucher: "billing", voucher: "billing",
-    orders: ["orders", "customers"], neworder: ["orders", "customers"], order: ["orders", "customers"]
+    orders: ["orders", "customers"], neworder: ["orders", "customers", "employees", "billing"], order: ["orders", "customers", "employees", "billing"]
   };
   // Admins see everything; NULL modules = all (older accounts).
   const hasModule = (m) => !m || isAdmin() || !S.profile?.modules || S.profile.modules.includes(m);
@@ -785,13 +785,12 @@
         .catch(() => { d.classList.add("nocam"); msg("Camera is not available. Use a photo instead."); });
     } else { d.classList.add("nocam"); msg("Camera is not available here. Use a photo instead."); }
   }
-  // Customer QR: EMONCUST|<public id>|<account no>. Order letter QR: EMONORDER|<order no>|<code>.
-  // Document barcodes (EMONINV|…, EMONPAY|…, EMONBD|…) and verification links open the Verification page.
+  // Customer QR: EMONCUST|<public id>|<account no>.
+  // Document barcodes (EMONINV|…, EMONPAY|…, EMONBD|…, EMONORDER|…) and verification links open the Verification page.
   async function openScanned(text) {
     const t = String(text || "").trim();
     if (!t) return;
     if (/#verify\//i.test(t)) { location.hash = "verify/" + encodeURIComponent(t.replace(/^.*#verify\//i, "")); return; }
-    if (/^(EMON)?ORDER\|/i.test(t) && window.EO.applyOrderScan) return window.EO.applyOrderScan(t);
     if (t.startsWith("EMONCUST|")) {
       const pid = t.split("|")[1];
       const { data } = await sb.from("customers").select("id").eq("public_id", pid).maybeSingle();

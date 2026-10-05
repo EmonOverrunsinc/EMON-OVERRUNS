@@ -27,7 +27,8 @@ All amounts are in **PHP (₱)**. Vouchers print the amount in words, for exampl
 5. **User Resolution:** suspend, reactivate or permanently close accounts. Closed accounts cannot get new invoices and are hidden from the top search.
 7. **Project** and 8. **Billing:** coming soon.
 
-Database script for these modules: `supabase/002_customers_invoices_payments.sql` (run after `portal_init.sql`).
+Database scripts, run once each in this order in the Supabase SQL Editor: `portal_init.sql`, `002_customers_invoices_payments.sql`,
+`003_statements.sql`, `004_update_1_1.sql`, `005_update_1_2.sql` (orders for customers, employees and billing companies).
 
 ## Setup (one time)
 1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.

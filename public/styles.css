@@ -881,19 +881,26 @@ main h3.sec, main h3 { display: flex; align-items: center; gap: 6px; }
 .letter-box { padding: 10px 14px; border-radius: 9px; background: #fff; border: 1px solid var(--panel-line); }
 .letter-box p { margin: 4px 0 10px; line-height: 1.55; }
 .lb-h { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); }
-.code-chip { padding: 2px 10px; border-radius: 6px; background: #fff4b8; border: 1px dashed #c9a400; letter-spacing: .15em; }
-.ol-top { display: flex; justify-content: space-between; gap: 20px; margin: 6px 0 12px; font-size: 11.5px; line-height: 1.6; }
-.ol-subj { margin: 6px 0 8px; font-weight: bold; font-size: 13px; text-decoration: underline; }
-.ol-body { margin-bottom: 10px; font-size: 12px; line-height: 1.7; text-align: justify; }
-table.rp.ol-amt { width: 60%; margin: 6px 0; }
-.ol-amt td { border-bottom: 1px solid #ccc; }
-.ol-res { margin: 10px 0; padding: 6px 10px; border-left: 3px solid #000; background: #f6f6f6; font-size: 11.5px; }
-.ol-foot { margin-top: 28px; display: flex; align-items: flex-end; gap: 16px; }
-.ol-sigs { flex: 1; }
-.ol-qr { width: 36mm; padding: 6px; border: 1px solid #000; text-align: center; font-size: 9px; }
-.ol-qr img { display: block; width: 28mm; height: 28mm; margin: 0 auto 2px; image-rendering: pixelated; }
-.ol-qr b { display: block; font-size: 13px; letter-spacing: .14em; }
-.ol-qr small { display: block; margin-top: 2px; }
+/* Printed order: details of order, information and order tables, APPROVED / DISAPPROVED, one authorized line */
+.ol-sec { margin: 10px 0 3px; font-size: 11.5px; font-weight: bold; letter-spacing: .04em; }
+table.ol-kv { border-collapse: collapse; font-size: 11.5px; }
+.ol-kv th { padding: 1px 24px 1px 0; text-align: left; font-weight: normal; color: #333; white-space: nowrap; vertical-align: top; }
+.ol-kv td { padding: 1px 0; }
+.ol-intro { margin: 8px 0 2px; font-size: 11px; }
+table.ol-grid { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.ol-grid th, .ol-grid td { padding: 3px 7px; border: 1px solid #000; text-align: left; vertical-align: top; }
+.ol-grid th { width: 32%; font-weight: normal; }
+.ol-grid small { color: #333; }
+.ol-grid tr.ol-dec > * { font-weight: bold; letter-spacing: .04em; }
+.ol-sign { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-top: 30px; flex-wrap: wrap; }
+.ol-ad { font-size: 12px; font-weight: bold; }
+.ol-ad > span { display: inline-block; padding: 2px 9px; border: 2px solid transparent; border-radius: 50%; }
+.ol-ad > span.on { border-color: #000; }
+.ol-ad div { margin-top: 8px; font-weight: normal; }
+.ol-date { display: inline-block; min-width: 42mm; border-bottom: 1px solid #000; text-align: center; font-weight: bold; }
+.ol-auth { width: 72mm; text-align: center; font-size: 11px; }
+.ol-auth-name { min-height: 16px; font-weight: bold; letter-spacing: .03em; }
+.ol-auth .line { margin: 2px 0 3px; border-top: 1px solid #000; }
 
 /* Verification */
 .verify-hero { max-width: 780px; margin: 0 auto 14px; padding: 22px 18px; text-align: center; border-radius: 18px; border: 1px solid var(--panel-line); background: linear-gradient(160deg, #fff, #eef5ff); box-shadow: 0 6px 22px rgba(31,74,140,.1); }
