@@ -130,7 +130,10 @@
   // The CEO deletes a record permanently, with its files. Nothing of it is shown afterwards.
   async function deleteRecord(table, row, label, afterDelete) {
     if (!isAdmin()) return;
-    if (!(await E.confirmBox(`Delete <b>${esc(label)}</b> permanently? It is removed from the portal with its files and cannot be brought back.`, { title: "Delete record", ok: "Delete", danger: true }))) return;
+    // A carried-out order letter is also undone (see undo_order in the database).
+    const undo = table === "order_letters" && row.status === "applied"
+      ? `<br><br>This order was carried out, so deleting it also <b>undoes it</b>: the status before the order comes back (if no later order changed it again), and a charge or settlement adjustment leaves the balance and the statements.` : "";
+    if (!(await E.confirmBox(`Delete <b>${esc(label)}</b> permanently? It is removed from the portal with its files and cannot be brought back.${undo}`, { title: "Delete record", ok: "Delete", danger: true }))) return;
     const { data: paths, error } = await sb.rpc("delete_record", { p_table: table, p_id: row.id });
     if (error) return fail(error, "Could not delete");
     const files = [...new Set((paths || []).filter(Boolean))];

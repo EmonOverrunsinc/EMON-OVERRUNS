@@ -4,6 +4,8 @@
 -- Order letters: "Additional Charge" and "Settlement Adjustment". When approved, a charge is added to the customer's
 -- balance; a settlement adjustment is added to it or taken off it (chosen on the order). Both show on the profile and
 -- in the Statement of Account, with the order number as the reference.
+-- Deleting an order letter (CEO) also undoes it: the status before the order comes back, and a charge or
+-- adjustment leaves the balance and the statements.
 -- Run once in the Supabase SQL Editor after 007_update_1_4.sql. It is safe to run again.
 -- =====================================================================
 
@@ -47,6 +49,9 @@ end $$;
 --   settlement, adjust 'reduce' → taken off the balance (credit)
 -- ---------------------------------------------------------------------
 alter table public.order_letters add column if not exists adjust_type text;
+-- The status (and note) a customer, employee or company had before the order changed it, so deleting it can undo it.
+alter table public.order_letters add column if not exists prev_status text;
+alter table public.order_letters add column if not exists prev_note text;
 alter table public.order_letters drop constraint if exists order_letters_adjust_type_check;
 alter table public.order_letters add constraint order_letters_adjust_type_check check (adjust_type is null or adjust_type in ('add','reduce'));
 alter table public.order_letters drop constraint if exists order_letters_subject_type_check;
@@ -234,12 +239,15 @@ declare
   pc public.pay_companies;
   newst text;
   res text;
+  prev_st text;
+  prev_nt text;
   me text := (select full_name from public.profiles where id = auth.uid());
 begin
   select * into o from public.order_letters where id = p_id for update;
   perform public.allow_record_change();
   if o.customer_id is not null then
     select * into c from public.customers where id = o.customer_id for update;
+    prev_st := c.status; prev_nt := c.status_note;
     newst := case o.subject_type when 'suspension' then 'suspended' when 'closure' then 'closed' when 'reactivation' then 'active' when 'reopen' then 'active' else null end;
     if o.subject_type = 'suspension' and c.status <> 'active' then raise exception 'Account % is % — only ACTIVE accounts can be suspended', c.account_no, upper(c.status); end if;
     if o.subject_type = 'closure' and c.status not in ('active','suspended') then raise exception 'Account % is % and cannot be closed', c.account_no, upper(c.status); end if;
@@ -269,6 +277,7 @@ begin
                   else coalesce(newst, replace(o.subject_type, '_', ' ')) end || ' by ' || o.order_no, o.subject, auth.uid(), me);
   elsif o.employee_id is not null then
     select * into e from public.employees where id = o.employee_id for update;
+    prev_st := e.status;
     if o.subject_type <> 'memo' and e.profile_id = auth.uid() then raise exception 'You cannot suspend, reactivate or terminate your own employee record'; end if;
     if o.subject_type = 'suspension' then
       if e.status not in ('active','inactive') then raise exception 'Employee % is % — only ACTIVE employees can be suspended', e.employee_no, upper(e.status); end if;
@@ -288,6 +297,7 @@ begin
     res := case when newst is null then 'Memo recorded for employee ' || e.employee_no else 'Employee ' || e.employee_no || ' is now ' || upper(newst) end;
   elsif o.company_id is not null then
     select * into pc from public.pay_companies where id = o.company_id for update;
+    prev_st := pc.status; prev_nt := pc.status_note;
     if o.subject_type = 'suspension' then
       if pc.status <> 'active' then raise exception '% is % — only ACTIVE companies can be suspended', pc.name, upper(pc.status); end if;
       newst := 'suspended';
@@ -304,11 +314,176 @@ begin
   else
     res := 'Order carried out';
   end if;
-  update public.order_letters set status = 'applied', applied_at = now(), applied_by_name = me, applied_result = res where id = o.id;
+  update public.order_letters set status = 'applied', applied_at = now(), applied_by_name = me, applied_result = res,
+    prev_status = case when newst is not null then prev_st end, prev_note = case when newst is not null then prev_nt end where id = o.id;
   return jsonb_build_object('order_no', o.order_no, 'result', res, 'status', newst);
 end;
 $$;
 revoke execute on function public.carry_out_order(uuid) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------
+-- Deleting an order letter undoes it (the CEO deletes records)
+-- ---------------------------------------------------------------------
+-- The status an order set: customers suspended / closed / active, employees suspended / terminated / active or
+-- waiting (no login yet), companies suspended / active.
+create or replace function public.order_set_status(o public.order_letters) returns text[]
+language sql stable set search_path = '' as $$
+  select case
+    when o.subject_type = 'suspension' then array['suspended']
+    when o.subject_type = 'closure' then array['closed']
+    when o.subject_type = 'termination' then array['terminated']
+    when o.subject_type = 'reopen' then array['active']
+    when o.subject_type = 'reactivation' and o.employee_id is not null then array['active','waiting']
+    when o.subject_type = 'reactivation' then array['active']
+  end;
+$$;
+revoke execute on function public.order_set_status(public.order_letters) from public, anon, authenticated;
+
+-- Undo what an applied order did. A status is put back only when this order is the last one that changed the
+-- status of that customer, employee or company, and the status is still the one it set. The status before the
+-- order was saved when it was carried out; for older orders it is the status the order before it set, or the
+-- first status (active; an employee without a login: waiting).
+create or replace function public.undo_order(p_id uuid) returns text
+language plpgsql security definer set search_path = '' as $$
+declare
+  o public.order_letters;
+  b public.order_letters;
+  st text[] := array['suspension','closure','reactivation','reopen','termination'];
+  prev text;
+  me text := (select full_name from public.profiles where id = auth.uid());
+begin
+  select * into o from public.order_letters where id = p_id;
+  if o.id is null or o.status <> 'applied' or not (o.subject_type = any(st)) then return null; end if;
+  if exists (select 1 from public.order_letters x where x.status = 'applied' and x.id <> o.id and x.subject_type = any(st)
+             and x.customer_id is not distinct from o.customer_id and x.employee_id is not distinct from o.employee_id
+             and x.company_id is not distinct from o.company_id and x.applied_at > o.applied_at) then
+    return null;
+  end if;
+  prev := o.prev_status;
+  if prev is null then
+    select * into b from public.order_letters x where x.status = 'applied' and x.id <> o.id and x.subject_type = any(st)
+      and x.customer_id is not distinct from o.customer_id and x.employee_id is not distinct from o.employee_id
+      and x.company_id is not distinct from o.company_id and x.applied_at < o.applied_at
+    order by x.applied_at desc limit 1;
+    if b.id is not null then prev := (public.order_set_status(b))[1]; end if;
+    if prev = 'active' and b.employee_id is not null then
+      prev := case when (select e.profile_id from public.employees e where e.id = b.employee_id) is null then 'waiting' else 'active' end;
+    end if;
+  end if;
+  perform public.allow_record_change();
+  if o.customer_id is not null then
+    update public.customers set status = coalesce(prev, 'active'), status_note = o.prev_note
+    where id = o.customer_id and status = any(public.order_set_status(o)) returning status into prev;
+    if not found then return null; end if;
+    insert into public.customer_events (customer_id, action, note, actor, actor_name)
+    values (o.customer_id, o.order_no || ' deleted — status back to ' || upper(prev), o.subject, auth.uid(), me);
+  elsif o.employee_id is not null then
+    update public.employees set
+      status = coalesce(prev, case when profile_id is null then 'waiting' else 'active' end),
+      termination_date = case when o.subject_type = 'termination' then null else termination_date end,
+      termination_reason = case when o.subject_type = 'termination' then null else termination_reason end
+    where id = o.employee_id and status = any(public.order_set_status(o)) returning status into prev;
+    if not found then return null; end if;
+  elsif o.company_id is not null then
+    update public.pay_companies set status = coalesce(prev, 'active'), status_note = o.prev_note
+    where id = o.company_id and status = any(public.order_set_status(o)) returning status into prev;
+    if not found then return null; end if;
+  end if;
+  return prev;
+end;
+$$;
+revoke execute on function public.undo_order(uuid) from public, anon, authenticated;
+create or replace function public.delete_record(p_table text, p_id uuid) returns text[]
+language plpgsql security definer set search_path = '' as $$
+declare
+  j jsonb;
+  own_type text;
+  paths text[];
+  cust uuid;
+  since date;
+  subs uuid[] := '{}';
+begin
+  if not public.is_admin() then raise exception 'Only the CEO can delete records'; end if;
+  if not public.deletable_table(p_table) then raise exception 'This kind of record cannot be deleted'; end if;
+  execute format('select to_jsonb(t) from public.%I t where t.id = $1 for update', p_table) into j using p_id;
+  if j is null then raise exception 'Record not found'; end if;
+  if p_table = 'customers' and (exists (select 1 from public.customer_invoices x where x.customer_id = p_id)
+      or exists (select 1 from public.payments_received x where x.customer_id = p_id)
+      or exists (select 1 from public.credit_memos x where x.customer_id = p_id)
+      or exists (select 1 from public.order_letters x where x.customer_id = p_id)) then
+    raise exception 'This customer has invoices, payments, credit memos or order letters. Delete those first';
+  end if;
+  if p_table = 'customer_invoices' and exists (select 1 from public.payments_received x where x.invoice_id = p_id) then
+    raise exception 'This invoice has payments. Delete its payments first';
+  end if;
+  if p_table = 'employees' then
+    if (j->>'profile_id')::uuid = auth.uid() then raise exception 'You cannot delete your own employee record'; end if;
+    if exists (select 1 from public.payslips x where x.employee_id = p_id) then raise exception 'This employee has payslips. Delete the payslips first'; end if;
+    if exists (select 1 from public.order_letters x where x.employee_id = p_id) then raise exception 'This employee has order letters. Delete the order letters first'; end if;
+  end if;
+  if p_table = 'projects' and exists (select 1 from public.project_payments x where x.project_id = p_id) then
+    raise exception 'This project has payments. Delete its payments first';
+  end if;
+  if p_table = 'pay_companies' and exists (select 1 from public.pay_vouchers x where x.company_id = p_id) then
+    raise exception 'This company has payment vouchers. Delete the vouchers first';
+  end if;
+  if p_table = 'pay_companies' and exists (select 1 from public.order_letters x where x.company_id = p_id) then
+    raise exception 'This company has order letters. Delete the order letters first';
+  end if;
+  if p_table = 'pay_accounts' and exists (select 1 from public.pay_vouchers x where x.account_id = p_id) then
+    raise exception 'This account has payment vouchers. Delete the vouchers first';
+  end if;
+  perform public.allow_record_change();
+
+  -- Files: the record's own, a customer's statement copies, a company's account files, and stored photos.
+  own_type := case p_table when 'customers' then 'customer' when 'customer_invoices' then 'invoice' when 'payments_received' then 'payment'
+    when 'credit_memos' then 'credit_memo' when 'employees' then 'employee' when 'payslips' then 'payslip' when 'projects' then 'project'
+    when 'project_payments' then 'project_payment' when 'pay_companies' then 'pay_company' when 'pay_accounts' then 'pay_account'
+    when 'pay_vouchers' then 'pay_voucher' when 'job_applications' then 'job_application' when 'order_letters' then 'order_letter' end;
+  if p_table = 'customers' then subs := array(select s.id from public.statements s where s.customer_id = p_id); end if;
+  if p_table = 'pay_companies' then subs := array(select a.id from public.pay_accounts a where a.company_id = p_id); end if;
+  select coalesce(array_agg(a.storage_path), '{}') into paths from public.attachments a
+    where (a.owner_type = own_type and a.owner_id = p_id) or a.owner_id = any(subs);
+  delete from public.attachments a where (a.owner_type = own_type and a.owner_id = p_id) or a.owner_id = any(subs);
+  if j->>'photo_path' is not null then paths := paths || (j->>'photo_path'); end if;
+
+  -- A customer money record changes the statements of account from its month on.
+  if p_table in ('customer_invoices','payments_received','credit_memos') then
+    cust := (j->>'customer_id')::uuid;
+    since := date_trunc('month', case p_table when 'customer_invoices' then (j->>'invoice_date')::date
+               when 'payments_received' then (j->>'paid_date')::date
+               else coalesce((j->>'approved_at')::timestamptz::date, (j->>'memo_date')::date) end)::date;
+  end if;
+  -- An applied order letter is undone: the status before it comes back; a charge or settlement adjustment leaves
+  -- the balance, so the statements are made again from its month on.
+  if p_table = 'order_letters' and j->>'status' = 'applied' then
+    perform public.undo_order(p_id);
+    if j->>'subject_type' in ('charge','settlement') and j->>'customer_id' is not null then
+      cust := (j->>'customer_id')::uuid;
+      since := date_trunc('month', (j->>'applied_at')::timestamptz::date)::date;
+    end if;
+  end if;
+  if p_table = 'employees' and j->>'profile_id' is not null then
+    update public.profiles set status = 'disabled' where id = (j->>'profile_id')::uuid;
+  end if;
+
+  delete from public.change_requests where target_table = p_table and target_id = p_id;
+  delete from public.record_changes where target_table = p_table and target_id = p_id;
+  execute format('delete from public.%I where id = $1', p_table) using p_id;
+
+  if cust is not null then
+    select paths || coalesce(array_agg(a.storage_path), '{}') into paths from public.attachments a
+      where a.owner_type = 'statement' and a.owner_id in (select s.id from public.statements s where s.customer_id = cust and s.period_end >= since);
+    delete from public.attachments a
+      where a.owner_type = 'statement' and a.owner_id in (select s.id from public.statements s where s.customer_id = cust and s.period_end >= since);
+    delete from public.statements s where s.customer_id = cust and s.period_end >= since;
+    perform public.generate_statements(cust);
+  end if;
+  return paths;
+end;
+$$;
+revoke execute on function public.delete_record(text, uuid) from public, anon;
+grant execute on function public.delete_record(text, uuid) to authenticated;
 
 -- Verification: an Additional Charge or Settlement Adjustment order shows its amount.
 create or replace function public.verify_record(p_code text) returns jsonb
