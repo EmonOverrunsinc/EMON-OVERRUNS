@@ -573,6 +573,7 @@ table.grid.budget td:first-child input { min-width: 180px; }
 .ph-codes { display: flex; gap: 12px; align-items: flex-end; text-align: center; }
 .ph-codes .ph-bar { height: 40px; margin: 0 auto; }
 .ph-codes .mono { font-size: 9px; margin-top: 2px; }
+.ph-codes .key { max-width: 110px; margin-left: auto; margin-right: auto; }
 
 /* Statement of account (bank-statement style) */
 .soa-logo { text-align: center; }
@@ -733,7 +734,12 @@ a.mini-brand { color: inherit; text-decoration: none; }
 .flag .ic { width: 12px; height: 12px; stroke-width: 3; }
 .ch-qr { text-align: center; padding: 6px; border-radius: 10px; background: #fff; border: 1px solid var(--grid-head); }
 .ch-qr canvas { display: block; width: 116px; height: 116px; image-rendering: pixelated; }
-.ch-qr small { color: var(--ink-soft); font-size: 10px; }
+.ch-qr small { color: var(--ink-soft); font-size: 10px; display: block; }
+/* Public ID key (like a crypto wallet address) under its QR code */
+.key { word-break: break-all; }
+.ch-qr .key { display: block; max-width: 116px; margin: 1px auto 0; font-size: 10.5px; line-height: 1.35; }
+.ch-qr .linkbtn { font-size: 11px; display: inline-flex; align-items: center; gap: 3px; }
+.ch-qr .linkbtn .ic { width: 13px; height: 13px; }
 @media (max-width: 680px) {
   .cust-hero { grid-template-columns: 76px minmax(0, 1fr); }
   .ch-photo { width: 76px; height: 76px; font-size: 24px; }
@@ -943,7 +949,7 @@ table.ol-sched .num { text-align: right; }
 .vf-fields { min-width: min(470px, 100%); margin: 0 auto; border-collapse: collapse; text-align: left; background: #fff; border: 1px solid var(--grid-head); }
 .vf-fields th, .vf-fields td { padding: 6px 12px; border-bottom: 1px solid var(--grid-alt); }
 .vf-fields th { width: 42%; font-weight: normal; color: var(--ink-soft); }
-.vf-fields td { font-weight: bold; }
+.vf-fields td { font-weight: bold; overflow-wrap: anywhere; }
 .vf-when { margin: 10px 0 4px; font-size: 12px; color: var(--ink-soft); }
 .vf-ok.small, .vf-bad.small { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding: 10px 12px; text-align: left; border-radius: 10px; box-shadow: none; }
 .vf-ok.small b { color: var(--ok); }

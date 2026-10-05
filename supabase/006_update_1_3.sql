@@ -3,6 +3,7 @@
 -- Billing companies: currency (PHP, BDT or both), address, contact person and photo.
 -- Orders: amount due and days overdue on customer orders, installment schedule, reason for closing,
 -- and the Account Balance Certificate.
+-- Customers: the Public ID becomes a wallet-style key (EO + 40 letters and numbers); its QR code is the key itself.
 -- Run once in the Supabase SQL Editor after 005_update_1_2.sql. It is safe to run again.
 -- =====================================================================
 
@@ -255,21 +256,38 @@ $$;
 revoke execute on function public.carry_out_order(uuid) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------
--- Customer Public ID: Base64 of "<customer id>|<NAME>", so decoding it shows whose account it is.
+-- Customer Public ID: a wallet-style key, like a crypto wallet address: "EO" and 40 letters and numbers
+-- (e.g. EO7a3F9c2B…). It is made from the customer ID with a secret key that never leaves the database, so it
+-- cannot be worked out or guessed, and it never changes. The customer's QR code is the key itself.
 -- (The Private ID stays a sealed fingerprint that only the CEO sees.)
 -- ---------------------------------------------------------------------
 create or replace function public.customer_public_id(p_data jsonb) returns text
-language sql immutable set search_path = '' as $$
-  select replace(encode(convert_to(coalesce(p_data->>'account_no', '') || '|'
-    || upper(trim(coalesce(p_data->>'first_name', '') || ' ' || coalesce(p_data->>'last_name', ''))), 'UTF8'), 'base64'), E'\n', '');
+language plpgsql stable security definer set search_path = '' as $$
+declare sk text; h text; m text; o text; n int := 0; i int;
+begin
+  select s.v into sk from private.app_secrets s where s.k = 'customer_id_key';
+  loop
+    h := left(encode(sha256(convert_to(coalesce(sk, '') || '|public|' || coalesce(p_data->>'account_no', p_data->>'id', '') || '|' || n || '|' || coalesce(sk, ''), 'UTF8')), 'hex'), 40);
+    -- Capital letters where a second fingerprint says so, like the checksum in a wallet address.
+    m := encode(sha256(convert_to(h, 'UTF8')), 'hex');
+    o := 'EO';
+    for i in 1..40 loop
+      o := o || case when substr(m, i, 1) >= '8' and substr(h, i, 1) between 'a' and 'f' then upper(substr(h, i, 1)) else substr(h, i, 1) end;
+    end loop;
+    exit when not exists (select 1 from public.customers c where upper(c.public_id) = upper(o) and c.id is distinct from (p_data->>'id')::uuid);
+    n := n + 1;
+  end loop;
+  return o;
+end;
 $$;
 revoke execute on function public.customer_public_id(jsonb) from public, anon, authenticated;
+-- Customers saved before this update get their key once.
 do $$
 begin
-  if not exists (select 1 from private.app_secrets where k = 'customer_ids_base64') then
+  if not exists (select 1 from private.app_secrets where k = 'customer_ids_key') then
     perform set_config('eo.allow_change', 'on', true);
     update public.customers c set public_id = public.customer_public_id(to_jsonb(c));
-    insert into private.app_secrets (k, v) values ('customer_ids_base64', now()::text);
+    insert into private.app_secrets (k, v) values ('customer_ids_key', now()::text);
   end if;
 end $$;
 
@@ -300,7 +318,6 @@ language plpgsql stable security definer set search_path = '' as $$
 declare
   raw text := trim(coalesce(p_code, ''));
   cands text[];
-  dec text;
   c text;
   r record;
   amt text;
@@ -311,12 +328,6 @@ begin
   cands := array(
     select distinct upper(trim(x)) from unnest(string_to_array(raw, '|')) x
     where trim(x) <> '' and upper(trim(x)) not in ('EMON','EMONCUST','EMONINV','EMONPAY','EMONCM','EMONPRJ','EMONSP','EMONPS','EMONBD','ORDER','EMONJA','EMONSOA'));
-  -- A customer's Public ID is Base64 of "<customer id>|<name>": decoding it finds the account.
-  begin
-    dec := convert_from(decode(raw, 'base64'), 'UTF8');
-    if position('|' in dec) > 1 then cands := cands || upper(trim(split_part(dec, '|', 1))); end if;
-  exception when others then null;
-  end;
   foreach c in array cands loop
     -- customer account (account no, application no or public ID)
     select * into r from public.customers cu where upper(cu.account_no) = c or upper(cu.application_no) = c or upper(cu.public_id) = c limit 1;

@@ -71,6 +71,7 @@
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
     out: '<path d="M14.5 4H19v16h-4.5M10 8l-4 4 4 4M6 12h10"/>',
     key: '<circle cx="8" cy="15" r="4.2"/><path d="m11 12 9-9M16.5 6.5 19 9"/>',
+    copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 5v9A1.5 1.5 0 0 0 5 15.5h3.5"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 7 8.5-7"/>',
     home: '<path d="M3.5 11 12 4l8.5 7"/><path d="M6 9.5V20h12V9.5"/>',
@@ -785,16 +786,20 @@
         .catch(() => { d.classList.add("nocam"); msg("Camera is not available. Use a photo instead."); });
     } else { d.classList.add("nocam"); msg("Camera is not available here. Use a photo instead."); }
   }
-  // Customer QR: EMONCUST|<public id>|<account no>.
+  // Customer QR: the customer's Public ID key, like a crypto wallet address (EO + 40 letters and numbers).
+  // Older customer QR codes read EMONCUST|<public id>|<account no>.
   // Document barcodes (EMONINV|…, EMONPAY|…, EMONBD|…, EMONORDER|…) and verification links open the Verification page.
+  const isCustKey = (t) => /^EO[0-9a-f]{40}$/i.test(String(t || "").trim());
   async function openScanned(text) {
     const t = String(text || "").trim();
     if (!t) return;
     if (/#verify\//i.test(t)) { location.hash = "verify/" + encodeURIComponent(t.replace(/^.*#verify\//i, "")); return; }
-    if (t.startsWith("EMONCUST|")) {
-      const pid = t.split("|")[1];
-      const { data } = await sb.from("customers").select("id").eq("public_id", pid).maybeSingle();
+    const key = isCustKey(t);
+    if (key || t.startsWith("EMONCUST|")) {
+      const q = sb.from("customers").select("id");
+      const { data } = await (key ? q.ilike("public_id", t) : q.eq("account_no", t.split("|")[2] || "")).maybeSingle();
       if (data && canOpen("customer")) { location.hash = "customer/" + data.id; return; }
+      if (key) { location.hash = "verify/" + encodeURIComponent(t); return; }
     }
     if (/^EMON[A-Z]*\|/.test(t)) { location.hash = "verify/" + encodeURIComponent(t); return; }
     location.hash = "find/" + encodeURIComponent(t);
@@ -1058,7 +1063,7 @@
     APP, VERSION, sb, S, C, esc, peso, pad, isoToday, dmy, stamp, longDate, dLong, dShort, dmyDash, dateTime, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages,
-    drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned,
+    drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey,
     roleName, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
     changePassword: () => renderSetPassword(false)
   });

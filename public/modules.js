@@ -11,7 +11,8 @@
   const METHOD = { cash: "Cash", bank_transfer: "Bank Transfer", online_transfer: "Online Transfer", deposit: "Bank Deposit" };
   const DEFECT = { fabric_damage: "Fabric Damage (Tears, Holes)", color_issue: "Color Issue", wrong_box: "Wrong Box Delivered", wrong_bundle: "Wrong Bundle", other: "Other" };
   const ACTION = { replacement: "Replacement / Exchange", refund: "Full Refund Transfer", credit: "Credit", discount: "Discount" };
-  const custQr = (c) => `EMONCUST|${c.public_id}|${c.account_no}`;
+  // The customer's QR code is the Public ID key itself, like a crypto wallet address.
+  const custQr = (c) => c.public_id || c.account_no;
   const cleanQ = (q) => String(q || "").replace(/[,%()*\\]/g, " ").trim();
   const num = (v) => Number(v || 0);
   const myName = () => S.profile.full_name || S.session.user.email;
@@ -175,8 +176,8 @@
     };
     q.oninput = () => { clearTimeout(timer); timer = setTimeout(search, 250); };
     $(".pk-scan", holder).onclick = () => E.scanDialog(async (text) => {
-      const pid = String(text).startsWith("EMONCUST|") ? String(text).split("|")[1] : null;
-      const r = pid ? await sb.from("customers").select("*").eq("public_id", pid).maybeSingle() : await sb.from("customers").select("*").eq("account_no", String(text).trim()).maybeSingle();
+      const s = String(text).trim(), q = sb.from("customers").select("*");
+      const r = await (E.isCustKey(s) ? q.ilike("public_id", s) : q.eq("account_no", s.startsWith("EMONCUST|") ? s.split("|")[2] || "" : s)).maybeSingle();
       const c = r.data;
       if (!c) return toast("No customer found for that code.", true);
       if (statuses && !statuses.includes(c.status)) return toast(`${fullName(c)} is ${c.status.toUpperCase()} and cannot be used here.`, true);
@@ -456,7 +457,7 @@
     const bar = E.pdf417DataUrl(c.application_no);
     return `${printHead("CUSTOMER ACCOUNT APPLICATION", `<div class="ph-codes">
         <div><img src="${bar}" alt="Application number barcode" class="ph-bar"><div class="mono">${esc(c.application_no)}</div></div>
-        <div><img src="${qr}" alt="Customer QR code" class="ph-qr"><div class="mono">${esc(c.public_id)}</div></div></div>`)}
+        <div><img src="${qr}" alt="Customer QR code" class="ph-qr"><div class="mono key">${esc(c.public_id)}</div></div></div>`)}
       <div class="prow3">${cell("Application No", c.application_no)}${cell("Account No", c.account_no)}${cell("Application Date", dmy(c.application_date))}</div>
       ${box("Customer Information", `<div class="pgrid">
         <div class="pphoto">${photoUrl ? `<img src="${esc(photoUrl)}" alt="">` : "PHOTO"}</div>
@@ -532,12 +533,12 @@
           <div class="ch-name"><h2>${esc(fullName(c))}</h2>${pill(c.status)}</div>
           <div class="ch-sub">${[c.business_name, c.phone, c.email].filter(Boolean).map(esc).join(" · ") || "—"}</div>
           <div class="ch-ids">
-            ${idBox("Account No", c.account_no)}${idBox("Application No", c.application_no)}${idBox("Public ID", c.public_id)}${idBox("Opened", dmy(c.application_date))}
+            ${idBox("Account No", c.account_no)}${idBox("Application No", c.application_no)}${idBox("Opened", dmy(c.application_date))}
             ${isAdmin() ? `<div class="idbox"><small>Private ID</small><b class="mono" id="pvCode" data-code="${esc(secret.data?.private_code || "")}">••••••••</b> <button type="button" class="linkbtn" id="pvShow">Show</button></div>` : ""}
           </div>
           <div class="ch-flags">${c.address_verified ? `<span class="flag ok">${ic("check")} Address verified</span>` : ""}${c.facebook_verified ? `<span class="flag ok">${ic("check")} Facebook verified</span>` : ""}</div>
         </div>
-        <div class="ch-qr"><canvas id="pfQr" aria-label="Customer QR code"></canvas><small>Scan to open</small></div>
+        <div class="ch-qr"><canvas id="pfQr" aria-label="Customer QR code"></canvas><small>Public ID</small><b class="mono key" id="pfKey">${esc(c.public_id || "")}</b><button type="button" class="linkbtn" id="pfCopy">${ic("copy")} Copy</button></div>
       </section>
       <div class="tiles">
         <div class="tile"><div class="k">Total Invoiced</div><div class="v">₱ ${peso(b.total_invoiced)}</div></div>
@@ -567,6 +568,10 @@
         <div data-p="7" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
+    $("#pfCopy").onclick = async () => {
+      try { await navigator.clipboard.writeText(c.public_id); toast("Public ID copied."); }
+      catch (_) { getSelection().selectAllChildren($("#pfKey")); toast("Press Copy on your keyboard or phone to copy the selected Public ID."); }
+    };
     $$("#pfTabs button").forEach((t) => (t.onclick = () => {
       $$("#pfTabs button").forEach((x) => x.classList.toggle("on", x === t));
       $$(".tabpanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t));
@@ -659,7 +664,7 @@
           <span>Account Number</span><b class="mono big">${esc(c.account_no)}</b>
           <span>Application ID</span><b class="mono">${esc(c.application_no)}</b>
           <span>Application Date</span><b>${dmy(c.application_date)}</b>
-          <span>Public ID</span><b class="mono">${esc(c.public_id)}</b>
+          <span>Public ID</span><b class="mono key">${esc(c.public_id)}</b>
           <span>Issued By</span><b>${esc(c.issued_by_name || "")}</b>
           <span>Status</span><span>${pill(c.status)}</span>
         </div>

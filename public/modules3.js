@@ -923,8 +923,8 @@
     if (code) run(code); else $("#vfCode").focus();
   };
   // Validated Print (A4), typewriter style: "VERIFIED BY …", RECORD FOUND with the search result, the record's details
-  // (a customer's Base64 Public ID decoded underneath; no amount due), then the validation number, time, the employee
-  // who printed it and a QR code to check it online. System-generated: no signature.
+  // (no amount due), then the validation number, time, the employee who printed it and a QR code to check it online
+  // (for a customer, made from the Public ID key). System-generated: no signature.
   function validatedPrint(d, when) {
     const vno = "V" + when.toISOString().replace(/\D/g, "").slice(2, 14);
     const at = E.dateTime(when.toISOString());
@@ -935,15 +935,15 @@
     const idLabel = d.type === "Customer Account" ? "Customer ID" : idField ? idField[0] : "Record No";
     const who = fields.find(([k]) => ["Account Name", "Customer", "Received From", "Employee", "Name", "Applicant", "Paid To", "Account", "Company"].includes(k));
     const rest = fields.filter((f) => f !== idField);
-    const decoded = (v) => { try { const t = new TextDecoder().decode(Uint8Array.from(atob(v), (ch) => ch.charCodeAt(0))); return t.includes("|") ? t.replace("|", " · ") : ""; } catch (_) { return ""; } };
-    const row = (k, v) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`;
-    const rows = rest.map(([k, v]) => k === "Public ID" ? row("Public ID (Base64)", v) + (decoded(v) ? row("Decoded", decoded(v)) : "") : row(k, plain(v))).join("");
+    const key = d.type === "Customer Account" ? (fields.find(([k]) => k === "Public ID") || [])[1] : null;
+    const row = (k, v) => `<tr><th>${esc(k)}</th><td${k === "Public ID" ? ' class="key"' : ""}>${esc(v)}</td></tr>`;
+    const rows = rest.map(([k, v]) => row(k, plain(v))).join("");
     const page = `<div class="vp">${E.printHead(`VERIFIED BY ${C.company.name}`)}
       <div class="vp-true"><span class="vp-seal">✔</span><div><b>RECORD FOUND</b><small>Search result: ${esc(d.number)}${who ? " · " + esc(who[1]) : ""}</small><small>Checked in the ${esc(E.APP)} on ${esc(at)}</small></div></div>
       ${E.box("Record Details", `<table class="vp-fields"><tbody>${row("Record Type", d.type)}${row(idLabel, d.number)}${rows}
         ${d.status && !rest.some(([k]) => /status/i.test(k)) ? row("Status", String(d.status).toUpperCase()) : ""}</tbody></table>`)}
       ${E.box("Validation", `<div class="vp-valid"><table class="vp-fields"><tbody>${row("Validation No", vno)}${row("Validated On", at)}${row("Validated By", S.profile?.full_name || "")}</tbody></table>
-        <div class="vp-qr"><img src="${E.qrDataUrl(verifyUrl(d.number))}" alt="Verification QR code"><small>Scan to verify online</small></div></div>`)}
+        <div class="vp-qr"><img src="${E.qrDataUrl(verifyUrl(key || d.number))}" alt="Verification QR code"><small>Scan to verify online</small></div></div>`)}
       <div class="vp-sys">This is a system-generated document. No signature is required.</div></div>`;
     E.openPreview(`Validated ${d.number}`, [page]);
   }
