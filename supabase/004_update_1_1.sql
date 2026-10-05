@@ -98,7 +98,7 @@ create or replace function public.terminate_employee(p_id uuid, p_date date, p_r
 language plpgsql security definer set search_path = '' as $$
 declare e public.employees;
 begin
-  if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  if not public.is_admin() then raise exception 'Only the CEO can do this'; end if;
   select * into e from public.employees where id = p_id for update;
   if e.id is null then raise exception 'Employee not found'; end if;
   if e.profile_id = auth.uid() then raise exception 'You cannot terminate your own account'; end if;
@@ -114,7 +114,7 @@ create or replace function public.rehire_employee(p_id uuid) returns public.empl
 language plpgsql security definer set search_path = '' as $$
 declare e public.employees;
 begin
-  if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  if not public.is_admin() then raise exception 'Only the CEO can do this'; end if;
   perform public.allow_record_change();
   update public.employees set status = case when profile_id is null then 'waiting' else 'active' end,
     termination_date = null, termination_reason = null
@@ -128,7 +128,7 @@ create or replace function public.set_employee_access(p_id uuid, p_role text, p_
 language plpgsql security definer set search_path = '' as $$
 declare e public.employees;
 begin
-  if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  if not public.is_admin() then raise exception 'Only the CEO can do this'; end if;
   if p_role not in ('admin','staff','viewer') then raise exception 'Choose a role'; end if;
   select * into e from public.employees where id = p_id for update;
   if e.id is null then raise exception 'Employee not found'; end if;
@@ -217,7 +217,7 @@ create policy "pos: admin insert" on public.job_positions for insert to authenti
 create or replace function public.set_position_open(p_id uuid, p_open boolean) returns void
 language plpgsql security definer set search_path = '' as $$
 begin
-  if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  if not public.is_admin() then raise exception 'Only the CEO can do this'; end if;
   perform public.allow_record_change();
   update public.job_positions set is_open = coalesce(p_open, false) where id = p_id;
   if not found then raise exception 'Position not found'; end if;
@@ -341,7 +341,7 @@ declare
   emp_id uuid;
   fname text; lname text;
 begin
-  if not public.is_admin() then raise exception 'Only an admin can review job applications'; end if;
+  if not public.is_admin() then raise exception 'Only the CEO can review job applications'; end if;
   select * into a from public.job_applications where id = p_id for update;
   if a.id is null then raise exception 'Job application not found'; end if;
   if a.status <> 'submitted' then raise exception 'This application is already %', upper(a.status); end if;
@@ -652,7 +652,7 @@ create or replace function public.review_order_letter(p_id uuid, p_action text, 
 language plpgsql security definer set search_path = '' as $$
 declare o public.order_letters; me text;
 begin
-  if not public.is_admin() then raise exception 'Only an admin can approve order letters'; end if;
+  if not public.is_admin() then raise exception 'Only the CEO can approve order letters'; end if;
   select * into o from public.order_letters where id = p_id for update;
   if o.id is null then raise exception 'Order letter not found'; end if;
   if o.status <> 'pending' then raise exception 'This order letter is already %', upper(o.status); end if;
@@ -731,7 +731,7 @@ declare
   c public.customers;
   new_status text;
 begin
-  if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  if not public.is_admin() then raise exception 'Only the CEO can do this'; end if;
   if p_action in ('suspend','close','reactivate') then
     raise exception 'Use an approved order letter to suspend, close or reactivate an account';
   end if;
@@ -943,7 +943,7 @@ returns public.credit_memos
 language plpgsql security definer set search_path = '' as $$
 declare m public.credit_memos; me text;
 begin
-  if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  if not public.is_admin() then raise exception 'Only the CEO can do this'; end if;
   select * into m from public.credit_memos where id = p_id for update;
   if m.id is null then raise exception 'Credit memo not found'; end if;
   if m.void_no is not null then raise exception 'This credit memo was cancelled (%)', m.void_no; end if;
@@ -968,7 +968,7 @@ returns public.projects
 language plpgsql security definer set search_path = '' as $$
 declare pr public.projects; me text;
 begin
-  if not public.is_admin() then raise exception 'Only an admin can do this'; end if;
+  if not public.is_admin() then raise exception 'Only the CEO can do this'; end if;
   select * into pr from public.projects where id = p_id for update;
   if pr.id is null then raise exception 'Project not found'; end if;
   me := (select full_name from public.profiles where id = auth.uid());
@@ -1152,10 +1152,9 @@ alter table public.change_requests enable row level security;
 alter table public.record_changes enable row level security;
 drop policy if exists "cr: read" on public.change_requests;
 drop policy if exists "rc: read" on public.record_changes;
-create policy "cr: read" on public.change_requests for select to authenticated
-  using (requested_by = (select auth.uid()) or (select public.is_admin()) or public.can_see_table(target_table));
-create policy "rc: read" on public.record_changes for select to authenticated
-  using ((select public.is_admin()) or public.can_see_table(target_table));
+-- Only the CEO (admin role) sees correction and cancel records; staff only send requests.
+create policy "cr: read" on public.change_requests for select to authenticated using ((select public.is_admin()));
+create policy "rc: read" on public.record_changes for select to authenticated using ((select public.is_admin()));
 
 -- Internal: put approved corrected details on the record and return the values they replace.
 create or replace function public.apply_record_changes(p_table text, p_id uuid, p_changes jsonb) returns jsonb
@@ -1214,6 +1213,20 @@ begin
 end;
 $$;
 
+-- Internal: the portal page of a record (staff are told about their requests there, not on Corrections).
+create or replace function public.record_link(p_table text, p_id uuid) returns text
+language sql stable set search_path = '' as $$
+  select coalesce(case p_table
+    when 'customers' then 'customer/' || p_id when 'customer_invoices' then 'invoice/' || p_id when 'payments_received' then 'payment/' || p_id
+    when 'credit_memos' then 'creditmemo/' || p_id when 'employees' then 'employee/' || p_id when 'payslips' then 'payslip/' || p_id
+    when 'projects' then 'project/' || p_id when 'pay_companies' then 'paycompany/' || p_id when 'pay_vouchers' then 'voucher/' || p_id
+    when 'job_applications' then 'jobapp/' || p_id when 'order_letters' then 'order/' || p_id
+    when 'project_payments' then (select 'project/' || x.project_id from public.project_payments x where x.id = p_id)
+    when 'pay_accounts' then (select 'paycompany/' || x.company_id from public.pay_accounts x where x.id = p_id)
+    end, 'dashboard');
+$$;
+revoke execute on function public.record_link(text, uuid) from public, anon, authenticated;
+
 -- Internal: approve (add the correction or cancel record) or reject a request.
 create or replace function public.decide_change_request(p_id uuid, p_action text, p_note text) returns public.change_requests
 language plpgsql security definer set search_path = '' as $$
@@ -1238,11 +1251,11 @@ begin
     update public.change_requests set status = 'approved', previous = coalesce(prev, previous), review_note = p_note, reviewed_by_name = me, reviewed_at = now()
     where id = p_id returning * into cr;
     if cr.requested_by is distinct from auth.uid() then
-      perform public.notify_user(cr.requested_by, word || cr.request_no || ' approved', coalesce(cr.target_label, cr.target_table), 'changes');
+      perform public.notify_user(cr.requested_by, word || cr.request_no || ' approved', coalesce(cr.target_label, cr.target_table), public.record_link(cr.target_table, cr.target_id));
     end if;
   elsif p_action = 'reject' then
     update public.change_requests set status = 'rejected', review_note = p_note, reviewed_by_name = me, reviewed_at = now() where id = p_id returning * into cr;
-    perform public.notify_user(cr.requested_by, word || cr.request_no || ' rejected', coalesce(p_note, ''), 'changes');
+    perform public.notify_user(cr.requested_by, word || cr.request_no || ' rejected', coalesce(p_note, ''), public.record_link(cr.target_table, cr.target_id));
   else
     raise exception 'Unknown action %', p_action;
   end if;
@@ -1306,7 +1319,7 @@ $$;
 create or replace function public.review_change_request(p_id uuid, p_action text, p_note text default null) returns public.change_requests
 language plpgsql security definer set search_path = '' as $$
 begin
-  if not public.is_admin() then raise exception 'Only an admin can approve corrections and cancels'; end if;
+  if not public.is_admin() then raise exception 'Only the CEO can approve corrections and cancels'; end if;
   return public.decide_change_request(p_id, p_action, p_note);
 end;
 $$;
@@ -1420,11 +1433,13 @@ end $$;
 -- =====================================================================
 -- Public verification: anyone can check a record number, QR or barcode
 -- =====================================================================
--- A cancelled record still verifies as a real record, clearly marked CANCELLED with its cancel record.
+-- A cancelled record still verifies as a real record, clearly marked CANCELLED.
+-- Only the CEO also sees its cancel record (number and reason).
 create or replace function public.void_fields(p_void_no text, p_at timestamptz, p_reason text) returns jsonb
 language sql stable set search_path = '' as $$
   select case when p_void_no is null then '[]'::jsonb
-    else jsonb_build_array(jsonb_build_array('Cancelled', to_char(p_at, 'DD Mon YYYY') || ' by ' || p_void_no), jsonb_build_array('Cancel Reason', coalesce(p_reason, '—'))) end;
+    when public.is_admin() then jsonb_build_array(jsonb_build_array('Cancelled', to_char(p_at, 'DD Mon YYYY') || ' by ' || p_void_no), jsonb_build_array('Cancel Reason', coalesce(p_reason, '—')))
+    else jsonb_build_array(jsonb_build_array('Cancelled', to_char(p_at, 'DD Mon YYYY'))) end;
 $$;
 revoke execute on function public.void_fields(text, timestamptz, text) from public, anon, authenticated;
 
@@ -1641,7 +1656,7 @@ begin
   perform cron.unschedule(jobid) from cron.job where jobname = 'emon-community-cleanup';
   perform cron.schedule('emon-community-cleanup', '15 0 * * *', $q$delete from public.community_posts where created_at < now() - interval '30 days'$q$);
 exception when others then
-  raise notice 'pg_cron not available (%); old community posts are hidden after 30 days and removed when an admin opens Community.', sqlerrm;
+  raise notice 'pg_cron not available (%); old community posts are hidden after 30 days and removed when the CEO opens Community.', sqlerrm;
 end $$;
 
 -- =====================================================================

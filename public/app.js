@@ -31,6 +31,8 @@
   const isAdmin = () => S.profile?.role === "admin";
   const isStaff = () => ["admin", "staff"].includes(S.profile?.role);
   const pill = (s) => `<span class="pill ${esc(s)}">${esc(String(s || "").replace(/_/g, " ").toUpperCase())}</span>`;
+  // The top role is called CEO in the portal (stored as "admin").
+  const roleName = (r) => ({ admin: "CEO", staff: "Staff", viewer: "Viewer" })[r] || r || "";
   // Seen in the last 3 minutes = active now.
   const online = (ts) => !!ts && Date.now() - new Date(ts).getTime() < 3 * 60 * 1000;
   function timeAgo(iso) {
@@ -509,13 +511,13 @@
   function renderDisabled() {
     authFrame("Account Disabled", `<div class="wbody login-form">${brandBlock()}
       <div class="banner closed">This account (${esc(S.session.user.email)}) is disabled.</div>
-      <p>Contact the administrator of ${esc(C.company.name)} if you think this is a mistake.</p>
+      <p>Contact the CEO of ${esc(C.company.name)} if you think this is a mistake.</p>
       <button class="btn big" id="dsOut">Sign Out</button></div>`);
     $("#dsOut").onclick = () => sb.auth.signOut();
   }
   function renderPending() {
     authFrame("Waiting for Approval", `<div class="wbody login-form">${brandBlock()}
-      <p>Signed in as <b>${esc(S.session.user.email)}</b>. Your account is waiting for the administrator.</p>
+      <p>Signed in as <b>${esc(S.session.user.email)}</b>. Your account is waiting for the CEO.</p>
       <div class="login-links"><button class="btn" id="pRefresh">Check Again</button><button class="btn" id="pOut">Sign Out</button></div></div>`);
     $("#pRefresh").onclick = async () => { S.profile = null; route(); };
     $("#pOut").onclick = () => sb.auth.signOut();
@@ -568,7 +570,7 @@
   const canWrite = (m) => isAdmin() || (isStaff() && hasModule(m));
   const OTHER = [
     ["verify", "Verification", () => true],
-    ["changes", "Corrections", () => true],
+    ["changes", "Corrections", () => isAdmin()],
     ["logins", "User", () => isAdmin()],
     ["forms", "Download Forms", () => true]
   ];
@@ -661,7 +663,7 @@
         </div>
         <div class="pop" id="mailPop" hidden><div class="pop-head">Notifications</div><div id="mailList">${busy()}</div></div>
         <div class="pop" id="userPop" hidden>
-          <div class="pop-head">${esc(S.profile.full_name || "")}<small>${S.profile.username ? "@" + esc(S.profile.username) + " · " : ""}${esc(S.session.user.email)} · ${esc(S.profile.role.toUpperCase())}</small></div>
+          <div class="pop-head">${esc(S.profile.full_name || "")}<small>${S.profile.username ? "@" + esc(S.profile.username) + " · " : ""}${esc(S.session.user.email)} · ${esc(roleName(S.profile.role).toUpperCase())}</small></div>
           <a href="#profile">${ic("user")} My Profile</a>
           <button type="button" id="chPw">${ic("key")} Change Password</button>
           ${installed() ? "" : `<button type="button" id="upInstall">${ic("install")} Install as App</button>`}
@@ -907,7 +909,7 @@
   // ---------- Download forms ----------
   async function viewForms() {
     shell("forms", "Download Forms", `
-      ${isAdmin() ? `<form class="options" id="fmForm"><fieldset class="opt" style="flex:1 1 100%"><legend>Upload New Form (Admin)</legend>
+      ${isAdmin() ? `<form class="options" id="fmForm"><fieldset class="opt" style="flex:1 1 100%"><legend>Upload New Form (CEO)</legend>
         <div class="formgrid"><div class="fields wide">
           <label for="fmTitle">Title</label><input type="text" id="fmTitle" required placeholder="e.g. Leave Application Form">
           <label for="fmCat">Category</label><input type="text" id="fmCat" list="fmCats" value="General">
@@ -973,10 +975,10 @@
       if (error) return fail(error, "Could not load users");
       const rows = data || [];
       const me = S.profile.id;
-      const sel = (id, field, val, opts) => `<select data-u="${id}" data-f="${field}" ${id === me ? "disabled" : ""} style="width:auto">${opts.map((o) => `<option ${o === val ? "selected" : ""}>${o}</option>`).join("")}</select>`;
+      const sel = (id, field, val, opts, label = (o) => o) => `<select data-u="${id}" data-f="${field}" ${id === me ? "disabled" : ""} style="width:auto">${opts.map((o) => `<option value="${o}" ${o === val ? "selected" : ""}>${esc(label(o))}</option>`).join("")}</select>`;
       const cols = [
         { label: "Name", get: (r) => r.full_name || "" }, { label: "Username", get: (r) => r.username ? "@" + r.username : "" }, { label: "Email", get: (r) => r.email || "" },
-        { label: "Role", html: (r) => sel(r.id, "role", r.role, ["admin", "staff", "viewer"]) },
+        { label: "Role", html: (r) => sel(r.id, "role", r.role, ["admin", "staff", "viewer"], roleName) },
         { label: "Status", html: (r) => sel(r.id, "status", r.status, ["pending", "active", "disabled"]) + " " + pill(r.status) },
         { label: "Last Seen", html: (r) => r.status === "active" && online(r.last_seen_at) ? `<span class="dot-on"></span> Active now` : esc(r.last_seen_at ? timeAgo(r.last_seen_at) : "—") },
         { label: "Joined", get: (r) => dmy(r.created_at) },
@@ -1026,7 +1028,7 @@
       return V.applicant ? V.applicant(key, arg) : renderPending();
     }
     startTimers();
-    if (!canOpen(key)) { toast("You do not have access to that section. Ask the administrator.", true); location.hash = "dashboard"; return; }
+    if (!canOpen(key)) { toast("You do not have access to that section. Ask the CEO.", true); location.hash = "dashboard"; return; }
     const view = V[key] || BUILTIN[key];
     if (view) return view(arg, extra);
     return V.dashboard ? V.dashboard() : shell("dashboard", "Dashboard", "");
@@ -1054,7 +1056,7 @@
     isAdmin, isStaff, pill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages,
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned,
-    publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
+    roleName, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
     changePassword: () => renderSetPassword(false)
   });
 })();

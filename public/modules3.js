@@ -42,7 +42,7 @@
 
   // ======================================================================
   // Records are only added: Add Correction / Cancel Record on every record
-  // (staff: Request Correction / Request Cancel, approved by the administrator)
+  // (staff: Request Correction / Request Cancel, approved by the CEO)
   // ======================================================================
   const F = (k, label, type = "text", opts) => ({ k, label, type, opts });
   const METHODS = [["cash", "Cash"], ["bank_transfer", "Bank Transfer"], ["online_transfer", "Online Transfer"], ["deposit", "Bank Deposit"]];
@@ -104,7 +104,7 @@
     if (!fields) return toast("This record cannot be corrected.", true);
     const admin = isAdmin();
     const m = E.modal(`${admin ? "Add Correction" : "Request Correction"} — ${label}`, `
-      <div class="hint">The saved record is not edited. ${admin ? "A correction record is added" : "When the administrator approves, a correction record is added"} with the new details, and the original details stay in the record's history.</div>
+      <div class="hint">The saved record is not edited. ${admin ? "A correction record is added" : "When the CEO approves, a correction record is added"} with the new details, and the original details stay in the record's history.</div>
       <div class="fields wide edit-grid">${fields.map((f) => fieldInput(f, row[f.k])).join("")}</div>
       ${CANCELLABLE.includes(table) ? `<small class="muted">Amounts and dates cannot be corrected. If they are wrong, cancel this record and record it again.</small>` : ""}
       <label class="fl" for="edReason">Reason for the correction *</label><textarea id="edReason" rows="2" placeholder="e.g. Wrong phone number was typed"></textarea>`,
@@ -121,7 +121,7 @@
       btn.disabled = false;
       if (error) return fail(error, admin ? "Could not add the correction" : "Could not send the correction");
       m.close();
-      toast(admin ? `Correction ${data.request_no} added.` : `Correction ${data.request_no} sent to the administrator for approval.`);
+      toast(admin ? `Correction ${data.request_no} added.` : `Correction ${data.request_no} sent to the CEO for approval.`);
       if (reload) reload();
     };
   }
@@ -131,7 +131,7 @@
     const m = E.modal(`${admin ? "Cancel Record" : "Request Cancel"} — ${label}`, `
       <div class="banner warn">${esc(label)} is not deleted. It stays in the system marked <b>CANCELLED</b> with a cancel record, and is left out of all totals and balances.${table === "customer_invoices" ? " If the invoice has payments, cancel those payments first." : ""} Then record the correct one as a new record.</div>
       <label class="fl" for="cxReason">Reason for cancelling *</label><textarea id="cxReason" rows="2" placeholder="e.g. Wrong amount was typed — recorded again"></textarea>
-      ${admin ? "" : `<small class="muted">The administrator approves the cancel.</small>`}`,
+      ${admin ? "" : `<small class="muted">The CEO approves the cancel.</small>`}`,
       `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn danger" data-ok>${admin ? "Cancel This Record" : "Send for Approval"}</button>`);
     $("[data-x]", m.el).onclick = m.close;
     $("[data-ok]", m.el).onclick = async () => {
@@ -142,7 +142,7 @@
       btn.disabled = false;
       if (error) return fail(error, admin ? "Could not cancel the record" : "Could not send the cancel request");
       m.close();
-      toast(admin ? `${label} is now CANCELLED (${data.request_no}).` : `Cancel request ${data.request_no} sent to the administrator.`);
+      toast(admin ? `${label} is now CANCELLED (${data.request_no}).` : `Cancel request ${data.request_no} sent to the CEO.`);
       if (reload) reload();
     };
   }
@@ -167,11 +167,14 @@
     });
     $$("[data-rh]", root).forEach((el) => { const [t, id] = el.dataset.rh.split(":"); recordHistory(el, t, id); });
   }
-  // Cancelled records stay, clearly marked, on screen and on paper.
-  const voidBanner = (r) => r?.void_no ? `<div class="banner closed">${ic("x")} CANCELLED on ${dmy(r.voided_at)} by cancel record <b class="mono">${esc(r.void_no)}</b>${r.voided_by_name ? ` (${esc(r.voided_by_name)})` : ""} — ${esc(r.void_reason || "")}. Kept for reference only; it is left out of all totals and balances.</div>` : "";
-  const voidPrint = (r) => r?.void_no ? `<div class="void-print">CANCELLED · ${esc(r.void_no)} · ${dmy(r.voided_at)} · ${esc(r.void_reason || "")}</div>` : "";
-  // Corrections and cancel records added to one record (with requests still waiting), newest first.
-  const rhBox = (table, id) => `<div class="rhist" data-rh="${esc(table)}:${esc(id)}" hidden></div>`;
+  // Cancelled records stay, clearly marked, on screen and on paper. Only the CEO sees the cancel record
+  // itself (its number, reason and who cancelled); everyone else just sees CANCELLED.
+  const voidBanner = (r) => !r?.void_no ? "" : isAdmin()
+    ? `<div class="banner closed">${ic("x")} CANCELLED on ${dmy(r.voided_at)} by cancel record <b class="mono">${esc(r.void_no)}</b>${r.voided_by_name ? ` (${esc(r.voided_by_name)})` : ""} — ${esc(r.void_reason || "")}. Kept for reference only; it is left out of all totals and balances.</div>`
+    : `<div class="banner closed">${ic("x")} CANCELLED on ${dmy(r.voided_at)}. Kept for reference only; it is left out of all totals and balances.</div>`;
+  const voidPrint = (r) => !r?.void_no ? "" : `<div class="void-print">CANCELLED · ${dmy(r.voided_at)}${isAdmin() ? ` · ${esc(r.void_no)} · ${esc(r.void_reason || "")}` : ""}</div>`;
+  // Corrections and cancel records added to one record (with requests still waiting), newest first. CEO only.
+  const rhBox = (table, id) => isAdmin() ? `<div class="rhist" data-rh="${esc(table)}:${esc(id)}" hidden></div>` : "";
   async function recordHistory(el, table, id) {
     const [done, reqs] = await Promise.all([
       sb.from("record_changes").select("*").eq("target_table", table).eq("target_id", id).order("created_at", { ascending: false }),
@@ -191,15 +194,15 @@
   }
 
   // ======================================================================
-  // Corrections (requests and the log)
+  // Corrections (requests and the log) — the CEO only
   // ======================================================================
   V.changes = async () => {
-    const admin = isAdmin();
+    if (!isAdmin()) { location.hash = "dashboard"; return; }
+    const admin = true;
     E.shell("changes", "Corrections", `
-      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button>${admin ? `<button type="button" data-f="log">Correction Log</button>` : ""}</div>
+      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button><button type="button" data-f="log">Correction Log</button></div>
       <div id="crRes">${busy()}</div>`,
-      admin ? "Saved records are never edited or deleted. Staff send <b>corrections</b> (wrong details) and <b>cancels</b> (wrong money records) here; <b>Approve</b> adds the correction or cancel record. Your own are added straight away."
-        : "Saved records are never edited or deleted. To fix one, open it and press <b>Request Correction</b> or <b>Request Cancel</b>; the administrator approves it here.");
+      "Saved records are never edited or deleted. Staff send <b>corrections</b> (wrong details) and <b>cancels</b> (wrong money records) here; <b>Approve</b> adds the correction or cancel record. Your own are added straight away. Only you can see corrections and cancel records.");
     const run = async (f) => {
       $("#crRes").innerHTML = busy();
       if (f === "log") {
@@ -224,7 +227,7 @@
             : `<table class="grid cr-diff"><thead><tr><th>Field</th><th>Original</th><th>Corrected</th></tr></thead><tbody>
             ${Object.keys(r.changes || {}).map((k) => `<tr><td>${esc(fieldLabel(r.target_table, k))}</td><td class="old">${esc(showVal(r.previous?.[k]))}</td><td class="new">${esc(showVal(r.changes[k]))}</td></tr>`).join("")}</tbody></table>`}
           ${r.status !== "pending" ? `<div class="cr-done">${r.status === "approved" ? "Approved" : "Rejected"} by ${esc(r.reviewed_by_name || "")} · ${esc(E.dateTime(r.reviewed_at))}${r.review_note ? " — " + esc(r.review_note) : ""}</div>`
-            : admin ? `<div class="cr-act"><input type="text" placeholder="Note (optional)" data-note="${r.id}"><button type="button" class="btn ok" data-cr="${r.id}" data-k="${esc(r.kind)}" data-a="approve">${ic("check")} Approve</button><button type="button" class="btn danger" data-cr="${r.id}" data-a="reject">Reject</button></div>` : `<div class="cr-done">Waiting for the administrator.</div>`}
+            : admin ? `<div class="cr-act"><input type="text" placeholder="Note (optional)" data-note="${r.id}"><button type="button" class="btn ok" data-cr="${r.id}" data-k="${esc(r.kind)}" data-a="approve">${ic("check")} Approve</button><button type="button" class="btn danger" data-cr="${r.id}" data-a="reject">Reject</button></div>` : `<div class="cr-done">Waiting for the CEO.</div>`}
         </article>`).join("") : `<div class="empty">${f === "pending" ? "Nothing waiting for approval." : "Nothing here."}</div>`;
       $$("[data-cr]").forEach((b) => (b.onclick = async () => {
         const note = $(`[data-note="${b.dataset.cr}"]`).value.trim() || null;
@@ -264,7 +267,7 @@
   function applicantPositions(positions, rejected) {
     $("#main").innerHTML = `
       <section class="welcome-card"><h2>Welcome, ${esc(S.profile.full_name || "")}!</h2>
-        <p>Your account is ready. To work with ${esc(C.company.name)}, choose a position below and fill in the job application. After you submit, download the application form, sign it, and bring it to the office. The administrator approves it and gives you access to the portal.</p>
+        <p>Your account is ready. To work with ${esc(C.company.name)}, choose a position below and fill in the job application. After you submit, download the application form, sign it, and bring it to the office. The CEO approves it and gives you access to the portal.</p>
         ${rejected ? `<div class="banner closed">Your last application ${esc(rejected.application_no)} was not approved${rejected.review_note ? ": " + esc(rejected.review_note) : "."} You may apply again.</div>` : ""}</section>
       <h3>Open Positions</h3>
       <div class="pos-grid">${positions.map((p) => `<article class="pos-card"><h4>${esc(p.title)}</h4><div class="pos-co">${esc(p.company_name)}</div>
@@ -362,7 +365,7 @@
       if (!(await addApplicationPhoto(app, photo))) toast("The photo could not be uploaded. Add it from My Job Application.", true);
       const failed = await E.uploadRecords("job_application", app.id, "requirement", E.filesOf("jaReq"));
       if (failed) toast(`${failed} requirement file(s) failed to upload.`, true);
-      toast(`Application ${app.application_no} submitted. The administrator has been notified.`);
+      toast(`Application ${app.application_no} submitted. The CEO has been notified.`);
       applicantStatus(app);
     };
   }
@@ -385,7 +388,7 @@
         <div class="as-ic">${a.status === "approved" ? ic("check") : ic("doc")}</div>
         <div><h2>${a.status === "approved" ? "Approved — welcome to the team!" : "Application submitted — under review"}</h2>
           <p>${a.status === "approved" ? `Approval No <b>${esc(a.approval_no || "")}</b>. Sign out and sign in again to open the portal.`
-            : "Next: download the application form, sign it, and bring it to the office. The administrator signs it too, uploads the signed copy and approves your application. This page opens the full portal by itself once you are approved."}</p></div></section>
+            : "Next: download the application form, sign it, and bring it to the office. The CEO signs it too, uploads the signed copy and approves your application. This page opens the full portal by itself once you are approved."}</p></div></section>
       <div class="ch-ids big-ids">${E.idBox("Application No", a.application_no)}${E.idBox("Position", a.position_title)}${E.idBox("Company", a.company_name)}${E.idBox("Submitted", dmy(a.created_at))}${E.idBox("Status", a.status.toUpperCase())}</div>
       <div class="docgrid">${E.docCard({ key: "myja", title: `Job Application Form ${a.application_no}`, sub: "Download, print and sign", ownerType: "job_application", ownerId: a.id, att, print: () => E.printJobApp(a), canUpload: false, printLabel: "Download / Print Form" })}</div>
       <h3>My Requirements</h3>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No requirements uploaded yet.")}
@@ -504,7 +507,7 @@
       <div class="tabs" id="olF"><button type="button" class="on" data-f="pending">Waiting Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="applied">Applied</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="cancelled">Cancelled</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${canApply() ? `<a class="btn primary" href="#neworder">${ic("plus")} New Order Letter</a><button type="button" class="btn" id="olApply">${ic("qr")} Apply Order Letter (Scan QR)</button>` : ""}</div>
       <div id="olRes">${busy()}</div>`,
-      "Order letters suspend, close or reactivate an account, or record a payment arrangement. The admin approves the letter; its QR code carries a verification code. Scanning the QR (or typing the code) carries out the order.");
+      "Order letters suspend, close or reactivate an account, or record a payment arrangement. The CEO approves the letter; its QR code carries a verification code. Scanning the QR (or typing the code) carries out the order.");
     const run = async (f) => {
       $("#olRes").innerHTML = busy();
       let q = sb.from("order_letters").select("*, customers(first_name,last_name,account_no,status)").order("created_at", { ascending: false }).limit(1000);
@@ -552,7 +555,7 @@
           <label for="noDetails">Details *</label><textarea id="noDetails" rows="5"></textarea>
           <label for="noRes">Resolution / Terms</label><textarea id="noRes" rows="3" placeholder="Optional: conditions, what the customer must do"></textarea></div></fieldset>
       </div><div class="wfoot"><a class="btn" href="#orders">Cancel</a><button type="submit" class="btn primary">Submit for Approval</button></div></form>`,
-      "After you submit, the administrator approves the letter. The approved letter gets a QR code; scanning it (or typing its verification code) carries out the order.");
+      "After you submit, the CEO approves the letter. The approved letter gets a QR code; scanning it (or typing its verification code) carries out the order.");
     let cust = null, dirty = false;
     const type = () => $("input[name=noType]:checked").value;
     const refresh = () => {
@@ -626,8 +629,8 @@
     const c = o.customers || {};
     $(".band h1").textContent = `Order Letter — ${o.order_no}`;
     const banner = {
-      pending: `<div class="banner warn">Waiting for the administrator to approve this order letter.</div>`,
-      approved: `<div class="banner ok">✔ APPROVED by ${esc(o.approved_by_name || "")} on ${dmy(o.approved_at)}. ${isAdmin() ? "Print the letter: its QR code carries the verification code." : "The administrator prints the letter with its QR code."} Scan the QR (or type the code) to carry out the order.</div>`,
+      pending: `<div class="banner warn">Waiting for the CEO to approve this order letter.</div>`,
+      approved: `<div class="banner ok">✔ APPROVED by ${esc(o.approved_by_name || "")} on ${dmy(o.approved_at)}. ${isAdmin() ? "Print the letter: its QR code carries the verification code." : "The CEO prints the letter with its QR code."} Scan the QR (or type the code) to carry out the order.</div>`,
       applied: `<div class="banner ok">✔ APPLIED on ${dmy(o.applied_at)} by ${esc(o.applied_by_name || "")} — ${esc(o.applied_result || "")}</div>`,
       rejected: `<div class="banner closed">REJECTED by ${esc(o.approved_by_name || "")}${o.review_note ? " — " + esc(o.review_note) : ""}</div>`,
       cancelled: voidBanner(o)
@@ -641,8 +644,8 @@
           <div class="fields wide">${o.amount != null ? `<span>Amount</span><b>₱ ${peso(o.amount)}</b>` : ""}${o.installments ? `<span>Installments</span><span>${o.installments} × ₱ ${peso(o.installment_amount)}</span>` : ""}${o.first_due_date ? `<span>Due Date</span><span>${dmy(o.first_due_date)}</span>` : ""}
           ${isAdmin() && code ? `<span>Verification Code</span><b class="mono code-chip">${esc(code)}</b>` : ""}</div></div>
         <div class="letter-box"><div class="lb-h">Details</div><p>${esc(o.details || "").replace(/\n/g, "<br>")}</p>${o.resolution ? `<div class="lb-h">Resolution / Terms</div><p>${esc(o.resolution).replace(/\n/g, "<br>")}</p>` : ""}</div>
-        <div class="docgrid">${E.docCard({ key: "ol", title: `Order Letter ${o.order_no}`, sub: o.status === "approved" && !isAdmin() ? "Printed by the administrator with the QR code" : "Print it, have it signed, then upload the signed copy", ownerType: "order_letter", ownerId: o.id, att, print: () => E.openPreview(`Order Letter ${o.order_no}`, [letterPage(o, code)]) })}</div>
-        ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>Admin Approval</legend><div class="fields wide"><label for="olNote">Note</label><input type="text" id="olNote" placeholder="Optional"></div>
+        <div class="docgrid">${E.docCard({ key: "ol", title: `Order Letter ${o.order_no}`, sub: o.status === "approved" && !isAdmin() ? "Printed by the CEO with the QR code" : "Print it, have it signed, then upload the signed copy", ownerType: "order_letter", ownerId: o.id, att, print: () => E.openPreview(`Order Letter ${o.order_no}`, [letterPage(o, code)]) })}</div>
+        ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>CEO Approval</legend><div class="fields wide"><label for="olNote">Note</label><input type="text" id="olNote" placeholder="Optional"></div>
           <div class="btnrow"><button type="button" class="btn ok" id="olApprove">${ic("check")} Approve — Create QR Code</button><button type="button" class="btn danger" id="olReject">Reject</button></div></fieldset>` : ""}
         ${o.status === "approved" && canApply() ? `<fieldset class="opt review"><legend>Carry Out This Order</legend><p>Scan the QR code on the printed letter, or type its verification code.</p>
           <div class="btnrow"><button type="button" class="btn primary" id="olApplyBtn">${ic("qr")} Scan / Enter Code</button></div></fieldset>` : ""}

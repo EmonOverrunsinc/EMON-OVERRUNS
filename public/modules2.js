@@ -14,7 +14,7 @@
   const voidPrint = (r) => (E.voidPrint ? E.voidPrint(r) : "");
   const rhBox = (t, id) => (E.rhBox ? E.rhBox(t, id) : "");
   const live = (rows) => rows.filter((r) => !r.void_no);
-  // Menu access an employee can be given (Community, Verification, Corrections and Download Forms are open to everyone).
+  // Menu access an employee can be given (Community, Verification and Download Forms are open to everyone).
   const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["employees", "5 Employee (HR)"], ["projects", "7 Project"], ["billing", "8 Billing"], ["orders", "9 Order Letter"]];
   const accessText = (role, mods) => role === "admin" ? "Everything" : (mods || []).map((m) => (MODULES.find((x) => x[0] === m) || [m, m])[1]).join(", ") || "Dashboard and Community";
   async function uploadPhoto(folder, id, file) {
@@ -38,7 +38,7 @@
       <div class="tabs" id="emF"><button type="button" class="on" data-f="current">Current</button><button type="button" data-f="terminated">Terminated</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${isAdmin() ? `<a class="btn primary" href="#newemployee">+ New Employee</a>` : ""}<a class="btn" href="#jobapps">Job Applications</a></div>
       <div id="emRes">${busy()}</div>`,
-      "Employees come from approved job applications, or the admin adds them here. Open an employee to record salary or advance payments, change access, or terminate.");
+      "Employees come from approved job applications, or the CEO adds them here. Open an employee to record salary or advance payments, change access, or terminate.");
     const [{ data, error }, att] = await Promise.all([
       sb.from("employees").select("*").order("created_at", { ascending: false }),
       sb.from("attachments").select("owner_id, kind").eq("owner_type", "employee").in("kind", ["signature", "signed_form", "application"])
@@ -50,7 +50,7 @@
       const rows = f === "current" ? all.filter((r) => r.status !== "terminated") : f ? all.filter((r) => r.status === f) : all;
       $("#emRes").innerHTML = E.grid({ cols: [
         { label: "Employee No", get: (r) => r.employee_no }, { label: "Name", html: (r) => `${esc(fullName(r))} ${verifiedBadge(r.verified)}` }, { label: "Position", get: (r) => r.position || "" },
-        { label: "Email", get: (r) => r.email }, { label: "Role", get: (r) => r.role.toUpperCase() }, { label: "Access", get: (r) => accessText(r.role, r.modules) },
+        { label: "Email", get: (r) => r.email }, { label: "Role", get: (r) => E.roleName(r.role).toUpperCase() }, { label: "Access", get: (r) => accessText(r.role, r.modules) },
         { label: "Salary (₱)", num: true, get: (r) => peso(r.monthly_salary) },
         { label: "Status", html: (r) => r.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(r.status) }],
         rows, onRow: true, empty: f === "terminated" ? "No terminated employees." : "No employees yet." });
@@ -65,9 +65,9 @@
     <label for="emRole">Role</label><select id="emRole">
       <option value="staff" ${role === "staff" ? "selected" : ""}>Staff — can add and record</option>
       <option value="viewer" ${role === "viewer" ? "selected" : ""}>Viewer — can only look</option>
-      <option value="admin" ${role === "admin" ? "selected" : ""}>Admin — everything, approves</option></select>
+      <option value="admin" ${role === "admin" ? "selected" : ""}>CEO — everything, approves</option></select>
     <span>Menu Access</span><div><div class="checks access">${MODULES.map(([k, l]) => `<label><input type="checkbox" name="emMod" value="${k}" ${mods.includes(k) ? "checked" : ""}> ${l}</label>`).join("")}</div>
-      <small class="muted">Dashboard, Community, Messages, Verification and Corrections are open to everyone.</small></div>`;
+      <small class="muted">Dashboard, Community, Messages and Verification are open to everyone.</small></div>`;
   const readAccess = () => ({ role: $("#emRole").value, modules: $$("input[name=emMod]:checked").map((x) => x.value) });
 
   V.newemployee = () => {
@@ -140,7 +140,7 @@
       <section class="cust-hero st-${esc(em.status)}">${photoBox(photo, (em.first_name[0] || "") + (em.last_name[0] || ""))}
         <div class="ch-main"><div class="ch-name"><h2>${esc(fullName(em))}</h2>${verifiedBadge(verified)}${em.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(em.status)}</div>
           <div class="ch-sub">${esc(em.position || "—")} · ${esc(em.email)}${em.phone ? " · " + esc(em.phone) : ""}</div>
-          <div class="ch-ids">${E.idBox("Employee No", em.employee_no)}${E.idBox("Date Hired", dmy(em.date_hired))}${E.idBox("Monthly Salary (₱)", peso(em.monthly_salary))}${E.idBox("Role", em.role.toUpperCase())}</div></div></section>
+          <div class="ch-ids">${E.idBox("Employee No", em.employee_no)}${E.idBox("Date Hired", dmy(em.date_hired))}${E.idBox("Monthly Salary (₱)", peso(em.monthly_salary))}${E.idBox("Role", E.roleName(em.role).toUpperCase())}</div></div></section>
       <div class="tiles"><div class="tile ok"><div class="k">Total Paid (₱)</div><div class="v">₱ ${peso(paid)}</div></div>
         <div class="tile ${advances > 0 ? "warn" : ""}"><div class="k">Advance Balance (₱)</div><div class="v">₱ ${peso(Math.max(0, advances))}</div></div>
         <div class="tile"><div class="k">Payslips</div><div class="v">${valid.length}</div></div></div>
@@ -205,7 +205,7 @@
         ${E.cell("First Name", em.first_name)}${E.cell("Last Name", em.last_name)}${E.cell("Position", em.position)}${E.cell("Date Hired", dmy(em.date_hired))}
         ${E.cell("Email", em.email)}${E.cell("Phone", em.phone)}${E.cell("Monthly Salary (PHP)", peso(em.monthly_salary))}${E.cell("Status", em.status.toUpperCase())}
         ${E.cell("Address", em.address, "span2")}</div></div>`)}
-      ${E.box("Portal Access", `<div class="pgrid2">${E.cell("Role", em.role.toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
+      ${E.box("Portal Access", `<div class="pgrid2">${E.cell("Role", E.roleName(em.role).toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
       ${em.status === "terminated" ? E.box("Termination", `<div class="pgrid2">${E.cell("Date", dmy(em.termination_date))}${E.cell("Reason", em.termination_reason)}</div>`) : ""}
       ${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
       ${E.sigs("Employee Signature / Date", "Approved by / Date")}`]);
@@ -473,8 +473,8 @@
           <div class="ch-sub">${esc(a.position_title)} · ${esc(a.company_name)}</div>
           <div class="ch-ids">${E.idBox("Application No", a.application_no)}${E.idBox("Submitted", dmy(a.created_at))}${E.idBox("Phone", a.phone)}${E.idBox("Email", a.email)}</div></div></section>
       <div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${a.application_no}`, sub: "Print, sign (applicant and admin), then upload the signed copy", ownerType: "job_application", ownerId: a.id, att, print: () => printJobApp(a), canUpload: isAdmin() })}</div>
-      ${isAdmin() && a.status === "submitted" ? `<fieldset class="opt review"><legend>Admin Approval</legend><ol class="steps">
-        <li><b>Print</b> the job application form above. The applicant and the admin both sign it.</li>
+      ${isAdmin() && a.status === "submitted" ? `<fieldset class="opt review"><legend>CEO Approval</legend><ol class="steps">
+        <li><b>Print</b> the job application form above. The applicant and the CEO both sign it.</li>
         <li><b>Upload the signed form:</b> ${signed ? `<span class="ok-txt">✔ Uploaded — it now replaces the system form above.</span>` : `<span class="bad-txt">not uploaded yet</span> — press <b>Upload Signed Copy</b> on the form card.`}</li>
         <li><b>Choose access</b> for the new employee:<div class="fields wide" style="margin-top:6px">${accessFields("staff", ["customers"])}</div></li>
         <li><b>Decide:</b><div class="fields wide"><label for="jaNote">Note</label><input type="text" id="jaNote" placeholder="Optional"></div>
@@ -521,7 +521,7 @@
     E.shell("projects", "Project", `
       <div class="tabs" id="pjTabs"><button type="button" class="on" data-f="approved">Approved</button><button type="button" data-f="pending">Waiting Approval</button><button type="button" data-f="completed">Completed</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${E.canWrite("projects") ? `<a class="btn primary" href="#newproject">+ New Project Application</a>` : ""}</div><div id="pjRes">${busy()}</div>`,
-      "Submit a project with its budget. Upload the approved document; after admin approval the project moves to <b>Approved</b> and payments can be recorded against its total cost.");
+      "Submit a project with its budget. Upload the approved document; after CEO approval the project moves to <b>Approved</b> and payments can be recorded against its total cost.");
     const run = async (f) => {
       $("#pjRes").innerHTML = busy();
       let q = sb.from("project_balances").select("*").order("created_at", { ascending: false });
@@ -619,7 +619,7 @@
           <ol class="steps"><li><b>Print</b> the project application above and get it signed.</li>
           <li><b>Approved document:</b> ${approved ? `<span class="ok-txt">✔ Uploaded — it now replaces the application above.</span>` : `<span class="bad-txt">not uploaded yet</span> — press <b>Upload Approved Document</b> on the card.`}</li>
           ${isAdmin() ? `<li><b>Decide:</b><div class="fields wide"><label for="pjNote">Note</label><input type="text" id="pjNote"></div>
-            <div class="btnrow"><button type="button" class="btn ok" data-pa="approve" ${approved ? "" : 'disabled title="Upload the approved document first"'}>Approve Project</button><button type="button" class="btn danger" data-pa="reject">Reject</button></div></li>` : "<li>Waiting for the administrator to approve.</li>"}</ol></fieldset>` : ""}
+            <div class="btnrow"><button type="button" class="btn ok" data-pa="approve" ${approved ? "" : 'disabled title="Upload the approved document first"'}>Approve Project</button><button type="button" class="btn danger" data-pa="reject">Reject</button></div></li>` : "<li>Waiting for the CEO to approve.</li>"}</ol></fieldset>` : ""}
         ${pr.status === "approved" && w ? `<form class="opt" id="ppForm" novalidate style="border:1px solid var(--panel-line);background:var(--panel);padding:8px 10px"><b>Record Payment</b>
           <div class="formgrid"><div class="fields wide"><label for="ppDate">Date</label><input type="date" id="ppDate" value="${isoToday()}">
             <label for="ppAmt">Amount (₱) *</label><input type="number" id="ppAmt" min="0.01" step="0.01">
@@ -629,7 +629,7 @@
             ${E.fileField("ppRcpt", "Receipt", 'accept="image/*,application/pdf"')}</div></div>
           <div class="btnrow"><button class="btn primary" type="submit">Save Payment</button>${isAdmin() ? `<button class="btn" type="button" data-pa="complete">Mark Project Completed</button>` : ""}</div></form>` : ""}
         <div><b>Payments</b>${E.grid({ cols: [{ label: "Payment No", html: (r) => `${esc(r.payment_no)}${r.void_no ? " " + pill("cancelled") : ""}` }, { label: "Date", get: (r) => dmy(r.pay_date) }, { label: "Received By", get: (r) => r.received_by }, { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }, { label: "Recorded By", get: (r) => r.created_by_name || "" },
-          { label: "", html: (r) => r.void_no ? `<small>${esc(r.void_no)} — ${esc(r.void_reason || "")}</small>` : tools("project_payments", r, `Project payment ${r.payment_no}`, { reload: () => V.project(id) }) }], rows: payments, foot: { amount: peso(pr.total_paid) }, empty: pr.status === "approved" ? "No payments yet." : "Payments unlock after the project is approved." })}</div>
+          { label: "", html: (r) => r.void_no ? (isAdmin() ? `<small>${esc(r.void_no)} — ${esc(r.void_reason || "")}</small>` : "") : tools("project_payments", r, `Project payment ${r.payment_no}`, { reload: () => V.project(id) }) }], rows: payments, foot: { amount: peso(pr.total_paid) }, empty: pr.status === "approved" ? "No payments yet." : "Payments unlock after the project is approved." })}</div>
         <div><b>Other Files</b>${E.filesHtml(att.filter((a) => a.kind !== "approval"), "No other files.")}</div>
         ${rhBox("projects", pr.id)}
       </div><div class="wfoot">${tools("projects", pr, `Project ${pr.project_no}`, { reload: () => V.project(id) })}<button type="button" class="btn" id="pjStmt">${ic("print")} Print Payment Record</button><a class="btn" href="#projects">Close</a></div></div>`;
