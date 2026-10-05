@@ -12,7 +12,7 @@
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
   const rhBox = (t, id) => (E.rhBox ? E.rhBox(t, id) : "");
   // Menu access an employee can be given (Community, Verification and Download Forms are open to everyone).
-  const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["employees", "5 Employee (HR)"], ["projects", "7 Project"], ["billing", "8 Billing"], ["orders", "9 Order Letter"]];
+  const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["employees", "5 Employee (HR)"], ["projects", "7 Project"], ["billing", "8 Billing"], ["orders", "9 Order Letter"], ["inventory", "10 Inventory"]];
   const accessText = (role, mods) => {
     if (role === "admin") return "Everything (Director)";
     const list = (mods || []).map((m) => (MODULES.find((x) => x[0] === m) || [m, m])[1]).join(", ") || "Dashboard and Community";
@@ -703,8 +703,11 @@
     E.shell("billing", "Billing", `
       <div class="tiles" id="blTiles">${["Companies", "Total Paid (PHP)", "Total Paid (BDT)", "This Month (BDT)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>
       <div class="btnrow">${w ? `<a class="btn primary" href="#newvoucher">${ic("plus")} New Payment</a><a class="btn" href="#newpaycompany">${ic("plus")} Add Company</a>` : ""}</div>
-      <div id="blRes">${busy()}</div>`,
-      "Add a company and choose its currency: PHP, BDT, or both. <b>New Payment</b> records the amount in that currency (for both: PHP × rate = BDT) and creates a payment voucher.");
+      <div class="tabs" id="blTabs"><button type="button" class="on" data-t="0">Companies</button><button type="button" data-t="1" id="blEbTab">E-Bills</button></div>
+      <div class="tabpanes" id="blPanes"><div data-p="0"><div id="blRes">${busy()}</div></div><div data-p="1" hidden><div id="blEb">${busy()}</div></div></div>`,
+      "Add a company and choose its currency: PHP, BDT, or both. <b>New Payment</b> records the amount in that currency (for both: PHP × rate = BDT) and creates a payment voucher. <b>E-Bills</b> are the stock-bills released by an approved release order; a payment can be linked to one.");
+    $$("#blTabs button").forEach((t) => (t.onclick = () => { $$("#blTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#blPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
+    if (E.loadEbills) E.loadEbills($("#blEb")).then((list) => { const t = $("#blEbTab"); if (t && list.length) t.textContent = `E-Bills (${list.length})`; });
     const { data, error } = await sb.from("pay_company_totals").select("*").order("name");
     if (error) return fail(error, "Could not load billing (run the 1.3 database update)");
     const rows = data || [];
@@ -803,7 +806,7 @@
       <div class="actionbar">${w && !suspended ? `<a class="btn primary" href="#newvoucher/${c.id}">${ic("plus")} New Payment</a>` : ""}<button type="button" class="btn" id="pcRecord">${ic("download")} Download Payment Record</button>
         ${w ? `<a class="btn" href="#neworder/company/${c.id}">${ic("doc")} ${suspended ? "Reactivate Company" : "Request Order"}</a>` : ""}
         <span class="grow"></span>${tools("pay_companies", c, c.name, { reload: () => V.paycompany(id), afterDelete: () => (location.hash = "billing") })}</div>
-      <div class="tabs" id="pcTabs"><button type="button" class="on" data-t="0">Payment Vouchers (${vouchers.length})</button><button type="button" data-t="1">Monthly Records (${months.length})</button><button type="button" data-t="2">Accounts (${accounts.length})</button><button type="button" data-t="3">Orders (${orders.length})</button></div>
+      <div class="tabs" id="pcTabs"><button type="button" class="on" data-t="0">Payment Vouchers (${vouchers.length})</button><button type="button" data-t="1">Monthly Records (${months.length})</button><button type="button" data-t="2">Accounts (${accounts.length})</button><button type="button" data-t="3">Orders (${orders.length})</button><button type="button" data-t="4" id="pcEbTab">E-Bills</button></div>
       <div class="tabpanes" id="pcPanes">
         <div data-p="0"><div id="pcVouchers">${E.grid({ cols: voucherCols(cur), rows: vouchers, onRow: true, foot: { amount_php: peso(c.total_php), amount_bdt: `<b class="bdt">${peso(c.total_bdt)}</b>` }, empty: "No payments yet." })}</div></div>
         <div data-p="1" hidden><div id="pcMonths">${E.grid({ cols: [{ label: "Month", get: (r) => monthLabel(r.month) }, { label: "Vouchers", num: true, get: (r) => r.count },
@@ -820,7 +823,9 @@
             { label: "", html: (r) => tools("pay_accounts", r, `${r.account_name} (${c.name})`, { reload: () => V.paycompany(id) }) }], rows: accounts, empty: "No accounts yet." })}</div>
         </div>
         <div data-p="3" hidden><div id="pcOrders">${E.ordersGrid(orders, "No orders for this company.")}</div></div>
+        <div data-p="4" hidden><div id="pcEb">${busy()}</div></div>
       </div>${rhBox("pay_companies", c.id)}`;
+    if (E.loadEbills) E.loadEbills($("#pcEb"), id).then((list) => { const t = $("#pcEbTab"); if (t && list.length) t.textContent = `E-Bills (${list.length})`; });
     $$("#pcTabs button").forEach((t) => (t.onclick = () => { $$("#pcTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#pcPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
     E.bindGrid($("#pcVouchers"), vouchers, (r) => (location.hash = "voucher/" + r.id));
     E.bindGrid($("#pcMonths"), months, (r) => printRecord(c, r.list, `For the month of ${monthLabel(r.month)}`));
@@ -863,7 +868,7 @@
     }));
   }
 
-  V.newvoucher = async (companyId) => {
+  V.newvoucher = async (companyId, stockBillId) => {
     if (!E.canWrite("billing")) { location.hash = "billing"; return; }
     E.shell("newvoucher", "Billing — New Payment", busy());
     const { data: cos, error } = await sb.from("pay_companies").select("*").order("name");
@@ -874,7 +879,9 @@
         <div class="summary-box"><div class="fields wide"><span>Voucher No</span><b>Assigned on save (BD + date + number, e.g. BD${isoToday().replace(/-/g, "")}001)</b><span>Issued By</span><b>${esc(S.profile.full_name || "")}</b></div></div>
         <fieldset class="opt"><legend>Paid To</legend><div class="fields wide">
           <label for="nvCo">Company *</label><select id="nvCo"><option value="">— Choose company —</option>${cos.map((c) => c.status === "suspended" ? `<option value="${c.id}" disabled>${esc(c.name)} (SUSPENDED)</option>` : `<option value="${c.id}" ${c.id === companyId ? "selected" : ""}>${esc(c.name)} — ${esc(CUR[curOf(c)])}</option>`).join("")}</select>
-          <label for="nvAcc">Account *</label><select id="nvAcc"><option value="">— Choose the company first —</option></select></div></fieldset>
+          <label for="nvAcc">Account *</label><select id="nvAcc"><option value="">— Choose the company first —</option></select>
+          <label for="nvSb" class="nv-sb">Stock-Bill (E-Bill)</label><select id="nvSb" class="nv-sb"><option value="">— None —</option></select>
+          <span class="nv-sb"></span><small class="muted nv-sb" id="nvSbInfo">Optional: link this payment to a released stock-bill of this company. A stock-bill is paid in BDT.</small></div></fieldset>
         <fieldset class="opt"><legend>Amount</legend><div class="formgrid">
           <div class="fields wide">
             <label for="nvDate">Payment Date</label><input type="date" id="nvDate" value="${isoToday()}">
@@ -925,7 +932,31 @@
       $$(".nv-bdt").forEach((x) => (x.hidden = cur !== "BDT"));
       calc();
     };
-    $("#nvCo").onchange = () => { loadAcc(); mode(); }; loadAcc(); mode();
+    // Released stock-bills (e-bills) of the company, with what is still unpaid; only for a company paid in BDT.
+    let bills = [];
+    const sbInfo = () => {
+      if (!$("#nvSb")) return; // the page was left
+      const r = bills.find((x) => x.id === $("#nvSb").value);
+      const total = r ? num(r.total_cost) + num(r.shipping_cost) : 0;
+      $("#nvSbInfo").textContent = r ? `E-Bill total ${bdt(total)} · paid ${bdt(r.paid_bdt)} · balance ${bdt(total - num(r.paid_bdt))}`
+        : "Optional: link this payment to a released stock-bill of this company. A stock-bill is paid in BDT.";
+      if (r && !$("#nvPurpose").value.trim()) $("#nvPurpose").value = `Payment for Stock-Bill ${r.bill_no}`;
+    };
+    const loadSb = async (pick) => {
+      const co = $("#nvCo").value, on = !!co && curNow() !== "PHP";
+      $$(".nv-sb").forEach((x) => (x.hidden = !on));
+      bills = [];
+      $("#nvSb").innerHTML = `<option value="">— None —</option>`;
+      if (!on) return sbInfo();
+      const { data } = await sb.from("stock_bill_totals").select("id, bill_no, total_cost, shipping_cost, paid_bdt, release_date").eq("company_id", co).in("status", ["released", "sold", "paid"]).order("release_date", { ascending: false });
+      if ($("#nvCo")?.value !== co) return; // another company was chosen, or the page was left
+      bills = data || [];
+      $("#nvSb").innerHTML = `<option value="">— None —</option>${bills.map((r) => { const bal = num(r.total_cost) + num(r.shipping_cost) - num(r.paid_bdt);
+        return `<option value="${r.id}" ${r.id === pick ? "selected" : ""}>${esc(r.bill_no)} — ${bal > 0 ? "balance " + esc(bdt(bal)) : "fully paid"}</option>`; }).join("")}`;
+      sbInfo();
+    };
+    $("#nvSb").onchange = sbInfo;
+    $("#nvCo").onchange = () => { loadAcc(); mode(); loadSb(); }; loadAcc(); mode(); loadSb(stockBillId);
     ["nvPhp", "nvRate", "nvTaka"].forEach((i) => ($("#" + i).oninput = calc));
     $("#nvRcpt").onchange = (e) => {
       const f = e.target.files[0];
@@ -943,7 +974,8 @@
       E.setBusy(e.target, true, "Saving");
       const amounts = cur === "PHP" ? { amount_php: php } : cur === "BDT" ? { amount_bdt: taka } : { amount_php: php, exchange_rate: rate };
       const { data: v, error: err } = await sb.from("pay_vouchers").insert({ company_id: co, account_id: acc, pay_date: $("#nvDate").value || isoToday(), ...amounts,
-        purpose: $("#nvPurpose").value.trim() || null, method: $("#nvMethod").value, reference_no: $("#nvRef").value.trim() || null, notes: $("#nvNotes").value.trim() || null }).select().single();
+        purpose: $("#nvPurpose").value.trim() || null, method: $("#nvMethod").value, reference_no: $("#nvRef").value.trim() || null, notes: $("#nvNotes").value.trim() || null,
+        stock_bill_id: cur !== "PHP" && $("#nvSb").value ? $("#nvSb").value : null }).select().single();
       if (err) { E.setBusy(e.target, false); return fail(err, "Could not save the payment"); }
       if (cur === "BOTH") { try { localStorage.setItem(RATE_KEY, String(rate)); } catch (_) {} }
       const f = await E.uploadRecords("pay_voucher", v.id, "receipt", E.filesOf("nvRcpt"));
@@ -962,6 +994,7 @@
       ${E.box("Paid To", `<div class="pgrid2">${E.cell("Company", co.name, "hl")}${E.cell("Contact Person", co.contact_person)}${E.cell("Account Name", a.account_name)}${E.cell("Account Number", a.account_number)}
         ${E.cell("Bank / Branch", [a.bank_name, a.branch_name].filter(Boolean).join(" — "))}${E.cell("Address", co.address || co.country)}</div>`)}
       ${E.box("Payment", `<div class="prow3">${E.cell("Purpose", v.purpose)}${E.cell("Method", v.method)}${E.cell("Reference No", v.reference_no)}</div>
+        ${v.stock_bills ? E.cell("For Stock-Bill (E-Bill)", v.stock_bills.bill_no, "hl") : ""}
         <table class="rp v-amt"><tbody>
           ${v.amount_php != null ? `<tr class="${v.amount_bdt == null ? "v-bdt" : ""}"><td>Amount (Philippine Peso)</td><td class="num">PHP ${peso(v.amount_php)}</td></tr>` : ""}
           ${v.exchange_rate != null ? `<tr><td>Exchange Rate (BDT per 1 PHP)</td><td class="num">× ${rateText(v.exchange_rate)}</td></tr>` : ""}
@@ -974,7 +1007,7 @@
   }
   V.voucher = async (id) => {
     E.shell("voucher", "Billing — Payment Voucher", busy());
-    const { data: v } = await sb.from("pay_vouchers").select("*, pay_companies(*), pay_accounts(account_name,account_number,bank_name,branch_name)").eq("id", id).maybeSingle();
+    const { data: v } = await sb.from("pay_vouchers").select("*, pay_companies(*), pay_accounts(account_name,account_number,bank_name,branch_name), stock_bills(id,bill_no)").eq("id", id).maybeSingle();
     if (!v) { $("#main").innerHTML = `<div class="empty">Voucher not found. <a href="#billing">Back</a></div>`; return; }
     const att = await E.attachmentsOf("pay_voucher", id);
     const rcpt = att.find((a) => a.kind === "receipt" && E.isImage(a));
@@ -986,7 +1019,8 @@
         <span>Paid To</span><span><a href="#paycompany/${v.company_id}"><b>${esc(v.pay_companies?.name || "")}</b></a>${v.pay_companies?.contact_person ? " · " + esc(v.pay_companies.contact_person) : ""}</span>
         <span>Account</span><span>${esc([a.account_name, a.account_number, a.bank_name, a.branch_name].filter(Boolean).join(" · ") || "—")}</span>
         <span>Date</span><span>${mdy(v.pay_date)}</span><span>Purpose</span><span>${esc(v.purpose || "—")}</span>
-        <span>Method</span><span>${esc(v.method || "—")}${v.reference_no ? " · Ref " + esc(v.reference_no) : ""}</span><span>Issued By</span><span>${esc(v.created_by_name || "")}</span></div>
+        <span>Method</span><span>${esc(v.method || "—")}${v.reference_no ? " · Ref " + esc(v.reference_no) : ""}</span><span>Issued By</span><span>${esc(v.created_by_name || "")}</span>
+        ${v.stock_bills ? `<span>For Stock-Bill</span><span><a href="#ebill/${v.stock_bills.id}"><b>${esc(v.stock_bills.bill_no)}</b></a> (e-bill)</span>` : ""}</div>
         <div class="amt-panel">${v.amount_php != null ? `<div class="${v.amount_bdt == null ? "hl" : ""}"><small>Amount (PHP)</small><b>₱ ${peso(v.amount_php)}</b></div>` : ""}
           ${v.exchange_rate != null ? `<div><small>Exchange Rate</small><b>× ${rateText(v.exchange_rate)}</b></div>` : ""}
           ${v.amount_bdt != null ? `<div class="hl"><small>Amount (BDT)</small><b>${bdt(v.amount_bdt)}</b></div>` : ""}<small class="muted">${esc(amountWords(v))}</small></div></div>

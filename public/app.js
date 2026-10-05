@@ -1,6 +1,6 @@
 /* EMON OVERRUNS E-PORTAL — single-page app on Supabase (version 1.1).
    Core: shared helpers, barcodes, sign-in (email or username, email codes), top bar, animated slide menu, router.
-   Business screens live in modules.js, modules2.js and modules3.js and register themselves in window.EO_VIEWS. */
+   Business screens live in modules.js to modules4.js and register themselves in window.EO_VIEWS. */
 (function () {
   "use strict";
 
@@ -82,7 +82,8 @@
     plus: '<path d="M12 5v14M5 12h14"/>',
     mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 7 8.5-7"/>',
     home: '<path d="M3.5 11 12 4l8.5 7"/><path d="M6 9.5V20h12V9.5"/>',
-    install: '<path d="M12 4v10m0 0-4-4m4 4 4-4"/><rect x="4" y="16" width="16" height="4" rx="1"/>'
+    install: '<path d="M12 4v10m0 0-4-4m4 4 4-4"/><rect x="4" y="16" width="16" height="4" rx="1"/>',
+    box: '<path d="M21 7.5 12 3 3 7.5v9L12 21l9-4.5z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9M7.5 5.2l9 4.6"/>'
   };
   const ic = (name, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
@@ -567,7 +568,8 @@
     { k: "community", n: "6", label: "Community" },
     { k: "projects", n: "7", label: "Project" },
     { k: "billing", n: "8", label: "Billing" },
-    { k: "orders", n: "9", label: "Order Letter" }
+    { k: "orders", n: "9", label: "Order Letter" },
+    { k: "inventory", n: "10", label: "Inventory" }
   ];
   // Which menu item (module) each page belongs to; pages a user has no access to are blocked.
   const MODULE_OF = {
@@ -577,8 +579,9 @@
     creditmemos: "creditmemos", newcreditmemo: "creditmemos", creditmemo: "creditmemos",
     employees: "employees", newemployee: "employees", employee: "employees", jobapps: "employees", jobapp: "employees", positions: "employees", payroll: "employees",
     projects: "projects", newproject: "projects", project: "projects",
-    billing: "billing", newpaycompany: "billing", paycompany: "billing", newvoucher: "billing", voucher: "billing",
-    orders: ["orders", "customers"], neworder: ["orders", "customers", "employees", "billing"], order: ["orders", "customers", "employees", "billing"]
+    billing: "billing", newpaycompany: "billing", paycompany: "billing", newvoucher: "billing", voucher: "billing", ebill: ["billing", "inventory"],
+    orders: ["orders", "customers"], neworder: ["orders", "customers", "employees", "billing", "inventory"], order: ["orders", "customers", "employees", "billing", "inventory"],
+    inventory: "inventory", newstockbill: "inventory", stockbill: "inventory"
   };
   // Admins see everything; NULL modules = all (older accounts).
   const hasModule = (m) => !m || isAdmin() || !S.profile?.modules || S.profile.modules.includes(m);
@@ -591,7 +594,7 @@
     ["logins", "User", () => isAdmin()],
     ["forms", "Download Forms", () => true]
   ];
-  const ACTIVE_OF = { orders: "orders", neworder: "orders", order: "orders", payslip: "employees", find: "", profile: "", settings: "" };
+  const ACTIVE_OF = { orders: "orders", neworder: "orders", order: "orders", payslip: "employees", ebill: "billing", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
   const ALIAS = { users: "employees", userres: "employees", resolutions: "community", resolution: "community", verification: "verify", supplier: "billing", newsupplier: "billing", search: "dashboard" };
   const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);
@@ -701,7 +704,7 @@
           <main id="main">${hint ? `<div class="hint"><b>Hint:</b> ${hint}</div>` : ""}${body}</main>
         </div>
       </div>
-      <div class="statusbar"><span>User: ${esc(who)}</span><span id="sbRecords">Records: –</span><span>Currency: PHP (₱)</span></div>`;
+      <div class="statusbar"><span>User: ${esc(who)}</span><span id="sbRecords">Records: –</span><span>Currency: ${["inventory", "newstockbill", "stockbill", "ebill"].includes(key) ? "BDT" : "PHP (₱)"}</span></div>`;
     let saved = null; try { saved = localStorage.getItem("eoDrawer"); } catch (_) {}
     document.body.classList.add("no-anim");
     drawerOpen(isPhone() ? false : saved !== "0");
@@ -1092,7 +1095,7 @@
 
   // exposed for testing barcode round-trips
   window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words };
-  // shared with modules.js, modules2.js and modules3.js
+  // shared with modules.js to modules4.js
   Object.assign(window.EO, {
     APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,

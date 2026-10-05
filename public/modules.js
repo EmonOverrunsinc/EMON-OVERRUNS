@@ -33,9 +33,15 @@
     project: ["projects", "project_no"], project_payment: ["project_payments", "payment_no"],
     supplier: ["suppliers", "supplier_no"], supplier_payment: ["supplier_payments", "payment_no"], statement: ["statements", "statement_no"],
     job_application: ["job_applications", "application_no"], payslip: ["payslips", "payslip_no"], order_letter: ["order_letters", "order_no"],
-    pay_company: ["pay_companies", "name"], pay_account: ["pay_accounts", "account_name"], pay_voucher: ["pay_vouchers", "voucher_no"]
+    pay_company: ["pay_companies", "name"], pay_account: ["pay_accounts", "account_name"], pay_voucher: ["pay_vouchers", "voucher_no"],
+    stock_bill: ["stock_bills", "bill_no"]
   };
   async function ownerNo(ownerType, ownerId) {
+    // a sales report line's file: the stock-bill number and the receipt number, e.g. "SB-2026-0001 PN-55"
+    if (ownerType === "stock_bill_entry") {
+      const { data } = await sb.from("stock_bill_entries").select("receipt_no, stock_bills(bill_no)").eq("id", ownerId).maybeSingle();
+      return [data?.stock_bills?.bill_no, data?.receipt_no].filter(Boolean).join(" ");
+    }
     const m = OWNER_NO[ownerType];
     if (!m) return "";
     const { data } = await sb.from(m[0]).select(m[1]).eq("id", ownerId).maybeSingle();
@@ -45,7 +51,8 @@
   const slug = (t) => String(t).replace(/[^\w\-]+/g, "_");
   const KIND = {
     photo: "Profile Photo", requirement: "Requirement", signed_form: "Signed Copy", receipt: "Payment Receipt", delivery_receipt: "Delivery Receipt",
-    purchase_order: "Purchase Order", proof: "Proof", application: "Application Form", signature: "Signature Form", report: "Report", approval: "Approved Document", other: "Other"
+    purchase_order: "Purchase Order", proof: "Proof", application: "Application Form", signature: "Signature Form", report: "Report", approval: "Approved Document", other: "Other",
+    bill: "Stock-Bill Copy", shipping_bill: "Shipping Bill", sales_report: "Sales Report"
   };
   async function autoName(ownerType, ownerId, kind, extraIndex = 0) {
     const [no, existing] = await Promise.all([
@@ -78,13 +85,28 @@
     const { data } = await sb.from("attachments").select("*").eq("owner_type", ownerType).eq("owner_id", ownerId).order("created_at", { ascending: false });
     return data || [];
   }
+  // A wrong upload can be removed and the right file uploaded again: the Director removes any file,
+  // the person who uploaded it within 24 hours. The removal is written in the record's history.
+  const canRemove = (f) => !!f && (isAdmin() || (f.uploaded_by === S.profile?.id && Date.now() - new Date(f.created_at).getTime() < 864e5));
+  const rmBtn = (f) => canRemove(f) ? `<button type="button" class="btn danger" data-rm="${esc(f.id)}" data-path="${esc(f.storage_path)}" data-name="${esc(f.file_name)}">${ic("trash")} Remove</button>` : "";
+  async function removeFile(b) {
+    const ok = await E.confirmBox(`Remove <b>${esc(b.dataset.name)}</b>? You can upload the correct file again afterwards.`, { title: "Remove File", ok: "Remove", danger: true });
+    if (!ok) return;
+    const { data: path, error } = await sb.rpc("remove_attachment", { p_id: b.dataset.rm });
+    if (error) return fail(error, "Could not remove the file");
+    const rm = await sb.storage.from("records").remove([path || b.dataset.path]);
+    if (rm.error) console.error(rm.error);
+    toast("File removed. You can upload the correct file now.");
+    E.route();
+  }
   function filesHtml(list, empty = "No files uploaded.") {
     if (!list.length) return `<div class="empty small">${esc(empty)}</div>`;
     return `<div class="filelist">${list.map((f) => `<div class="file"><span class="kind">${esc(KIND[f.kind] || f.kind)}</span>
-      <span class="fname">${esc(f.file_name)}</span><button type="button" class="btn" data-open="${esc(f.storage_path)}" data-mime="${esc(f.mime || "")}" data-name="${esc(f.file_name)}">${ic("eye")} Preview</button></div>`).join("")}</div>`;
+      <span class="fname">${esc(f.file_name)}</span><span class="fbtns"><button type="button" class="btn" data-open="${esc(f.storage_path)}" data-mime="${esc(f.mime || "")}" data-name="${esc(f.file_name)}">${ic("eye")} Preview</button>${rmBtn(f)}</span></div>`).join("")}</div>`;
   }
   function bindFiles(root) {
     $$("[data-open]", root).forEach((b) => (b.onclick = () => viewFile({ storage_path: b.dataset.open, mime: b.dataset.mime, file_name: b.dataset.name })));
+    $$("[data-rm]", root).forEach((b) => (b.onclick = () => removeFile(b)));
   }
   const isImage = (f) => /^image\//.test(f.mime || "") || /\.(png|jpe?g|gif|webp|heic|bmp)$/i.test(f.storage_path || "");
   // In-page preview of an uploaded file (image or PDF).
@@ -112,7 +134,7 @@
   // kind: which upload counts as the signed copy ("approval" for an approved project document).
   const DC = new Map();
   function docCard({ key, title, sub = "", ownerType, ownerId, att, print, canUpload = isStaff(), printLabel = "Print / Download", kind = "signed_form", uploadLabel = "Upload Signed Copy", copyName = "Signed copy" }) {
-    DC.set(key, { att, print, kind });
+    DC.set(key, { att, print, kind, copyName });
     const signed = latestSigned(att, kind);
     const upId = `dcUp_${key.replace(/\W/g, "_")}`;
     const mayUpload = signed ? isAdmin() : canUpload;
@@ -120,7 +142,7 @@
       <div class="dc-ic">${ic("doc")}${signed ? `<span class="dc-ok">${ic("check")}</span>` : ""}</div>
       <div class="dc-main"><b>${esc(title)}</b><small>${signed ? `${esc(copyName)} · uploaded ${mdy(signed.created_at)}` : esc(sub || "Print it, have it signed, then upload the signed copy")}</small></div>
       <div class="dc-act">
-        ${signed ? `<button type="button" class="btn primary" data-dc-view="${esc(key)}">${ic("eye")} View</button>`
+        ${signed ? `<button type="button" class="btn primary" data-dc-view="${esc(key)}">${ic("eye")} View</button>${rmBtn(signed)}`
           : `<button type="button" class="btn primary" data-dc-print="${esc(key)}">${ic("print")} ${esc(printLabel)}</button>`}
         ${mayUpload ? `<label class="btn" for="${upId}">${ic("upload")} ${signed ? "Replace" : esc(uploadLabel)}</label>
           <input type="file" id="${upId}" hidden accept="image/*,application/pdf" data-dc-up="${esc(key)}" data-owner="${esc(ownerType)}" data-id="${esc(ownerId)}">` : ""}
@@ -135,10 +157,12 @@
       const card = inp.closest(".doccard");
       card.classList.add("uploading");
       $(".dc-main small", card).innerHTML = `<span class="spin sm"></span> Uploading…`;
-      const f = await uploadRecords(inp.dataset.owner, inp.dataset.id, DC.get(inp.dataset.dcUp)?.kind || "signed_form", files);
-      toast(f ? "Upload failed." : "Signed copy uploaded. It now replaces the system copy.", f > 0);
+      const d = DC.get(inp.dataset.dcUp);
+      const f = await uploadRecords(inp.dataset.owner, inp.dataset.id, d?.kind || "signed_form", files);
+      toast(f ? "Upload failed." : `${d?.copyName || "Signed copy"} uploaded. It now replaces the system copy.`, f > 0);
       reload();
     }));
+    $$("[data-rm]", root).forEach((b) => (b.onclick = () => removeFile(b)));
   }
 
   const fileField = (id, label, opts = "") => `<label for="${id}">${label}</label><input type="file" id="${id}" ${opts}>`;
@@ -360,8 +384,8 @@
         <div class="wtitle">Customer Account Application</div>
         <div class="wbody">
           <div class="summary-box"><div class="fields wide">
-            <span>Application No</span><b>Assigned on submit</b>
-            <span>Account No</span><b>Assigned on submit (initials-YYYYMM###)</b>
+            <span>Application No</span><b id="ncAppNo">Assigned on submit</b>
+            <span>Account No (Customer ID)</span><b id="ncAcctNo">Type the name to see it</b>
             <span>Application Date</span><b>${mdy(isoToday())}</b>
             <span>Issued By</span><b>${esc(myName())}</b></div></div>
           <fieldset class="opt"><legend>Personal Details</legend><div class="formgrid">
@@ -376,9 +400,13 @@
               <span></span><div id="ncPhotoPrev" class="photo-prev">No photo</div>
             </div></div></fieldset>
           <fieldset class="opt"><legend>Full Address</legend>
-            <div class="fields wide"><label for="ncAddr">Address *</label>
-              <div class="addr-row"><input type="text" id="ncAddr" required placeholder="House no, street, barangay, city, province"><button type="button" class="btn" id="ncVerify">Verify Address</button></div>
-              <span></span><div id="ncAddrMsg" class="addr-msg">Not checked yet.</div></div></fieldset>
+            <div class="fields wide"><label for="ncAddr">Address *</label><input type="text" id="ncAddr" required placeholder="House no, street, barangay, city, province">
+              <span>Address Check</span><div class="checks"><label><input type="radio" name="ncAddrv" value="no" checked> Not Verified</label><label><input type="radio" name="ncAddrv" value="yes"> Verified</label></div>
+            </div><small>Mark Verified only if the address was checked (for example, by a visit or a document). The Director can also verify it later from the customer profile.</small></fieldset>
+          <fieldset class="opt"><legend>Account</legend><div class="fields wide">
+            <label for="ncCredit">Credit Limit (₱)</label><input type="number" id="ncCredit" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
+            <label for="ncOpen">Opening Balance (₱)</label><input type="number" id="ncOpen" min="0" step="0.01" inputmode="decimal" placeholder="Optional — leave empty if none">
+          </div><small>Credit Limit is kept on the customer record. Opening Balance is an amount the customer already owes when the account is opened: it becomes the account's starting balance.</small></fieldset>
           <fieldset class="opt"><legend>Business</legend><div class="fields wide">
             <label for="ncStart">Business Start Date</label><input type="date" id="ncStart">
             <label for="ncBiz">Business Name</label><input type="text" id="ncBiz">
@@ -395,28 +423,32 @@
         </div>
         <div class="wfoot"><button type="button" class="btn" id="ncCancel">Cancel</button><button type="submit" class="btn primary">Submit Application</button></div>
       </form>`, "Fill in the application and press <b>Submit Application</b>. The account number, application number and QR code are created automatically.");
-    let geo = null;
+    // Preview of the account number and application number (the final numbers are given on submit).
+    let pvTimer = null, pvSeq = 0;
+    const preview = async () => {
+      if (!$("#ncFirst")) return; // the form was submitted or left
+      const my = ++pvSeq;
+      const { data } = await sb.rpc("preview_customer_numbers", { p_first: $("#ncFirst").value.trim(), p_last: $("#ncLast").value.trim() });
+      if (my !== pvSeq || !data || !$("#ncAcctNo")) return;
+      $("#ncAppNo").textContent = `${data.application_no} (preview)`;
+      $("#ncAcctNo").textContent = $("#ncFirst").value.trim() || $("#ncLast").value.trim() ? `${data.account_no} (preview)` : "Type the name to see it";
+    };
+    ["ncFirst", "ncLast"].forEach((k) => ($("#" + k).oninput = () => { clearTimeout(pvTimer); pvTimer = setTimeout(preview, 300); }));
+    preview();
     $$("input[name=ncFbx]").forEach((r) => (r.onchange = () => $$(".fb2").forEach((x) => (x.hidden = r.value !== "yes" || !r.checked))));
     $("#ncPhoto").onchange = (e) => {
       const f = e.target.files[0];
       $("#ncPhotoPrev").innerHTML = f ? `<img src="${URL.createObjectURL(f)}" alt="Profile photo preview">` : "No photo";
     };
-    $("#ncAddr").oninput = () => { geo = null; $("#ncAddrMsg").className = "addr-msg"; $("#ncAddrMsg").textContent = "Not checked yet."; };
-    $("#ncVerify").onclick = async () => {
-      const a = $("#ncAddr").value.trim();
-      if (a.length < 5) return toast("Type the full address first.", true);
-      const m = $("#ncAddrMsg"); m.className = "addr-msg"; m.innerHTML = `<span class="spin sm"></span> Checking the map…`;
-      geo = await verifyAddress(a);
-      if (geo) { m.className = "addr-msg ok"; m.innerHTML = `✔ VERIFIED — location found: ${esc(geo.display)} <a href="https://www.openstreetmap.org/?mlat=${geo.lat}&mlon=${geo.lon}#map=17/${geo.lat}/${geo.lon}" target="_blank" rel="noopener">View map</a>`; }
-      else { m.className = "addr-msg bad"; m.textContent = "✖ ADDRESS NOT FOUND — check the spelling or add the barangay and city."; }
-    };
     $("#ncCancel").onclick = () => (location.hash = "customers");
     $("#ncForm").onsubmit = async (e) => {
       e.preventDefault();
+      clearTimeout(pvTimer);
       const v = (id) => $("#" + id).value.trim();
       if (!v("ncFirst") || !v("ncLast")) return toast("Enter the first and last name.", true);
       if (!v("ncPhone")) return toast("Enter the phone number.", true);
       if (!v("ncAddr")) return toast("Enter the full address.", true);
+      if (num(v("ncCredit")) < 0 || num(v("ncOpen")) < 0) return toast("The credit limit and opening balance cannot be negative.", true);
       const extra = $("input[name=ncFbx]:checked").value === "yes";
       if (extra && !v("ncFb2")) return toast("Enter the additional Facebook name, or choose No.", true);
       E.setBusy(e.target, true, "Submitting");
@@ -430,7 +462,8 @@
       }
       const { data: c, error } = await sb.from("customers").insert({
         id, first_name: v("ncFirst"), last_name: v("ncLast"), photo_path, address: v("ncAddr"),
-        address_verified: !!geo, address_lat: geo?.lat ?? null, address_lon: geo?.lon ?? null,
+        address_verified: $("input[name=ncAddrv]:checked").value === "yes",
+        credit_limit: v("ncCredit") ? num(v("ncCredit")) : null, opening_balance: num(v("ncOpen")) || 0,
         business_start_date: v("ncStart") || null, business_name: v("ncBiz") || null,
         facebook_name: v("ncFb") || null, has_extra_facebook: extra, extra_facebook_name: extra ? v("ncFb2") : null,
         facebook_verified: $("input[name=ncFbv]:checked").value === "yes", phone: v("ncPhone"), email: v("ncEmail") || null
@@ -442,15 +475,6 @@
       location.hash = `customer/${c.id}/submitted`;
     };
   };
-
-  async function verifyAddress(a) {
-    try {
-      const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q=${encodeURIComponent(a)}`, { headers: { Accept: "application/json" } });
-      const j = await r.json();
-      if (!j.length) return null;
-      return { lat: Number(j[0].lat), lon: Number(j[0].lon), display: j[0].display_name };
-    } catch (_) { return null; }
-  }
 
   function applicationPage(c, photoUrl, reqs) {
     const qr = E.qrDataUrl(custQr(c));
@@ -469,7 +493,9 @@
         ${cell("Facebook Name", c.facebook_name)}${cell("Facebook Account", c.facebook_verified ? "VERIFIED" : "NOT VERIFIED")}
         ${c.has_extra_facebook ? cell("Additional Facebook", "YES — " + (c.extra_facebook_name || ""), "span2") : ""}</div>`)}
       ${box("Requirements Submitted", `<div class="pv" style="padding:6px">${reqs.length ? reqs.map((r) => "☑ " + esc(r.file_name)).join("<br>") : "None uploaded yet"}</div>`)}
-      ${box("For Office Use", `<div class="pgrid2">${cell("Issued By", c.issued_by_name)}${cell("Status", c.status.toUpperCase())}</div>`)}
+      ${box("For Office Use", `<div class="pgrid2">${cell("Issued By", c.issued_by_name)}${cell("Status", c.status.toUpperCase())}
+        ${cell("Address Check", c.address_verified ? "VERIFIED" : "NOT VERIFIED")}${cell("Credit Limit (PHP)", c.credit_limit != null ? peso(c.credit_limit) : "")}
+        ${cell("Opening Balance (PHP)", peso(c.opening_balance))}</div>`)}
       <p class="pdecl">I certify that the information above is true and correct, and I agree to the terms of ${esc(C.company.name)}.</p>
       ${sigs("Customer Signature over Printed Name &nbsp; / &nbsp; Date", "Approved by (Signature) &nbsp; / &nbsp; Date")}
       <div class="rp-foot"><span>Submit this signed form to the ${esc(C.company.name)} office.</span><span>${esc(c.application_no)}</span></div>`;
@@ -534,14 +560,15 @@
           <div class="ch-name"><h2>${esc(fullName(c))}</h2>${pill(c.status)}</div>
           <div class="ch-sub">${[c.business_name, c.phone, c.email].filter(Boolean).map(esc).join(" · ") || "—"}</div>
           <div class="ch-ids">
-            ${idBox("Account No", c.account_no)}${idBox("Application No", c.application_no)}${idBox("Opened", mdy(c.application_date))}
+            ${idBox("Account No", c.account_no)}${idBox("Application No", c.application_no)}${idBox("Opened", mdy(c.application_date))}${c.credit_limit != null ? idBox("Credit Limit", "₱ " + peso(c.credit_limit)) : ""}
             ${isAdmin() ? `<div class="idbox"><small>Private ID</small><b class="mono" id="pvCode" data-code="${esc(secret.data?.private_code || "")}">••••••••</b> <button type="button" class="linkbtn" id="pvShow">Show</button></div>` : ""}
           </div>
-          <div class="ch-flags">${c.address_verified ? `<span class="flag ok">${ic("check")} Address verified</span>` : ""}${c.facebook_verified ? `<span class="flag ok">${ic("check")} Facebook verified</span>` : ""}</div>
+          <div class="ch-flags">${c.address_verified ? `<span class="flag ok">${ic("check")} Address verified</span>` : `<span class="flag">${ic("x")} Address not verified</span>`}${isAdmin() && c.status !== "closed" ? `<button type="button" class="linkbtn" id="pfAddrV">${c.address_verified ? "Mark address not verified" : "Verify address"}</button>` : ""}${c.facebook_verified ? `<span class="flag ok">${ic("check")} Facebook verified</span>` : ""}</div>
         </div>
         <div class="ch-qr"><canvas id="pfQr" aria-label="Customer QR code"></canvas><small>Public ID</small><b class="mono key" id="pfKey">${esc(c.public_id || "")}</b><button type="button" class="linkbtn" id="pfCopy">${ic("copy")} Copy</button></div>
       </section>
       <div class="tiles">
+        ${num(b.opening_balance) > 0 ? `<div class="tile"><div class="k">Opening Balance</div><div class="v">₱ ${peso(b.opening_balance)}</div></div>` : ""}
         <div class="tile"><div class="k">Total Invoiced</div><div class="v">₱ ${peso(b.total_invoiced)}</div></div>
         <div class="tile"><div class="k">Additional Charge</div><div class="v">₱ ${peso(b.total_charges)}</div></div>
         <div class="tile"><div class="k">Settlement Adjustment</div><div class="v">${num(b.total_settlement) < 0 ? "− " : num(b.total_settlement) > 0 ? "+ " : ""}₱ ${peso(Math.abs(num(b.total_settlement)))}</div></div>
@@ -571,6 +598,7 @@
         <div data-p="7" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
+    if ($("#pfAddrV")) $("#pfAddrV").onclick = () => markAddress(c);
     // Change or remove the profile photo. The new photo is kept in Files; the old one leaves Files (and, for the
     // Director, is deleted from storage too).
     const dropOld = (old) => { if (old && isAdmin()) sb.storage.from("records").remove([old]).catch(() => {}); };
@@ -619,7 +647,8 @@
   function detailsTable(c) {
     const rows = [
       ["First Name", c.first_name], ["Last Name", c.last_name], ["Phone", c.phone], ["Email", c.email],
-      ["Full Address", c.address], ["Address Check", c.address_verified ? "✔ VERIFIED (location found)" : "✖ NOT VERIFIED"],
+      ["Full Address", c.address], ["Address Check", c.address_verified ? "✔ VERIFIED" : "✖ NOT VERIFIED"],
+      ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], ["Opening Balance", "₱ " + peso(c.opening_balance)],
       ["Business Name", c.business_name], ["Business Start Date", mdy(c.business_start_date)],
       ["Facebook Name", c.facebook_name], ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
       ["Facebook Account", c.facebook_verified ? "✔ VERIFIED" : "✖ NOT VERIFIED"],
@@ -628,12 +657,19 @@
     return `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
   }
 
+  async function markAddress(c) {
+    const r = await sb.rpc("customer_action", { p_id: c.id, p_action: c.address_verified ? "address_unverified" : "address_verified", p_note: null });
+    if (r.error) return fail(r.error, "Could not update the address check");
+    toast(c.address_verified ? "Address marked as not verified." : "Address marked as verified.");
+    V.customer(c.id);
+  }
   function reviewPanel(c, signed) {
     return `<fieldset class="opt review"><legend>Director's Review — ${esc(c.application_no)}</legend>
       <ol class="steps">
         <li><b>Check records:</b> look for the same name, phone, email or Facebook name already in the database.
           <div class="btnrow"><button type="button" class="btn primary" id="rvCheck">Check &amp; Verify</button>
-          <button type="button" class="btn" id="rvFb">${c.facebook_verified ? "Mark Facebook NOT verified" : "Mark Facebook verified"}</button></div><div id="rvResult">${c.status === "verified" ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
+          <button type="button" class="btn" id="rvFb">${c.facebook_verified ? "Mark Facebook NOT verified" : "Mark Facebook verified"}</button>
+          <button type="button" class="btn" id="rvAddr">${c.address_verified ? "Mark Address NOT verified" : "Mark Address verified"}</button></div><div id="rvResult">${c.status === "verified" ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
         <li><b>Signed application form:</b> ${signed.length ? `<span class="ok-txt">✔ Uploaded — it now shows as the Customer Application Form above.</span>`
           : `<span class="bad-txt">not uploaded yet.</span> Print the form from the <b>Customer Application Form</b> card above, have it signed, then press <b>Upload Signed Copy</b>.`}</li>
         <li><b>Decide:</b>
@@ -669,6 +705,7 @@
       const r = await sb.rpc("customer_action", { p_id: c.id, p_action: c.facebook_verified ? "facebook_unverified" : "facebook_verified", p_note: null });
       if (r.error) return fail(r.error, "Could not update"); V.customer(c.id);
     };
+    $("#rvAddr").onclick = () => markAddress(c);
     const act = async (a) => {
       const r = await sb.rpc("customer_action", { p_id: c.id, p_action: a, p_note: $("#rvNote").value.trim() || null });
       if (r.error) return fail(r.error, "Could not update the account");
@@ -711,8 +748,9 @@
   // Same rules as the database: invoices, approved Additional Charge orders and Settlement Adjustments that add
   // (on the day they were carried out) debit; payments, approved credit/discount memos (on approval date) and
   // Settlement Adjustments that take money off credit.
-  function txnsOf(invs, pays, memos, orders = []) {
+  function txnsOf(invs, pays, memos, orders = [], cust = null) {
     const t = [];
+    if (num(cust?.opening_balance) > 0) t.push({ date: cust.application_date, ref: cust.account_no, desc: "Opening Balance", debit: num(cust.opening_balance), credit: 0 });
     invs.forEach((i) => t.push({ date: i.invoice_date, ref: i.invoice_no, desc: `Invoice${i.po_number ? " — PO " + i.po_number : ""}`, debit: num(i.total_amount), credit: 0, inv: i }));
     orders.filter((o) => ["charge", "settlement"].includes(o.subject_type) && o.status === "applied" && o.applied_at).forEach((o) => {
       const off = o.subject_type === "settlement" && o.adjust_type === "reduce";
@@ -798,7 +836,7 @@
   async function renderSoaTab(c, invs, pays, memos, orders) {
     const box = $("#pfSoa"); if (!box) return;
     const { data } = await sb.from("statements").select("*").eq("customer_id", c.id).order("period_start");
-    const txns = txnsOf(invs, pays, memos, orders);
+    const txns = txnsOf(invs, pays, memos, orders, c);
     const cm = monthStart(isoToday());
     const saved = new Map((data || []).map((s) => [s.period_start, s]));
     const rows = [];
@@ -850,10 +888,11 @@
       E.setRecords(`Statements: ${rows.length}`);
     };
     const dataFor = async (cid) => {
-      const [i, p, m, o] = await Promise.all([
+      const [i, p, m, o, cu] = await Promise.all([
         sb.from("invoice_balances").select("*").eq("customer_id", cid), sb.from("payments_received").select("*").eq("customer_id", cid), sb.from("credit_memos").select("*").eq("customer_id", cid),
-        sb.from("order_letters").select("*").eq("customer_id", cid).in("subject_type", ["charge", "settlement"]).eq("status", "applied")]);
-      return { invs: i.data || [], txns: txnsOf(i.data || [], p.data || [], m.data || [], o.data || []) };
+        sb.from("order_letters").select("*").eq("customer_id", cid).in("subject_type", ["charge", "settlement"]).eq("status", "applied"),
+        sb.from("customers").select("account_no, application_date, opening_balance").eq("id", cid).maybeSingle()]);
+      return { invs: i.data || [], txns: txnsOf(i.data || [], p.data || [], m.data || [], o.data || [], cu.data) };
     };
     const asPeriod = (r) => ({ start: r.period_start, end: r.period_end, opening: num(r.opening_balance), closing: num(r.closing_balance), no: r.statement_no });
     async function statementDialog(r) {

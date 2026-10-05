@@ -49,7 +49,7 @@
   // Details that can be corrected — must match editable_columns() in the database. Amounts, transaction dates and
   // record numbers are never corrected: a wrong money record is deleted by the Director and recorded again.
   const FIELDS = {
-    customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool")],
+    customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool"), F("credit_limit", "Credit Limit (₱)", "money")],
     customer_invoices: [F("purchase_date", "Purchase Date", "date"), F("po_number", "PO Number"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int")],
     payments_received: [F("method", "Method", "select", METHODS), F("bank_name", "Bank Name"), F("bank_account", "Deposit Account"), F("reference_no", "Reference No"), F("notes", "Notes")],
     credit_memos: [F("payment_ref", "Payment Reference"), F("po_number", "Purchase Order"), F("article", "Article"), F("brand", "Brand"), F("style", "Style"), F("batch_no", "Batch No"), F("serial_no", "Serial No"), F("purchase_date", "Purchase Date", "date"),
@@ -62,14 +62,15 @@
     pay_companies: [F("name", "Company Name"), F("contact_person", "Contact Person"), F("contact", "Phone / Email"), F("address", "Address"), F("currency", "Currency", "select", [["PHP", "PHP"], ["BDT", "BDT"], ["BOTH", "PHP, BDT"]]), F("notes", "Notes")],
     pay_accounts: [F("account_name", "Account Name"), F("account_number", "Account Number"), F("bank_name", "Bank Name"), F("branch_name", "Branch"), F("notes", "Notes")],
     pay_vouchers: [F("purpose", "Purpose"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
-    job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife's / Husband's Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("apply_salary", "Expected Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date")]
+    job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife's / Husband's Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("apply_salary", "Expected Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date")],
+    stock_bills: [F("supplier_bill_no", "Supplier Bill No"), F("batch_no", "Batch No"), F("shipment_no", "Shipment No"), F("shipment_date", "Shipment Date", "date"), F("total_boxes", "Total Boxes", "int"), F("notes", "Notes")]
   };
   // Money records: their amounts and dates are not corrected (the Director deletes a wrong one and it is recorded again).
-  const MONEY = ["customer_invoices", "payments_received", "credit_memos", "payslips", "pay_vouchers", "project_payments", "order_letters"];
+  const MONEY = ["customer_invoices", "payments_received", "credit_memos", "payslips", "pay_vouchers", "project_payments", "order_letters", "stock_bills", "stock_bill_entries"];
   // Records the Director can delete — must match deletable_table() in the database.
-  const DELETABLE = ["customers", "customer_invoices", "payments_received", "credit_memos", "order_letters", "employees", "payslips", "projects", "project_payments", "pay_companies", "pay_accounts", "pay_vouchers", "job_applications", "job_positions"];
-  const TABLE_NAME = { customers: "Customer", customer_invoices: "Invoice", payments_received: "Payment", credit_memos: "Credit Memo", employees: "Employee", payslips: "Payslip", projects: "Project", project_payments: "Project Payment", pay_companies: "Billing Company", pay_accounts: "Billing Account", pay_vouchers: "Payment Voucher", job_applications: "Job Application", order_letters: "Order Letter" };
-  const ROUTE_OF = { customers: "customer", customer_invoices: "invoice", payments_received: "payment", credit_memos: "creditmemo", employees: "employee", payslips: "payslip", projects: "project", pay_companies: "paycompany", pay_vouchers: "voucher", job_applications: "jobapp", order_letters: "order" };
+  const DELETABLE = ["customers", "customer_invoices", "payments_received", "credit_memos", "order_letters", "employees", "payslips", "projects", "project_payments", "pay_companies", "pay_accounts", "pay_vouchers", "job_applications", "job_positions", "stock_bills", "stock_bill_entries"];
+  const TABLE_NAME = { customers: "Customer", customer_invoices: "Invoice", payments_received: "Payment", credit_memos: "Credit Memo", employees: "Employee", payslips: "Payslip", projects: "Project", project_payments: "Project Payment", pay_companies: "Billing Company", pay_accounts: "Billing Account", pay_vouchers: "Payment Voucher", job_applications: "Job Application", order_letters: "Order Letter", stock_bills: "Stock-Bill", stock_bill_entries: "Sales Report Line" };
+  const ROUTE_OF = { customers: "customer", customer_invoices: "invoice", payments_received: "payment", credit_memos: "creditmemo", employees: "employee", payslips: "payslip", projects: "project", pay_companies: "paycompany", pay_vouchers: "voucher", job_applications: "jobapp", order_letters: "order", stock_bills: "stockbill" };
   const fieldLabel = (table, k) => (FIELDS[table] || []).find((f) => f.k === k)?.label || k.replace(/_/g, " ");
   const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v) : String(v));
   const changeList = (table, ch, prev) => Object.keys(ch || {}).map((k) => `${fieldLabel(table, k)}: ${showVal(prev?.[k])} → ${showVal(ch[k])}`).join("; ");
@@ -131,7 +132,9 @@
   async function deleteRecord(table, row, label, afterDelete) {
     if (!isAdmin()) return;
     // A carried-out order letter is also undone (see undo_order in the database).
-    const undo = table === "order_letters" && row.status === "applied"
+    const undo = table === "order_letters" && row.status === "applied" && row.stock_bill_id
+      ? `<br><br>This release order was carried out, so deleting it also <b>undoes it</b>: the stock-bill goes back to SHIPPED or ARRIVED, and its release date and shipping cost are removed.`
+      : table === "order_letters" && row.status === "applied"
       ? `<br><br>This order was carried out, so deleting it also <b>undoes it</b>: the status goes back to what it was before the order (if no later order changed it again), and a charge or settlement adjustment is removed from the balance and the statements.` : "";
     if (!(await E.confirmBox(`Delete <b>${esc(label)}</b> permanently? It will be removed from the portal with its files and cannot be brought back.${undo}`, { title: "Delete Record", ok: "Delete", danger: true }))) return;
     const { data: paths, error } = await sb.rpc("delete_record", { p_table: table, p_id: row.id });
@@ -172,7 +175,9 @@
     const why = new Map((reqs.data || []).map((r) => [r.request_no, r.reason]));
     const rows = [
       ...(reqs.data || []).filter((r) => r.status === "pending").map((r) => ({ at: r.created_at, no: r.request_no, st: "pending", what: "Correction request", detail: changeList(table, r.changes, r.previous), why: r.reason, by: r.requested_by_name })),
-      ...(done.data || []).map((r) => ({ at: r.created_at, no: r.request_no || "", st: "approved", what: "Correction", detail: changeList(table, r.changes, r.previous), why: why.get(r.request_no) || "", by: r.actor_name }))
+      ...(done.data || []).map((r) => r.action === "file removed"
+        ? { at: r.created_at, no: "", st: "removed", what: "File removed", detail: r.previous?.file || "", why: "", by: r.actor_name }
+        : { at: r.created_at, no: r.request_no || "", st: "approved", what: "Correction", detail: changeList(table, r.changes, r.previous), why: why.get(r.request_no) || "", by: r.actor_name })
     ];
     if (!rows.length) { el.hidden = true; return; }
     el.hidden = false;
@@ -198,7 +203,7 @@
         const rows = data || [];
         $("#crRes").innerHTML = E.grid({ cols: [
           { label: "Date / Time", get: (r) => E.stamp(new Date(r.created_at)) }, { label: "Record", get: (r) => `${TABLE_NAME[r.target_table] || r.target_table}: ${r.target_label || ""}` },
-          { label: "Original → Corrected", get: (r) => changeList(r.target_table, r.changes, r.previous) },
+          { label: "Original → Corrected", get: (r) => r.action === "file removed" ? `File removed: ${r.previous?.file || ""}` : changeList(r.target_table, r.changes, r.previous) },
           { label: "By", get: (r) => r.actor_name || "" }, { label: "Correction No", get: (r) => r.request_no || "" }], rows, empty: "No corrections yet." });
         return E.setRecords(`Corrections: ${rows.length}`);
       }
@@ -481,12 +486,13 @@
     termination: ["Termination", "Termination of Employment"], memo: ["Notice / Memo", "Memorandum"],
     unpaid: ["Unpaid Balance", "Notice of Unpaid Balance"], installment: ["Installment", "Installment Payment Arrangement"], unsettled_balance: ["Unsettled Balance", "Demand for Unsettled Balance"],
     promise_to_pay: ["Promise to Pay", "Promise to Pay Agreement"], balance_certificate: ["Balance Certificate", "Account Balance Certificate"],
-    charge: ["Additional Charge", "Additional Charge"], settlement: ["Settlement Adjustment", "Settlement Adjustment"], other: ["Other", ""]
+    charge: ["Additional Charge", "Additional Charge"], settlement: ["Settlement Adjustment", "Settlement Adjustment"], other: ["Other", ""],
+    release: ["Release Order", "Release of Stock-Bill"]
   };
   const TITLE = {
     suspension: "SUSPENSION ORDER", closure: "CLOSURE ORDER", reactivation: "REACTIVATION ORDER", reopen: "REOPENING ORDER", termination: "TERMINATION ORDER",
     memo: "MEMORANDUM ORDER", unpaid: "UNPAID BALANCE ORDER", installment: "INSTALLMENT ORDER", unsettled_balance: "UNSETTLED BALANCE ORDER", promise_to_pay: "PROMISE TO PAY ORDER",
-    balance_certificate: "ACCOUNT BALANCE CERTIFICATE", charge: "ADDITIONAL CHARGE ORDER", settlement: "SETTLEMENT ADJUSTMENT ORDER", other: "ORDER"
+    balance_certificate: "ACCOUNT BALANCE CERTIFICATE", charge: "ADDITIONAL CHARGE ORDER", settlement: "SETTLEMENT ADJUSTMENT ORDER", other: "ORDER", release: "RELEASE ORDER"
   };
   const AMOUNT_TYPES = ["unpaid", "installment", "unsettled_balance", "promise_to_pay", "charge", "settlement"];
   // Only two orders change the balance (once approved): an Additional Charge adds to it, and a Settlement Adjustment
@@ -501,13 +507,17 @@
     employee: { label: "Employee", write: () => E.canWrite("employees"), subject: { suspension: "Suspension from Work", reactivation: "Return to Work" },
       types: (st) => st === "suspended" ? ["reactivation", "termination", "memo"] : st === "terminated" ? ["memo"] : st === "waiting" ? ["termination", "memo"] : ["suspension", "termination", "memo"] },
     company: { label: "Billing Company", write: () => E.canWrite("billing"), subject: { suspension: "Suspension of Payments", reactivation: "Reactivation of Payments", memo: "Notice" },
-      types: (st) => st === "suspended" ? ["reactivation", "memo"] : ["suspension", "memo"] }
+      types: (st) => st === "suspended" ? ["reactivation", "memo"] : ["suspension", "memo"] },
+    // Release Order: only an open stock-bill (SHIPPED or ARRIVED) can be released (Inventory).
+    stock_bill: { label: "Stock-Bill", write: () => E.canWrite("inventory"), subject: {}, types: () => ["release"] }
   };
-  const kindOf = (o) => o.employee_id ? "employee" : o.company_id ? "company" : "customer";
+  const kindOf = (o) => o.employee_id ? "employee" : o.company_id ? "company" : o.stock_bill_id ? "stock_bill" : "customer";
   const forName = (o) => o.employee_id ? (o.employees ? `${o.employees.employee_no} ${fullName(o.employees)}` : "")
-    : o.company_id ? (o.pay_companies?.name || "") : o.customers ? `${o.customers.account_no} ${fullName(o.customers)}` : "";
-  const ORDER_LIST = "*, customers(first_name,last_name,account_no,status), employees(first_name,last_name,employee_no,status), pay_companies(name,status)";
-  const ORDER_ALL = "*, customers(*), employees(*), pay_companies(*)";
+    : o.company_id ? (o.pay_companies?.name || "") : o.stock_bill_id ? [o.stock_info?.bill_no, o.stock_info?.company].filter(Boolean).join(" ")
+    : o.customers ? `${o.customers.account_no} ${fullName(o.customers)}` : "";
+  const ORDER_LIST = "*, customers(first_name,last_name,account_no,status), employees(first_name,last_name,employee_no,status), pay_companies(name,status), stock_bills(bill_no,status)";
+  const ORDER_ALL = "*, customers(*), employees(*), pay_companies(*), stock_bills(id,bill_no,status)";
+  const qtyText = (n) => Number(n || 0).toLocaleString("en-PH", { maximumFractionDigits: 2 });
   const dayOf = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const EVERY = { month: "Every month", "15 days": "Every 15 days", week: "Every week" };
   const CLOSE_REASONS = ["Requested by the customer", "Unpaid balance", "Violation of terms", "Business closed", "Other"];
@@ -562,6 +572,12 @@
   // d: { name, acct, bal, days, amt, n, each, every, due, date, reason }
   function defaultDetails(kind, t, w, d) {
     const when = E.mdy(d.date || isoToday());
+    if (kind === "stock_bill") {
+      if (!w) return "";
+      const ship = d.ship === "" || d.ship == null ? null : num(d.ship);
+      return `Please release the goods of Stock-Bill ${w.bill_no} from ${w.company_name || "[company]"}${w.batch_no ? `, Batch No ${w.batch_no}` : ""}${w.shipment_no ? `, Shipment No ${w.shipment_no}` : ""} (${w.total_boxes != null ? `${w.total_boxes} box(es), ` : ""}total qty ${qtyText(w.total_qty)}) on ${E.mdy(d.release || isoToday())}. `
+        + `The shipping bill${d.shipNo ? " " + d.shipNo : ""} of ${ship == null ? "BDT [amount]" : `BDT ${peso(ship)}`} is added to the bill cost of BDT ${peso(w.total_cost)}: the total cost is ${ship == null ? "BDT [total]" : `BDT ${peso(num(w.total_cost) + ship)}`}.`;
+    }
     if (kind === "employee") return {
       suspension: `This is to inform you that you are SUSPENDED from work effective ${when}. Your portal login is closed until you are reactivated by an approved order.`,
       reactivation: `This is to inform you that your suspension is lifted and you are REACTIVATED effective ${when}. Your portal login is open again and you may return to work.`,
@@ -609,6 +625,12 @@
         <fieldset class="opt"><legend>Order</legend><div class="subj-grid" id="noTypes"></div>
           <div class="fields wide" style="margin-top:8px"><label for="noSubj">Subject *</label><input type="text" id="noSubj">
             <label for="noDate">Order Date</label><input type="date" id="noDate" value="${isoToday()}"></div></fieldset>
+        <fieldset class="opt" id="noRelBox" hidden><legend>Release and Shipping Bill</legend><div class="formgrid">
+          <div class="fields wide"><label for="noRelDate">Release Date *</label><input type="date" id="noRelDate" value="${isoToday()}">
+            <label for="noShipNo">Shipping Bill No</label><input type="text" id="noShipNo">
+            <label for="noShipAmt">Shipping Bill Amount (BDT) *</label><input type="number" id="noShipAmt" min="0" step="0.01" placeholder="0 if there is none">
+            <label for="noShipFile">Shipping Bill (photo or PDF)</label><input type="file" id="noShipFile" accept="image/*,application/pdf"></div>
+          <div class="bdt-calc"><small>Total Cost (BDT): bill + shipping</small><b id="noRelTotal">BDT 0.00</b><span id="noRelCalc"></span><small id="noRelWords"></small></div></div></fieldset>
         <fieldset class="opt" id="noCloseBox" hidden><legend>Closure</legend><div class="fields wide">
           <label for="noReason">Reason for Closure *</label><select id="noReason"><option value="">— Choose the reason —</option>${CLOSE_REASONS.map((r) => `<option>${esc(r)}</option>`).join("")}</select>
           <label for="noReason2" class="noOther">Other Reason *</label><input type="text" id="noReason2" class="noOther" placeholder="Write the reason"></div></fieldset>
@@ -633,7 +655,17 @@
     const plusDays = (n) => { const x = new Date(); x.setDate(x.getDate() + n); return dayOf(x); };
     // Amount, due date and wording for the chosen kind of order.
     const refresh = () => {
+      if (!$("#noForm")) return; // the page was left while the amount due was loading
       const t = type(), cust = kind === "customer";
+      // Release Order: the stock-bill's cost + the shipping bill = the total cost
+      const rel = kind === "stock_bill", shipRaw = $("#noShipAmt").value.trim();
+      $("#noRelBox").hidden = !rel;
+      if (rel) {
+        const bill = num(who?.total_cost), ship = num(shipRaw), total = bill + ship;
+        $("#noRelTotal").textContent = `BDT ${peso(total)}`;
+        $("#noRelCalc").textContent = who ? `${peso(bill)} + ${peso(ship)} = ${peso(total)}` : "Choose the stock-bill";
+        $("#noRelWords").textContent = who && total ? words(total, "TAKA") : "";
+      }
       const amtOn = cust && AMOUNT_TYPES.includes(t);
       $("#noAmtBox").hidden = !amtOn;
       $("#noCloseBox").hidden = !(cust && t === "closure");
@@ -655,11 +687,12 @@
       $("#noSched").innerHTML = rows.length ? `<div class="sched-h">Installment Schedule</div>${E.grid({ cols: [{ label: "No.", get: (r) => r.no }, { label: "Due Date", get: (r) => mdy(r.date) }, { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) }, { label: "Balance After (₱)", num: true, get: (r) => peso(r.left) }], rows })}` : "";
       $("#noLetterLeg").textContent = t === "balance_certificate" ? "Certificate" : "Letter";
       $("#noDetailsL").textContent = t === "balance_certificate" ? "Purpose *" : "Details *";
-      if (!dirty) $("#noDetails").value = defaultDetails(kind, t, who, { bal: bal(), days: num(due?.days_overdue), amt, n, each, every, due: $("#noDue").value, date: $("#noDate").value, reason: reason(), adj });
+      if (!dirty) $("#noDetails").value = defaultDetails(kind, t, who, { bal: bal(), days: num(due?.days_overdue), amt, n, each, every, due: $("#noDue").value, date: $("#noDate").value, reason: reason(), adj,
+        release: $("#noRelDate").value, ship: shipRaw, shipNo: $("#noShipNo").value.trim() });
     };
     const showTypes = () => {
       $("#noTypes").innerHTML = types().map((k, i) => `<label class="subj"><input type="radio" name="noType" value="${k}" ${i ? "" : "checked"}><span>${esc(SUBJ[k][0])}</span></label>`).join("");
-      const pick = () => { $("#noSubj").value = KINDS[kind].subject[type()] || SUBJ[type()][1]; touched.clear(); dirty = false; refresh(); };
+      const pick = () => { $("#noSubj").value = kind === "stock_bill" && who ? `Release of Stock-Bill ${who.bill_no}` : KINDS[kind].subject[type()] || SUBJ[type()][1]; touched.clear(); dirty = false; refresh(); };
       $$("input[name=noType]").forEach((r) => (r.onchange = pick));
       pick();
     };
@@ -675,7 +708,16 @@
       box.innerHTML = `Amount due today: <b>₱ ${peso(due.balance_due)}</b>${num(due.days_overdue) > 0 ? ` · <b>${due.days_overdue}</b> day(s) overdue (oldest unpaid invoice ${esc(due.oldest_invoice_no || "")} of ${mdy(due.oldest_invoice_date)})` : num(due.balance_due) > 0 ? "" : " · nothing overdue"}`;
       refresh();
     };
-    // The customer, employee or company the order is for.
+    // A stock-bill's top details, filled in from the stock-bill for its Release Order.
+    const showBill = () => {
+      const box = $("#noDueInfo");
+      box.hidden = !(kind === "stock_bill" && who);
+      if (box.hidden) return;
+      box.innerHTML = `<div class="sb-top">${[["Stock-Bill No", who.bill_no], ["Company", who.company_name], ["Batch No", who.batch_no], ["Total Boxes", who.total_boxes == null ? "" : String(who.total_boxes)],
+        ["Total Qty", qtyText(who.total_qty)], ["Shipment No", who.shipment_no], ["Shipment Date", mdy(who.shipment_date)], ["Bill Cost (BDT)", peso(who.total_cost)]]
+        .map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(v || "—")}</b></div>`).join("")}</div>`;
+    };
+    // The customer, employee, company or stock-bill the order is for.
     const showWho = async (id) => {
       who = null; due = null; dirty = false;
       $("#noDueInfo").hidden = true;
@@ -683,6 +725,22 @@
       if (kind === "customer") {
         box.innerHTML = "";
         E.customerPicker(box, { statuses: ["active", "suspended", "closed"], onPick: (c) => { who = c; dirty = false; showTypes(); loadDue(); }, preset: (id && (await E.getCustomer(id))) || undefined });
+      } else if (kind === "stock_bill") {
+        box.innerHTML = busy();
+        const [{ data, error }, pend] = await Promise.all([
+          sb.from("stock_bill_totals").select("id, bill_no, company_name, supplier_bill_no, batch_no, shipment_no, shipment_date, total_boxes, total_qty, total_cost, status")
+            .in("status", ["shipped", "arrived"]).order("created_at", { ascending: false }),
+          sb.from("order_letters").select("stock_bill_id, order_no").eq("status", "pending").not("stock_bill_id", "is", null)
+        ]);
+        if (error) { box.innerHTML = ""; return fail(error, "Could not load the stock-bills"); }
+        const waiting = new Map((pend.data || []).map((o) => [o.stock_bill_id, o.order_no]));
+        const list = data || [];
+        box.innerHTML = list.length ? `<div class="fields wide"><label for="noPick">Stock-Bill *</label><select id="noPick"><option value="">— Choose an open stock-bill —</option>
+          ${list.map((r) => `<option value="${r.id}" ${waiting.has(r.id) ? "disabled" : r.id === id ? "selected" : ""}>${esc(`${r.bill_no} — ${r.company_name || ""}${r.batch_no ? " · Batch " + r.batch_no : ""}`)} (${esc(waiting.has(r.id) ? `release order ${waiting.get(r.id)} waiting` : String(r.status).toUpperCase())})</option>`).join("")}</select></div>`
+          : `<div class="empty small">No open stock-bills. Only a SHIPPED or ARRIVED stock-bill can be released.</div>`;
+        who = list.find((r) => r.id === id && !waiting.has(r.id)) || null;
+        if ($("#noPick")) $("#noPick").onchange = () => { who = list.find((r) => r.id === $("#noPick").value) || null; dirty = false; showBill(); showTypes(); };
+        showBill();
       } else {
         const emp = kind === "employee";
         box.innerHTML = busy();
@@ -699,7 +757,7 @@
     };
     $$("input[name=noKind]").forEach((r) => (r.onchange = () => { kind = r.value; showWho(null); }));
     ["noAmt", "noN", "noDue", "noInst"].forEach((id) => ($("#" + id).oninput = () => { touched.add(id); refresh(); }));
-    ["noDate", "noEvery", "noReason", "noReason2"].forEach((id) => ($("#" + id).oninput = refresh));
+    ["noDate", "noEvery", "noReason", "noReason2", "noRelDate", "noShipNo", "noShipAmt"].forEach((id) => ($("#" + id).oninput = refresh));
     $$("input[name=noAdj]").forEach((r) => (r.onchange = refresh));
     $("#noReason").onchange = refresh;
     $("#noDetails").oninput = () => (dirty = true);
@@ -711,6 +769,11 @@
       if (!who) return toast(`Choose the ${KINDS[kind].label.toLowerCase()}.`, true);
       if (!types().includes(t)) return toast(`This ${KINDS[kind].label.toLowerCase()} is ${String(who.status).toUpperCase()} — choose one of the orders shown.`, true);
       if (!$("#noSubj").value.trim()) return toast("Enter the subject.", true);
+      if (kind === "stock_bill") {
+        if (!$("#noRelDate").value) return toast("Enter the release date.", true);
+        if (who.shipment_date && $("#noRelDate").value < who.shipment_date) return toast("The release date cannot be before the shipment date.", true);
+        if ($("#noShipAmt").value.trim() === "" || num($("#noShipAmt").value) < 0) return toast("Enter the shipping bill amount (0 if there is none).", true);
+      }
       if (cust && t === "closure" && !reason()) return toast("Choose the reason for closing the account.", true);
       const amtOn = cust && AMOUNT_TYPES.includes(t), amt = num($("#noAmt").value), n = Math.floor(num($("#noN").value));
       if (amtOn && amt <= 0) return toast("Enter the amount.", true);
@@ -721,21 +784,25 @@
       if (!$("#noDetails").value.trim()) return toast(t === "balance_certificate" ? "Write the purpose of the certificate." : "Write the details of the order.", true);
       E.setBusy(e.target, true, "Submitting");
       const { data, error } = await sb.from("order_letters").insert({
-        [kind === "employee" ? "employee_id" : kind === "company" ? "company_id" : "customer_id"]: who.id,
+        [kind === "employee" ? "employee_id" : kind === "company" ? "company_id" : kind === "stock_bill" ? "stock_bill_id" : "customer_id"]: who.id,
         order_date: $("#noDate").value || isoToday(), subject_type: t, subject: $("#noSubj").value.trim(),
         details: $("#noDetails").value.trim(), resolution: $("#noRes").value.trim() || null,
         amount: amtOn ? amt : null, first_due_date: amtOn ? $("#noDue").value || null : null,
         installments: t === "installment" ? n : null, installment_amount: t === "installment" && $("#noInst").value ? num($("#noInst").value) : null,
         installment_every: t === "installment" ? $("#noEvery").value : null, closure_reason: cust && t === "closure" ? reason() : null,
-        adjust_type: t === "settlement" ? adj : null
+        adjust_type: t === "settlement" ? adj : null,
+        ...(kind === "stock_bill" ? { release_date: $("#noRelDate").value, shipping_cost: num($("#noShipAmt").value), shipping_bill_no: $("#noShipNo").value.trim() || null } : {})
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the order"); }
+      // the shipping bill goes with the Release Order
+      const upFail = kind === "stock_bill" ? await E.uploadRecords("order_letter", data.id, "shipping_bill", E.filesOf("noShipFile")) : 0;
+      const upNote = upFail ? " The shipping bill failed to upload: upload it again on the order." : "";
       // The Director's own order is approved and carried out at once.
       if (isAdmin()) {
         const r = await sb.rpc("review_order_letter", { p_id: data.id, p_action: "approve", p_note: null });
         if (r.error) { fail(r.error, `${data.order_no} was saved but could not be carried out`); location.hash = "order/" + data.id; return; }
-        toast(`${data.order_no} carried out — ${r.data.applied_result || "done"}.`);
-      } else toast(`${data.order_no} sent to the Director for approval.`);
+        toast(`${data.order_no} carried out — ${r.data.applied_result || "done"}.${upNote}`, !!upNote);
+      } else toast(`${data.order_no} sent to the Director for approval.${upNote}`, !!upNote);
       location.hash = "order/" + data.id;
     };
   };
@@ -752,7 +819,10 @@
     const tr = (k, html) => `<tr><th>${esc(k)}</th><td>${html}</td></tr>`;
     const php = (n) => `PHP ${peso(n)}`;
     const contact = [w.phone, w.email].filter(Boolean).join(" · ");
-    const info = kind === "employee" ? [["Name of Employee", fullName(w)], ["Employee No", w.employee_no], ["Position", w.position], ["Date Hired", w.date_hired ? E.mdy(w.date_hired) : ""], ["Contact Details", contact], ["Address", w.address]]
+    const si = o.stock_info || {};
+    const info = kind === "stock_bill" ? [["Stock-Bill No", si.bill_no], ["Company", si.company], ["Supplier Bill No", si.supplier_bill_no], ["Batch No", si.batch_no], ["Shipment No", si.shipment_no],
+        ["Shipment Date", si.shipment_date ? E.mdy(si.shipment_date) : ""], ["Total Boxes", si.total_boxes == null ? "" : String(si.total_boxes)], ["Total Qty", si.total_qty == null ? "" : qtyText(si.total_qty)]]
+      : kind === "employee" ? [["Name of Employee", fullName(w)], ["Employee No", w.employee_no], ["Position", w.position], ["Date Hired", w.date_hired ? E.mdy(w.date_hired) : ""], ["Contact Details", contact], ["Address", w.address]]
       : kind === "company" ? [["Name of Company", w.name], ["Contact Person", w.contact_person], ["Address", w.address || w.country], ["Contact Details", w.contact]]
       : [["Name of Customer", fullName(w)], ["Account No", w.account_no], ["Business Name", w.business_name], ["Address", w.address], ["Contact Details", contact]];
     const approved = ["approved", "applied"].includes(o.status), rejected = o.status === "rejected";
@@ -760,7 +830,10 @@
     const overdue = o.days_overdue != null ? tr("No. of Days Overdue", `${o.days_overdue} day(s)`) : "";
     const t = o.subject_type;
     // What the order is about, by kind of order.
-    const about = t === "promise_to_pay" ? `${o.balance_due != null ? tr("Amount Due Today", php(o.balance_due)) : ""}${overdue}
+    const relTotal = num(si.bill_cost) + num(o.shipping_cost);
+    const about = t === "release" ? `${tr("Release Date", `<b>${v(E.mdy(o.release_date))}</b>`)}${tr("Shipping Bill No", v(o.shipping_bill_no))}${tr("Bill Cost", `BDT ${peso(si.bill_cost)}`)}
+        ${tr("Shipping Bill Amount", `BDT ${peso(o.shipping_cost)}`)}${tr("Total Cost", `<b>BDT ${peso(relTotal)}</b> <small>(${esc(words(relTotal, "TAKA"))})</small>`)}`
+      : t === "promise_to_pay" ? `${o.balance_due != null ? tr("Amount Due Today", php(o.balance_due)) : ""}${overdue}
         ${o.amount != null ? tr("Amount to Pay", `<b>${php(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`) : ""}${o.first_due_date ? tr("Promise Date (Due Date)", `<b>${v(E.mdy(o.first_due_date))}</b>`) : ""}`
       : t === "installment" ? `${o.balance_due != null ? tr("Amount Due Today", php(o.balance_due)) : ""}${o.amount != null ? tr("Total Amount", `<b>${php(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`) : ""}
         ${o.installments ? tr("Installments", `${o.installments} × ${php(o.installment_amount)}, ${esc((EVERY[o.installment_every] || EVERY.month).toLowerCase())}`) : ""}${o.first_due_date ? tr("First Due Date", v(E.mdy(o.first_due_date))) : ""}`
@@ -834,10 +907,10 @@
     const { data: o } = await sb.from("order_letters").select(ORDER_ALL).eq("id", id).maybeSingle();
     if (!o) { $("#main").innerHTML = `<div class="empty">Order not found. <a href="#orders">Back</a></div>`; return; }
     const att = await E.attachmentsOf("order_letter", id);
-    const kind = kindOf(o);
-    const w = kind === "employee" ? o.employees : kind === "company" ? o.pay_companies : o.customers;
-    const page = { customer: "customer/" + o.customer_id, employee: "employee/" + o.employee_id, company: "paycompany/" + o.company_id }[kind];
-    const whoHtml = !w ? "—" : `<a href="#${page}"><b>${esc(kind === "company" ? w.name : fullName(w))}</b>${kind === "company" ? "" : ` (${esc(kind === "employee" ? w.employee_no : w.account_no)})`}</a> ${pill(w.status)}`;
+    const kind = kindOf(o), si = o.stock_info || {};
+    const w = kind === "employee" ? o.employees : kind === "company" ? o.pay_companies : kind === "stock_bill" ? { status: o.stock_bills?.status } : o.customers;
+    const page = { customer: "customer/" + o.customer_id, employee: "employee/" + o.employee_id, company: "paycompany/" + o.company_id, stock_bill: "stockbill/" + o.stock_bill_id }[kind];
+    const whoHtml = kind === "stock_bill" ? `<a href="#${page}"><b>${esc(si.bill_no || "")}</b> (${esc(si.company || "")})</a> ${w.status ? pill(w.status) : ""}` : !w ? "—" : `<a href="#${page}"><b>${esc(kind === "company" ? w.name : fullName(w))}</b>${kind === "company" ? "" : ` (${esc(kind === "employee" ? w.employee_no : w.account_no)})`}</a> ${pill(w.status)}`;
     const closeTo = E.canOpen("orders") ? "orders" : page;
     $(".band h1").textContent = `Order — ${o.order_no}`;
     const banner = {
@@ -853,16 +926,20 @@
           <span>Subject</span><b>${esc(o.subject)}</b><span>Order Date</span><span>${mdy(o.order_date)}</span>
           <span>Prepared By</span><span>${esc(o.created_by_name || "")}</span></div>
           <div class="fields wide">${o.balance_due != null ? `<span>Amount Due</span><span>₱ ${peso(o.balance_due)}${o.days_overdue ? ` · ${o.days_overdue} day(s) overdue` : ""}</span>` : ""}
+            ${o.subject_type === "release" ? `<span>Release Date</span><b>${mdy(o.release_date)}</b><span>Shipping Bill</span><span>${o.shipping_bill_no ? esc(o.shipping_bill_no) + " · " : ""}BDT ${peso(o.shipping_cost)}</span>
+              <span>Bill Cost</span><span>BDT ${peso(si.bill_cost)}</span><span>Total Cost</span><b>BDT ${peso(num(si.bill_cost) + num(o.shipping_cost))}</b>` : ""}
             ${o.closure_reason ? `<span>Reason for Closure</span><b>${esc(o.closure_reason)}</b>` : ""}${o.amount != null ? `<span>${o.subject_type === "promise_to_pay" ? "Amount to Pay" : o.subject_type === "charge" ? "Charge Amount" : o.subject_type === "settlement" ? "Adjustment" : "Amount"}</span><b>${o.subject_type === "settlement" ? `${ADJ[o.adjust_type]?.[0] || ""} ` : ""}₱ ${peso(o.amount)}</b>` : ""}
             ${["charge", "settlement"].includes(o.subject_type) && o.balance_due != null ? `<span>New Balance</span><b>₱ ${peso(num(o.balance_due) + (o.adjust_type === "reduce" ? -1 : 1) * num(o.amount))}</b>` : ""}
             ${o.installments ? `<span>Installments</span><span>${o.installments} × ₱ ${peso(o.installment_amount)}, ${esc((EVERY[o.installment_every] || EVERY.month).toLowerCase())}</span>` : ""}${o.first_due_date ? `<span>${o.subject_type === "installment" ? "First Due Date" : "Due Date"}</span><span>${mdy(o.first_due_date)}</span>` : ""}</div></div>
         <div class="letter-box"><div class="lb-h">Details</div><p>${esc(o.details || "").replace(/\n/g, "<br>")}</p>${o.resolution ? `<div class="lb-h">Resolution / Terms</div><p>${esc(o.resolution).replace(/\n/g, "<br>")}</p>` : ""}</div>
         <div class="docgrid">${E.docCard({ key: "ol", title: `${o.subject_type === "balance_certificate" ? "Account Balance Certificate" : "Order"} ${o.order_no}`, sub: "Print it, have it signed, then upload the signed copy", ownerType: "order_letter", ownerId: o.id, att, print: () => E.openPreview(`Order ${o.order_no}`, [letterPage(o)]) })}</div>
+        ${att.some((a) => a.kind !== "signed_form") ? `<div class="sb-subh">Files</div>${E.filesHtml(att.filter((a) => a.kind !== "signed_form"))}` : ""}
         ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>Director's Approval</legend><div class="fields wide"><label for="olNote">Note</label><input type="text" id="olNote" placeholder="Optional"></div>
           <div class="btnrow"><button type="button" class="btn ok" id="olApprove">${ic("check")} ${o.subject_type === "balance_certificate" ? "Approve &amp; Issue" : "Approve &amp; Carry Out"}</button><button type="button" class="btn danger" id="olReject">Reject</button></div></fieldset>` : ""}
         ${rhBox("order_letters", o.id)}
       </div><div class="wfoot">${recordTools("order_letters", o, `Order ${o.order_no}`, { reload: () => V.order(id), afterDelete: () => (location.hash = closeTo) })}<a class="btn" href="#${closeTo}">Close</a></div></div>`;
     E.bindDocCards($("#main"), () => V.order(id));
+    E.bindFiles($("#main"));
     bindRecordTools($("#main"));
     const review = async (action) => {
       const { data: r, error } = await sb.rpc("review_order_letter", { p_id: id, p_action: action, p_note: $("#olNote").value.trim() || null });
@@ -882,7 +959,8 @@
     "Customer Account": ["customers", "account_no", "customer"], Invoice: ["customer_invoices", "invoice_no", "invoice"], "Payment Receipt": ["payments_received", "receipt_no", "payment"],
     "Credit Memo": ["credit_memos", "memo_no", "creditmemo"], "Statement of Account": ["statements", "statement_no", "customer", "customer_id"], "Order Letter": ["order_letters", "order_no", "order"],
     "Payment Voucher": ["pay_vouchers", "voucher_no", "voucher"], Payslip: ["payslips", "payslip_no", "payslip"], "Job Application": ["job_applications", "application_no", "jobapp"],
-    Employee: ["employees", "employee_no", "employee"], Project: ["projects", "project_no", "project"], "Project Payment": ["project_payments", "payment_no", "project", "project_id"]
+    Employee: ["employees", "employee_no", "employee"], Project: ["projects", "project_no", "project"], "Project Payment": ["project_payments", "payment_no", "project", "project_id"],
+    "Stock-Bill Statistics": ["stock_bills", "bill_no", "stockbill"]
   };
   const verifyUrl = (no) => `${location.origin}${location.pathname}#verify/${encodeURIComponent(no)}`;
   V.verify = async (code) => {
@@ -926,7 +1004,7 @@
         <div class="vf-title">RECORD FOUND</div>
         <div class="vf-sub">VERIFIED BY ${esc(C.company.name)}</div>
         <div class="vf-type">${esc(data.type)} · <b class="mono">${esc(data.number)}</b> ${data.status ? pill(data.status) : ""}</div>
-        <table class="vf-fields"><tbody>${(data.fields || []).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(E.fixDates(v))}</td></tr>`).join("")}</tbody></table>
+        <table class="vf-fields"><tbody>${(data.fields || []).map(([k, v]) => `<tr class="${/^Net (Profit|Loss)/.test(k) ? "vf-hl" : ""}"><th>${esc(k)}</th><td>${esc(E.fixDates(v))}</td></tr>`).join("")}</tbody></table>
         <div class="vf-when">Checked ${esc(E.dateTime(checked.toISOString()))}</div>
         ${inside ? `<div class="btnrow center"><button type="button" class="btn primary" id="vfPrint">${ic("print")} Validated Print</button>${OPEN[data.type] ? `<button type="button" class="btn" id="vfOpen">${ic("eye")} Open Record</button>` : ""}</div>` : ""}</div>`;
       if ($("#vfPrint")) $("#vfPrint").onclick = () => validatedPrint(data, checked);
@@ -960,7 +1038,8 @@
     const idLabel = d.type === "Customer Account" ? "Customer ID" : idField ? idField[0] : "Record No";
     const who = fields.find(([k]) => ["Account Name", "Customer", "Received From", "Employee", "Name", "Applicant", "Paid To", "Account", "Company"].includes(k));
     const rest = fields.filter((f) => f !== idField);
-    const key = d.type === "Customer Account" ? (fields.find(([k]) => k === "Public ID") || [])[1] : null;
+    // the QR code checks the record again: a customer by the Public ID key, a stock-bill only by its secret code
+    const key = d.type === "Customer Account" ? (fields.find(([k]) => k === "Public ID") || [])[1] : d.type === "Stock-Bill Statistics" ? (fields.find(([k]) => k === "Secret Code") || [])[1] : null;
     const row = (k, v) => `<tr><th>${esc(k)}</th><td${k === "Public ID" ? ' class="key"' : ""}>${esc(v)}</td></tr>`;
     const rows = rest.map(([k, v]) => row(k, E.fixDates(plain(v)))).join("");
     const page = `<div class="vp">${E.printHead(`VERIFIED BY ${C.company.name}`)}
