@@ -789,7 +789,7 @@
         { label: "PHP", num: true, get: (r) => peso(r.amount_php) }, { label: "Rate", num: true, get: (r) => Number(r.exchange_rate).toFixed(4) }, { label: "BDT", num: true, html: (r) => `<b>${peso(r.amount_bdt)}</b>` }],
       rows,
       summary: { title: "Monthly Totals", cols: ["Month", "Vouchers", "PHP", "BDT"], rows: [...byMonth].map(([m, t]) => [monthLabel(m + "-01"), String(t[0]), peso(t[1]), peso(t[2])]), total: ["Total:", String(rows.length), peso(rows.reduce((s, v) => s + num(v.amount_php), 0)), peso(rows.reduce((s, v) => s + num(v.amount_bdt), 0))] },
-      criteria: `Company: ${c.name}\nRange: ${range}`
+      criteria: `Company: ${c.name}\nRange: ${range}`, logo: true
     }));
   }
 
@@ -861,21 +861,22 @@
     E.setRecords("New payment voucher");
   };
 
-  // The voucher: BDT amount highlighted, PDF417 barcode, receipt fitted on the page, "Issued by" signature only.
+  // The voucher: PDF417 barcode, BDT amount a little bigger, receipt photo fitted in its box.
+  // System-generated: no signature line.
   function voucherPage(v, receiptUrl) {
     const a = v.pay_accounts || {};
     return `${E.printHead("PAYMENT VOUCHER", `<img src="${E.pdf417DataUrl("EMONBD|" + v.voucher_no)}" alt="" class="ph-bar"><div class="mono">${esc(v.voucher_no)}</div>`)}
-      <div class="vno-row"><span>Voucher No: <b>${esc(v.voucher_no)}</b></span><span>Date: <b>${esc(E.dShort(v.pay_date))}</b></span></div>
+      <div class="vno-row"><span>Voucher No: <b>${esc(v.voucher_no)}</b></span><span>Issued by: <b>${esc(v.created_by_name || "")}</b></span><span>Date: <b>${esc(E.dShort(v.pay_date))}</b></span></div>
       ${E.box("Paid To", `<div class="pgrid2">${E.cell("Company", v.pay_companies?.name, "hl")}${E.cell("Account Name", a.account_name)}${E.cell("Account Number", a.account_number)}${E.cell("Bank / Branch", [a.bank_name, a.branch_name].filter(Boolean).join(" — "))}</div>`)}
       ${E.box("Payment", `<div class="prow3">${E.cell("Purpose", v.purpose)}${E.cell("Method", v.method)}${E.cell("Reference No", v.reference_no)}</div>
         <table class="rp v-amt"><tbody>
           <tr><td>Amount (Philippine Peso)</td><td class="num">PHP ${peso(v.amount_php)}</td></tr>
           <tr><td>Exchange Rate (BDT per 1 PHP)</td><td class="num">× ${Number(v.exchange_rate).toFixed(4)}</td></tr>
-          <tr class="v-bdt"><td>AMOUNT (BANGLADESHI TAKA)</td><td class="num">BDT ${peso(v.amount_bdt)}</td></tr></tbody></table>
+          <tr class="v-bdt"><td>Amount (Bangladeshi Taka)</td><td class="num">BDT ${peso(v.amount_bdt)}</td></tr></tbody></table>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(v.amount_bdt, "TAKA"))}</div></div>`)}
       ${receiptUrl ? `<div class="pbox v-rcpt"><div class="pbox-h">Receipt</div><div class="v-rcpt-in"><img src="${esc(receiptUrl)}" alt="Receipt"></div></div>` : ""}
       ${v.notes ? `<p class="pdecl"><b>Notes:</b> ${esc(v.notes)}</p>` : ""}
-      <div class="psig one"><div><div class="line"></div>Issued by: <b>${esc(v.created_by_name || "")}</b> / Date</div></div>
+      <div class="soa-sys">This is a system-generated voucher. No signature is required.</div>
       <div class="rp-foot"><span>Scan the barcode in the ${esc(E.APP)} to verify this voucher.</span><span>${esc(v.voucher_no)}</span></div>`;
   }
   V.voucher = async (id) => {

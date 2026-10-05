@@ -676,11 +676,12 @@
   // ======================================================================
   const monthStart = (iso) => String(iso).slice(0, 7) + "-01";
   const nextMonth = (iso) => { const d = new Date(monthStart(iso) + "T00:00:00"); d.setMonth(d.getMonth() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; };
+  const dayBefore = (iso) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const monthName = (iso) => new Date(monthStart(iso) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
   // Same rules as the database: invoices debit; payments and approved credit/discount memos credit (on approval date).
   function txnsOf(invs, pays, memos) {
     const t = [];
-    invs.forEach((i) => t.push({ date: i.invoice_date, ref: i.invoice_no, desc: `Invoice${i.po_number ? " — PO " + i.po_number : ""} (${i.total_boxes || 0} box / ${i.total_pcs || 0} pcs)`, debit: num(i.total_amount), credit: 0, inv: i }));
+    invs.forEach((i) => t.push({ date: i.invoice_date, ref: i.invoice_no, desc: `Invoice${i.po_number ? " — PO " + i.po_number : ""}`, debit: num(i.total_amount), credit: 0, inv: i }));
     pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: `Payment — ${METHOD[p.method] || p.method}${p.bank_name ? " " + p.bank_name : ""}${p.reference_no ? " Ref " + p.reference_no : ""}`, debit: 0, credit: num(p.amount), pay: p }));
     memos.filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action) && m.approved_at)
       .forEach((m) => t.push({ date: String(m.approved_at).slice(0, 10), ref: m.memo_no, desc: `Credit Memo — ${ACTION[m.requested_action]}${m.article ? " (" + m.article + ")" : ""}`, debit: 0, credit: num(m.request_amount) }));
@@ -755,16 +756,24 @@
     E.openPreview(`SOA ${p.no || monthName(p.start)}`, soaPages(c, p, txns, images));
   }
 
+  // One SOA for every month, from the month the account opened (or its first record) to this month.
+  // A month's saved statement is used when there is one; this month runs to date.
   async function renderSoaTab(c, invs, pays, memos) {
     const box = $("#pfSoa"); if (!box) return;
-    const { data } = await sb.from("statements").select("*").eq("customer_id", c.id).order("period_start", { ascending: false }).limit(3);
+    const { data } = await sb.from("statements").select("*").eq("customer_id", c.id).order("period_start");
     const txns = txnsOf(invs, pays, memos);
     const cm = monthStart(isoToday());
-    const live = { start: cm, end: isoToday(), opening: before(txns, cm), live: true, no: soaNo(cm, c) };
-    const st = (data || []).map((s) => ({ start: s.period_start, end: s.period_end, opening: num(s.opening_balance), closing: num(s.closing_balance), no: s.statement_no, debit: num(s.total_debit), credit: num(s.total_credit) }));
-    const lt = within(txns, live.start, live.end);
-    live.debit = lt.reduce((s, x) => s + x.debit, 0); live.credit = lt.reduce((s, x) => s + x.credit, 0); live.closing = live.opening + live.debit - live.credit;
-    const rows = [live, ...st];
+    const saved = new Map((data || []).map((s) => [s.period_start, s]));
+    const rows = [];
+    for (let m = [monthStart(c.application_date || cm), txns.length ? monthStart(txns[0].date) : cm, ...saved.keys()].sort()[0]; m <= cm; m = nextMonth(m)) {
+      const s = saved.get(m);
+      if (s) { rows.push({ start: s.period_start, end: s.period_end, opening: num(s.opening_balance), closing: num(s.closing_balance), no: s.statement_no, debit: num(s.total_debit), credit: num(s.total_credit) }); continue; }
+      const end = m === cm ? isoToday() : dayBefore(nextMonth(m));
+      const t = within(txns, m, end), opening = before(txns, m);
+      const debit = t.reduce((x, y) => x + y.debit, 0), credit = t.reduce((x, y) => x + y.credit, 0);
+      rows.push({ start: m, end, opening, debit, credit, closing: opening + debit - credit, no: soaNo(m, c), live: m === cm });
+    }
+    rows.reverse();
     box.innerHTML = `<div class="btnrow"><button type="button" class="btn" id="soaAll">${ic("print")} Print All Transactions</button>${isAdmin() ? `<a class="btn" href="#statements">All Statements (CEO)</a>` : ""}</div>
       ${E.grid({ cols: [
         { label: "Period", get: (r) => r.live ? `${monthName(r.start)} (to date)` : monthName(r.start) }, { label: "Statement No", get: (r) => r.no },
@@ -1091,16 +1100,16 @@
     bindTools($("#main"));
     E.setRecords(`Receipt: ${p.receipt_no}`);
   };
+  // System-generated: no signature lines.
   function ackPage(p) {
     const c = p.customers;
     return `${printHead("ACKNOWLEDGMENT RECEIPT", `<img src="${E.pdf417DataUrl("EMONPAY|" + p.receipt_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.receipt_no)}</div>`)}
-      <div class="ack-ok">PAYMENT SUCCESSFULLY RECEIVED</div>
-      ${box("Received From", `<div class="pgrid2">${cell("Customer Name", fullName(c))}${cell("Account No", c.account_no)}${cell("Date Paid", dmy(p.paid_date), "span2")}</div>`)}
+      ${box("Received From", `<div class="pgrid2">${cell("Customer Name", fullName(c))}${cell("Account No", c.account_no)}${cell("Date Paid", dmy(p.paid_date))}${cell("Received & Verified By", p.created_by_name)}</div>`)}
       ${box("Payment Details", `<div class="prow3">${cell("Amount (₱)", peso(p.amount))}${cell("Method", METHOD[p.method])}${cell("Reference No", p.reference_no)}</div>
         <div class="prow3">${cell("Bank", p.bank_name)}${cell("Deposit Account", p.bank_account)}${cell("Applied to Invoice", p.invoices?.invoice_no || "General payment")}</div>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(p.amount))}</div></div>`)}
       <p class="pdecl">This acknowledges that ${esc(C.company.name)} has received the payment above. Receipt No ${esc(p.receipt_no)}.</p>
-      ${sigs(`Received &amp; verified by: <b>${esc(p.created_by_name || "")}</b>`, "Customer Signature / Date")}`;
+      <div class="soa-sys">This is a system-generated receipt. No signature is required.</div>`;
   }
 
   // ======================================================================

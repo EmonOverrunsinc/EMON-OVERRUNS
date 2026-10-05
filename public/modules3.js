@@ -789,22 +789,23 @@
     };
     if (code) run(code); else $("#vfCode").focus();
   };
-  // "Transaction Receipt" slip: company name, details, verified line and the temporary-receipt notice.
+  // Validated Print (A4): company head, "VERIFIED RECORD BY …", the TRUE RECORD seal, the record's details, then the
+  // validation number, time, the employee who printed it and a QR code to check it online. System-generated: no signature.
   function validatedPrint(d, when) {
     const vno = "V" + when.toISOString().replace(/\D/g, "").slice(2, 14);
-    const page = `<div class="tr-slip">
-      <div class="tr-head"><div class="tr-logo">${E.logoHtml("tr-logo-img")}</div><div><div class="tr-co">${esc(C.company.name)}</div>
-        <div class="tr-addr">${esc(C.company.address.join(", "))} · ${esc(C.company.email)} · ${esc(C.company.phone)}</div></div></div>
-      <div class="tr-title">Transaction Receipt</div>
-      <div class="tr-body"><table class="tr-fields"><tbody>
-          <tr><th>Record Type</th><td>${esc(d.type)}</td></tr><tr><th>Record No</th><td><b>${esc(d.number)}</b></td></tr>
-          ${(d.fields || []).filter(([, v]) => String(v) !== String(d.number)).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v ?? "")}</td></tr>`).join("")}
-        </tbody></table>
-        <div class="tr-qr"><img src="${E.qrDataUrl(verifyUrl(d.number))}" alt="Verification QR"><small>Scan to verify online</small></div></div>
-      <div class="tr-verified">✔ TRUE RECORD — VERIFIED BY ${esc(E.APP)}<span>Validated ${esc(E.dateTime(when.toISOString()))} · Validation No ${esc(vno)}</span></div>
-      <div class="tr-note">THIS ACKNOWLEDGEMENT WILL SERVE AS A TEMPORARY RECEIPT. FOR RECORD USE ONLY — NOT VALID AS AN OFFICIAL RECEIPT. ASK FOR THE ORIGINAL RECEIPT. THANK YOU.</div>
-    </div>`;
-    E.openPreview(`Validated ${d.number}`, [page], { size: "a5l" });
+    const at = E.dateTime(when.toISOString());
+    // Stored codes in plain words (cash → Cash); empty values are left out.
+    const plain = (v) => /^[a-z][a-z ]*$/.test(String(v)) ? String(v).replace(/\b[a-z]/g, (x) => x.toUpperCase()) : String(v);
+    const fields = (d.fields || []).filter(([, v]) => v != null && !["", "—", "-"].includes(String(v).trim()) && String(v) !== String(d.number));
+    const row = (k, v) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`;
+    const page = `${E.printHead(`VERIFIED RECORD BY ${C.company.name}`)}
+      <div class="vp-true"><span class="vp-seal">✔</span><div><b>TRUE RECORD</b><small>Checked in the ${esc(E.APP)} on ${esc(at)}</small></div></div>
+      ${E.box("Record Details", `<table class="vp-fields"><tbody>${row("Record Type", d.type)}${row("Record No", d.number)}
+        ${fields.map(([k, v]) => row(k, plain(v))).join("")}${d.status ? row("Status", String(d.status).toUpperCase()) : ""}</tbody></table>`)}
+      ${E.box("Validation", `<div class="vp-valid"><table class="vp-fields"><tbody>${row("Validation No", vno)}${row("Validated On", at)}${row("Validated By", S.profile?.full_name || "")}</tbody></table>
+        <div class="vp-qr"><img src="${E.qrDataUrl(verifyUrl(d.number))}" alt="Verification QR code"><small>Scan to verify online</small></div></div>`)}
+      <div class="vp-sys">This is a system-generated document. No signature is required.</div>`;
+    E.openPreview(`Validated ${d.number}`, [page]);
   }
 
   // ======================================================================

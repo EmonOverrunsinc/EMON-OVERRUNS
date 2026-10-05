@@ -874,8 +874,13 @@
   }
 
   // AutoCount-style listing: stamp, title, range, company line with Page X of Y, rows, then summary, End of Report and criteria.
-  function listingPages({ title, range, cols, rows, summary, criteria, perPage = 28 }) {
+  // logo: the company logo, name and address head every page.
+  function listingPages({ title, range, cols, rows, summary, criteria, perPage = 28, logo = false }) {
     const now = stamp();
+    const stampHtml = `<div class="rp-stamp">Date : ${now}<br>User ID : ${esc((S.profile?.full_name || "").toUpperCase())}</div>`;
+    const top = logo
+      ? `<div class="rp-brand">${logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</div></div>${stampHtml}</div>`
+      : stampHtml;
     const chunks = [];
     for (let i = 0; i < rows.length; i += perPage) chunks.push(rows.slice(i, i + perPage));
     if (!chunks.length) chunks.push([]);
@@ -888,10 +893,10 @@
           : `<tr>${cols.map((c) => `<td class="${c.num ? "num" : ""}">${c.html ? c.html(r) : esc(c.get(r))}</td>`).join("")}</tr>`).join("")
         : `<tr><td colspan="${cols.length}" style="padding:16px 3px">No records in this range.</td></tr>`;
       return `
-        <div class="rp-stamp">Date : ${now}<br>User ID : ${esc((S.profile?.full_name || "").toUpperCase())}</div>
+        ${top}
         <div class="rp-title">${esc(title)}</div>
         <div class="rp-range">${range}</div>
-        <div class="rp-co"><span>${esc(C.company.name)} — ${esc(C.company.address.join(", "))}</span><span>Page ${pi + 1} of ${chunks.length}</span></div>
+        <div class="rp-co"><span>${logo ? "" : `${esc(C.company.name)} — ${esc(C.company.address.join(", "))}`}</span><span>Page ${pi + 1} of ${chunks.length}</span></div>
         <table class="rp"><thead>${head}</thead><tbody>${body}</tbody></table>
         ${last ? `
           <div class="rp-double"></div>
