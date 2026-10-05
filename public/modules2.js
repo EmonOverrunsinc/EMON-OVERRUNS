@@ -674,7 +674,7 @@
   const bdt = (n) => `BDT ${peso(n)}`;
   const RATE_KEY = "eoLastRate";
   const lastRate = () => { try { return localStorage.getItem(RATE_KEY) || ""; } catch (_) { return ""; } };
-  const CUR = { PHP: "PHP only", BDT: "BDT only", BOTH: "PHP and BDT" };
+  const CUR = { PHP: "PHP", BDT: "BDT", BOTH: "PHP and BDT" };
   const curOf = (c) => (c && CUR[c.currency] ? c.currency : "BOTH");
   const showPhp = (cur) => cur !== "BDT";
   const showBdt = (cur) => cur !== "PHP";
@@ -719,7 +719,7 @@
   };
 
   const curChoice = (name, on = "BOTH") => `<div class="subj-grid">${Object.entries(CUR).map(([k, l]) => `<label class="subj"><input type="radio" name="${name}" value="${k}" ${k === on ? "checked" : ""}><span>${esc(l)}</span></label>`).join("")}</div>
-    <small class="muted">PHP only or BDT only: you type the amount in that currency. PHP and BDT: you type PHP and the exchange rate, and the BDT amount is worked out.</small>`;
+    <small class="muted">PHP or BDT: you type the amount in that currency. PHP and BDT: you type PHP and the exchange rate, and the BDT amount is worked out.</small>`;
   V.newpaycompany = () => {
     if (!E.canWrite("billing")) { location.hash = "billing"; return; }
     E.shell("newpaycompany", "Billing — Add Company", `

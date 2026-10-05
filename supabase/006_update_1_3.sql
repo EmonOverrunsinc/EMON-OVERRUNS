@@ -16,7 +16,7 @@ alter table public.pay_companies add constraint pay_companies_currency_check che
 alter table public.pay_companies add column if not exists address text;
 alter table public.pay_companies add column if not exists contact_person text;
 
--- A voucher is in the company's currency: PHP only, BDT only, or PHP × rate = BDT.
+-- A voucher is in the company's currency: PHP, BDT, or PHP and BDT (PHP × rate = BDT).
 alter table public.pay_vouchers alter column amount_bdt drop expression if exists;
 alter table public.pay_vouchers alter column amount_php drop not null;
 alter table public.pay_vouchers alter column exchange_rate drop not null;
