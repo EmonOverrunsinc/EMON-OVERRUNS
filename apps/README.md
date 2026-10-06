@@ -15,7 +15,7 @@ The Setup program installs for the signed-in Windows user, with no administrator
 desktop shortcuts, and an uninstaller in **Settings › Apps**.
 
 GitHub builds it when `apps/windows` changes (`.github/workflows/windows-app.yml`): open **Actions › Windows app**,
-then the newest run, and download **EMON-OVERRUNS-E-Portal-Setup-Windows** under Artifacts (sign in to GitHub).
+then the newest run, and download **EMON-OVERRUNS-E-Portal-Setup-<version>.exe** under Artifacts (sign in to GitHub).
 Artifacts are kept for 90 days, so keep a copy of the installer.
 
 Build it yourself (Linux, macOS or Windows; needs Node.js and NSIS's `makensis`):

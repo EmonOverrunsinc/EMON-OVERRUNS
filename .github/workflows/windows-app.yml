@@ -1,4 +1,4 @@
-# Builds the Windows Setup program (apps/windows) and keeps it as a download on the run:
+# Builds the Windows Setup program (apps/windows) and keeps the .exe as a download on the run:
 # Actions › Windows app › the newest run › Artifacts (sign in to GitHub to download it).
 name: Windows app
 
@@ -11,11 +11,11 @@ on:
 jobs:
   windows:
     name: Windows Setup
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
 
@@ -28,9 +28,10 @@ jobs:
           npm ci --no-audit --no-fund
           bash build.sh
 
-      - uses: actions/upload-artifact@v4
+      # the .exe itself (not zipped): the download is named after the file
+      - uses: actions/upload-artifact@v7
         with:
-          name: EMON-OVERRUNS-E-Portal-Setup-Windows
           path: apps/windows/dist/EMON-OVERRUNS-E-Portal-Setup-*.exe
+          archive: false
+          if-no-files-found: error
           retention-days: 90
-          compression-level: 0
