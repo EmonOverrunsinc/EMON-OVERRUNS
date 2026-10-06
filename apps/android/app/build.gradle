@@ -1,0 +1,37 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.emonoverruns.eportal"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.emonoverruns.eportal"
+        minSdk 21
+        targetSdk 35
+        versionCode 1
+        versionName "1.3"
+    }
+
+    // The release key is not in this public repository: the APK is signed after the build (see apps/README.md).
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation "com.google.androidbrowserhelper:androidbrowserhelper:2.5.0"
+}

@@ -1,1 +1,9 @@
 node_modules/
+*.jks
+*.keystore
+apps/android/build.log
+apps/android/.gradle/
+apps/android/app/build/
+apps/android/build/
+apps/windows/node_modules/
+apps/windows/dist/

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appName">EMON OVERRUNS E-Portal</string>
+    <string name="launcherName">E-Portal</string>
+    <string name="launchUrl">https://emon-overruns.vercel.app/#dashboard</string>
+    <string name="webManifestUrl">https://emon-overruns.vercel.app/manifest.webmanifest</string>
+    <string name="providerAuthority">com.emonoverruns.eportal.fileprovider</string>
+    <!-- The E-Portal site confirms this app in /.well-known/assetlinks.json, so it opens full screen. -->
+    <string name="assetStatements" translatable="false">
+        [{ \"relation\": [\"delegate_permission/common.handle_all_urls\"],
+           \"target\": { \"namespace\": \"web\", \"site\": \"https://emon-overruns.vercel.app\" } }]
+    </string>
+</resources>

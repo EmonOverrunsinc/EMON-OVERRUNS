@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.emonoverruns.eportal",
+      "sha256_cert_fingerprints": ["E1:FD:B2:70:BC:81:14:0D:D6:35:65:CE:D8:4E:AA:D5:90:9F:32:31:E4:53:AA:BD:16:34:32:0B:0E:A0:B8:2A"]
+    }
+  }
+]
