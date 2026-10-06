@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EMON OVERRUNS E-Portal — No connection</title>
+<style>
+  :root { --ink: #1b2a41; --muted: #5b6b82; --brand: #1f4a8c; --bg: #ffffff; --card: #f3f6fb; }
+  @media (prefers-color-scheme: dark) { :root { --ink: #e8eef8; --muted: #a9b6c9; --brand: #7aa7ec; --bg: #10161f; --card: #19212d; } }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 16px/1.5 "Segoe UI", system-ui, sans-serif; }
+  main { min-height: 100%; display: grid; place-items: center; padding: 24px; box-sizing: border-box; }
+  .card { max-width: 440px; text-align: center; background: var(--card); border-radius: 16px; padding: 32px 28px; }
+  img { width: 120px; height: 120px; border-radius: 16px; background: #fff; }
+  h1 { font-size: 22px; margin: 16px 0 8px; }
+  p { color: var(--muted); margin: 0 0 20px; }
+  button { font: inherit; font-weight: 600; color: #fff; background: var(--brand); border: 0; border-radius: 10px; padding: 10px 28px; cursor: pointer; }
+  small { display: block; margin-top: 14px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <img src="icon.png" alt="EMON OVERRUNS">
+    <h1>No internet connection</h1>
+    <p>The E-Portal needs the internet. Check the Wi-Fi or cable, then try again.</p>
+    <button id="retry" type="button">Try Again</button>
+    <small>The E-Portal opens by itself when the connection is back.</small>
+  </div>
+</main>
+<script>
+  const target = new URLSearchParams(location.search).get("u") || "https://emon-overruns.vercel.app/#dashboard";
+  const go = () => { location.href = target; };
+  document.getElementById("retry").onclick = go;
+  window.addEventListener("online", go);
+  setInterval(() => { if (navigator.onLine) go(); }, 15000);
+</script>
+</body>
+</html>

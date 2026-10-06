@@ -55,8 +55,15 @@ run it again after any later update that replaces a function, so the replaced fu
 - **Preview** shows the report on A4 paper. **Print / Save PDF** opens the browser's print dialog.
 - Scan the PDF417 on any printed voucher in **Search** to jump straight to the record.
 
+## Apps for Windows and Android
+- **Windows 11**: `EMON-OVERRUNS-E-Portal-Setup-<version>.exe` installs the E-Portal as an app, with a desktop shortcut.
+- **Android**: `EMON-OVERRUNS-E-Portal-<version>.apk` opens the E-Portal full screen in Chrome.
+- How they are built and signed: [apps/README.md](apps/README.md).
+
 ## Files
 - `public/index.html`, `app.js`, `modules.js` to `modules4.js`, `styles.css`: the app
 - `public/config.js`: Supabase URL, publishable key and company details
 - `public/vendor/`: bundled libraries (supabase-js, bwip-js for PDF417, ZXing scanner, Chart.js)
 - `supabase/portal_init.sql`: database setup
+- `public/.well-known/assetlinks.json`: lets the Android app open the E-Portal full screen
+- `apps/windows/`, `apps/android/`: the Windows and Android apps
