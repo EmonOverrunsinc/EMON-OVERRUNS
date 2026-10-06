@@ -232,6 +232,11 @@ $$;
 drop trigger if exists stock_bill_entries_ai on public.stock_bill_entries;
 create trigger stock_bill_entries_ai after insert on public.stock_bill_entries for each row execute function public.stock_bill_entries_after_insert();
 
+revoke execute on function public.stock_bills_before_insert() from public, anon, authenticated;
+revoke execute on function public.stock_bills_after_insert() from public, anon, authenticated;
+revoke execute on function public.stock_bill_entries_before_insert() from public, anon, authenticated;
+revoke execute on function public.stock_bill_entries_after_insert() from public, anon, authenticated;
+
 -- ---------- 4. status: ARRIVED and SOLD (inventory staff), PAID (the Director) ----------
 create or replace function public.stock_bill_action(p_id uuid, p_action text, p_note text default null) returns public.stock_bills
 language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
