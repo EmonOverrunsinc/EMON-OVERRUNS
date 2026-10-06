@@ -1,19 +1,17 @@
-# Builds the Android app (apps/android) as an unsigned APK and puts it on a draft release.
-# The release key is kept by EMON OVERRUNS, not in this public repository: the APK is signed after download
-# (see apps/README.md).
+# Builds the Android app (apps/android) as an unsigned APK and keeps it, with the build log, as a download on
+# the run (Actions › Android app › the newest run › Artifacts). The release key is kept by EMON OVERRUNS, not in
+# this public repository: the APK is signed after download (see apps/README.md).
 name: Android app
 
 on:
   push:
-    branches: [main, apps]
+    branches: [main]
     paths: ["apps/android/**", ".github/workflows/android-app.yml"]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  build:
+  android:
+    name: Android APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,14 +27,11 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon assembleRelease 2>&1 | tee build.log
 
-      - name: Put the APK and the build log on a draft release
+      - uses: actions/upload-artifact@v4
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          files="apps/android/build.log"
-          apk=apps/android/app/build/outputs/apk/release/app-release-unsigned.apk
-          if [ -f "$apk" ]; then cp "$apk" E-Portal-unsigned.apk; files="$files E-Portal-unsigned.apk"; fi
-          gh release create "android-build-${{ github.run_number }}" $files --draft --target "${{ github.sha }}" \
-            --title "Android build ${{ github.run_number }} (unsigned)" \
-            --notes "Unsigned build of ${{ github.sha }}. Sign it with the EMON OVERRUNS release key before installing."
+        with:
+          name: E-Portal-Android-unsigned
+          path: |
+            apps/android/app/build/outputs/apk/release/app-release-unsigned.apk
+            apps/android/build.log
+          retention-days: 90

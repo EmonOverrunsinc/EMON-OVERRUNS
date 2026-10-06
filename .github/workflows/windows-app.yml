@@ -1,0 +1,36 @@
+# Builds the Windows Setup program (apps/windows) and keeps it as a download on the run:
+# Actions › Windows app › the newest run › Artifacts (sign in to GitHub to download it).
+name: Windows app
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/windows/**", ".github/workflows/windows-app.yml"]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Windows Setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install NSIS
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nsis
+
+      - name: Build the Setup program
+        working-directory: apps/windows
+        run: |
+          npm ci --no-audit --no-fund
+          bash build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EMON-OVERRUNS-E-Portal-Setup-Windows
+          path: apps/windows/dist/EMON-OVERRUNS-E-Portal-Setup-*.exe
+          retention-days: 90
+          compression-level: 0

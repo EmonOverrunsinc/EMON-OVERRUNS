@@ -14,7 +14,11 @@ An Electron window with the E-Portal:
 The Setup program installs for the signed-in Windows user, with no administrator rights. It adds Start menu and
 desktop shortcuts, and an uninstaller in **Settings › Apps**.
 
-Build (Linux, macOS or Windows; needs Node.js and NSIS's `makensis`):
+GitHub builds it when `apps/windows` changes (`.github/workflows/windows-app.yml`): open **Actions › Windows app**,
+then the newest run, and download **EMON-OVERRUNS-E-Portal-Setup-Windows** under Artifacts (sign in to GitHub).
+Artifacts are kept for 90 days, so keep a copy of the installer.
+
+Build it yourself (Linux, macOS or Windows; needs Node.js and NSIS's `makensis`):
 
     cd apps/windows
     npm install
@@ -29,7 +33,7 @@ The site confirms the app in `public/.well-known/assetlinks.json` with the finge
 that file the app still works, but shows an address bar.
 
 Build: GitHub Actions (`.github/workflows/android-app.yml`) builds an **unsigned** APK when `apps/android` changes,
-and puts it with the build log on a draft release. The release key is **not** in this public repository. EMON
+and keeps it with the build log under the run's Artifacts (**Actions › Android app**). The release key is **not** in this public repository. EMON
 OVERRUNS keeps it (`eportal-release.jks`, alias `eportal`). Sign the downloaded APK with it:
 
     zipalign -p -f 4 E-Portal-unsigned.apk E-Portal-aligned.apk
