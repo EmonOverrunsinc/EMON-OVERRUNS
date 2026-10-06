@@ -1084,6 +1084,9 @@ table.grid.cr-diff { margin: 6px 0; }
 .bdt-calc small { font-size: 10.5px; font-weight: bold; letter-spacing: .05em; text-transform: uppercase; color: #7a5200; }
 .bdt-calc b { font: bold 30px var(--font-report); color: #6e4300; }
 .bdt-calc span { font: 13px var(--font-mono); color: #5c4400; }
+.rel-calc span + small { margin-top: 6px; }
+.find-row { display: flex; gap: 6px; align-items: center; }
+.find-row input { flex: 1; min-width: 0; }
 .rcpt-prev { width: 100%; max-width: 260px; min-height: 60px; display: grid; place-items: center; overflow: hidden; border-radius: 8px; border: 1px dashed var(--panel-line); background: #fff; color: var(--ink-soft); font-size: 11px; }
 .rcpt-prev img { width: 100%; max-height: 220px; object-fit: contain; }
 .amt-panel { display: grid; align-content: start; gap: 6px; }
@@ -1210,7 +1213,7 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
 .sb-qr { width: 92px; height: 92px; image-rendering: pixelated; display: block; margin: 0 auto; }
 .sb-code { font: 8.5px var(--font-mono); max-width: 126px; margin: 2px auto 0; }
 .sb-code small { display: block; font: bold 7.5px var(--font-report); letter-spacing: .06em; }
-.sb-psteps { display: grid; grid-template-columns: repeat(5, 1fr); }
+.sb-psteps { display: grid; grid-template-columns: repeat(4, 1fr); }
 .sb-psteps > div { padding: 4px 6px; border-right: 1px solid #ccc; display: flex; flex-direction: column; font-size: 10.5px; }
 .sb-psteps > div:last-child { border-right: 0; }
 .sb-psteps b { font-size: 9.5px; }

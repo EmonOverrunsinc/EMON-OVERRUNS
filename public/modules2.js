@@ -705,7 +705,7 @@
       <div class="btnrow">${w ? `<a class="btn primary" href="#newvoucher">${ic("plus")} New Payment</a><a class="btn" href="#newpaycompany">${ic("plus")} Add Company</a>` : ""}</div>
       <div class="tabs" id="blTabs"><button type="button" class="on" data-t="0">Companies</button><button type="button" data-t="1" id="blEbTab">E-Bills</button></div>
       <div class="tabpanes" id="blPanes"><div data-p="0"><div id="blRes">${busy()}</div></div><div data-p="1" hidden><div id="blEb">${busy()}</div></div></div>`,
-      "Add a company and choose its currency: PHP, BDT, or both. <b>New Payment</b> records the amount in that currency (for both: PHP × rate = BDT) and creates a payment voucher. <b>E-Bills</b> are the stock-bills released by an approved release order; a payment can be linked to one.");
+      "Add a company and choose its currency: PHP, BDT, or both. <b>New Payment</b> records the amount in that currency (for both: PHP × rate = BDT) and creates a payment voucher. <b>E-Bills</b> are the e-bills from Inventory, released by an approved Released Notice; a payment can be linked to one.");
     $$("#blTabs button").forEach((t) => (t.onclick = () => { $$("#blTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#blPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
     if (E.loadEbills) E.loadEbills($("#blEb")).then((list) => { const t = $("#blEbTab"); if (t && list.length) t.textContent = `E-Bills (${list.length})`; });
     const { data, error } = await sb.from("pay_company_totals").select("*").order("name");
@@ -880,8 +880,8 @@
         <fieldset class="opt"><legend>Paid To</legend><div class="fields wide">
           <label for="nvCo">Company *</label><select id="nvCo"><option value="">— Choose company —</option>${cos.map((c) => c.status === "suspended" ? `<option value="${c.id}" disabled>${esc(c.name)} (SUSPENDED)</option>` : `<option value="${c.id}" ${c.id === companyId ? "selected" : ""}>${esc(c.name)} — ${esc(CUR[curOf(c)])}</option>`).join("")}</select>
           <label for="nvAcc">Account *</label><select id="nvAcc"><option value="">— Choose the company first —</option></select>
-          <label for="nvSb" class="nv-sb">Stock-Bill (E-Bill)</label><select id="nvSb" class="nv-sb"><option value="">— None —</option></select>
-          <span class="nv-sb"></span><small class="muted nv-sb" id="nvSbInfo">Optional: link this payment to a released stock-bill of this company. A stock-bill is paid in BDT.</small></div></fieldset>
+          <label for="nvSb" class="nv-sb">E-Bill</label><select id="nvSb" class="nv-sb"><option value="">— None —</option></select>
+          <span class="nv-sb"></span><small class="muted nv-sb" id="nvSbInfo">Optional: link this payment to a released e-bill of this company. An e-bill is paid in BDT.</small></div></fieldset>
         <fieldset class="opt"><legend>Amount</legend><div class="formgrid">
           <div class="fields wide">
             <label for="nvDate">Payment Date</label><input type="date" id="nvDate" value="${isoToday()}">
@@ -932,15 +932,15 @@
       $$(".nv-bdt").forEach((x) => (x.hidden = cur !== "BDT"));
       calc();
     };
-    // Released stock-bills (e-bills) of the company, with what is still unpaid; only for a company paid in BDT.
+    // Released e-bills of the company, with what is still unpaid; only for a company paid in BDT.
     let bills = [];
     const sbInfo = () => {
       if (!$("#nvSb")) return; // the page was left
       const r = bills.find((x) => x.id === $("#nvSb").value);
-      const total = r ? num(r.total_cost) + num(r.shipping_cost) : 0;
+      const total = r ? num(r.bill_total) : 0;
       $("#nvSbInfo").textContent = r ? `E-Bill total ${bdt(total)} · paid ${bdt(r.paid_bdt)} · balance ${bdt(total - num(r.paid_bdt))}`
-        : "Optional: link this payment to a released stock-bill of this company. A stock-bill is paid in BDT.";
-      if (r && !$("#nvPurpose").value.trim()) $("#nvPurpose").value = `Payment for Stock-Bill ${r.bill_no}`;
+        : "Optional: link this payment to a released e-bill of this company. An e-bill is paid in BDT.";
+      if (r && !$("#nvPurpose").value.trim()) $("#nvPurpose").value = `Payment for E-Bill ${r.bill_no}`;
     };
     const loadSb = async (pick) => {
       const co = $("#nvCo").value, on = !!co && curNow() !== "PHP";
@@ -948,10 +948,10 @@
       bills = [];
       $("#nvSb").innerHTML = `<option value="">— None —</option>`;
       if (!on) return sbInfo();
-      const { data } = await sb.from("stock_bill_totals").select("id, bill_no, total_cost, shipping_cost, paid_bdt, release_date").eq("company_id", co).in("status", ["released", "sold", "paid"]).order("release_date", { ascending: false });
+      const { data } = await sb.from("stock_bill_totals").select("id, bill_no, bill_total, paid_bdt, release_date").eq("company_id", co).in("status", ["released", "sold", "paid"]).order("release_date", { ascending: false });
       if ($("#nvCo")?.value !== co) return; // another company was chosen, or the page was left
       bills = data || [];
-      $("#nvSb").innerHTML = `<option value="">— None —</option>${bills.map((r) => { const bal = num(r.total_cost) + num(r.shipping_cost) - num(r.paid_bdt);
+      $("#nvSb").innerHTML = `<option value="">— None —</option>${bills.map((r) => { const bal = num(r.bill_total) - num(r.paid_bdt);
         return `<option value="${r.id}" ${r.id === pick ? "selected" : ""}>${esc(r.bill_no)} — ${bal > 0 ? "balance " + esc(bdt(bal)) : "fully paid"}</option>`; }).join("")}`;
       sbInfo();
     };
@@ -994,7 +994,7 @@
       ${E.box("Paid To", `<div class="pgrid2">${E.cell("Company", co.name, "hl")}${E.cell("Contact Person", co.contact_person)}${E.cell("Account Name", a.account_name)}${E.cell("Account Number", a.account_number)}
         ${E.cell("Bank / Branch", [a.bank_name, a.branch_name].filter(Boolean).join(" — "))}${E.cell("Address", co.address || co.country)}</div>`)}
       ${E.box("Payment", `<div class="prow3">${E.cell("Purpose", v.purpose)}${E.cell("Method", v.method)}${E.cell("Reference No", v.reference_no)}</div>
-        ${v.stock_bills ? E.cell("For Stock-Bill (E-Bill)", v.stock_bills.bill_no, "hl") : ""}
+        ${v.stock_bills ? E.cell("For E-Bill", v.stock_bills.bill_no, "hl") : ""}
         <table class="rp v-amt"><tbody>
           ${v.amount_php != null ? `<tr class="${v.amount_bdt == null ? "v-bdt" : ""}"><td>Amount (Philippine Peso)</td><td class="num">PHP ${peso(v.amount_php)}</td></tr>` : ""}
           ${v.exchange_rate != null ? `<tr><td>Exchange Rate (BDT per 1 PHP)</td><td class="num">× ${rateText(v.exchange_rate)}</td></tr>` : ""}
@@ -1020,7 +1020,7 @@
         <span>Account</span><span>${esc([a.account_name, a.account_number, a.bank_name, a.branch_name].filter(Boolean).join(" · ") || "—")}</span>
         <span>Date</span><span>${mdy(v.pay_date)}</span><span>Purpose</span><span>${esc(v.purpose || "—")}</span>
         <span>Method</span><span>${esc(v.method || "—")}${v.reference_no ? " · Ref " + esc(v.reference_no) : ""}</span><span>Issued By</span><span>${esc(v.created_by_name || "")}</span>
-        ${v.stock_bills ? `<span>For Stock-Bill</span><span><a href="#ebill/${v.stock_bills.id}"><b>${esc(v.stock_bills.bill_no)}</b></a> (e-bill)</span>` : ""}</div>
+        ${v.stock_bills ? `<span>For E-Bill</span><span><a href="#ebill/${v.stock_bills.id}"><b>${esc(v.stock_bills.bill_no)}</b></a></span>` : ""}</div>
         <div class="amt-panel">${v.amount_php != null ? `<div class="${v.amount_bdt == null ? "hl" : ""}"><small>Amount (PHP)</small><b>₱ ${peso(v.amount_php)}</b></div>` : ""}
           ${v.exchange_rate != null ? `<div><small>Exchange Rate</small><b>× ${rateText(v.exchange_rate)}</b></div>` : ""}
           ${v.amount_bdt != null ? `<div class="hl"><small>Amount (BDT)</small><b>${bdt(v.amount_bdt)}</b></div>` : ""}<small class="muted">${esc(amountWords(v))}</small></div></div>

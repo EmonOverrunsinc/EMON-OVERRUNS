@@ -63,13 +63,13 @@
     pay_accounts: [F("account_name", "Account Name"), F("account_number", "Account Number"), F("bank_name", "Bank Name"), F("branch_name", "Branch"), F("notes", "Notes")],
     pay_vouchers: [F("purpose", "Purpose"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
     job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife's / Husband's Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("apply_salary", "Expected Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date")],
-    stock_bills: [F("supplier_bill_no", "Supplier Bill No"), F("batch_no", "Batch No"), F("shipment_no", "Shipment No"), F("shipment_date", "Shipment Date", "date"), F("total_boxes", "Total Boxes", "int"), F("notes", "Notes")]
+    stock_bills: [F("supplier_bill_no", "Bill No"), F("batch_no", "Batch No"), F("shipment_no", "System Record No"), F("shipment_date", "Shipment Date", "date"), F("total_boxes", "Total Boxes", "int"), F("notes", "Notes")]
   };
   // Money records: their amounts and dates are not corrected (the Director deletes a wrong one and it is recorded again).
   const MONEY = ["customer_invoices", "payments_received", "credit_memos", "payslips", "pay_vouchers", "project_payments", "order_letters", "stock_bills", "stock_bill_entries"];
   // Records the Director can delete — must match deletable_table() in the database.
   const DELETABLE = ["customers", "customer_invoices", "payments_received", "credit_memos", "order_letters", "employees", "payslips", "projects", "project_payments", "pay_companies", "pay_accounts", "pay_vouchers", "job_applications", "job_positions", "stock_bills", "stock_bill_entries"];
-  const TABLE_NAME = { customers: "Customer", customer_invoices: "Invoice", payments_received: "Payment", credit_memos: "Credit Memo", employees: "Employee", payslips: "Payslip", projects: "Project", project_payments: "Project Payment", pay_companies: "Billing Company", pay_accounts: "Billing Account", pay_vouchers: "Payment Voucher", job_applications: "Job Application", order_letters: "Order Letter", stock_bills: "Stock-Bill", stock_bill_entries: "Sales Report Line" };
+  const TABLE_NAME = { customers: "Customer", customer_invoices: "Invoice", payments_received: "Payment", credit_memos: "Credit Memo", employees: "Employee", payslips: "Payslip", projects: "Project", project_payments: "Project Payment", pay_companies: "Billing Company", pay_accounts: "Billing Account", pay_vouchers: "Payment Voucher", job_applications: "Job Application", order_letters: "Order Letter", stock_bills: "E-Bill", stock_bill_entries: "Sales Report Line" };
   const ROUTE_OF = { customers: "customer", customer_invoices: "invoice", payments_received: "payment", credit_memos: "creditmemo", employees: "employee", payslips: "payslip", projects: "project", pay_companies: "paycompany", pay_vouchers: "voucher", job_applications: "jobapp", order_letters: "order", stock_bills: "stockbill" };
   const fieldLabel = (table, k) => (FIELDS[table] || []).find((f) => f.k === k)?.label || k.replace(/_/g, " ");
   const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v) : String(v));
@@ -133,7 +133,7 @@
     if (!isAdmin()) return;
     // A carried-out order letter is also undone (see undo_order in the database).
     const undo = table === "order_letters" && row.status === "applied" && row.stock_bill_id
-      ? `<br><br>This release order was carried out, so deleting it also <b>undoes it</b>: the stock-bill goes back to SHIPPED or ARRIVED, and its release date and shipping cost are removed.`
+      ? `<br><br>This Released Notice was carried out, so deleting it also <b>undoes it</b>: the e-bill goes back to SHIPPED, and its released date, released charge and shipping fee are removed.`
       : table === "order_letters" && row.status === "applied"
       ? `<br><br>This order was carried out, so deleting it also <b>undoes it</b>: the status goes back to what it was before the order (if no later order changed it again), and a charge or settlement adjustment is removed from the balance and the statements.` : "";
     if (!(await E.confirmBox(`Delete <b>${esc(label)}</b> permanently? It will be removed from the portal with its files and cannot be brought back.${undo}`, { title: "Delete Record", ok: "Delete", danger: true }))) return;
@@ -478,8 +478,9 @@
   }
 
   // ======================================================================
-  // 9. Order Letter — for a customer, an employee or a billing company. Staff send a request; the Director approves
-  // it and it is carried out at once (the Director's own order is carried out straight away). No verification code.
+  // 9. Order Letter — for a customer, an employee, a billing company or an e-bill (Released Notice). Staff send a request;
+  // the Director approves it and it is carried out at once (the Director's own order is carried out straight away).
+  // Order letters are numbered EO-YYYY-MM-#### by the database.
   // ======================================================================
   const SUBJ = {
     suspension: ["Suspension", "Suspension of Account"], closure: ["Closure", "Closure of Account"], reactivation: ["Reactivation", "Reactivation of Account"], reopen: ["Reopening", "Reopening of Account"],
@@ -487,12 +488,12 @@
     unpaid: ["Unpaid Balance", "Notice of Unpaid Balance"], installment: ["Installment", "Installment Payment Arrangement"], unsettled_balance: ["Unsettled Balance", "Demand for Unsettled Balance"],
     promise_to_pay: ["Promise to Pay", "Promise to Pay Agreement"], balance_certificate: ["Balance Certificate", "Account Balance Certificate"],
     charge: ["Additional Charge", "Additional Charge"], settlement: ["Settlement Adjustment", "Settlement Adjustment"], other: ["Other", ""],
-    release: ["Release Order", "Release of Stock-Bill"]
+    release: ["Released Notice", "Released Notice"]
   };
   const TITLE = {
     suspension: "SUSPENSION ORDER", closure: "CLOSURE ORDER", reactivation: "REACTIVATION ORDER", reopen: "REOPENING ORDER", termination: "TERMINATION ORDER",
     memo: "MEMORANDUM ORDER", unpaid: "UNPAID BALANCE ORDER", installment: "INSTALLMENT ORDER", unsettled_balance: "UNSETTLED BALANCE ORDER", promise_to_pay: "PROMISE TO PAY ORDER",
-    balance_certificate: "ACCOUNT BALANCE CERTIFICATE", charge: "ADDITIONAL CHARGE ORDER", settlement: "SETTLEMENT ADJUSTMENT ORDER", other: "ORDER", release: "RELEASE ORDER"
+    balance_certificate: "ACCOUNT BALANCE CERTIFICATE", charge: "ADDITIONAL CHARGE ORDER", settlement: "SETTLEMENT ADJUSTMENT ORDER", other: "ORDER", release: "RELEASED ORDER"
   };
   const AMOUNT_TYPES = ["unpaid", "installment", "unsettled_balance", "promise_to_pay", "charge", "settlement"];
   // Only two orders change the balance (once approved): an Additional Charge adds to it, and a Settlement Adjustment
@@ -508,9 +509,15 @@
       types: (st) => st === "suspended" ? ["reactivation", "termination", "memo"] : st === "terminated" ? ["memo"] : st === "waiting" ? ["termination", "memo"] : ["suspension", "termination", "memo"] },
     company: { label: "Billing Company", write: () => E.canWrite("billing"), subject: { suspension: "Suspension of Payments", reactivation: "Reactivation of Payments", memo: "Notice" },
       types: (st) => st === "suspended" ? ["reactivation", "memo"] : ["suspension", "memo"] },
-    // Release Order: only an open stock-bill (SHIPPED or ARRIVED) can be released (Inventory).
-    stock_bill: { label: "Stock-Bill", write: () => E.canWrite("inventory"), subject: {}, types: () => ["release"] }
+    // Released Notice: only a SHIPPED e-bill can be released (Inventory), found by its batch no.
+    stock_bill: { label: "E-Bill", write: () => E.canWrite("inventory"), subject: {}, types: () => ["release"] }
   };
+  const rateText = (n) => Number(n || 0).toLocaleString("en-PH", { maximumFractionDigits: 4 });
+  const batchOf = (o) => o.stock_info?.batch_no || "";
+  // The kind of order as shown in lists and on the letter: a Released Notice shows its batch no ("Released Notice I-17").
+  const typeName = (o) => (o.subject_type === "release" ? `Released Notice${batchOf(o) ? " " + batchOf(o) : ""}` : SUBJ[o.subject_type]?.[0] || o.subject_type);
+  // A Released Notice is in BDT: the status bar says so.
+  const setCurrency = (bdt) => { const c = $(".statusbar span:last-child"); if (c) c.textContent = `Currency: ${bdt ? "BDT" : "PHP (₱)"}`; };
   const kindOf = (o) => o.employee_id ? "employee" : o.company_id ? "company" : o.stock_bill_id ? "stock_bill" : "customer";
   const forName = (o) => o.employee_id ? (o.employees ? `${o.employees.employee_no} ${fullName(o.employees)}` : "")
     : o.company_id ? (o.pay_companies?.name || "") : o.stock_bill_id ? [o.stock_info?.bill_no, o.stock_info?.company].filter(Boolean).join(" ")
@@ -541,7 +548,7 @@
   const ORDER_COLS = [
     { label: "Order No", get: (r) => r.order_no }, { label: "Date", get: (r) => mdy(r.order_date) },
     { label: "For", get: (r) => `${KINDS[kindOf(r)].label}: ${forName(r) || "—"}` },
-    { label: "Type", get: (r) => SUBJ[r.subject_type]?.[0] || r.subject_type }, { label: "Subject", get: (r) => r.subject },
+    { label: "Type", get: (r) => typeName(r) }, { label: "Subject", get: (r) => r.subject },
     { label: "Amount (₱)", num: true, get: (r) => (r.amount != null ? signedAmt(r) : r.subject_type === "balance_certificate" && r.balance_due != null ? peso(r.balance_due) : "") }, { label: "Status", html: (r) => pill(r.status) }
   ];
   const canOrder = () => Object.values(KINDS).some((k) => k.write());
@@ -550,7 +557,7 @@
       <div class="tabs" id="olF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="applied">Applied</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${canOrder() ? `<a class="btn primary" href="#neworder">${ic("plus")} Request Order</a>` : ""}</div>
       <div id="olRes">${busy()}</div>`,
-      "Orders for customers, employees and billing companies. Employees send a request; the Director approves it and it is carried out at once.");
+      "Orders for customers, employees, billing companies and e-bills (Released Notice). Employees send a request; the Director approves it and it is carried out at once.");
     const run = async (f) => {
       $("#olRes").innerHTML = busy();
       let q = sb.from("order_letters").select(ORDER_LIST).order("created_at", { ascending: false }).limit(1000);
@@ -574,9 +581,13 @@
     const when = E.mdy(d.date || isoToday());
     if (kind === "stock_bill") {
       if (!w) return "";
-      const ship = d.ship === "" || d.ship == null ? null : num(d.ship);
-      return `Please release the goods of Stock-Bill ${w.bill_no} from ${w.company_name || "[company]"}${w.batch_no ? `, Batch No ${w.batch_no}` : ""}${w.shipment_no ? `, Shipment No ${w.shipment_no}` : ""} (${w.total_boxes != null ? `${w.total_boxes} box(es), ` : ""}total qty ${qtyText(w.total_qty)}) on ${E.mdy(d.release || isoToday())}. `
-        + `The shipping bill${d.shipNo ? " " + d.shipNo : ""} of ${ship == null ? "BDT [amount]" : `BDT ${peso(ship)}`} is added to the bill cost of BDT ${peso(w.total_cost)}: the total cost is ${ship == null ? "BDT [total]" : `BDT ${peso(num(w.total_cost) + ship)}`}.`;
+      // Released Notice: price per box (PHP) × boxes = total (PHP); × the exchange rate of the day = BDT; + the shipping fee
+      const boxes = num(w.total_boxes), ppb = num(d.ppb), rt = num(d.rate), ship = d.ship === "" || d.ship == null ? null : num(d.ship);
+      const php = Math.round(ppb * boxes * 100) / 100, charge = Math.round(php * rt * 100) / 100, done = ppb > 0 && rt > 0;
+      const total = Math.round((num(w.total_cost) + charge + (ship || 0)) * 100) / 100;
+      return `This is to notify that the goods of E-Bill ${w.bill_no} from ${String(w.company_name || "[company]").toUpperCase()}${w.batch_no ? `, Batch No ${w.batch_no}` : ""}${w.supplier_bill_no ? `, Bill No ${w.supplier_bill_no}` : ""}${w.shipment_no ? `, System Record No ${w.shipment_no}` : ""} (${boxes} box(es), total qty ${qtyText(w.total_qty)}) are RELEASED on ${E.mdy(d.release || isoToday())}. `
+        + `Released charge: ${boxes} box(es) × PHP ${ppb > 0 ? peso(ppb) : "[price per box]"} = PHP ${ppb > 0 ? peso(php) : "[total]"}; at the exchange rate of the day (BDT ${rt > 0 ? rateText(rt) : "[rate]"} for 1 PHP) this is BDT ${done ? peso(charge) : "[amount]"}. `
+        + `Shipping fee: BDT ${ship == null ? "[amount]" : peso(ship)}. Total cost of the e-bill: BDT ${peso(w.total_cost)} (bill) + BDT ${done ? peso(charge) : "[released charge]"} + BDT ${ship == null ? "[shipping fee]" : peso(ship)} = BDT ${done && ship != null ? peso(total) : "[total]"}.`;
     }
     if (kind === "employee") return {
       suspension: `This is to inform you that you are SUSPENDED from work effective ${when}. Your portal login is closed until you are reactivated by an approved order.`,
@@ -618,19 +629,21 @@
     if (!allowed.includes(kind)) { kind = allowed[0]; presetId = null; }
     E.shell("neworder", "Request Order", `
       <form class="window" id="noForm" novalidate><div class="wtitle">Order Request</div><div class="wbody">
-        <div class="summary-box"><div class="fields wide"><span>Order No</span><b>Assigned on save (ORDER-${new Date().getFullYear()}-###)</b><span>Prepared By</span><b>${esc(S.profile.full_name || "")}</b></div></div>
+        <div class="summary-box"><div class="fields wide"><span>Order No</span><b>Assigned on save (EO-${isoToday().slice(0, 7)}-0001, …)</b><span>Prepared By</span><b>${esc(S.profile.full_name || "")}</b></div></div>
         <fieldset class="opt"><legend>Order For</legend>
           ${allowed.length > 1 ? `<div class="subj-grid" id="noKinds">${allowed.map((k) => `<label class="subj"><input type="radio" name="noKind" value="${k}" ${k === kind ? "checked" : ""}><span>${esc(KINDS[k].label)}</span></label>`).join("")}</div>` : ""}
           <div id="noWho"></div><div class="due-info" id="noDueInfo" hidden></div></fieldset>
         <fieldset class="opt"><legend>Order</legend><div class="subj-grid" id="noTypes"></div>
           <div class="fields wide" style="margin-top:8px"><label for="noSubj">Subject *</label><input type="text" id="noSubj">
             <label for="noDate">Order Date</label><input type="date" id="noDate" value="${isoToday()}"></div></fieldset>
-        <fieldset class="opt" id="noRelBox" hidden><legend>Release and Shipping Bill</legend><div class="formgrid">
-          <div class="fields wide"><label for="noRelDate">Release Date *</label><input type="date" id="noRelDate" value="${isoToday()}">
-            <label for="noShipNo">Shipping Bill No</label><input type="text" id="noShipNo">
-            <label for="noShipAmt">Shipping Bill Amount (BDT) *</label><input type="number" id="noShipAmt" min="0" step="0.01" placeholder="0 if there is none">
-            <label for="noShipFile">Shipping Bill (photo or PDF)</label><input type="file" id="noShipFile" accept="image/*,application/pdf"></div>
-          <div class="bdt-calc"><small>Total Cost (BDT): bill + shipping</small><b id="noRelTotal">BDT 0.00</b><span id="noRelCalc"></span><small id="noRelWords"></small></div></div></fieldset>
+        <fieldset class="opt" id="noRelBox" hidden><legend>Released</legend><div class="formgrid">
+          <div class="fields wide"><label for="noRelDate">Released Date *</label><input type="date" id="noRelDate" value="${isoToday()}">
+            <label for="noPpb">Price per Box (PHP) *</label><input type="number" id="noPpb" min="0.01" step="0.01" placeholder="e.g. 3200">
+            <label for="noRate">Exchange Rate of Today *</label><input type="number" id="noRate" min="0.0001" step="0.0001" placeholder="BDT for 1 PHP, e.g. 2">
+            <label for="noShipAmt">Shipping Fee (BDT) *</label><input type="number" id="noShipAmt" min="0" step="0.01" placeholder="0 if there is none">
+            <label for="noShipFile">Shipping Fee Receipt (photo or PDF)</label><input type="file" id="noShipFile" accept="image/*,application/pdf"></div>
+          <div class="bdt-calc rel-calc"><small>Total (PHP)</small><span id="noRelPhp">—</span><small>Released Charge (BDT)</small><span id="noRelBdt">—</span>
+            <small>Total Cost (BDT): bill + released charge + shipping fee</small><b id="noRelTotal">BDT 0.00</b><span id="noRelCalc"></span><small id="noRelWords"></small></div></div></fieldset>
         <fieldset class="opt" id="noCloseBox" hidden><legend>Closure</legend><div class="fields wide">
           <label for="noReason">Reason for Closure *</label><select id="noReason"><option value="">— Choose the reason —</option>${CLOSE_REASONS.map((r) => `<option>${esc(r)}</option>`).join("")}</select>
           <label for="noReason2" class="noOther">Other Reason *</label><input type="text" id="noReason2" class="noOther" placeholder="Write the reason"></div></fieldset>
@@ -657,13 +670,17 @@
     const refresh = () => {
       if (!$("#noForm")) return; // the page was left while the amount due was loading
       const t = type(), cust = kind === "customer";
-      // Release Order: the stock-bill's cost + the shipping bill = the total cost
+      // Released Notice: price per box × boxes = PHP; × the exchange rate = BDT; bill + that + the shipping fee = total cost
       const rel = kind === "stock_bill", shipRaw = $("#noShipAmt").value.trim();
       $("#noRelBox").hidden = !rel;
       if (rel) {
-        const bill = num(who?.total_cost), ship = num(shipRaw), total = bill + ship;
+        const boxes = num(who?.total_boxes), ppb = num($("#noPpb").value), rt = num($("#noRate").value);
+        const php = Math.round(ppb * boxes * 100) / 100, charge = Math.round(php * rt * 100) / 100;
+        const bill = num(who?.total_cost), ship = num(shipRaw), total = Math.round((bill + charge + ship) * 100) / 100;
+        $("#noRelPhp").textContent = who ? `${boxes} box(es) × ₱ ${peso(ppb)} = ₱ ${peso(php)}` : "Find the e-bill first";
+        $("#noRelBdt").textContent = who ? `₱ ${peso(php)} × ${rateText(rt)} = BDT ${peso(charge)}` : "—";
         $("#noRelTotal").textContent = `BDT ${peso(total)}`;
-        $("#noRelCalc").textContent = who ? `${peso(bill)} + ${peso(ship)} = ${peso(total)}` : "Choose the stock-bill";
+        $("#noRelCalc").textContent = who ? `${peso(bill)} + ${peso(charge)} + ${peso(ship)} = ${peso(total)}` : "";
         $("#noRelWords").textContent = who && total ? words(total, "TAKA") : "";
       }
       const amtOn = cust && AMOUNT_TYPES.includes(t);
@@ -688,11 +705,11 @@
       $("#noLetterLeg").textContent = t === "balance_certificate" ? "Certificate" : "Letter";
       $("#noDetailsL").textContent = t === "balance_certificate" ? "Purpose *" : "Details *";
       if (!dirty) $("#noDetails").value = defaultDetails(kind, t, who, { bal: bal(), days: num(due?.days_overdue), amt, n, each, every, due: $("#noDue").value, date: $("#noDate").value, reason: reason(), adj,
-        release: $("#noRelDate").value, ship: shipRaw, shipNo: $("#noShipNo").value.trim() });
+        release: $("#noRelDate").value, ship: shipRaw, ppb: $("#noPpb").value, rate: $("#noRate").value });
     };
     const showTypes = () => {
       $("#noTypes").innerHTML = types().map((k, i) => `<label class="subj"><input type="radio" name="noType" value="${k}" ${i ? "" : "checked"}><span>${esc(SUBJ[k][0])}</span></label>`).join("");
-      const pick = () => { $("#noSubj").value = kind === "stock_bill" && who ? `Release of Stock-Bill ${who.bill_no}` : KINDS[kind].subject[type()] || SUBJ[type()][1]; touched.clear(); dirty = false; refresh(); };
+      const pick = () => { $("#noSubj").value = kind === "stock_bill" && who ? `RELEASED NOTICE FOR ${who.batch_no || who.bill_no}` : KINDS[kind].subject[type()] || SUBJ[type()][1]; touched.clear(); dirty = false; refresh(); };
       $$("input[name=noType]").forEach((r) => (r.onchange = pick));
       pick();
     };
@@ -708,18 +725,20 @@
       box.innerHTML = `Amount due today: <b>₱ ${peso(due.balance_due)}</b>${num(due.days_overdue) > 0 ? ` · <b>${due.days_overdue}</b> day(s) overdue (oldest unpaid invoice ${esc(due.oldest_invoice_no || "")} of ${mdy(due.oldest_invoice_date)})` : num(due.balance_due) > 0 ? "" : " · nothing overdue"}`;
       refresh();
     };
-    // A stock-bill's top details, filled in from the stock-bill for its Release Order.
+    // The e-bill's details, filled in from the e-bill found by its batch no.
     const showBill = () => {
       const box = $("#noDueInfo");
       box.hidden = !(kind === "stock_bill" && who);
       if (box.hidden) return;
-      box.innerHTML = `<div class="sb-top">${[["Stock-Bill No", who.bill_no], ["Company", who.company_name], ["Batch No", who.batch_no], ["Total Boxes", who.total_boxes == null ? "" : String(who.total_boxes)],
-        ["Total Qty", qtyText(who.total_qty)], ["Shipment No", who.shipment_no], ["Shipment Date", mdy(who.shipment_date)], ["Bill Cost (BDT)", peso(who.total_cost)]]
+      box.innerHTML = `<div class="sb-top">${[["E-Bill No", who.bill_no], ["Company", who.company_name], ["Bill No", who.supplier_bill_no], ["Batch No", who.batch_no],
+        ["System Record No", who.shipment_no], ["Shipment Date", mdy(who.shipment_date)], ["Total Boxes", who.total_boxes == null ? "" : String(who.total_boxes)],
+        ["Total Qty", qtyText(who.total_qty)], ["Bill Cost (BDT)", peso(who.total_cost)]]
         .map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(v || "—")}</b></div>`).join("")}</div>`;
     };
-    // The customer, employee, company or stock-bill the order is for.
+    // The customer, employee, company or e-bill the order is for.
     const showWho = async (id) => {
       who = null; due = null; dirty = false;
+      setCurrency(kind === "stock_bill");
       $("#noDueInfo").hidden = true;
       const box = $("#noWho");
       if (kind === "customer") {
@@ -732,14 +751,38 @@
             .in("status", ["shipped", "arrived"]).order("created_at", { ascending: false }),
           sb.from("order_letters").select("stock_bill_id, order_no").eq("status", "pending").not("stock_bill_id", "is", null)
         ]);
-        if (error) { box.innerHTML = ""; return fail(error, "Could not load the stock-bills"); }
+        if (error) { box.innerHTML = ""; return fail(error, "Could not load the e-bills"); }
         const waiting = new Map((pend.data || []).map((o) => [o.stock_bill_id, o.order_no]));
         const list = data || [];
-        box.innerHTML = list.length ? `<div class="fields wide"><label for="noPick">Stock-Bill *</label><select id="noPick"><option value="">— Choose an open stock-bill —</option>
-          ${list.map((r) => `<option value="${r.id}" ${waiting.has(r.id) ? "disabled" : r.id === id ? "selected" : ""}>${esc(`${r.bill_no} — ${r.company_name || ""}${r.batch_no ? " · Batch " + r.batch_no : ""}`)} (${esc(waiting.has(r.id) ? `release order ${waiting.get(r.id)} waiting` : String(r.status).toUpperCase())})</option>`).join("")}</select></div>`
-          : `<div class="empty small">No open stock-bills. Only a SHIPPED or ARRIVED stock-bill can be released.</div>`;
+        // Type the batch no and press Find (the e-bill no also works): the e-bill's details fill in.
+        box.innerHTML = `<div class="fields wide"><label for="noBatch">Batch No *</label><div class="find-row"><input type="text" id="noBatch" list="noBatchList" placeholder="e.g. I-17" autocomplete="off"><button type="button" class="btn" id="noFind">${ic("search")} Find</button></div></div>
+          <datalist id="noBatchList">${list.filter((r) => r.batch_no && !waiting.has(r.id)).map((r) => `<option value="${esc(r.batch_no)}">${esc(`${r.bill_no} — ${r.company_name || ""}`)}</option>`).join("")}</datalist>
+          <div id="noFound">${list.length ? "" : `<div class="hint">No SHIPPED e-bills. Only a SHIPPED e-bill can be released.</div>`}</div>`;
+        const choose = (r) => { who = r; dirty = false; showBill(); showTypes(); };
+        const find = () => {
+          const q = $("#noBatch").value.trim().toLowerCase(), say = (html) => ($("#noFound").innerHTML = html);
+          who = null; showBill(); say("");
+          if (!q) { showTypes(); return toast("Type the batch no.", true); }
+          const hits = list.filter((r) => String(r.batch_no || "").trim().toLowerCase() === q || String(r.bill_no).toLowerCase() === q);
+          const free = hits.filter((r) => !waiting.has(r.id));
+          if (!hits.length) say(`<div class="hint err">No SHIPPED e-bill has Batch No ${esc($("#noBatch").value.trim())}. Only a SHIPPED e-bill can be released.</div>`);
+          else if (!free.length) say(`<div class="hint err">Batch No ${esc($("#noBatch").value.trim())} already has Released Notice ${esc(waiting.get(hits[0].id))} waiting for the Director's approval.</div>`);
+          else if (free.length === 1) return choose(free[0]);
+          else {
+            // several e-bills have this batch no: choose one
+            say(`<div class="fields wide"><label for="noPick">E-Bill *</label><select id="noPick"><option value="">— ${free.length} e-bills have this batch no: choose one —</option>
+              ${free.map((r) => `<option value="${r.id}">${esc(`${r.bill_no} — ${r.company_name || ""}`)}</option>`).join("")}</select></div>`);
+            $("#noPick").onchange = () => choose(free.find((r) => r.id === $("#noPick").value) || null);
+          }
+          showTypes();
+        };
+        $("#noFind").onclick = find;
+        $("#noBatch").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); find(); } };
+        // a batch no picked from the list is found at once
+        $("#noBatch").onchange = () => { if (list.some((r) => String(r.batch_no || "").trim().toLowerCase() === $("#noBatch").value.trim().toLowerCase())) find(); };
+        // opened from an e-bill: that e-bill is filled in
         who = list.find((r) => r.id === id && !waiting.has(r.id)) || null;
-        if ($("#noPick")) $("#noPick").onchange = () => { who = list.find((r) => r.id === $("#noPick").value) || null; dirty = false; showBill(); showTypes(); };
+        if (who) $("#noBatch").value = who.batch_no || who.bill_no;
         showBill();
       } else {
         const emp = kind === "employee";
@@ -757,7 +800,7 @@
     };
     $$("input[name=noKind]").forEach((r) => (r.onchange = () => { kind = r.value; showWho(null); }));
     ["noAmt", "noN", "noDue", "noInst"].forEach((id) => ($("#" + id).oninput = () => { touched.add(id); refresh(); }));
-    ["noDate", "noEvery", "noReason", "noReason2", "noRelDate", "noShipNo", "noShipAmt"].forEach((id) => ($("#" + id).oninput = refresh));
+    ["noDate", "noEvery", "noReason", "noReason2", "noRelDate", "noShipAmt", "noPpb", "noRate"].forEach((id) => ($("#" + id).oninput = refresh));
     $$("input[name=noAdj]").forEach((r) => (r.onchange = refresh));
     $("#noReason").onchange = refresh;
     $("#noDetails").oninput = () => (dirty = true);
@@ -766,13 +809,16 @@
     $("#noForm").onsubmit = async (e) => {
       e.preventDefault();
       const t = type(), cust = kind === "customer";
-      if (!who) return toast(`Choose the ${KINDS[kind].label.toLowerCase()}.`, true);
+      if (!who) return toast(kind === "stock_bill" ? "Type the batch no and press Find." : `Choose the ${KINDS[kind].label.toLowerCase()}.`, true);
       if (!types().includes(t)) return toast(`This ${KINDS[kind].label.toLowerCase()} is ${String(who.status).toUpperCase()} — choose one of the orders shown.`, true);
       if (!$("#noSubj").value.trim()) return toast("Enter the subject.", true);
       if (kind === "stock_bill") {
-        if (!$("#noRelDate").value) return toast("Enter the release date.", true);
-        if (who.shipment_date && $("#noRelDate").value < who.shipment_date) return toast("The release date cannot be before the shipment date.", true);
-        if ($("#noShipAmt").value.trim() === "" || num($("#noShipAmt").value) < 0) return toast("Enter the shipping bill amount (0 if there is none).", true);
+        if (!$("#noRelDate").value) return toast("Enter the released date.", true);
+        if (who.shipment_date && $("#noRelDate").value < who.shipment_date) return toast("The released date cannot be before the shipment date.", true);
+        if (!(num(who.total_boxes) > 0)) return toast(`E-Bill ${who.bill_no} has no total boxes. Correct the e-bill first.`, true);
+        if (!(num($("#noPpb").value) > 0)) return toast("Enter the price per box (PHP).", true);
+        if (!(num($("#noRate").value) > 0)) return toast("Enter the exchange rate of today (BDT for 1 PHP).", true);
+        if ($("#noShipAmt").value.trim() === "" || num($("#noShipAmt").value) < 0) return toast("Enter the shipping fee (0 if there is none).", true);
       }
       if (cust && t === "closure" && !reason()) return toast("Choose the reason for closing the account.", true);
       const amtOn = cust && AMOUNT_TYPES.includes(t), amt = num($("#noAmt").value), n = Math.floor(num($("#noN").value));
@@ -791,12 +837,12 @@
         installments: t === "installment" ? n : null, installment_amount: t === "installment" && $("#noInst").value ? num($("#noInst").value) : null,
         installment_every: t === "installment" ? $("#noEvery").value : null, closure_reason: cust && t === "closure" ? reason() : null,
         adjust_type: t === "settlement" ? adj : null,
-        ...(kind === "stock_bill" ? { release_date: $("#noRelDate").value, shipping_cost: num($("#noShipAmt").value), shipping_bill_no: $("#noShipNo").value.trim() || null } : {})
+        ...(kind === "stock_bill" ? { release_date: $("#noRelDate").value, price_per_box: num($("#noPpb").value), exchange_rate: num($("#noRate").value), shipping_cost: num($("#noShipAmt").value) } : {})
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the order"); }
-      // the shipping bill goes with the Release Order
+      // the shipping fee receipt goes with the Released Notice
       const upFail = kind === "stock_bill" ? await E.uploadRecords("order_letter", data.id, "shipping_bill", E.filesOf("noShipFile")) : 0;
-      const upNote = upFail ? " The shipping bill failed to upload: upload it again on the order." : "";
+      const upNote = upFail ? " The shipping fee receipt failed to upload: upload it again on the order." : "";
       // The Director's own order is approved and carried out at once.
       if (isAdmin()) {
         const r = await sb.rpc("review_order_letter", { p_id: data.id, p_action: "approve", p_note: null });
@@ -820,7 +866,7 @@
     const php = (n) => `PHP ${peso(n)}`;
     const contact = [w.phone, w.email].filter(Boolean).join(" · ");
     const si = o.stock_info || {};
-    const info = kind === "stock_bill" ? [["Stock-Bill No", si.bill_no], ["Company", si.company], ["Supplier Bill No", si.supplier_bill_no], ["Batch No", si.batch_no], ["Shipment No", si.shipment_no],
+    const info = kind === "stock_bill" ? [["E-Bill No", si.bill_no], ["Company", si.company], ["Bill No", si.supplier_bill_no], ["Batch No", si.batch_no], ["System Record No", si.shipment_no],
         ["Shipment Date", si.shipment_date ? E.mdy(si.shipment_date) : ""], ["Total Boxes", si.total_boxes == null ? "" : String(si.total_boxes)], ["Total Qty", si.total_qty == null ? "" : qtyText(si.total_qty)]]
       : kind === "employee" ? [["Name of Employee", fullName(w)], ["Employee No", w.employee_no], ["Position", w.position], ["Date Hired", w.date_hired ? E.mdy(w.date_hired) : ""], ["Contact Details", contact], ["Address", w.address]]
       : kind === "company" ? [["Name of Company", w.name], ["Contact Person", w.contact_person], ["Address", w.address || w.country], ["Contact Details", w.contact]]
@@ -829,10 +875,14 @@
     const signed = (approved || rejected) && o.approved_at ? E.mdy(dayOf(o.approved_at)) : "";
     const overdue = o.days_overdue != null ? tr("No. of Days Overdue", `${o.days_overdue} day(s)`) : "";
     const t = o.subject_type;
-    // What the order is about, by kind of order.
-    const relTotal = num(si.bill_cost) + num(o.shipping_cost);
-    const about = t === "release" ? `${tr("Release Date", `<b>${v(E.mdy(o.release_date))}</b>`)}${tr("Shipping Bill No", v(o.shipping_bill_no))}${tr("Bill Cost", `BDT ${peso(si.bill_cost)}`)}
-        ${tr("Shipping Bill Amount", `BDT ${peso(o.shipping_cost)}`)}${tr("Total Cost", `<b>BDT ${peso(relTotal)}</b> <small>(${esc(words(relTotal, "TAKA"))})</small>`)}`
+    // What the order is about, by kind of order. A Released Notice is all in BDT: price per box (PHP) × boxes = total
+    // (PHP), × the exchange rate of the day = the released charge (BDT), + the bill cost and the shipping fee = total cost.
+    const relTotal = num(si.bill_cost) + num(o.release_bdt) + num(o.shipping_cost);
+    const about = t === "release" ? `${tr("Released Date", `<b>${v(E.mdy(o.release_date))}</b>`)}
+        ${o.release_bdt != null ? `${tr("Price per Box", `PHP ${peso(o.price_per_box)}`)}${tr("Total (PHP)", `PHP ${peso(o.release_php)} <small>(${esc(si.total_boxes ?? "")} boxes × PHP ${peso(o.price_per_box)})</small>`)}
+        ${tr("Exchange Rate of the Day", `BDT ${rateText(o.exchange_rate)} for 1 PHP`)}${tr("Released Charge (BDT)", `<b>BDT ${peso(o.release_bdt)}</b> <small>(PHP ${peso(o.release_php)} × ${rateText(o.exchange_rate)})</small>`)}` : ""}
+        ${tr("Bill Cost (BDT)", `BDT ${peso(si.bill_cost)}`)}${tr("Shipping Fee (BDT)", `BDT ${peso(o.shipping_cost)}`)}
+        ${tr("Total Cost (BDT)", `<b>BDT ${peso(relTotal)}</b> <small>(${esc(words(relTotal, "TAKA"))})</small>`)}`
       : t === "promise_to_pay" ? `${o.balance_due != null ? tr("Amount Due Today", php(o.balance_due)) : ""}${overdue}
         ${o.amount != null ? tr("Amount to Pay", `<b>${php(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`) : ""}${o.first_due_date ? tr("Promise Date (Due Date)", `<b>${v(E.mdy(o.first_due_date))}</b>`) : ""}`
       : t === "installment" ? `${o.balance_due != null ? tr("Amount Due Today", php(o.balance_due)) : ""}${o.amount != null ? tr("Total Amount", `<b>${php(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`) : ""}
@@ -846,9 +896,11 @@
         ${o.balance_due != null ? tr("New Balance", `<b>${php(num(o.balance_due) + (o.adjust_type === "reduce" ? -1 : 1) * num(o.amount))}</b>`) : ""}${o.first_due_date ? tr("Settle On or Before", `<b>${v(E.mdy(o.first_due_date))}</b>`) : ""}`
       : o.amount != null ? tr("Amount", `PHP ${peso(o.amount)} <small>(${esc(words(o.amount))})</small>`) : "";
     const plan = t === "installment" ? schedule(num(o.amount), num(o.installments), o.first_due_date, o.installment_every, num(o.installment_amount)) : [];
-    return `${E.printHead(TITLE[t] || "ORDER", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
+    // a Released Notice: "RELEASED I-17 ORDER FOR MODINA FASHION", type "RELEASED NOTICE I-17"
+    const title = t === "release" ? `RELEASED ${batchOf(o) ? batchOf(o) + " " : ""}ORDER FOR ${String(si.company || "").toUpperCase()}`.trim() : TITLE[t] || "ORDER";
+    return `${E.printHead(title, `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
       <div class="ol-sec">DETAILS OF ORDER</div>
-      <table class="ol-kv"><tbody>${tr("Type of Order", v(o.subject))}${tr("Order For", v(KINDS[kind].label))}
+      <table class="ol-kv"><tbody>${tr("Type of Order", t === "release" ? `<b>${v(typeName(o).toUpperCase())}</b>` : v(o.subject))}${tr("Order For", v(KINDS[kind].label))}
         ${tr("Place of Issue", v(`${C.company.name} Main Office, ${C.company.address.join(", ")}`))}${tr("Order Date", v(E.mdy(o.order_date)))}${tr("Order No", `<b>${v(o.order_no)}</b>`)}</tbody></table>
       <p class="ol-intro">The following contains important information about this order, including the date it takes effect. Please keep this order for your records.</p>
       <div class="ol-sec">${esc(KINDS[kind].label.toUpperCase())} INFORMATION</div>
@@ -920,14 +972,17 @@
       rejected: `<div class="banner closed">DISAPPROVED by ${esc(o.approved_by_name || "")}${o.review_note ? " — " + esc(o.review_note) : ""}</div>`
     }[o.status] || "";
     $("#main").innerHTML = `${banner}
-      <div class="window"><div class="wtitle">${esc(o.order_no)} — ${esc(SUBJ[o.subject_type]?.[0] || "")} ${pill(o.status)}</div><div class="wbody">
+      <div class="window"><div class="wtitle">${esc(o.order_no)} — ${esc(typeName(o))} ${pill(o.status)}</div><div class="wbody">
         <div class="formgrid"><div class="fields wide">
           <span>${esc(KINDS[kind].label)}</span><span>${whoHtml}</span>
           <span>Subject</span><b>${esc(o.subject)}</b><span>Order Date</span><span>${mdy(o.order_date)}</span>
           <span>Prepared By</span><span>${esc(o.created_by_name || "")}</span></div>
           <div class="fields wide">${o.balance_due != null ? `<span>Amount Due</span><span>₱ ${peso(o.balance_due)}${o.days_overdue ? ` · ${o.days_overdue} day(s) overdue` : ""}</span>` : ""}
-            ${o.subject_type === "release" ? `<span>Release Date</span><b>${mdy(o.release_date)}</b><span>Shipping Bill</span><span>${o.shipping_bill_no ? esc(o.shipping_bill_no) + " · " : ""}BDT ${peso(o.shipping_cost)}</span>
-              <span>Bill Cost</span><span>BDT ${peso(si.bill_cost)}</span><span>Total Cost</span><b>BDT ${peso(num(si.bill_cost) + num(o.shipping_cost))}</b>` : ""}
+            ${o.subject_type === "release" ? `<span>Released Date</span><b>${mdy(o.release_date)}</b>
+              ${o.release_bdt != null ? `<span>Price per Box</span><span>₱ ${peso(o.price_per_box)} × ${esc(si.total_boxes ?? "")} boxes = ₱ ${peso(o.release_php)}</span>
+              <span>Exchange Rate</span><span>BDT ${rateText(o.exchange_rate)} for 1 PHP</span><span>Released Charge</span><b>BDT ${peso(o.release_bdt)}</b>` : ""}
+              <span>Bill Cost</span><span>BDT ${peso(si.bill_cost)}</span><span>Shipping Fee</span><span>BDT ${peso(o.shipping_cost)}</span>
+              <span>Total Cost</span><b>BDT ${peso(num(si.bill_cost) + num(o.release_bdt) + num(o.shipping_cost))}</b>` : ""}
             ${o.closure_reason ? `<span>Reason for Closure</span><b>${esc(o.closure_reason)}</b>` : ""}${o.amount != null ? `<span>${o.subject_type === "promise_to_pay" ? "Amount to Pay" : o.subject_type === "charge" ? "Charge Amount" : o.subject_type === "settlement" ? "Adjustment" : "Amount"}</span><b>${o.subject_type === "settlement" ? `${ADJ[o.adjust_type]?.[0] || ""} ` : ""}₱ ${peso(o.amount)}</b>` : ""}
             ${["charge", "settlement"].includes(o.subject_type) && o.balance_due != null ? `<span>New Balance</span><b>₱ ${peso(num(o.balance_due) + (o.adjust_type === "reduce" ? -1 : 1) * num(o.amount))}</b>` : ""}
             ${o.installments ? `<span>Installments</span><span>${o.installments} × ₱ ${peso(o.installment_amount)}, ${esc((EVERY[o.installment_every] || EVERY.month).toLowerCase())}</span>` : ""}${o.first_due_date ? `<span>${o.subject_type === "installment" ? "First Due Date" : "Due Date"}</span><span>${mdy(o.first_due_date)}</span>` : ""}</div></div>
@@ -939,6 +994,7 @@
         ${rhBox("order_letters", o.id)}
       </div><div class="wfoot">${recordTools("order_letters", o, `Order ${o.order_no}`, { reload: () => V.order(id), afterDelete: () => (location.hash = closeTo) })}<a class="btn" href="#${closeTo}">Close</a></div></div>`;
     E.bindDocCards($("#main"), () => V.order(id));
+    if (kind === "stock_bill") setCurrency(true);
     E.bindFiles($("#main"));
     bindRecordTools($("#main"));
     const review = async (action) => {
@@ -960,7 +1016,7 @@
     "Credit Memo": ["credit_memos", "memo_no", "creditmemo"], "Statement of Account": ["statements", "statement_no", "customer", "customer_id"], "Order Letter": ["order_letters", "order_no", "order"],
     "Payment Voucher": ["pay_vouchers", "voucher_no", "voucher"], Payslip: ["payslips", "payslip_no", "payslip"], "Job Application": ["job_applications", "application_no", "jobapp"],
     Employee: ["employees", "employee_no", "employee"], Project: ["projects", "project_no", "project"], "Project Payment": ["project_payments", "payment_no", "project", "project_id"],
-    "Stock-Bill Statistics": ["stock_bills", "bill_no", "stockbill"]
+    "E-Bill Statistics": ["stock_bills", "bill_no", "stockbill"], "Stock-Bill Statistics": ["stock_bills", "bill_no", "stockbill"]
   };
   const verifyUrl = (no) => `${location.origin}${location.pathname}#verify/${encodeURIComponent(no)}`;
   V.verify = async (code) => {
@@ -971,7 +1027,7 @@
         <h2>Verify a Record</h2>
         <p>Type the record number, or scan its QR code or barcode, then press <b>Verify</b>. Anyone can check a record.</p>
         <form id="vfForm" class="vf-form" autocomplete="off">
-          <input type="text" id="vfCode" aria-label="Record number" placeholder="e.g. INV-202610-0001 · A-2026-1004-001 · BD20261004001 · ORDER-2026-001" value="${esc(code || "")}" autocapitalize="characters" spellcheck="false">
+          <input type="text" id="vfCode" aria-label="Record number" placeholder="e.g. INV-202610-0001 · A-2026-1004-001 · BD20261004001 · EO-2026-10-0001" value="${esc(code || "")}" autocapitalize="characters" spellcheck="false">
           <button type="submit" class="btn primary">${ic("check")} Verify</button>
         </form>
         <div class="btnrow center"><button type="button" class="btn" id="vfScan">${ic("camera")} Scan with Camera</button><label class="btn" for="vfImg">${ic("image")} Upload Photo of Code</label><input type="file" id="vfImg" accept="image/*" hidden></div>
@@ -1038,8 +1094,8 @@
     const idLabel = d.type === "Customer Account" ? "Customer ID" : idField ? idField[0] : "Record No";
     const who = fields.find(([k]) => ["Account Name", "Customer", "Received From", "Employee", "Name", "Applicant", "Paid To", "Account", "Company"].includes(k));
     const rest = fields.filter((f) => f !== idField);
-    // the QR code checks the record again: a customer by the Public ID key, a stock-bill only by its secret code
-    const key = d.type === "Customer Account" ? (fields.find(([k]) => k === "Public ID") || [])[1] : d.type === "Stock-Bill Statistics" ? (fields.find(([k]) => k === "Secret Code") || [])[1] : null;
+    // the QR code checks the record again: a customer by the Public ID key, an e-bill only by its secret code
+    const key = d.type === "Customer Account" ? (fields.find(([k]) => k === "Public ID") || [])[1] : /Bill Statistics$/.test(d.type) ? (fields.find(([k]) => k === "Secret Code") || [])[1] : null;
     const row = (k, v) => `<tr><th>${esc(k)}</th><td${k === "Public ID" ? ' class="key"' : ""}>${esc(v)}</td></tr>`;
     const rows = rest.map(([k, v]) => row(k, E.fixDates(plain(v)))).join("");
     const page = `<div class="vp">${E.printHead(`VERIFIED BY ${C.company.name}`)}

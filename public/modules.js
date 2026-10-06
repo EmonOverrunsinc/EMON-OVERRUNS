@@ -37,7 +37,7 @@
     stock_bill: ["stock_bills", "bill_no"]
   };
   async function ownerNo(ownerType, ownerId) {
-    // a sales report line's file: the stock-bill number and the receipt number, e.g. "SB-2026-0001 PN-55"
+    // a sales report line's file: the e-bill number and the receipt number, e.g. "MF-2026-0001 PN-55"
     if (ownerType === "stock_bill_entry") {
       const { data } = await sb.from("stock_bill_entries").select("receipt_no, stock_bills(bill_no)").eq("id", ownerId).maybeSingle();
       return [data?.stock_bills?.bill_no, data?.receipt_no].filter(Boolean).join(" ");
@@ -52,7 +52,7 @@
   const KIND = {
     photo: "Profile Photo", requirement: "Requirement", signed_form: "Signed Copy", receipt: "Payment Receipt", delivery_receipt: "Delivery Receipt",
     purchase_order: "Purchase Order", proof: "Proof", application: "Application Form", signature: "Signature Form", report: "Report", approval: "Approved Document", other: "Other",
-    bill: "Stock-Bill Copy", shipping_bill: "Shipping Bill", sales_report: "Sales Report"
+    bill: "E-Bill Copy", shipping_bill: "Shipping Fee Receipt", sales_report: "Sales Report"
   };
   async function autoName(ownerType, ownerId, kind, extraIndex = 0) {
     const [no, existing] = await Promise.all([
