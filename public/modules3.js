@@ -71,7 +71,12 @@
   const DELETABLE = ["customers", "customer_invoices", "payments_received", "credit_memos", "order_letters", "employees", "payslips", "projects", "project_payments", "pay_companies", "pay_accounts", "pay_vouchers", "job_applications", "job_positions", "stock_bills", "stock_bill_entries"];
   const TABLE_NAME = { customers: "Customer", customer_invoices: "Invoice", payments_received: "Payment", credit_memos: "Credit Memo", employees: "Employee", payslips: "Payslip", projects: "Project", project_payments: "Project Payment", pay_companies: "Billing Company", pay_accounts: "Billing Account", pay_vouchers: "Payment Voucher", job_applications: "Job Application", order_letters: "Order Letter", stock_bills: "E-Bill", stock_bill_entries: "Sales Report Line" };
   const ROUTE_OF = { customers: "customer", customer_invoices: "invoice", payments_received: "payment", credit_memos: "creditmemo", employees: "employee", payslips: "payslip", projects: "project", pay_companies: "paycompany", pay_vouchers: "voucher", job_applications: "jobapp", order_letters: "order", stock_bills: "stockbill" };
-  const fieldLabel = (table, k) => (FIELDS[table] || []).find((f) => f.k === k)?.label || k.replace(/_/g, " ");
+  // What can be changed on an order waiting for approval (see update_pending_order in the database).
+  const ORDER_FIELDS = { subject: "Subject", details: "Details", resolution: "Resolution / Terms", order_date: "Order Date", amount: "Amount", first_due_date: "Due Date",
+    installments: "Installments", installment_amount: "Installment Amount", installment_every: "Pay", closure_reason: "Reason for Closure", adjust_type: "Adjustment",
+    release_date: "Released Date", price_per_box: "Price per Box (PHP)", exchange_rate: "Exchange Rate", release_php: "Total (PHP)", release_bdt: "Released Charge (BDT)",
+    shipping_cost: "Shipping Fee (BDT)", shipping_bill_no: "Shipping Fee Receipt No" };
+  const fieldLabel = (table, k) => (FIELDS[table] || []).find((f) => f.k === k)?.label || (table === "order_letters" && ORDER_FIELDS[k]) || k.replace(/_/g, " ");
   const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v) : String(v));
   const changeList = (table, ch, prev) => Object.keys(ch || {}).map((k) => `${fieldLabel(table, k)}: ${showVal(prev?.[k])} → ${showVal(ch[k])}`).join("; ");
 
@@ -133,7 +138,7 @@
     if (!isAdmin()) return;
     // A carried-out order letter is also undone (see undo_order in the database).
     const undo = table === "order_letters" && row.status === "applied" && row.stock_bill_id
-      ? `<br><br>This Released Notice was carried out, so deleting it also <b>undoes it</b>: the e-bill goes back to SHIPPED, and its released date, released charge and shipping fee are removed.`
+      ? `<br><br>This Released Notice was carried out, so deleting it also <b>undoes it</b>: the e-bill goes back to SHIP, and its released date, released charge and shipping fee are removed.`
       : table === "order_letters" && row.status === "applied"
       ? `<br><br>This order was carried out, so deleting it also <b>undoes it</b>: the status goes back to what it was before the order (if no later order changed it again), and a charge or settlement adjustment is removed from the balance and the statements.` : "";
     if (!(await E.confirmBox(`Delete <b>${esc(label)}</b> permanently? It will be removed from the portal with its files and cannot be brought back.${undo}`, { title: "Delete Record", ok: "Delete", danger: true }))) return;
@@ -177,6 +182,7 @@
       ...(reqs.data || []).filter((r) => r.status === "pending").map((r) => ({ at: r.created_at, no: r.request_no, st: "pending", what: "Correction request", detail: changeList(table, r.changes, r.previous), why: r.reason, by: r.requested_by_name })),
       ...(done.data || []).map((r) => r.action === "file removed"
         ? { at: r.created_at, no: "", st: "removed", what: "File removed", detail: r.previous?.file || "", why: "", by: r.actor_name }
+        : r.action === "order changed" ? { at: r.created_at, no: "", st: "changed", what: "Changed before approval", detail: changeList(table, r.changes, r.previous), why: "", by: r.actor_name }
         : { at: r.created_at, no: r.request_no || "", st: "approved", what: "Correction", detail: changeList(table, r.changes, r.previous), why: why.get(r.request_no) || "", by: r.actor_name })
     ];
     if (!rows.length) { el.hidden = true; return; }
@@ -509,7 +515,7 @@
       types: (st) => st === "suspended" ? ["reactivation", "termination", "memo"] : st === "terminated" ? ["memo"] : st === "waiting" ? ["termination", "memo"] : ["suspension", "termination", "memo"] },
     company: { label: "Billing Company", write: () => E.canWrite("billing"), subject: { suspension: "Suspension of Payments", reactivation: "Reactivation of Payments", memo: "Notice" },
       types: (st) => st === "suspended" ? ["reactivation", "memo"] : ["suspension", "memo"] },
-    // Released Notice: only a SHIPPED e-bill can be released (Inventory), found by its batch no.
+    // Released Notice: only an e-bill at SHIP can be released (Inventory), found by its batch no.
     stock_bill: { label: "E-Bill", write: () => E.canWrite("inventory"), subject: {}, types: () => ["release"] }
   };
   const rateText = (n) => Number(n || 0).toLocaleString("en-PH", { maximumFractionDigits: 4 });
@@ -620,18 +626,19 @@
     }[t] || "";
   }
 
-  // #neworder, #neworder/<customer id>, #neworder/employee/<id>, #neworder/company/<id>
-  V.neworder = async (a, b) => {
+  // #neworder, #neworder/<customer id>, #neworder/employee/<id>, #neworder/company/<id>; with an order waiting for
+  // approval (from #editorder/<id>) the same form changes that order: who it is for and the kind of order stay the same.
+  V.neworder = async (a, b, edit = null) => {
     const allowed = Object.keys(KINDS).filter((k) => KINDS[k].write());
-    if (!allowed.length) { toast("You cannot request orders.", true); location.hash = "dashboard"; return; }
-    let kind = KINDS[a] ? a : "customer";
+    if (!allowed.length && !edit) { toast("You cannot request orders.", true); location.hash = "dashboard"; return; }
+    let kind = edit ? kindOf(edit) : KINDS[a] ? a : "customer";
     let presetId = KINDS[a] ? b : a;
-    if (!allowed.includes(kind)) { kind = allowed[0]; presetId = null; }
-    E.shell("neworder", "Request Order", `
-      <form class="window" id="noForm" novalidate><div class="wtitle">Order Request</div><div class="wbody">
-        <div class="summary-box"><div class="fields wide"><span>Order No</span><b>Assigned on save (EO-${isoToday().slice(0, 7)}-0001, …)</b><span>Prepared By</span><b>${esc(S.profile.full_name || "")}</b></div></div>
+    if (!edit && !allowed.includes(kind)) { kind = allowed[0]; presetId = null; }
+    E.shell(edit ? "editorder" : "neworder", edit ? "Edit Order" : "Request Order", `
+      <form class="window" id="noForm" novalidate><div class="wtitle">${edit ? `Edit Order ${esc(edit.order_no)}` : "Order Request"}</div><div class="wbody">
+        <div class="summary-box"><div class="fields wide"><span>Order No</span><b>${edit ? esc(edit.order_no) : `Assigned on save (EO-${isoToday().slice(0, 7)}-0001, …)`}</b><span>Prepared By</span><b>${esc((edit ? edit.created_by_name : S.profile.full_name) || "")}</b></div></div>
         <fieldset class="opt"><legend>Order For</legend>
-          ${allowed.length > 1 ? `<div class="subj-grid" id="noKinds">${allowed.map((k) => `<label class="subj"><input type="radio" name="noKind" value="${k}" ${k === kind ? "checked" : ""}><span>${esc(KINDS[k].label)}</span></label>`).join("")}</div>` : ""}
+          ${allowed.length > 1 && !edit ? `<div class="subj-grid" id="noKinds">${allowed.map((k) => `<label class="subj"><input type="radio" name="noKind" value="${k}" ${k === kind ? "checked" : ""}><span>${esc(KINDS[k].label)}</span></label>`).join("")}</div>` : ""}
           <div id="noWho"></div><div class="due-info" id="noDueInfo" hidden></div></fieldset>
         <fieldset class="opt"><legend>Order</legend><div class="subj-grid" id="noTypes"></div>
           <div class="fields wide" style="margin-top:8px"><label for="noSubj">Subject *</label><input type="text" id="noSubj">
@@ -657,11 +664,12 @@
         <fieldset class="opt"><legend id="noLetterLeg">Letter</legend><div class="fields wide">
           <label for="noDetails" id="noDetailsL">Details *</label><textarea id="noDetails" rows="5"></textarea>
           <label for="noRes">Resolution / Terms</label><textarea id="noRes" rows="3" placeholder="Optional: conditions, what must be done"></textarea></div></fieldset>
-      </div><div class="wfoot"><button type="button" class="btn" id="noCancel">Cancel</button><button type="submit" class="btn primary" id="noSubmit">${isAdmin() ? "Approve &amp; Carry Out" : "Send for Approval"}</button></div></form>`,
-      "Choose who the order is for and the kind of order: the details are filled in for you. The Director approves it and it is carried out at once.");
+      </div><div class="wfoot"><button type="button" class="btn" id="noCancel">Cancel</button><button type="submit" class="btn primary" id="noSubmit">${edit ? "Save Changes" : isAdmin() ? "Submit Order" : "Send for Approval"}</button></div></form>`,
+      edit ? "Change the order while it waits for approval: who it is for and the kind of order stay the same. It keeps its number and is checked again when you save."
+        : "Choose who the order is for and the kind of order: the details are filled in for you. The order waits for approval, so it can still be changed (Edit Order); once the Director approves it, it is carried out at once.");
     let who = null, due = null, dirty = false;
     const touched = new Set();
-    const types = () => KINDS[kind].types(who?.status);
+    const types = () => (edit ? [edit.subject_type] : KINDS[kind].types(who?.status));
     const type = () => $("input[name=noType]:checked")?.value || types()[0];
     const bal = () => num(due?.balance_due);
     const reason = () => ($("#noReason").value === "Other" ? $("#noReason2").value.trim() : $("#noReason").value);
@@ -704,13 +712,38 @@
       $("#noSched").innerHTML = rows.length ? `<div class="sched-h">Installment Schedule</div>${E.grid({ cols: [{ label: "No.", get: (r) => r.no }, { label: "Due Date", get: (r) => mdy(r.date) }, { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) }, { label: "Balance After (₱)", num: true, get: (r) => peso(r.left) }], rows })}` : "";
       $("#noLetterLeg").textContent = t === "balance_certificate" ? "Certificate" : "Letter";
       $("#noDetailsL").textContent = t === "balance_certificate" ? "Purpose *" : "Details *";
-      if (!dirty) $("#noDetails").value = defaultDetails(kind, t, who, { bal: bal(), days: num(due?.days_overdue), amt, n, each, every, due: $("#noDue").value, date: $("#noDate").value, reason: reason(), adj,
-        release: $("#noRelDate").value, ship: shipRaw, ppb: $("#noPpb").value, rate: $("#noRate").value });
+      if (!dirty) $("#noDetails").value = wording();
+    };
+    // The letter's wording for what is in the form now.
+    const wording = () => defaultDetails(kind, type(), who, { bal: bal(), days: num(due?.days_overdue), amt: num($("#noAmt").value), n: Math.floor(num($("#noN").value)),
+      each: num($("#noInst").value), every: $("#noEvery").value, due: $("#noDue").value, date: $("#noDate").value, reason: reason(), adj: $("input[name=noAdj]:checked")?.value,
+      release: $("#noRelDate").value, ship: $("#noShipAmt").value.trim(), ppb: $("#noPpb").value, rate: $("#noRate").value });
+    // Changing an order: the form starts with what the order has now. Its wording keeps changing with the figures only
+    // when it was not written by hand.
+    let filled = false;
+    const prefill = () => {
+      const o = edit, set = (id, v) => { if (v != null && v !== "") $("#" + id).value = v; };
+      set("noSubj", o.subject); set("noDate", o.order_date); set("noRes", o.resolution);
+      if (o.amount != null) set("noAmt", Number(o.amount).toFixed(2));
+      set("noDue", o.first_due_date); set("noN", o.installments); set("noEvery", o.installment_every);
+      if (o.installment_amount != null) set("noInst", Number(o.installment_amount).toFixed(2));
+      ["noAmt", "noDue", "noInst"].forEach((id) => touched.add(id));
+      if (o.closure_reason) {
+        if (CLOSE_REASONS.includes(o.closure_reason)) $("#noReason").value = o.closure_reason;
+        else { $("#noReason").value = "Other"; $("#noReason2").value = o.closure_reason; }
+      }
+      if (o.adjust_type) { const r = $(`input[name=noAdj][value="${o.adjust_type}"]`); if (r) r.checked = true; }
+      set("noRelDate", o.release_date); set("noPpb", o.price_per_box); set("noRate", o.exchange_rate); set("noShipAmt", o.shipping_cost);
+      $("#noDetails").value = o.details || "";
+      dirty = true; refresh();
+      dirty = (o.details || "").trim() !== wording().trim();
+      filled = true;
     };
     const showTypes = () => {
       $("#noTypes").innerHTML = types().map((k, i) => `<label class="subj"><input type="radio" name="noType" value="${k}" ${i ? "" : "checked"}><span>${esc(SUBJ[k][0])}</span></label>`).join("");
       const pick = () => { $("#noSubj").value = kind === "stock_bill" && who ? `RELEASED NOTICE FOR ${who.batch_no || who.bill_no}` : KINDS[kind].subject[type()] || SUBJ[type()][1]; touched.clear(); dirty = false; refresh(); };
       $$("input[name=noType]").forEach((r) => (r.onchange = pick));
+      if (edit) { if (!filled) prefill(); else refresh(); return; }
       pick();
     };
     // A customer's amount due today and days overdue, shown above the order and used in its wording.
@@ -741,6 +774,21 @@
       setCurrency(kind === "stock_bill");
       $("#noDueInfo").hidden = true;
       const box = $("#noWho");
+      if (edit) {
+        if (kind === "stock_bill") {
+          const { data } = await sb.from("stock_bill_totals").select("id, bill_no, company_name, supplier_bill_no, batch_no, shipment_no, shipment_date, total_boxes, total_qty, total_cost, status").eq("id", edit.stock_bill_id).maybeSingle();
+          who = data || null;
+        } else who = (kind === "employee" ? edit.employees : kind === "company" ? edit.pay_companies : edit.customers) || null;
+        const name = !who ? "—" : kind === "stock_bill" ? `Batch No ${who.batch_no || "—"} · E-Bill ${who.bill_no} (${who.company_name || ""})`
+          : kind === "employee" ? `${who.employee_no} — ${fullName(who)}` : kind === "company" ? who.name : `${fullName(who)} (${who.account_no || ""})`;
+        box.innerHTML = `<div class="fields wide"><span>${esc(KINDS[kind].label)}</span><b>${esc(name)}</b></div>`;
+        if (kind === "stock_bill") showBill();
+        // a customer's amount due is needed first, to tell whether the wording was written by hand
+        if (kind === "customer" && who) due = (await sb.rpc("account_due", { p_customer: who.id })).data || null;
+        showTypes();
+        if (kind === "customer") loadDue();
+        return;
+      }
       if (kind === "customer") {
         box.innerHTML = "";
         E.customerPicker(box, { statuses: ["active", "suspended", "closed"], onPick: (c) => { who = c; dirty = false; showTypes(); loadDue(); }, preset: (id && (await E.getCustomer(id))) || undefined });
@@ -757,7 +805,7 @@
         // Type the batch no and press Find (the e-bill no also works): the e-bill's details fill in.
         box.innerHTML = `<div class="fields wide"><label for="noBatch">Batch No *</label><div class="find-row"><input type="text" id="noBatch" list="noBatchList" placeholder="e.g. I-17" autocomplete="off"><button type="button" class="btn" id="noFind">${ic("search")} Find</button></div></div>
           <datalist id="noBatchList">${list.filter((r) => r.batch_no && !waiting.has(r.id)).map((r) => `<option value="${esc(r.batch_no)}">${esc(`${r.bill_no} — ${r.company_name || ""}`)}</option>`).join("")}</datalist>
-          <div id="noFound">${list.length ? "" : `<div class="hint">No SHIPPED e-bills. Only a SHIPPED e-bill can be released.</div>`}</div>`;
+          <div id="noFound">${list.length ? "" : `<div class="hint">No e-bills at SHIP. Only an e-bill at SHIP can be released.</div>`}</div>`;
         const choose = (r) => { who = r; dirty = false; showBill(); showTypes(); };
         const find = () => {
           const q = $("#noBatch").value.trim().toLowerCase(), say = (html) => ($("#noFound").innerHTML = html);
@@ -765,7 +813,7 @@
           if (!q) { showTypes(); return toast("Type the batch no.", true); }
           const hits = list.filter((r) => String(r.batch_no || "").trim().toLowerCase() === q || String(r.bill_no).toLowerCase() === q);
           const free = hits.filter((r) => !waiting.has(r.id));
-          if (!hits.length) say(`<div class="hint err">No SHIPPED e-bill has Batch No ${esc($("#noBatch").value.trim())}. Only a SHIPPED e-bill can be released.</div>`);
+          if (!hits.length) say(`<div class="hint err">No e-bill at SHIP has Batch No ${esc($("#noBatch").value.trim())}. Only an e-bill at SHIP can be released.</div>`);
           else if (!free.length) say(`<div class="hint err">Batch No ${esc($("#noBatch").value.trim())} already has Released Notice ${esc(waiting.get(hits[0].id))} waiting for the Director's approval.</div>`);
           else if (free.length === 1) return choose(free[0]);
           else {
@@ -828,31 +876,32 @@
       const adj = $("input[name=noAdj]:checked")?.value;
       if (t === "settlement" && !adj) return toast("Choose: take the amount off the balance, or add it to the balance.", true);
       if (!$("#noDetails").value.trim()) return toast(t === "balance_certificate" ? "Write the purpose of the certificate." : "Write the details of the order.", true);
-      E.setBusy(e.target, true, "Submitting");
-      const { data, error } = await sb.from("order_letters").insert({
-        [kind === "employee" ? "employee_id" : kind === "company" ? "company_id" : kind === "stock_bill" ? "stock_bill_id" : "customer_id"]: who.id,
-        order_date: $("#noDate").value || isoToday(), subject_type: t, subject: $("#noSubj").value.trim(),
+      const rec = {
+        order_date: $("#noDate").value || isoToday(), subject: $("#noSubj").value.trim(),
         details: $("#noDetails").value.trim(), resolution: $("#noRes").value.trim() || null,
         amount: amtOn ? amt : null, first_due_date: amtOn ? $("#noDue").value || null : null,
         installments: t === "installment" ? n : null, installment_amount: t === "installment" && $("#noInst").value ? num($("#noInst").value) : null,
         installment_every: t === "installment" ? $("#noEvery").value : null, closure_reason: cust && t === "closure" ? reason() : null,
         adjust_type: t === "settlement" ? adj : null,
         ...(kind === "stock_bill" ? { release_date: $("#noRelDate").value, price_per_box: num($("#noPpb").value), exchange_rate: num($("#noRate").value), shipping_cost: num($("#noShipAmt").value) } : {})
-      }).select().single();
+      };
+      E.setBusy(e.target, true, edit ? "Saving" : "Submitting");
+      const { data, error } = edit ? await sb.rpc("update_pending_order", { p_id: edit.id, p_changes: rec })
+        : await sb.from("order_letters").insert({ [kind === "employee" ? "employee_id" : kind === "company" ? "company_id" : kind === "stock_bill" ? "stock_bill_id" : "customer_id"]: who.id,
+          subject_type: t, ...rec }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the order"); }
       // the shipping fee receipt goes with the Released Notice
       const upFail = kind === "stock_bill" ? await E.uploadRecords("order_letter", data.id, "shipping_bill", E.filesOf("noShipFile")) : 0;
       const upNote = upFail ? " The shipping fee receipt failed to upload: upload it again on the order." : "";
-      // The Director's own order is approved and carried out at once.
-      if (isAdmin()) {
-        const r = await sb.rpc("review_order_letter", { p_id: data.id, p_action: "approve", p_note: null });
-        if (r.error) { fail(r.error, `${data.order_no} was saved but could not be carried out`); location.hash = "order/" + data.id; return; }
-        toast(`${data.order_no} carried out — ${r.data.applied_result || "done"}.${upNote}`, !!upNote);
-      } else toast(`${data.order_no} sent to the Director for approval.${upNote}`, !!upNote);
+      // Every order waits for approval first, the Director's too, so it can still be checked and changed.
+      toast(edit ? `${data.order_no} saved.${upNote}` : isAdmin() ? `${data.order_no} saved. Check it, then press Approve & Carry Out.${upNote}`
+        : `${data.order_no} sent to the Director for approval.${upNote}`, !!upNote);
       location.hash = "order/" + data.id;
     };
   };
 
+  // A printed paragraph: dates (10-14-2026) and record numbers (EO-2026-10-0001, I-17) are not split over two lines.
+  const para = (s) => esc(s).replace(/\b(\d{2}-\d{2}-\d{4}|[A-Z]{1,6}(?:-\d+)+)\b/g, '<span class="nw">$1</span>').replace(/\n/g, "<br>");
   // The printed order, laid out like an official order: details of the order, the customer / employee /
   // company information, the order itself with what it is about (amount due, promise, installment schedule,
   // reason for closing) and the decision, then APPROVED / DISAPPROVED with the date signed and one line for
@@ -869,8 +918,12 @@
     const info = kind === "stock_bill" ? [["E-Bill No", si.bill_no], ["Company", si.company], ["Bill No", si.supplier_bill_no], ["Batch No", si.batch_no], ["System Record No", si.shipment_no],
         ["Shipment Date", si.shipment_date ? E.mdy(si.shipment_date) : ""], ["Total Boxes", si.total_boxes == null ? "" : String(si.total_boxes)], ["Total Qty", si.total_qty == null ? "" : qtyText(si.total_qty)]]
       : kind === "employee" ? [["Name of Employee", fullName(w)], ["Employee No", w.employee_no], ["Position", w.position], ["Date Hired", w.date_hired ? E.mdy(w.date_hired) : ""], ["Contact Details", contact], ["Address", w.address]]
-      : kind === "company" ? [["Name of Company", w.name], ["Contact Person", w.contact_person], ["Address", w.address || w.country], ["Contact Details", w.contact]]
-      : [["Name of Customer", fullName(w)], ["Account No", w.account_no], ["Business Name", w.business_name], ["Address", w.address], ["Contact Details", contact]];
+      // a company: its name and the authorized person only
+      : kind === "company" ? [["Name of Company", w.name], ["Authorized Person", w.contact_person]]
+      // a customer: the name and account no only; all the details when the account is closed, reactivated or reopened
+      : ["closure", "reactivation", "reopen"].includes(o.subject_type)
+        ? [["Name of Customer", fullName(w)], ["Account No", w.account_no], ["Business Name", w.business_name], ["Address", w.address], ["Contact Details", contact]]
+      : [["Name of Customer", fullName(w)], ["Account No", w.account_no]];
     const approved = ["approved", "applied"].includes(o.status), rejected = o.status === "rejected";
     const signed = (approved || rejected) && o.approved_at ? E.mdy(dayOf(o.approved_at)) : "";
     const overdue = o.days_overdue != null ? tr("No. of Days Overdue", `${o.days_overdue} day(s)`) : "";
@@ -908,8 +961,8 @@
       <div class="ol-sec">ORDER</div>
       <table class="ol-grid"><tbody>
         ${tr("Subject", `<b>${v((o.subject || "").toUpperCase())}</b>`)}${about}
-        ${tr(t === "promise_to_pay" || t === "installment" ? "Agreement" : "Details", o.details ? esc(o.details).replace(/\n/g, "<br>") : "—")}
-        ${o.resolution ? tr("Resolution / Terms", esc(o.resolution).replace(/\n/g, "<br>")) : ""}
+        ${tr(t === "promise_to_pay" || t === "installment" ? "Agreement" : "Details", o.details ? para(o.details) : "—")}
+        ${o.resolution ? tr("Resolution / Terms", para(o.resolution)) : ""}
         ${tr("Effective Date", approved && o.approved_at ? v(signed) : "On approval")}
         <tr class="ol-dec"><th>DECISION</th><td>${approved ? "APPROVED" : rejected ? "DISAPPROVED" : "WAITING FOR APPROVAL"}</td></tr></tbody></table>
       ${plan.length ? `<div class="ol-sec">INSTALLMENT SCHEDULE</div>
@@ -941,7 +994,7 @@
       <div class="ol-sec">BALANCE</div>
       <table class="ol-grid"><tbody>${tr("Current Amount Due", `<b>PHP ${peso(bal)}</b>`)}${tr("Amount in Words", esc(words(bal)))}${tr("As Of", esc(asOf))}
         ${bal > 0 ? tr("No. of Days Overdue", `${num(o.days_overdue)} day(s)`) : ""}</tbody></table>
-      <p class="cert-body">${esc(o.details || "")}</p>
+      <p class="cert-body">${para(o.details || "")}</p>
       <p class="cert-body">Issued${issued ? ` on ${esc(issued)}` : ""} at ${esc(C.company.name)} Main Office, ${esc(C.company.address.join(", "))}.</p>
       ${approved ? "" : `<div class="cert-wait">NOT VALID UNTIL APPROVED</div>`}
       <div class="ol-sign one"><div class="ol-auth"><div class="ol-auth-name">${approved ? esc(o.approved_by_name || "") : "&nbsp;"}</div><div class="line"></div>Authorized Representative</div></div>
@@ -954,6 +1007,21 @@
     E.openPreview(`Order ${o.order_no}`, [letterPage(o)]);
   }
 
+  // An order can be changed while it waits for approval: by the person who sent it, or by the Director.
+  const canEditOrder = (o) => o.status === "pending" && (isAdmin() || (o.created_by === S.profile?.id && KINDS[kindOf(o)].write()));
+  // #editorder/<id>: the Request Order form with the order filled in
+  V.editorder = async (id) => {
+    E.shell("editorder", "Edit Order", busy());
+    const { data: o } = await sb.from("order_letters").select(ORDER_ALL).eq("id", id).maybeSingle();
+    if (location.hash !== "#editorder/" + id) return;
+    if (!o) { $("#main").innerHTML = `<div class="empty">Order not found. <a href="#orders">Back</a></div>`; return; }
+    if (!canEditOrder(o)) {
+      toast(o.status === "pending" ? "Only the person who sent this order or the Director can change it." : `Order ${o.order_no} is already ${String(o.status).toUpperCase()}. Only an order waiting for approval can be changed.`, true);
+      location.hash = "order/" + id; return;
+    }
+    return V.neworder(null, null, o);
+  };
+
   V.order = async (id) => {
     E.shell("order", "Order Letter", busy());
     const { data: o } = await sb.from("order_letters").select(ORDER_ALL).eq("id", id).maybeSingle();
@@ -962,11 +1030,13 @@
     const kind = kindOf(o), si = o.stock_info || {};
     const w = kind === "employee" ? o.employees : kind === "company" ? o.pay_companies : kind === "stock_bill" ? { status: o.stock_bills?.status } : o.customers;
     const page = { customer: "customer/" + o.customer_id, employee: "employee/" + o.employee_id, company: "paycompany/" + o.company_id, stock_bill: "stockbill/" + o.stock_bill_id }[kind];
-    const whoHtml = kind === "stock_bill" ? `<a href="#${page}"><b>${esc(si.bill_no || "")}</b> (${esc(si.company || "")})</a> ${w.status ? pill(w.status) : ""}` : !w ? "—" : `<a href="#${page}"><b>${esc(kind === "company" ? w.name : fullName(w))}</b>${kind === "company" ? "" : ` (${esc(kind === "employee" ? w.employee_no : w.account_no)})`}</a> ${pill(w.status)}`;
+    const whoHtml = kind === "stock_bill" ? `<a href="#${page}"><b>${esc(si.bill_no || "")}</b> (${esc(si.company || "")})</a> ${w.status ? E.ebillPill(w.status) : ""}` : !w ? "—" : `<a href="#${page}"><b>${esc(kind === "company" ? w.name : fullName(w))}</b>${kind === "company" ? "" : ` (${esc(kind === "employee" ? w.employee_no : w.account_no)})`}</a> ${pill(w.status)}`;
     const closeTo = E.canOpen("orders") ? "orders" : page;
     $(".band h1").textContent = `Order — ${o.order_no}`;
+    const editable = canEditOrder(o);
     const banner = {
-      pending: `<div class="banner warn">Waiting for the Director to approve. Once approved, it is carried out straight away.</div>`,
+      pending: `<div class="banner warn">${isAdmin() ? "Waiting for approval. Check the order (Print Preview), change it with <b>Edit Order</b> if needed, then press <b>Approve &amp; Carry Out</b>."
+        : `Waiting for the Director to approve.${editable ? " You can still change it with <b>Edit Order</b>." : ""} Once approved, it is carried out straight away.`}</div>`,
       approved: `<div class="banner ok">✔ APPROVED by ${esc(o.approved_by_name || "")} on ${mdy(dayOf(o.approved_at))}.</div>`,
       applied: `<div class="banner ok">✔ APPROVED by ${esc(o.approved_by_name || "")} and carried out on ${mdy(dayOf(o.applied_at))} — ${esc(o.applied_result || "")}</div>`,
       rejected: `<div class="banner closed">DISAPPROVED by ${esc(o.approved_by_name || "")}${o.review_note ? " — " + esc(o.review_note) : ""}</div>`
@@ -992,7 +1062,7 @@
         ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>Director's Approval</legend><div class="fields wide"><label for="olNote">Note</label><input type="text" id="olNote" placeholder="Optional"></div>
           <div class="btnrow"><button type="button" class="btn ok" id="olApprove">${ic("check")} ${o.subject_type === "balance_certificate" ? "Approve &amp; Issue" : "Approve &amp; Carry Out"}</button><button type="button" class="btn danger" id="olReject">Reject</button></div></fieldset>` : ""}
         ${rhBox("order_letters", o.id)}
-      </div><div class="wfoot">${recordTools("order_letters", o, `Order ${o.order_no}`, { reload: () => V.order(id), afterDelete: () => (location.hash = closeTo) })}<a class="btn" href="#${closeTo}">Close</a></div></div>`;
+      </div><div class="wfoot">${editable ? `<a class="btn" href="#editorder/${o.id}" id="olEdit">${ic("edit")} Edit Order</a>` : ""}${recordTools("order_letters", o, `Order ${o.order_no}`, { reload: () => V.order(id), afterDelete: () => (location.hash = closeTo) })}<a class="btn" href="#${closeTo}">Close</a></div></div>`;
     E.bindDocCards($("#main"), () => V.order(id));
     if (kind === "stock_bill") setCurrency(true);
     E.bindFiles($("#main"));
@@ -1100,7 +1170,7 @@
     const rows = rest.map(([k, v]) => row(k, E.fixDates(plain(v)))).join("");
     const page = `<div class="vp">${E.printHead(`VERIFIED BY ${C.company.name}`)}
       <div class="vp-true"><span class="vp-seal">✔</span><div><b>RECORD FOUND</b><small>Search result: ${esc(d.number)}${who ? " · " + esc(who[1]) : ""}</small><small>Checked in the ${esc(E.APP)} on ${esc(at)}</small></div></div>
-      ${E.box("Record Details", `<table class="vp-fields"><tbody>${row("Record Type", d.type)}${row(idLabel, d.number)}${rows}
+      ${E.box("Record Details", `<table class="vp-fields${rest.length > 16 ? " many" : ""}"><tbody>${row("Record Type", d.type)}${row(idLabel, d.number)}${rows}
         ${d.status && !rest.some(([k]) => /status/i.test(k)) ? row("Status", String(d.status).toUpperCase()) : ""}</tbody></table>`)}
       ${E.box("Validation", `<div class="vp-valid"><table class="vp-fields"><tbody>${row("Validation No", vno)}${row("Validated On", at)}${row("Validated By", S.profile?.full_name || "")}</tbody></table>
         <div class="vp-qr"><img src="${E.qrDataUrl(verifyUrl(key || d.number))}" alt="Verification QR code"><small>Scan to verify online</small></div></div>`)}

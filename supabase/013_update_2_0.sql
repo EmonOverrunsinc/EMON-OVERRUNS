@@ -1,15 +1,18 @@
 -- =====================================================================
--- EMON OVERRUNS E-PORTAL — Update 1.10: E-Bill and the Released Notice
+-- EMON OVERRUNS E-PORTAL — Update 2.0: E-Bill, the Released Notice and orders that can be changed
 -- 1. A stock-bill is now called an E-Bill. Its number is the company's letters, the year and a number, for example
 --    MF-2026-0001 for MODINA FASHION (the first letters of the company's first and last word, like the initials
 --    of a customer's account number). The batch no and the total boxes are needed on a new e-bill.
--- 2. The status goes SHIPPED → RELEASED → SOLD → PAID (no ARRIVED step).
+-- 2. The steps of an e-bill: 1 SHIP → 2 RELEASED → 3 SALES → 4 PAID (no ARRIVED step). They are saved as
+--    shipped, released, sold and paid, as before.
 -- 3. Released Notice: the order letter for an e-bill, found by its Batch No. Price per box (PHP) × total boxes =
 --    total (PHP); × the exchange rate of the day = the released charge (BDT); plus the shipping fee (BDT).
 --    Once the Director approves it, the e-bill is RELEASED and the released charge and the shipping fee are added
 --    to its total cost.
 -- 4. Order letters are numbered EO-YYYY-MM-#### (for example EO-2026-10-0001), counted again each month.
 --    Orders made before keep their numbers.
+-- 5. An order waiting for approval can be changed by the person who sent it or by the Director. It is checked again
+--    like a new order, keeps its number, and the change is recorded.
 -- No records are changed or removed. Run once in the Supabase SQL Editor after 012_update_1_9.sql.
 -- It is safe to run again.
 -- =====================================================================
@@ -23,6 +26,15 @@ alter table public.stock_bills add column if not exists release_price_per_box nu
 alter table public.stock_bills add column if not exists release_exchange_rate numeric(12,4);
 alter table public.stock_bills add column if not exists release_php numeric(14,2);
 alter table public.stock_bills add column if not exists release_bdt numeric(14,2);
+
+-- The steps of an e-bill as they are shown: 1 SHIP, 2 RELEASED, 3 SALES, 4 PAID (an e-bill marked ARRIVED before
+-- this update is still at SHIP).
+create or replace function public.ebill_status_name(p_status text) returns text
+language sql immutable set search_path = '' as $$
+  select case p_status when 'shipped' then 'SHIP' when 'arrived' then 'SHIP' when 'sold' then 'SALES' else upper(coalesce(p_status, '')) end;
+$$;
+revoke execute on function public.ebill_status_name(text) from public, anon;
+grant execute on function public.ebill_status_name(text) to authenticated;
 
 -- ---------- 2. e-bill number: company letters-YYYY-#### ----------
 -- The first letters of the company's first and last word, leaving out Ltd, Inc, Co and the like
@@ -128,7 +140,7 @@ create or replace function public.stock_bills_after_insert() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
   insert into public.stock_bill_events (stock_bill_id, action, note, actor, actor_name)
-  values (new.id, 'E-Bill added — SHIPPED', 'Bill cost BDT ' || to_char(new.total_cost, 'FM999,999,999,990.00') || ' · ' || new.total_boxes || ' box(es)', auth.uid(), new.created_by_name);
+  values (new.id, 'E-Bill added — SHIP', 'Bill cost BDT ' || to_char(new.total_cost, 'FM999,999,999,990.00') || ' · ' || new.total_boxes || ' box(es)', auth.uid(), new.created_by_name);
   return new;
 end;
 $$;
@@ -142,7 +154,7 @@ begin
   if b.id is null then raise exception 'Choose the e-bill'; end if;
   if b.status = 'paid' then raise exception 'E-Bill % is PAID and closed. Nothing more can be added to it', b.bill_no; end if;
   if new.entry_type = 'sales' and b.status not in ('released','sold') then
-    raise exception 'Net sales can be added after the e-bill is RELEASED (it is % now)', upper(b.status);
+    raise exception 'Net sales can be added after the e-bill is RELEASED (it is at % now)', public.ebill_status_name(b.status);
   end if;
   new.receipt_no := nullif(trim(new.receipt_no), '');
   new.description := nullif(trim(new.description), '');
@@ -155,7 +167,7 @@ begin
 end;
 $$;
 
--- ---------- 4. status: SOLD (inventory staff), PAID (the Director); there is no ARRIVED step ----------
+-- ---------- 4. steps: SALES (inventory staff), PAID (the Director); there is no ARRIVED step ----------
 create or replace function public.stock_bill_action(p_id uuid, p_action text, p_note text default null) returns public.stock_bills
 language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
 declare
@@ -172,13 +184,13 @@ begin
   end if;
   perform public.allow_record_change();
   if p_action = 'sold' then
-    if b.status <> 'released' then raise exception 'E-Bill % is % — only a RELEASED e-bill can be marked as SOLD', b.bill_no, upper(b.status); end if;
+    if b.status <> 'released' then raise exception 'E-Bill % is at % — only a RELEASED e-bill can be marked as SALES', b.bill_no, public.ebill_status_name(b.status); end if;
     if not exists (select 1 from public.stock_bill_entries x where x.stock_bill_id = p_id and x.entry_type = 'sales') then
       raise exception 'Add the net sales in the Sales Report first';
     end if;
     update public.stock_bills set status = 'sold', sold_at = now() where id = p_id returning * into b;
   elsif p_action = 'paid' then
-    if b.status <> 'sold' then raise exception 'E-Bill % is % — only a SOLD e-bill can be marked as PAID', b.bill_no, upper(b.status); end if;
+    if b.status <> 'sold' then raise exception 'E-Bill % is at % — only an e-bill at SALES can be marked as PAID', b.bill_no, public.ebill_status_name(b.status); end if;
     update public.stock_bills set status = 'paid', paid_at = now(), paid_by_name = me where id = p_id returning * into b;
     -- the secret code of the Statistics Report: 24 random characters
     h := upper(md5(gen_random_uuid()::text || clock_timestamp()::text));
@@ -189,7 +201,7 @@ begin
     raise exception 'Unknown action %', p_action;
   end if;
   insert into public.stock_bill_events (stock_bill_id, action, note, actor, actor_name)
-  values (p_id, 'marked ' || upper(b.status), nullif(trim(p_note), ''), auth.uid(), me);
+  values (p_id, 'marked ' || public.ebill_status_name(b.status), nullif(trim(p_note), ''), auth.uid(), me);
   return b;
 end;
 $$;
@@ -223,7 +235,94 @@ create or replace view public.stock_bill_totals with (security_invoker = true) a
 revoke select on public.stock_bill_totals from anon;
 grant select on public.stock_bill_totals to authenticated;
 
--- ---------- 6. the other functions: created again exactly as they are now, with only these lines changed ----------
+-- ---------- 6. an order waiting for approval can be changed ----------
+-- A new order tells the Director that it needs approval (but not the Director who made it).
+create or replace function public.order_letters_after_insert() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.notifications (user_id, title, body, link)
+  select p.id, 'Order ' || new.order_no || ' needs approval', new.subject, 'order/' || new.id
+  from public.profiles p where p.role = 'admin' and p.status = 'active' and p.id is distinct from auth.uid();
+  return new;
+end;
+$$;
+
+-- The person who sent the order, or the Director, changes it while it waits for approval. The kind of order and who it
+-- is for stay the same. The changed order goes through the same checks as a new order (and its amounts are counted
+-- again), keeps its number and stays WAITING FOR APPROVAL. The change is recorded and the Director is told.
+create or replace function public.update_pending_order(p_id uuid, p_changes jsonb) returns public.order_letters
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare
+  o public.order_letters;
+  chk public.order_letters;
+  j jsonb; oj jsonb; cj jsonb;
+  k text;
+  editable text[] := array['subject','details','resolution','order_date','amount','first_due_date','installments','installment_amount',
+    'installment_every','closure_reason','adjust_type','release_date','price_per_box','exchange_rate','shipping_cost','shipping_bill_no'];
+  ch jsonb := '{}'::jsonb; prev jsonb := '{}'::jsonb;
+  me text := (select full_name from public.profiles where id = auth.uid());
+begin
+  if not public.is_active() then raise exception 'Your account is not active'; end if;
+  select * into o from public.order_letters where id = p_id for update;
+  if o.id is null then raise exception 'Order not found'; end if;
+  if o.status <> 'pending' then
+    raise exception 'Order % is already %. Only an order waiting for approval can be changed', o.order_no, upper(o.status);
+  end if;
+  if not (public.is_admin() or (o.created_by = auth.uid() and (
+       (o.customer_id is not null and (public.can_write('orders') or public.can_write('customers')))
+    or (o.employee_id is not null and public.can_write('employees'))
+    or (o.company_id is not null and public.can_write('billing'))
+    or (o.stock_bill_id is not null and public.can_write('inventory'))))) then
+    raise exception 'Only the person who sent this order or the Director can change it';
+  end if;
+  if jsonb_typeof(p_changes) is distinct from 'object' then raise exception 'Nothing to change'; end if;
+  select x into k from jsonb_object_keys(p_changes) x where not (x = any(editable)) limit 1;
+  if k is not null then raise exception 'This cannot be changed on an order: %', k; end if;
+  oj := to_jsonb(o);
+  j := oj || p_changes;
+  j := j || jsonb_build_object('subject', nullif(trim(j->>'subject'), ''), 'details', nullif(trim(j->>'details'), ''),
+                               'resolution', nullif(trim(j->>'resolution'), ''));
+  if j->>'subject' is null then raise exception 'Enter the subject'; end if;
+  if j->>'details' is null then raise exception 'Write the details of the order'; end if;
+  -- Checked like a new order: the changed order is saved as a new one and taken back at once; only its checked values
+  -- are kept. For the check, this order is set aside, so it does not count as an order already waiting.
+  perform public.allow_record_change();
+  begin
+    update public.order_letters set status = 'rejected' where id = p_id;
+    insert into public.order_letters
+    select (jsonb_populate_record(null::public.order_letters, j || jsonb_build_object('id', gen_random_uuid(), 'order_no', null))).*
+    returning * into chk;
+    raise exception using errcode = 'EO2CK', message = 'checked';
+  exception when sqlstate 'EO2CK' then
+    null;
+  end;
+  cj := to_jsonb(chk);
+  foreach k in array editable || array['release_php','release_bdt'] loop
+    if (oj->k) is distinct from (cj->k) then
+      ch := ch || jsonb_build_object(k, cj->k);
+      prev := prev || jsonb_build_object(k, oj->k);
+    end if;
+  end loop;
+  if ch = '{}'::jsonb then return o; end if;
+  update public.order_letters set subject = chk.subject, details = chk.details, resolution = chk.resolution, order_date = chk.order_date,
+    amount = chk.amount, first_due_date = chk.first_due_date, installments = chk.installments, installment_amount = chk.installment_amount,
+    installment_every = chk.installment_every, closure_reason = chk.closure_reason, adjust_type = chk.adjust_type,
+    release_date = chk.release_date, price_per_box = chk.price_per_box, exchange_rate = chk.exchange_rate,
+    release_php = chk.release_php, release_bdt = chk.release_bdt, shipping_cost = chk.shipping_cost, shipping_bill_no = chk.shipping_bill_no,
+    stock_info = chk.stock_info, balance_due = chk.balance_due, days_overdue = chk.days_overdue
+  where id = p_id returning * into o;
+  insert into public.record_changes (target_table, target_id, action, changes, previous, target_label, actor, actor_name)
+  values ('order_letters', p_id, 'order changed', ch, prev, o.order_no, auth.uid(), me);
+  if not public.is_admin() then
+    perform public.notify_admins('Order ' || o.order_no || ' was changed', o.subject, 'order/' || o.id);
+  end if;
+  return o;
+end;
+$$;
+revoke execute on function public.update_pending_order(uuid, jsonb) from public, anon;
+grant execute on function public.update_pending_order(uuid, jsonb) to authenticated;
+
+-- ---------- 7. the other functions: created again exactly as they are now, with only these lines changed ----------
 
 do $$
 declare
@@ -261,7 +360,7 @@ declare
     select * into bl from public.stock_bills b where b.id = new.stock_bill_id;
     if bl.id is null then raise exception ''Choose the e-bill''; end if;
     if bl.status not in (''shipped'',''arrived'') then
-      raise exception ''E-Bill % is already %. Only a SHIPPED e-bill can be released'', bl.bill_no, upper(bl.status);
+      raise exception ''E-Bill % is already at %. Only an e-bill at SHIP can be released'', bl.bill_no, public.ebill_status_name(bl.status);
     end if;
     if exists (select 1 from public.order_letters x where x.stock_bill_id = bl.id and x.status = ''pending'') then
       raise exception ''E-Bill % already has a Released Notice waiting for approval'', bl.bill_no;
@@ -299,7 +398,7 @@ declare
       || '' (shipping BDT '' || to_char(o.shipping_cost, ''FM999,999,999,990.00'') || '')'';
 ',
      '    if bl.id is null then raise exception ''The e-bill of this order was deleted''; end if;
-    if bl.status not in (''shipped'',''arrived'') then raise exception ''E-Bill % is % and cannot be released again'', bl.bill_no, upper(bl.status); end if;
+    if bl.status not in (''shipped'',''arrived'') then raise exception ''E-Bill % is at % and cannot be released again'', bl.bill_no, public.ebill_status_name(bl.status); end if;
     -- the released charge and the shipping fee are added to the e-bill''s total cost
     update public.stock_bills set status = ''released'', release_date = o.release_date, shipping_cost = o.shipping_cost,
       shipping_bill_no = o.shipping_bill_no, release_order_no = o.order_no, released_at = now(),
@@ -322,6 +421,8 @@ declare
      '    update public.stock_bills set status = coalesce(prev, ''shipped''), release_date = null, shipping_cost = null, shipping_bill_no = null,
       release_order_no = null, released_at = null, release_price_per_box = null, release_exchange_rate = null, release_php = null, release_bdt = null
 '],
+    ['undo_order', '    values (o.stock_bill_id, o.order_no || '' deleted — status back to '' || upper(prev), o.subject, auth.uid(), me);',
+     '    values (o.stock_bill_id, o.order_no || '' deleted — status back to '' || public.ebill_status_name(prev), o.subject, auth.uid(), me);'],
     ['pay_vouchers_before_insert', '''That stock-bill belongs to a different company''',
      '''That e-bill belongs to a different company'''],
     ['pay_vouchers_before_insert', '''Only a released stock-bill (e-bill) can be paid''',
@@ -333,7 +434,7 @@ declare
     ['delete_record', '''This stock-bill has payments in Billing. Delete those payment vouchers first''',
      '''This e-bill has payments in Billing. Delete those payment vouchers first'''],
     ['delete_record', '''This stock-bill is already SOLD or PAID, so its release order cannot be deleted''',
-     '''This e-bill is already SOLD or PAID, so its Released Notice cannot be deleted'''],
+     '''This e-bill is already at SALES or PAID, so its Released Notice cannot be deleted'''],
     ['verify_record', '-- A stock-bill shows only for the secret code of its Statistics Report (never for its number).',
      '-- An e-bill shows only for the secret code of its Statistics Report (never for its number).'],
     ['verify_record', '''type'', ''Stock-Bill Statistics''',
@@ -369,7 +470,7 @@ begin
     for i in 1 .. array_length(fixes, 1) loop
       -- changed once: when the new text is already there (the script was run before), nothing is changed
       if fixes[i][1] = f.proname and position(fixes[i][3] in new_def) = 0 then
-        if position(fixes[i][2] in new_def) = 0 then raise exception 'Update 1.10: % has changed; text not found: %', f.proname, left(fixes[i][2], 60); end if;
+        if position(fixes[i][2] in new_def) = 0 then raise exception 'Update 2.0: % has changed; text not found: %', f.proname, left(fixes[i][2], 60); end if;
         new_def := replace(new_def, fixes[i][2], fixes[i][3]);
       end if;
     end loop;

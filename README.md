@@ -1,4 +1,4 @@
-# Emon Overruns Portal
+# Emon Overruns Portal (E-Portal v2.0)
 
 **Live:** https://emon-overruns.vercel.app
 
@@ -17,8 +17,8 @@ It is laid out like AutoCount: option panel, then Inquiry, Preview and Print, th
 | 6. Community | Company posts (kept 30 days) and chat |
 | 7. Project | Projects with their costs and payments |
 | 8. Billing | Billing companies (PHP, BDT or both), payment vouchers, and e-bills (released by their Released Notice) that a payment can be linked to |
-| 9. Order Letter | Requests for customers, employees, billing companies and e-bills (closure, reactivation, additional charge, settlement adjustment, balance certificate, Released Notice and more); the Director approves and it is carried out at once |
-| 10. Inventory | E-bills in BDT with their own item columns and rows and the uploaded bill (batch no and total boxes needed); Released Notice: an order letter found by the batch no, price per box (PHP) × boxes = total (PHP), × the exchange rate of the day = released charge (BDT), plus the shipping fee, all shown in BDT and added to the e-bill's total cost once approved; Sales Report (net sales, EOO fees, other fees and penalties with their receipts); status SHIPPED → RELEASED → SOLD → PAID; the profit or loss shows after the Director marks it PAID, with a Statistics Report and its secret code |
+| 9. Order Letter | Requests for customers, employees, billing companies and e-bills (closure, reactivation, additional charge, settlement adjustment, balance certificate, Released Notice and more). Every order waits for approval first and can be changed until then (Edit Order, by the person who sent it or the Director); once the Director approves it, it is carried out at once. The letter shows only the customer's name and account no (all details for a closed, reactivated or reopened account), or the company's name and authorized person |
+| 10. Inventory | E-bills in BDT with their own item columns and rows and the uploaded bill (batch no and total boxes needed); Released Notice: an order letter found by the batch no, price per box (PHP) × boxes = total (PHP), × the exchange rate of the day = released charge (BDT), plus the shipping fee, all shown in BDT and added to the e-bill's total cost once approved; Sales Report (net sales, EOO fees, other fees and penalties with their receipts); steps 1 SHIP → 2 RELEASED → 3 SALES → 4 PAID; the e-bill prints its batch no at the top; the profit or loss shows after the Director marks it PAID, with a Statistics Report and its secret code |
 | Verification | Anyone can check a record by its number or by scanning its QR / PDF417 code, without signing in. An e-bill is shown only for the secret code on its Statistics Report |
 | Corrections | Records are only added; corrections and cancellations are approved by the Director |
 | User | Logins, access levels and which modules each person can open (Director) |
@@ -26,7 +26,7 @@ It is laid out like AutoCount: option panel, then Inquiry, Preview and Print, th
 
 Amounts are in **PHP (₱)** (Billing also uses BDT; Inventory uses BDT). Dates show as MM-DD-YYYY in Manila time. Vouchers print the amount in words, for example "PESOS ONE THOUSAND … AND 50/100 ONLY".
 
-Numbers: account no initials-YYYYMM### (e.g. EH-202610001), payment receipt A-YYYY-MMDD-###, credit memo EOC-YYYYMM###, order letter EO-YYYY-MM-#### (e.g. EO-2026-10-0001; orders made before update 1.10 keep ORDER-YYYY-###), e-bill company letters-YYYY-#### (e.g. MF-2026-0001 for MODINA FASHION).
+Numbers: account no initials-YYYYMM### (e.g. EH-202610001), payment receipt A-YYYY-MMDD-###, credit memo EOC-YYYYMM###, order letter EO-YYYY-MM-#### (e.g. EO-2026-10-0001; orders made before update 2.0 keep ORDER-YYYY-###), e-bill company letters-YYYY-#### (e.g. MF-2026-0001 for MODINA FASHION).
 
 Database scripts, run once each in this order in the Supabase SQL Editor: `portal_init.sql`, `002_customers_invoices_payments.sql`,
 `003_statements.sql`, `004_update_1_1.sql`, `005_update_1_2.sql` (orders for customers, employees and billing companies),
@@ -38,7 +38,7 @@ run it again after any later update that replaces a function, so the replaced fu
 `010_update_1_7.sql` (wording: the database says Director instead of CEO, Employee instead of Staff, and clearer messages and history lines).
 `011_update_1_8.sql` (a wrong upload can be removed and uploaded again; customer credit limit, opening balance, address checked by hand, account number preview).
 `012_update_1_9.sql` (Inventory: stock-bills, release order, e-bills in Billing, sales report, PAID with the profit or loss and the secret code).
-`013_update_1_10.sql` (E-Bill numbers by company letters, no ARRIVED step, the Released Notice with price per box, exchange rate and shipping fee in BDT, order letters numbered EO-YYYY-MM-####).
+`013_update_2_0.sql` (Update 2.0: E-Bill numbers by company letters, the steps SHIP → RELEASED → SALES → PAID with no ARRIVED step, the Released Notice with price per box, exchange rate and shipping fee in BDT, order letters numbered EO-YYYY-MM-####, and an order waiting for approval can be changed).
 
 ## Setup (one time)
 1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.

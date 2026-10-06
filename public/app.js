@@ -6,7 +6,7 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "1.3";
+  const VERSION = "2.0";
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -36,7 +36,12 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const isAdmin = () => S.profile?.role === "admin";
   const isStaff = () => ["admin", "staff"].includes(S.profile?.role);
-  const pill = (s) => `<span class="pill ${esc(s)}">${esc(String(s || "").replace(/_/g, " ").toUpperCase())}</span>`;
+  const pill = (s, label) => `<span class="pill ${esc(s)}">${esc(label || String(s || "").replace(/_/g, " ").toUpperCase())}</span>`;
+  // The steps of an e-bill: 1 SHIP, 2 RELEASED, 3 SALES, 4 PAID (saved as shipped, released, sold, paid; an e-bill
+  // marked "arrived" before Update 2.0 is still at SHIP).
+  const EBILL_STEP = { shipped: "SHIP", arrived: "SHIP", released: "RELEASED", sold: "SALES", paid: "PAID" };
+  const ebillStep = (s) => EBILL_STEP[s] || String(s || "").toUpperCase();
+  const ebillPill = (s) => pill(s, ebillStep(s));
   // The top role is called Director in the portal (stored as "admin"); everyone else is shown with their job position.
   const roleName = (r) => ({ admin: "Director", staff: "Employee", viewer: "Viewer" })[r] || r || "";
   const personTitle = (role, position) => role === "admin" ? "Director" : position || roleName(role);
@@ -581,6 +586,7 @@
     projects: "projects", newproject: "projects", project: "projects",
     billing: "billing", newpaycompany: "billing", paycompany: "billing", newvoucher: "billing", voucher: "billing", ebill: ["billing", "inventory"],
     orders: ["orders", "customers"], neworder: ["orders", "customers", "employees", "billing", "inventory"], order: ["orders", "customers", "employees", "billing", "inventory"],
+    editorder: ["orders", "customers", "employees", "billing", "inventory"],
     inventory: "inventory", newstockbill: "inventory", stockbill: "inventory"
   };
   // Admins see everything; NULL modules = all (older accounts).
@@ -594,7 +600,7 @@
     ["logins", "User", () => isAdmin()],
     ["forms", "Download Forms", () => true]
   ];
-  const ACTIVE_OF = { orders: "orders", neworder: "orders", order: "orders", payslip: "employees", ebill: "billing", find: "", profile: "", settings: "" };
+  const ACTIVE_OF = { orders: "orders", neworder: "orders", editorder: "orders", order: "orders", payslip: "employees", ebill: "billing", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
   const ALIAS = { users: "employees", userres: "employees", resolutions: "community", resolution: "community", verification: "verify", supplier: "billing", newsupplier: "billing", search: "dashboard" };
   const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);
@@ -1098,7 +1104,7 @@
   // shared with modules.js to modules4.js
   Object.assign(window.EO, {
     APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
-    isAdmin, isStaff, pill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
+    isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages,
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey,
     roleName, personTitle, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,

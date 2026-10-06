@@ -994,6 +994,11 @@ table.vp-fields { width: 100%; border-collapse: collapse; font-size: 12px; }
 .vp-fields th { width: 36%; padding: 5px 8px; text-align: left; font-weight: normal; color: #444; border-bottom: 1px dotted #bbb; }
 .vp-fields td { padding: 5px 8px; font-weight: bold; border-bottom: 1px dotted #bbb; overflow-wrap: anywhere; }
 .vp-fields tr:last-child > * { border-bottom: 0; }
+/* a date or a record number in a printed paragraph stays on one line */
+.nw { white-space: nowrap; }
+/* a record with many details (an e-bill's statistics) stays on one page */
+table.vp-fields.many { font-size: 10.5px; }
+.vp-fields.many th, .vp-fields.many td { padding: 2.5px 8px; }
 .vp-valid { display: flex; align-items: flex-start; gap: 10px; }
 .vp-valid table { flex: 1; }
 .vp-qr { padding: 6px 10px 6px 0; text-align: center; font-size: 9px; }

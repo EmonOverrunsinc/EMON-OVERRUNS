@@ -1,11 +1,11 @@
 /* EMON OVERRUNS E-PORTAL — 10 Inventory: e-bills in BDT with their own item columns and rows (and the bill uploaded),
    the Released Notice (an order letter: price per box × boxes × exchange rate + shipping fee), the Sales Report (net
-   sales, EOO fees, other fees and penalties with receipts), the status SHIPPED → RELEASED → SOLD → PAID, the profit or
+   sales, EOO fees, other fees and penalties with receipts), the steps 1 SHIP → 2 RELEASED → 3 SALES → 4 PAID, the profit or
    loss (shown after PAID), the Statistics Report with its secret code, and the e-bills in Billing. */
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, pill, toast, fail, words, ic, busy } = E;
+  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, pill, ebillStep, ebillPill, toast, fail, words, ic, busy } = E;
   const V = window.EO_VIEWS;
   const num = (v) => Number(v || 0);
   const tools = (...a) => (E.recordTools ? E.recordTools(...a) : "");
@@ -17,9 +17,11 @@
   const cap = (s) => String(s || "").replace(/^./, (x) => x.toUpperCase());
   const verifyUrl = (code) => `${location.origin}${location.pathname}#verify/${encodeURIComponent(code)}`;
 
+  // the steps: 1 SHIP, 2 RELEASED, 3 SALES, 4 PAID (an e-bill marked "arrived" before Update 2.0 is still at SHIP)
   const STATUS = ["shipped", "released", "sold", "paid"];
-  const STATUS_NAME = { shipped: "Shipped", arrived: "Arrived", released: "Released", sold: "Sold", paid: "Paid" };
+  const STATUS_NAME = { shipped: "Ship", arrived: "Ship", released: "Released", sold: "Sales", paid: "Paid" };
   const STATUS_AT = { shipped: "created_at", arrived: "arrived_at", released: "released_at", sold: "sold_at", paid: "paid_at" };
+  const stepOf = (st) => (st === "arrived" ? 0 : STATUS.indexOf(st));
   const ENTRY = { sales: "Net Sales", eoo_fee: "EOO Fee", fee: "Other Fee", penalty: "Penalty" };
   const MAX_COLS = 10;
   const isOpen = (st) => st === "shipped" || st === "arrived";
@@ -46,21 +48,21 @@
     { label: "Batch No", get: (r) => r.batch_no || "" }, { label: "System Record No", get: (r) => r.shipment_no || "" }, { label: "Shipment Date", get: (r) => mdy(r.shipment_date) },
     { label: "Boxes", num: true, get: (r) => r.total_boxes ?? "" }, { label: "Total Qty", num: true, get: (r) => qtyText(r.total_qty) },
     { label: "Total Cost (BDT)", key: "cost", num: true, html: (r) => `<b class="bdt">${peso(totalCost(r))}</b>` },
-    { label: "Profit / Loss (BDT)", num: true, html: profitHtml }, { label: "Status", html: (r) => pill(r.status) }
+    { label: "Profit / Loss (BDT)", num: true, html: profitHtml }, { label: "Status", html: (r) => ebillPill(r.status) }
   ];
   V.inventory = async () => {
     const w = E.canWrite("inventory");
     E.shell("inventory", "Inventory", `
-      <div class="tiles" id="ivTiles">${["E-Bills", "Shipped (Not Released)", "Total Cost (BDT)", "Net Profit / Loss — Paid (BDT)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>
+      <div class="tiles" id="ivTiles">${["E-Bills", "At SHIP (Not Released)", "Total Cost (BDT)", "Net Profit / Loss — Paid (BDT)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>
       <div class="btnrow">${w ? `<a class="btn primary" href="#newstockbill">${ic("plus")} Add E-Bill</a><a class="btn" href="#neworder/stock_bill">${ic("doc")} Released Notice</a>` : ""}</div>
-      <div class="tabs" id="ivF"><button type="button" class="on" data-f="">All</button>${STATUS.map((s) => `<button type="button" data-f="${s}">${STATUS_NAME[s]}</button>`).join("")}</div>
+      <div class="tabs" id="ivF"><button type="button" class="on" data-f="">All</button>${STATUS.map((s) => `<button type="button" data-f="${s}">${STATUS_NAME[s].toUpperCase()}</button>`).join("")}</div>
       <div class="inv-find"><input type="search" id="ivQ" placeholder="Search by e-bill no, company, batch no, bill no or system record no" aria-label="Search e-bills"></div>
       <div id="ivRes">${busy()}</div>`,
       "E-bills of the goods bought, in BDT. <b>Add E-Bill</b> records the bill with its items. The <b>Released Notice</b> (an order letter, found by the batch no) releases it and adds the released charge and the shipping fee; then add the <b>Sales Report</b>. The profit or loss shows after the Director marks it <b>PAID</b>.");
     const { data, error } = await sb.from("stock_bill_totals")
       .select("id, bill_no, bill_date, company_name, supplier_bill_no, batch_no, shipment_no, shipment_date, total_boxes, total_qty, total_cost, release_bdt, shipping_cost, status, profit, created_at")
       .order("created_at", { ascending: false }).limit(2000);
-    if (error) return fail(error, "Could not load the e-bills (run the 1.10 database update)");
+    if (error) return fail(error, "Could not load the e-bills (run the 2.0 database update)");
     const all = data || [];
     const paid = all.filter((r) => r.status === "paid"), profit = paid.reduce((s, r) => s + num(r.profit), 0);
     const tiles = [["", String(all.length)], ["warn", String(all.filter((r) => isOpen(r.status)).length)], ["", bdt(all.reduce((s, r) => s + totalCost(r), 0))],
@@ -69,7 +71,7 @@
     let f = "";
     const show = () => {
       const q = $("#ivQ").value.trim().toLowerCase();
-      const rows = all.filter((r) => (!f || r.status === f) && (!q || [r.bill_no, r.company_name, r.batch_no, r.shipment_no, r.supplier_bill_no].join(" ").toLowerCase().includes(q)));
+      const rows = all.filter((r) => (!f || STATUS[stepOf(r.status)] === f) && (!q || [r.bill_no, r.company_name, r.batch_no, r.shipment_no, r.supplier_bill_no].join(" ").toLowerCase().includes(q)));
       $("#ivRes").innerHTML = E.grid({ cols: LIST_COLS, rows, onRow: true, foot: { cost: `<b class="bdt">${peso(rows.reduce((s, r) => s + totalCost(r), 0))}</b>` },
         empty: all.length ? "No e-bills match." : w ? "No e-bills yet. Press Add E-Bill." : "No e-bills yet." });
       E.bindGrid($("#ivRes"), rows, (r) => (location.hash = "stockbill/" + r.id));
@@ -232,8 +234,8 @@
       rows, foot: { q: qtyText(b.total_qty), t: `<b class="bdt">${peso(b.total_cost)}</b>` }, empty: "No items." });
   }
   const stepsHtml = (b) => `<div class="sb-steps">${STATUS.map((s, i) => {
-    const done = STATUS.indexOf(b.status) >= i, at = b[STATUS_AT[s]];
-    return `<div class="sb-step${done ? " on" : ""}${s === b.status ? " cur" : ""}"><span class="dot">${done ? ic("check") : i + 1}</span><b>${STATUS_NAME[s].toUpperCase()}</b><small>${done ? esc(at ? mdy(at) : "—") : ""}</small></div>`;
+    const done = stepOf(b.status) >= i, at = b[STATUS_AT[s]];
+    return `<div class="sb-step${done ? " on" : ""}${i === stepOf(b.status) ? " cur" : ""}"><span class="dot">${done ? ic("check") : i + 1}</span><b>${STATUS_NAME[s].toUpperCase()}</b><small>${done ? esc(at ? mdy(at) : "—") : ""}</small></div>`;
   }).join("")}</div>`;
 
   V.stockbill = async (id) => {
@@ -268,7 +270,7 @@
     if (w && isOpen(st) && !pending) acts.push(`<a class="btn primary" href="#neworder/stock_bill/${b.id}">${ic("doc")} Released Notice</a>`);
     if (w && (st === "released" || st === "sold")) acts.push(`<button type="button" class="btn primary" id="sbSales">${ic("plus")} Add Sales Report</button>`);
     if (w && st !== "paid") acts.push(`<button type="button" class="btn" id="sbFee">${ic("plus")} Add Fee / Penalty</button>`);
-    if (w && st === "released") acts.push(`<button type="button" class="btn" id="sbSold">${ic("check")} Mark as SOLD</button>`);
+    if (w && st === "released") acts.push(`<button type="button" class="btn" id="sbSold">${ic("check")} Mark as SALES</button>`);
     if (admin && st === "sold") acts.push(`<button type="button" class="btn ok" id="sbPaid">${ic("check")} Mark as PAID</button>`);
     const entryFile = (r) => files.find((a) => a.owner_type === "stock_bill_entry" && a.owner_id === r.id);
     const receiptCell = (r) => {
@@ -289,7 +291,7 @@
     const sum4 = [["Net Sales", b.net_sales, "ok"], ["EOO Fees", b.eoo_fees], ["Other Fees", b.other_fees], ["Penalties", b.penalties]];
     $("#main").innerHTML = `${banner}
       <section class="cust-hero sb-hero st-${esc(st)}"><div class="ch-photo sb-ic">${ic("box")}</div>
-        <div class="ch-main"><div class="ch-name"><h2>${esc(b.bill_no)}</h2>${pill(st)}</div>
+        <div class="ch-main"><div class="ch-name"><h2>${esc(b.bill_no)}</h2>${ebillPill(st)}</div>
           <div class="ch-sub"><b>${esc(b.company_name || "")}</b>${b.supplier_bill_no ? ` · Bill No ${esc(b.supplier_bill_no)}` : ""} · Bill Date ${mdy(b.bill_date)}</div>
           <div class="ch-ids">${E.idBox("Batch No", b.batch_no)}${E.idBox("System Record No", b.shipment_no)}${E.idBox("Shipment Date", mdy(b.shipment_date))}${E.idBox("Total Boxes", b.total_boxes == null ? "" : String(b.total_boxes))}${E.idBox("Total Qty", qtyText(b.total_qty))}${E.idBox("Released Date", mdy(b.release_date))}${E.idBox("Added By", b.created_by_name)}</div></div></section>
       ${stepsHtml(b)}
@@ -339,16 +341,16 @@
     E.setRecords(`E-Bill: ${b.bill_no}`);
   };
 
-  // Mark as SOLD (inventory) or PAID (the Director), with an optional note.
+  // Mark as SALES (inventory) or PAID (the Director), with an optional note.
   function statusDialog(b, action, reload) {
-    const what = { sold: "SOLD", paid: "PAID" }[action];
+    const what = { sold: "SALES", paid: "PAID" }[action];
     const p = profitOf(b), bal = totalCost(b) - num(b.paid_bdt);
     const body = action === "paid" ? `<p>Mark <b>${esc(b.bill_no)}</b> as <b>PAID</b>?</p>
         <table class="kv-sum"><tbody><tr><th>Net Sales</th><td>${bdt(b.net_sales)}</td></tr><tr><th>Total Cost (bill + released charge + shipping fee)</th><td>− ${bdt(totalCost(b))}</td></tr>
           <tr><th>EOO Fees, Other Fees and Penalties</th><td>− ${bdt(feesOf(b))}</td></tr><tr class="${p < 0 ? "loss" : "gain"}"><th>${p < 0 ? "Net Loss" : "Net Profit"}</th><td>${bdt(Math.abs(p))}</td></tr></tbody></table>
         <p class="muted">After PAID, nothing more can be added to this e-bill. The profit or loss is shown, and the Statistics Report is made with its secret code.</p>
         ${bal > 0 ? `<div class="hint err">The e-bill still shows ${bdt(bal)} unpaid in Billing.</div>` : ""}`
-      : `<p>Mark <b>${esc(b.bill_no)}</b> as <b>SOLD</b>? Net sales so far: <b>${bdt(b.net_sales)}</b>.</p><p class="muted">Sales reports, fees and penalties can still be added until the Director marks it PAID.</p>`;
+      : `<p>Mark <b>${esc(b.bill_no)}</b> as <b>SALES</b>? Net sales so far: <b>${bdt(b.net_sales)}</b>.</p><p class="muted">Sales reports, fees and penalties can still be added until the Director marks it PAID.</p>`;
     const m = E.modal(`Mark as ${what} — ${b.bill_no}`, `${body}<label class="fl" for="stNote">Note (optional)</label><input type="text" id="stNote">`,
       `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>Mark as ${what}</button>`);
     $("[data-x]", m.el).onclick = m.close;
@@ -358,7 +360,7 @@
       btn.disabled = false;
       if (error) return fail(error, `Could not mark the e-bill as ${what}`);
       m.close();
-      toast(`${b.bill_no} is now ${what}.${action === "paid" ? " The Statistics Report is ready." : ""}`);
+      toast(`${b.bill_no} is now at ${what}.${action === "paid" ? " The Statistics Report is ready." : ""}`);
       await reload();
       // marking PAID makes the Statistics Report straight away
       if (action === "paid") printStats(b.id);
@@ -447,7 +449,32 @@
     const tot = w.reduce((a, x) => a + x, 0);
     return w.map((x) => (x * 100) / tot); // no text column: the numbers share the whole width
   };
-  const itemLines = (cols, r) => linesFor(["", ...cols.map((c, ci) => cellText(c, r[ci]))], itemWidths(cols), cols.length > 7);
+  // Column widths that keep every word of a column name, every number and every short code on one line: a column that
+  // is too narrow takes the room it needs from the columns that have room to spare (measured in the print font).
+  const textWidth = (() => {
+    const ctx = document.createElement("canvas").getContext("2d");
+    return (text, px, bold) => { ctx.font = `${bold ? "bold " : ""}${px}px Arial, "Helvetica Neue", Helvetica, sans-serif`; return ctx.measureText(String(text ?? "")).width; };
+  })();
+  const TABLE_PX = (182 * 96) / 25.4; // the printed table is 182 mm wide
+  function fitWidths(widths, heads, values, tight) {
+    const px = tight ? 9.5 : 10.5;
+    const need = widths.map((w, i) => {
+      let m = Math.max(0, ...String(heads[i] || "").split(/\s+/).map((x) => textWidth(x, px, true)));
+      for (const v of values[i] || []) for (const x of String(v ?? "").split(/\s+/)) if (x.length <= 16) m = Math.max(m, textWidth(x, px, true));
+      return ((m + 11) / TABLE_PX) * 100; // + the padding and the borders of the cell
+    });
+    const short = widths.reduce((a, w, i) => a + Math.max(0, need[i] - w), 0);
+    if (short <= 0.01) return widths;
+    const spare = widths.map((w, i) => Math.max(0, w - need[i])), room = spare.reduce((a, x) => a + x, 0);
+    const cut = room > 0 ? Math.min(1, short / room) : 0;
+    const out = widths.map((w, i) => Math.max(w, need[i]) - spare[i] * cut);
+    const tot = out.reduce((a, x) => a + x, 0);
+    return out.map((x) => (x * 100) / tot);
+  }
+  // The item table's widths, fitted to its column names, numbers and totals.
+  const itemFit = (cols, rows, b) => fitWidths(itemWidths(cols), ["No.", ...cols.map(colHead)],
+    [[String(rows.length), ...(cols.some((c) => !isNum(c)) ? [] : ["TOTAL"])], ...cols.map((c, ci) => [...rows.map((r) => cellText(c, r[ci])),
+      ...(c.type === "qty" ? [qtyText(b.total_qty)] : c.type === "total" ? [peso(b.total_cost)] : [])])], cols.length > 7);
   const companyOf = async (b) => (await sb.from("pay_companies").select("name, contact_person, contact, address, country").eq("id", b.company_id).maybeSingle()).data || {};
   const pageFoot = (label, n, of) => `<div class="rp-foot"><span>${esc(E.APP)} — ${esc(label)}</span><span>Page ${n} of ${of}</span></div>`;
   const contHead = (text) => `<div class="sb-cont"><b>${esc(C.company.name)}</b><span>${esc(text)}</span></div>`;
@@ -459,11 +486,12 @@
     const title = "E-BILL", label = `E-Bill ${b.bill_no}`;
     const firstText = cols.find((c) => !isNum(c));
     const paid = vouchers.reduce((s, v) => s + num(v.amount_bdt), 0), total = totalCost(b);
-    const head = `${E.printHead(title, `<div class="sb-no"><small>E-Bill No</small><b>${esc(b.bill_no)}</b>${b.supplier_bill_no ? `<small>Bill No: ${esc(b.supplier_bill_no)}</small>` : ""}</div>`)}
-      <div class="vno-row"><span>Bill Date: <b>${esc(mdy(b.bill_date))}</b></span><span>Prepared By: <b>${esc(b.created_by_name || "")}</b></span><span>Status: <b>${esc(String(b.status).toUpperCase())}</b></span></div>
+    const head = `${E.printHead(title, `<div class="sb-no"><small>Batch No</small><b>${esc(b.batch_no || "—")}</b><small>E-Bill No: ${esc(b.bill_no)}</small>${b.supplier_bill_no ? `<small>Bill No: ${esc(b.supplier_bill_no)}</small>` : ""}</div>`)}
+      <div class="vno-row"><span>Bill Date: <b>${esc(mdy(b.bill_date))}</b></span><span>Prepared By: <b>${esc(b.created_by_name || "")}</b></span><span>Status: <b>${esc(ebillStep(b.status))}</b></span></div>
       ${E.box("Company and Shipment", `<div class="pgrid2">${E.cell("Company", co.name || b.company_name, "hl")}${E.cell("Contact Person", co.contact_person)}${E.cell("Address", co.address || co.country)}${E.cell("Phone / Email", co.contact)}</div>
         <div class="pgrid4">${E.cell("Batch No", b.batch_no)}${E.cell("System Record No", b.shipment_no)}${E.cell("Shipment Date", mdy(b.shipment_date))}${E.cell("Total Boxes", b.total_boxes ?? "")}</div>`)}`;
-    const table = (chunk, from, last) => `<table class="rp sb-items fixed${cols.length > 7 ? " tight" : ""}">${colgroup(itemWidths(cols))}<thead><tr><th class="num">No.</th>${cols.map((c) => `<th class="${isNum(c) ? "num" : ""}">${esc(colHead(c))}</th>`).join("")}</tr></thead>
+    const W = itemFit(cols, rows, b);
+    const table = (chunk, from, last) => `<table class="rp sb-items fixed${cols.length > 7 ? " tight" : ""}">${colgroup(W)}<thead><tr><th class="num">No.</th>${cols.map((c) => `<th class="${isNum(c) ? "num" : ""}">${esc(colHead(c))}</th>`).join("")}</tr></thead>
       <tbody>${chunk.map((r, i) => `<tr><td class="num">${from + i + 1}</td>${cols.map((c, ci) => `<td class="${isNum(c) ? "num" : ""}">${esc(cellText(c, r[ci]))}</td>`).join("")}</tr>`).join("")}</tbody>
       ${last ? `<tfoot><tr><td>${firstText ? "" : "TOTAL"}</td>${cols.map((c) => `<td class="${isNum(c) ? "num" : ""}">${c.type === "qty" ? esc(qtyText(b.total_qty)) : c.type === "total" ? esc(peso(b.total_cost)) : c === firstText ? "TOTAL" : ""}</td>`).join("")}</tr></tfoot>` : ""}</table>`;
     const summary = `${E.box(ebill ? "Amount Payable" : "Cost", `<table class="rp v-amt"><tbody>
@@ -480,7 +508,7 @@
       ${ebill ? `<div class="soa-sys">This is a system-generated e-bill. No signature is required.</div>` : E.sigs(`Prepared by: ${esc(b.created_by_name || "")}`, "Checked by (Signature) / Date")}`;
     // Room in printed lines: about 34 under the header of the first page and 46 on the next pages. The cost (and for
     // the e-bill the payments) comes after the last item: on its page when it fits, otherwise on one more page.
-    const L = rows.map((r) => itemLines(cols, r));
+    const L = rows.map((r) => linesFor(["", ...cols.map((c, ci) => cellText(c, r[ci]))], W, cols.length > 7));
     const sumLines = 12 + (b.release_bdt != null ? 1 : 0) + (b.shipping_cost != null ? 1 : 0) + (b.release_date ? 3 : 0) + (b.notes ? 2 : 0)
       + (ebill ? 4 + (vouchers.length ? 3 + vouchers.length : 0) : 4);
     const chunks = [];
@@ -492,8 +520,9 @@
     }
     const [a, z] = chunks[chunks.length - 1];
     const room = (chunks.length === 1 ? 34 : 46) - L.slice(a, z).reduce((s, x) => s + x, 0) >= sumLines;
-    const pages = chunks.map(([i, j], k) => (k ? contHead(`${title} ${b.bill_no} — continued`) : head) + table(rows.slice(i, j), i, k === chunks.length - 1) + (k === chunks.length - 1 && room ? summary : ""));
-    if (!room) pages.push(contHead(`${title} ${b.bill_no} — continued`) + summary);
+    const cont = contHead(`${title} · Batch No ${b.batch_no || "—"} · ${b.bill_no} — continued`);
+    const pages = chunks.map(([i, j], k) => (k ? cont : head) + table(rows.slice(i, j), i, k === chunks.length - 1) + (k === chunks.length - 1 && room ? summary : ""));
+    if (!room) pages.push(cont + summary);
     return pages.map((p, i) => p + pageFoot(label, i + 1, pages.length));
   }
   async function printBill(b) {
@@ -512,6 +541,7 @@
       ${last && s.foot && rows.length ? `<tfoot><tr>${s.foot.map((v, i) => `<td class="${s.cols[i].num ? "num" : ""}">${esc(v)}</td>`).join("")}</tr></tfoot>` : ""}</table>`;
   }
   function flowPages(sections, budget) {
+    for (const s of sections) s.widths = fitWidths(s.widths, s.cols.map((c) => c.label), s.cols.map((c, i) => [...s.rows.map((r) => c.get(r)), ...(s.foot ? [s.foot[i]] : [])]), s.tight);
     const pages = [[]];
     let left = budget;
     const next = () => { pages.push([]); left = budget; };
@@ -568,7 +598,7 @@
       ["Total Cost (bill + released charge + shipping fee)", totalCost(b), "sub"],
       ["EOO Fees", b.eoo_fees], ["Other Fees", b.other_fees], ["Penalties", b.penalties], ["Total Expenses", expensesOf(b), "sub"], ["Net Sales", b.net_sales, "sub"]];
     const first = `${E.printHead("E-BILL STATISTICS REPORT", `<img src="${E.qrDataUrl(verifyUrl(d.secret))}" alt="" class="sb-qr"><div class="sb-code"><small>SECRET CODE</small>${esc(d.secret).replace(/-/g, "-<wbr>")}</div>`)}
-      <div class="vno-row"><span>E-Bill No: <b>${esc(b.bill_no)}</b></span><span>Status: <b>PAID</b></span><span>Marked Paid: <b>${esc(mdy(b.paid_at))}${b.paid_by_name ? " by " + esc(b.paid_by_name) : ""}</b></span></div>
+      <div class="vno-row"><span>Batch No: <b>${esc(b.batch_no || "—")}</b></span><span>E-Bill No: <b>${esc(b.bill_no)}</b></span><span>Status: <b>PAID</b></span><span>Marked Paid: <b>${esc(mdy(b.paid_at))}${b.paid_by_name ? " by " + esc(b.paid_by_name) : ""}</b></span></div>
       ${E.box("E-Bill", `<div class="pgrid4">${E.cell("Company", d.co.name || b.company_name, "hl")}${E.cell("Bill No", b.supplier_bill_no)}${E.cell("Bill Date", mdy(b.bill_date))}${E.cell("Prepared By", b.created_by_name)}
         ${E.cell("Batch No", b.batch_no)}${E.cell("System Record No", b.shipment_no)}${E.cell("Shipment Date", mdy(b.shipment_date))}${E.cell("Total Boxes", b.total_boxes ?? "")}
         ${E.cell("Total Qty", qtyText(b.total_qty))}${E.cell("Released Date", mdy(b.release_date))}${E.cell("Released Notice No", b.release_order_no)}${E.cell("Exchange Rate (BDT for 1 PHP)", b.release_exchange_rate == null ? "" : rate(b.release_exchange_rate))}</div>`)}
@@ -606,7 +636,7 @@
     // the photos, four on a page
     for (let i = 0; i < d.photos.length; i += 4) {
       body.push(`<div class="sb-sec">UPLOADED PHOTOS${i ? " (continued)" : ""}</div><div class="sb-photos">${d.photos.slice(i, i + 4).map((p, k) => `<figure class="sb-photo"><img src="${esc(p.url)}" alt="${esc(p.file_name)}">
-        <figcaption>${i + k + 1}. ${esc(p.file_name)} — ${esc(KINDS[p.kind] || cap(p.kind))} · ${esc(belongs(p))} · ${esc(mdy(p.created_at))}</figcaption></figure>`).join("")}</div>`);
+        <figcaption>${i + k + 1}. ${esc(p.file_name)} — ${esc(KINDS[p.kind] || cap(p.kind))} · <span class="nw">${esc(belongs(p))}</span> · <span class="nw">${esc(mdy(p.created_at))}</span></figcaption></figure>`).join("")}</div>`);
     }
     return body.map((p, i) => (i ? contHead(`Statistics Report ${b.bill_no} — Page ${i + 1} of ${body.length}`) : "") + p + pageFoot(`Statistics Report ${b.bill_no}`, i + 1, body.length));
   }
@@ -622,7 +652,7 @@
     if (companyId) q = q.eq("company_id", companyId);
     const { data, error } = await q;
     if (!holder || !holder.isConnected) return [];
-    if (error) { holder.innerHTML = `<div class="empty">Could not load the e-bills (run the 1.10 database update).</div>`; return []; }
+    if (error) { holder.innerHTML = `<div class="empty">Could not load the e-bills (run the 2.0 database update).</div>`; return []; }
     const rows = data || [];
     const sum = (f) => rows.reduce((s, r) => s + f(r), 0);
     holder.innerHTML = E.grid({ cols: [
