@@ -13,6 +13,9 @@
 --    Orders made before keep their numbers.
 -- 5. An order waiting for approval can be changed by the person who sent it or by the Director. It is checked again
 --    like a new order, keeps its number, and the change is recorded.
+-- 6. Signatures: everyone can upload their signature (My Profile); the Director's counts at once, anyone else's waits
+--    for the Director's approval (User). A document the Director approves prints the Director's approved signature by
+--    itself, so no signed copy is uploaded; a project is approved without an uploaded approved document.
 -- No records are changed or removed. Run once in the Supabase SQL Editor after 012_update_1_9.sql.
 -- It is safe to run again.
 -- =====================================================================
@@ -322,7 +325,108 @@ $$;
 revoke execute on function public.update_pending_order(uuid, jsonb) from public, anon;
 grant execute on function public.update_pending_order(uuid, jsonb) to authenticated;
 
--- ---------- 7. the other functions: created again exactly as they are now, with only these lines changed ----------
+-- ---------- 7. signatures ----------
+-- A signature is a picture in the records storage under signature/<the person's id>/. The Director's own signature counts
+-- at once; anyone else's waits until the Director approves it.
+alter table public.profiles add column if not exists signature_path text;
+alter table public.profiles add column if not exists signature_status text check (signature_status is null or signature_status in ('pending','approved','rejected'));
+alter table public.profiles add column if not exists signature_at timestamptz;
+alter table public.profiles add column if not exists signature_approved_by uuid references public.profiles(id) on delete set null;
+alter table public.profiles add column if not exists signature_approved_by_name text;
+alter table public.profiles add column if not exists signature_approved_at timestamptz;
+alter table public.profiles add column if not exists signature_note text;
+create index if not exists profiles_signature_approved_by_idx on public.profiles(signature_approved_by);
+
+-- My own signature (p_path null takes it off).
+create or replace function public.set_my_signature(p_path text) returns public.profiles
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare me public.profiles;
+begin
+  select * into me from public.profiles where id = auth.uid() for update;
+  if me.id is null or me.status <> 'active' then raise exception 'Your account is not active'; end if;
+  if p_path is not null and p_path not like 'signature/' || me.id::text || '/%' then raise exception 'Upload the signature to your own folder'; end if;
+  if p_path is not null and not exists (select 1 from storage.objects o where o.bucket_id = 'records' and o.name = p_path) then
+    raise exception 'The signature file was not found. Upload it again';
+  end if;
+  update public.profiles set signature_path = p_path, signature_at = case when p_path is null then null else now() end,
+    signature_status = case when p_path is null then null when me.role = 'admin' then 'approved' else 'pending' end,
+    signature_approved_by = case when p_path is not null and me.role = 'admin' then me.id end,
+    signature_approved_by_name = case when p_path is not null and me.role = 'admin' then me.full_name end,
+    signature_approved_at = case when p_path is not null and me.role = 'admin' then now() end,
+    signature_note = null
+  where id = me.id returning * into me;
+  if p_path is not null and me.role <> 'admin' then
+    perform public.notify_admins(coalesce(me.full_name, 'Someone') || ' uploaded a signature', 'Approve it in User', 'logins');
+  end if;
+  return me;
+end;
+$$;
+revoke execute on function public.set_my_signature(text) from public, anon;
+grant execute on function public.set_my_signature(text) to authenticated;
+
+-- The Director approves or rejects someone's signature, takes it off, or uploads it for them (approved at once).
+create or replace function public.signature_action(p_user uuid, p_action text, p_note text default null, p_path text default null) returns public.profiles
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare u public.profiles; me text := (select full_name from public.profiles where id = auth.uid());
+begin
+  if not public.is_admin() then raise exception 'Only the Director can approve signatures'; end if;
+  select * into u from public.profiles where id = p_user for update;
+  if u.id is null then raise exception 'User not found'; end if;
+  if p_action = 'upload' then
+    if p_path is null or p_path not like 'signature/' || u.id::text || '/%' then raise exception 'Upload the signature to the person''s own folder'; end if;
+    if not exists (select 1 from storage.objects o where o.bucket_id = 'records' and o.name = p_path) then raise exception 'The signature file was not found. Upload it again'; end if;
+    update public.profiles set signature_path = p_path, signature_at = now(), signature_status = 'approved', signature_approved_by = auth.uid(),
+      signature_approved_by_name = me, signature_approved_at = now(), signature_note = nullif(trim(p_note), '')
+    where id = u.id returning * into u;
+  elsif p_action in ('approve','reject') then
+    if u.signature_path is null then raise exception 'There is no signature to %', p_action; end if;
+    if u.signature_status <> 'pending' then raise exception 'This signature is already %', upper(u.signature_status); end if;
+    if p_action = 'reject' and nullif(trim(p_note), '') is null then raise exception 'Write why the signature is not approved'; end if;
+    update public.profiles set signature_status = case p_action when 'approve' then 'approved' else 'rejected' end, signature_approved_by = auth.uid(),
+      signature_approved_by_name = me, signature_approved_at = now(), signature_note = nullif(trim(p_note), '')
+    where id = u.id returning * into u;
+    perform public.notify_user(u.id, case p_action when 'approve' then 'Your signature is approved' else 'Your signature was not approved' end,
+      coalesce(nullif(trim(p_note), ''), 'Your Signature Verification Form is ready in My Profile'), 'profile');
+  elsif p_action = 'remove' then
+    update public.profiles set signature_path = null, signature_status = null, signature_at = null, signature_approved_by = null,
+      signature_approved_by_name = null, signature_approved_at = null, signature_note = nullif(trim(p_note), '')
+    where id = u.id returning * into u;
+  else
+    raise exception 'Unknown action %', p_action;
+  end if;
+  return u;
+end;
+$$;
+revoke execute on function public.signature_action(uuid, text, text, text) from public, anon;
+grant execute on function public.signature_action(uuid, text, text, text) to authenticated;
+
+-- The Directors' approved signatures, for the documents they approve (and the signature forms they approve).
+create or replace function public.director_signatures() returns table (id uuid, full_name text, signature_path text)
+language sql stable security definer set search_path = '' as $$
+  select p.id, p.full_name, p.signature_path from public.profiles p
+  where p.role = 'admin' and p.signature_status = 'approved' and p.signature_path is not null and public.is_active();
+$$;
+revoke execute on function public.director_signatures() from public, anon;
+grant execute on function public.director_signatures() to authenticated;
+
+-- Storage: a signature picture is seen by its owner and the Director; a Director's approved signature by everyone
+-- signed in (it is printed on the documents the Director approves). Everyone may upload into their own folder.
+create or replace function public.is_director_signature(p_name text) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.profiles p where p.role = 'admin' and p.signature_status = 'approved' and p.signature_path = p_name);
+$$;
+revoke execute on function public.is_director_signature(text) from public, anon;
+grant execute on function public.is_director_signature(text) to authenticated;
+drop policy if exists "storage records: signatures" on storage.objects;
+create policy "storage records: signatures" on storage.objects as restrictive for select to authenticated
+  using (bucket_id <> 'records' or coalesce((storage.foldername(name))[1], '') <> 'signature'
+         or (storage.foldername(name))[2] = (select auth.uid())::text or (select public.is_admin()) or public.is_director_signature(name));
+drop policy if exists "storage records: own signature" on storage.objects;
+create policy "storage records: own signature" on storage.objects for insert to authenticated
+  with check (bucket_id = 'records' and (storage.foldername(name))[1] = 'signature'
+              and (storage.foldername(name))[2] = (select auth.uid())::text and (select public.is_active()));
+
+-- ---------- 8. the other functions: created again exactly as they are now, with only these lines changed ----------
 
 do $$
 declare
@@ -457,13 +561,19 @@ declare
      '-- A Released Notice shows only that it is a genuine order (no e-bill figures).
     select o.order_no, o.order_date, o.subject, o.status, o.approved_by_name, pc.name as co_name, b.batch_no into r'],
     ['verify_record', 'jsonb_build_array(''Type'', ''Release Order'')',
-     'jsonb_build_array(''Type'', ''Released Notice'' || coalesce('' '' || r.batch_no, ''''))']
+     'jsonb_build_array(''Type'', ''Released Notice'' || coalesce('' '' || r.batch_no, ''''))'],
+    ['project_action', '    if not exists (select 1 from public.attachments a where a.owner_type = ''project'' and a.owner_id = p_id and a.kind = ''approval'') then
+      raise exception ''Upload the approved project document first'';
+    end if;
+',
+     '    -- 2.0: no uploaded approved document is needed: the Director''s signature is printed on the approved project
+']
   ];
   f record; def text; new_def text; i int;
 begin
   for f in select p.oid, p.proname from pg_proc p
            where p.pronamespace = 'public'::regnamespace and p.prokind = 'f' and pg_get_userbyid(p.proowner) = current_user
-             and p.proname in ('order_letters_before_insert', 'carry_out_order', 'undo_order', 'pay_vouchers_before_insert', 'delete_record', 'verify_record')
+             and p.proname in ('order_letters_before_insert', 'carry_out_order', 'undo_order', 'pay_vouchers_before_insert', 'delete_record', 'verify_record', 'project_action')
   loop
     def := pg_get_functiondef(f.oid);
     new_def := def;

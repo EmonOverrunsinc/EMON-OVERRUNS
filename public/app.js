@@ -862,12 +862,13 @@
 
   // ---------- report preview window ----------
   // size: "" (A4 portrait), "landscape" (A4 landscape) or "a5l" (A5 landscape slip).
-  function openPreview(title, pages, { landscape = false, size = "" } = {}) {
+  function openPreview(title, pages, { landscape = false, size = "", undated = false } = {}) {
     closePreview();
     const cls = size ? " " + size : landscape ? " landscape" : "";
-    // Every printed page shows the date it was printed (report listings and statements already carry their own).
+    // Every printed page shows the date it was printed (report listings and statements already carry their own);
+    // a blank form (undated) does not.
     const printed = dateTime(new Date().toISOString());
-    const dated = (p) => (/Date Printed|rp-stamp|Printed \d/.test(p) ? "" : `<div class="pg-date">Date Printed: ${esc(printed)}</div>`);
+    const dated = (p) => (undated || /Date Printed|rp-stamp|Printed \d/.test(p) ? "" : `<div class="pg-date">Date Printed: ${esc(printed)}</div>`);
     S.docTitle = document.title;
     document.title = title; // "Save as PDF" uses this as the file name
     const pv = document.createElement("div");
@@ -952,7 +953,13 @@
         </div><div class="fields wide"><label for="fmFile">File</label><input type="file" id="fmFile" required></div></div>
         <datalist id="fmCats"><option>General</option><option>HR</option><option>Accounts</option><option>Sales</option><option>Purchasing</option></datalist>
         <div class="btnrow"><button class="btn primary" type="submit">Upload Form</button></div></fieldset></form>` : ""}
+      <div class="window fm-built"><div class="wtitle">Forms of the E-Portal</div><div class="wbody">
+        <div class="doccard"><div class="dc-ic">${ic("doc")}</div>
+          <div class="dc-main"><b>SIGNATURE VERIFICATION FORM</b><small>A4 form to collect a person's signature: boxes for three specimen signatures and the initials, and the Director's approval</small></div>
+          <div class="dc-act"><a class="btn primary" id="fmSvfPdf" href="forms/EMON-OVERRUNS-Signature-Verification-Form.pdf" download="EMON-OVERRUNS-Signature-Verification-Form.pdf">${ic("download")} Download PDF</a>
+            <button type="button" class="btn" id="fmSvfPrint">${ic("print")} Print</button></div></div></div></div>
       <div id="fmList">${busy()}</div>`, "Blank company forms. Press <b>Download</b> to save a copy.");
+    $("#fmSvfPrint").onclick = () => window.EO.openBlankSignatureForm();
     const load = async () => {
       const { data, error } = await sb.from("forms").select("*").order("category").order("title");
       if (error) return fail(error, "Could not load forms");
@@ -1007,8 +1014,9 @@
     const load = async () => {
       let q = sb.from("profiles").select("*").order("created_at", { ascending: false });
       if ($("#uStatus").value) q = q.eq("status", $("#uStatus").value);
-      const [{ data, error }, { data: emps }] = await Promise.all([q, sb.from("employees").select("profile_id, position").not("profile_id", "is", null)]);
+      const [{ data, error }, { data: emps }] = await Promise.all([q, sb.from("employees").select("profile_id, position, employee_no, phone").not("profile_id", "is", null)]);
       const posOf = new Map((emps || []).map((e) => [e.profile_id, e.position]));
+      const empOf = new Map((emps || []).map((e) => [e.profile_id, e]));
       if (error) return fail(error, "Could not load users");
       const rows = data || [];
       const me = S.profile.id;
@@ -1020,9 +1028,12 @@
         { label: "Status", html: (r) => sel(r.id, "status", r.status, ["pending", "active", "disabled"], (o) => o[0].toUpperCase() + o.slice(1)) + " " + pill(r.status) },
         { label: "Last Seen", html: (r) => r.status === "active" && online(r.last_seen_at) ? `<span class="dot-on"></span> Active now` : esc(r.last_seen_at ? timeAgo(r.last_seen_at) : "—") },
         { label: "Joined", get: (r) => mdy(r.created_at) },
+        { label: "Signature", html: (r) => `<button type="button" class="btn small" data-sig="${r.id}">${ic("edit")} ${r.signature_path ? "Signature" : "Add"}</button> ${r.signature_path ? window.EO.sigPill(r.signature_status) : ""}` },
         { label: "", html: (r) => r.id === me ? "<small>You</small>" : `<button type="button" class="btn primary" data-save="${r.id}">Save</button>` }
       ];
-      $("#uList").innerHTML = grid({ cols, rows });
+      const waiting = rows.filter((r) => r.signature_status === "pending");
+      $("#uList").innerHTML = `${waiting.length ? `<div class="banner warn">${waiting.length} signature(s) waiting for your approval: ${waiting.map((r) => esc(r.full_name || r.email)).join(", ")}. Press <b>Signature</b> to approve.</div>` : ""}${grid({ cols, rows })}`;
+      $$("[data-sig]").forEach((b) => (b.onclick = () => signatureDialog(rows.find((r) => r.id === b.dataset.sig), empOf.get(b.dataset.sig), load)));
       $$("[data-save]").forEach((b) => (b.onclick = async () => {
         const id = b.dataset.save;
         const patch = {}; $$(`select[data-u="${id}"]`).forEach((s) => (patch[s.dataset.f] = s.value));
@@ -1034,6 +1045,33 @@
     };
     $("#uStatus").onchange = load;
     load();
+  }
+  // A person's signature (Director): see it, approve or reject it, take it off, upload it for them (approved at once),
+  // or print their Signature Verification Form.
+  async function signatureDialog(u, emp, reload) {
+    const X = window.EO, pic = await X.signaturePic(u.signature_path);
+    const st = u.signature_status;
+    const m = modal(`Signature — ${u.full_name || u.email}`, `
+      ${pic ? `<div class="sig-check"><img src="${esc(pic)}" alt="Signature"></div><p>${X.sigPill(st)} ${u.signature_at ? `<small>uploaded on ${mdy(u.signature_at)}</small>` : ""}</p>` : `<p><b>No signature yet.</b> ${esc(u.full_name || "")} can upload it in My Profile, or you can upload it here (approved at once).</p>`}
+      ${st === "rejected" && u.signature_note ? `<div class="hint err">Not approved: ${esc(u.signature_note)}</div>` : ""}
+      ${st === "pending" ? `<label class="fl" for="sgNote">Note (needed to reject)</label><input type="text" id="sgNote" placeholder="e.g. Too light, sign again with dark ink">` : ""}`,
+      `${st === "pending" ? `<button type="button" class="btn ok" data-a="approve">${ic("check")} Approve</button><button type="button" class="btn danger" data-a="reject">Reject</button>` : ""}
+       <label class="btn" for="sgFile">${ic("upload")} ${pic ? "Upload New" : "Upload Signature"}</label><input type="file" id="sgFile" accept="image/*" hidden>
+       ${u.signature_path ? `<button type="button" class="btn" data-form>${ic("print")} Form</button><button type="button" class="btn danger" data-a="remove">Remove</button>` : ""}
+       <button type="button" class="btn" data-x>Close</button>`);
+    $("[data-x]", m.el).onclick = m.close;
+    const act = async (a, path = null) => {
+      const note = $("#sgNote", m.el)?.value.trim() || null;
+      if (a === "remove" && !(await confirmBox(`Remove the signature of <b>${esc(u.full_name || "")}</b>?`, { ok: "Remove", danger: true }))) return false;
+      const { error } = await sb.rpc("signature_action", { p_user: u.id, p_action: a, p_note: note, p_path: path });
+      if (error) { fail(error, "Could not update the signature"); return false; }
+      await X.loadSignatures(true);
+      toast({ approve: "Signature approved. Their Signature Verification Form now carries your signature.", reject: "Signature not approved. They are told why.", remove: "Signature removed.", upload: "Signature saved and approved." }[a]);
+      m.close(); reload(); return true;
+    };
+    $$("[data-a]", m.el).forEach((b) => (b.onclick = () => act(b.dataset.a)));
+    if ($("[data-form]", m.el)) $("[data-form]", m.el).onclick = () => { m.close(); X.openSignatureForm(u, emp); };
+    X.pickSignature($("#sgFile", m.el), u.id, `Signature — ${u.full_name || u.email}`, (path) => act("upload", path));
   }
 
   // ---------- router ----------

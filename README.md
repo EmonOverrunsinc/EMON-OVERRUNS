@@ -21,8 +21,15 @@ It is laid out like AutoCount: option panel, then Inquiry, Preview and Print, th
 | 10. Inventory | E-bills in BDT with their own item columns and rows and the uploaded bill (batch no and total boxes needed); Released Notice: an order letter found by the batch no, price per box (PHP) × boxes = total (PHP), × the exchange rate of the day = released charge (BDT), plus the shipping fee, all shown in BDT and added to the e-bill's total cost once approved; Sales Report (net sales, EOO fees, other fees and penalties with their receipts); steps 1 SHIP → 2 RELEASED → 3 SALES → 4 PAID; the e-bill prints its batch no at the top; the profit or loss shows after the Director marks it PAID, with a Statistics Report and its secret code |
 | Verification | Anyone can check a record by its number or by scanning its QR / PDF417 code, without signing in. An e-bill is shown only for the secret code on its Statistics Report |
 | Corrections | Records are only added; corrections and cancellations are approved by the Director |
-| User | Logins, access levels and which modules each person can open (Director) |
-| Download Forms | Blank company forms |
+| User | Logins, access levels, which modules each person can open, and everyone's signature: approve, reject, remove or upload it (Director) |
+| Download Forms | Blank company forms, and the built-in **SIGNATURE VERIFICATION FORM** (A4 PDF with boxes for three specimen signatures, the initials and the Director's approval) |
+| My Profile | Photo, username, password, payslips, and **My Signature**: upload a photo of your signature (the white paper is taken away) and print your Signature Verification Form |
+
+**Signatures (2.0):** everyone uploads their signature in My Profile. The Director's signature counts at once; anyone
+else's waits until the Director approves it in User, and then their Signature Verification Form carries the Director's
+signature. Every document the Director approves (order letters and certificates, customer applications, credit memos,
+job applications, projects) prints the Director's signature, name and date by itself, so no signed copy is uploaded
+after approval. A customer's or applicant's own signed form can still be uploaded before approval.
 
 Amounts are in **PHP (₱)** (Billing also uses BDT; Inventory uses BDT). Dates show as MM-DD-YYYY in Manila time. Vouchers print the amount in words, for example "PESOS ONE THOUSAND … AND 50/100 ONLY".
 
@@ -38,7 +45,7 @@ run it again after any later update that replaces a function, so the replaced fu
 `010_update_1_7.sql` (wording: the database says Director instead of CEO, Employee instead of Staff, and clearer messages and history lines).
 `011_update_1_8.sql` (a wrong upload can be removed and uploaded again; customer credit limit, opening balance, address checked by hand, account number preview).
 `012_update_1_9.sql` (Inventory: stock-bills, release order, e-bills in Billing, sales report, PAID with the profit or loss and the secret code).
-`013_update_2_0.sql` (Update 2.0: E-Bill numbers by company letters, the steps SHIP → RELEASED → SALES → PAID with no ARRIVED step, the Released Notice with price per box, exchange rate and shipping fee in BDT, order letters numbered EO-YYYY-MM-####, and an order waiting for approval can be changed).
+`013_update_2_0.sql` (Update 2.0: E-Bill numbers by company letters, the steps SHIP → RELEASED → SALES → PAID with no ARRIVED step, the Released Notice with price per box, exchange rate and shipping fee in BDT, order letters numbered EO-YYYY-MM-####, an order waiting for approval can be changed, and signatures: uploaded in My Profile, approved by the Director, printed on approved documents).
 
 ## Setup (one time)
 1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.

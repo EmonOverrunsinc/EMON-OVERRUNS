@@ -385,9 +385,10 @@
         <div class="as-ic">${a.status === "approved" ? ic("check") : ic("doc")}</div>
         <div><h2>${a.status === "approved" ? "Approved — welcome to the team!" : "Application submitted — under review"}</h2>
           <p>${a.status === "approved" ? `Approval No <b>${esc(a.approval_no || "")}</b>. Sign out and sign in again to open the portal.`
-            : "Next: download the application form, sign it, and bring it to the office. The Director signs it too, uploads the signed copy and approves your application. This page opens the full portal by itself once you are approved."}</p></div></section>
+            : "Next: download the application form, sign it, and bring it to the office. The office uploads your signed form and the Director approves your application (the Director's signature is printed by the portal). This page opens the full portal by itself once you are approved."}</p></div></section>
       <div class="ch-ids big-ids">${E.idBox("Application No", a.application_no)}${E.idBox("Position", a.position_title)}${E.idBox("Company", a.company_name)}${E.idBox("Submitted", mdy(a.created_at))}${E.idBox("Status", a.status.toUpperCase())}</div>
-      <div class="docgrid">${E.docCard({ key: "myja", title: `Job Application Form ${a.application_no}`, sub: "Download, print and sign", ownerType: "job_application", ownerId: a.id, att, print: () => E.printJobApp(a), canUpload: false, printLabel: "Download / Print Form" })}</div>
+      <div class="docgrid">${E.docCard({ key: "myja", title: `Job Application Form ${a.application_no}`, sub: "Download, print and sign", ownerType: "job_application", ownerId: a.id, att, print: () => E.printJobApp(a), canUpload: false, printLabel: "Download / Print Form",
+        approved: a.status === "approved" && a.approved_by_name ? { name: a.approved_by_name, at: a.approved_at } : null })}</div>
       <h3>My Requirements</h3>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No requirements uploaded yet.")}
       ${a.status === "submitted" ? `<div class="fields wide" style="margin:8px 0">${E.fileField("asReq", "Add Requirements", 'multiple accept="image/*,application/pdf"')}${a.photo_path ? "" : E.fileField("asPhoto", "Add Your Photo", 'accept="image/*"')}</div>
         <div class="btnrow"><button type="button" class="btn" id="asCheck">Check Status</button></div>` : ""}`;
@@ -900,6 +901,8 @@
     };
   };
 
+  // The Authorized Representative: once the Director approves, the Director's signature over the name.
+  const authBlock = (approved, o, sign) => `<div class="ol-auth${sign?.pic ? " has-sig" : ""}">${sign?.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="ol-auth-name">${approved ? esc(o.approved_by_name || "") : "&nbsp;"}</div><div class="line"></div>Authorized Representative</div>`;
   // A printed paragraph: dates (10-14-2026) and record numbers (EO-2026-10-0001, I-17) are not split over two lines.
   const para = (s) => esc(s).replace(/\b(\d{2}-\d{2}-\d{4}|[A-Z]{1,6}(?:-\d+)+)\b/g, '<span class="nw">$1</span>').replace(/\n/g, "<br>");
   // The printed order, laid out like an official order: details of the order, the customer / employee /
@@ -926,6 +929,7 @@
       : [["Name of Customer", fullName(w)], ["Account No", w.account_no]];
     const approved = ["approved", "applied"].includes(o.status), rejected = o.status === "rejected";
     const signed = (approved || rejected) && o.approved_at ? E.mdy(dayOf(o.approved_at)) : "";
+    const sign = approved ? E.approvedBy(o.approved_by, o.approved_by_name, o.approved_at) : null;
     const overdue = o.days_overdue != null ? tr("No. of Days Overdue", `${o.days_overdue} day(s)`) : "";
     const t = o.subject_type;
     // What the order is about, by kind of order. A Released Notice is all in BDT: price per box (PHP) × boxes = total
@@ -971,7 +975,7 @@
       <div class="ol-sign">
         <div class="ol-ad"><span class="${approved ? "on" : ""}">APPROVED</span> / <span class="${rejected ? "on" : ""}">DISAPPROVED</span>
           <div>Date Signed: <span class="ol-date">${signed ? esc(signed) : "&nbsp;"}</span></div></div>
-        <div class="ol-auth"><div class="ol-auth-name">${approved ? esc(o.approved_by_name || "") : "&nbsp;"}</div><div class="line"></div>Authorized Representative</div>
+        ${authBlock(approved, o, sign)}
       </div>
       <div class="rp-foot"><span>Scan the barcode in the ${esc(E.APP)} to verify this order.</span><span>${esc(o.order_no)}</span></div>`;
   }
@@ -983,6 +987,7 @@
     const tr = (k, html) => `<tr><th>${esc(k)}</th><td>${html}</td></tr>`;
     const approved = ["approved", "applied"].includes(o.status);
     const issued = approved && o.approved_at ? E.mdy(dayOf(o.approved_at)) : "";
+    const sign = approved ? E.approvedBy(o.approved_by, o.approved_by_name, o.approved_at) : null;
     const asOf = E.mdy(o.order_date), bal = num(o.balance_due);
     return `${E.printHead("ACCOUNT BALANCE CERTIFICATE", `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
       <div class="cert-no"><span>Certificate No: <b>${esc(o.order_no)}</b></span><span>Date Issued: <b>${issued ? esc(issued) : "—"}</b></span></div>
@@ -997,12 +1002,12 @@
       <p class="cert-body">${para(o.details || "")}</p>
       <p class="cert-body">Issued${issued ? ` on ${esc(issued)}` : ""} at ${esc(C.company.name)} Main Office, ${esc(C.company.address.join(", "))}.</p>
       ${approved ? "" : `<div class="cert-wait">NOT VALID UNTIL APPROVED</div>`}
-      <div class="ol-sign one"><div class="ol-auth"><div class="ol-auth-name">${approved ? esc(o.approved_by_name || "") : "&nbsp;"}</div><div class="line"></div>Authorized Representative</div></div>
+      <div class="ol-sign one">${authBlock(approved, o, sign)}</div>
       <div class="rp-foot"><span>Scan the barcode in the ${esc(E.APP)} to verify this certificate.</span><span>${esc(o.order_no)}</span></div>`;
   }
   // Print an order by its id (used from My Profile).
   async function printOrder(id) {
-    const { data: o, error } = await sb.from("order_letters").select(ORDER_ALL).eq("id", id).maybeSingle();
+    const [{ data: o, error }] = await Promise.all([sb.from("order_letters").select(ORDER_ALL).eq("id", id).maybeSingle(), E.loadSignatures()]);
     if (error || !o) return toast("This order could not be opened.", true);
     E.openPreview(`Order ${o.order_no}`, [letterPage(o)]);
   }
@@ -1057,7 +1062,9 @@
             ${["charge", "settlement"].includes(o.subject_type) && o.balance_due != null ? `<span>New Balance</span><b>₱ ${peso(num(o.balance_due) + (o.adjust_type === "reduce" ? -1 : 1) * num(o.amount))}</b>` : ""}
             ${o.installments ? `<span>Installments</span><span>${o.installments} × ₱ ${peso(o.installment_amount)}, ${esc((EVERY[o.installment_every] || EVERY.month).toLowerCase())}</span>` : ""}${o.first_due_date ? `<span>${o.subject_type === "installment" ? "First Due Date" : "Due Date"}</span><span>${mdy(o.first_due_date)}</span>` : ""}</div></div>
         <div class="letter-box"><div class="lb-h">Details</div><p>${esc(o.details || "").replace(/\n/g, "<br>")}</p>${o.resolution ? `<div class="lb-h">Resolution / Terms</div><p>${esc(o.resolution).replace(/\n/g, "<br>")}</p>` : ""}</div>
-        <div class="docgrid">${E.docCard({ key: "ol", title: `${o.subject_type === "balance_certificate" ? "Account Balance Certificate" : "Order"} ${o.order_no}`, sub: "Print it, have it signed, then upload the signed copy", ownerType: "order_letter", ownerId: o.id, att, print: () => E.openPreview(`Order ${o.order_no}`, [letterPage(o)]) })}</div>
+        <div class="docgrid">${E.docCard({ key: "ol", title: `${o.subject_type === "balance_certificate" ? "Account Balance Certificate" : "Order"} ${o.order_no}`,
+          sub: o.status === "rejected" ? "Disapproved by the Director" : "The Director's signature is printed on it once approved", ownerType: "order_letter", ownerId: o.id, att, canUpload: false,
+          print: () => E.openPreview(`Order ${o.order_no}`, [letterPage(o)]), approved: ["approved", "applied"].includes(o.status) ? { name: o.approved_by_name, at: o.approved_at } : null })}</div>
         ${att.some((a) => a.kind !== "signed_form") ? `<div class="sb-subh">Files</div>${E.filesHtml(att.filter((a) => a.kind !== "signed_form"))}` : ""}
         ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>Director's Approval</legend><div class="fields wide"><label for="olNote">Note</label><input type="text" id="olNote" placeholder="Optional"></div>
           <div class="btnrow"><button type="button" class="btn ok" id="olApprove">${ic("check")} ${o.subject_type === "balance_certificate" ? "Approve &amp; Issue" : "Approve &amp; Carry Out"}</button><button type="button" class="btn danger" id="olReject">Reject</button></div></fieldset>` : ""}
