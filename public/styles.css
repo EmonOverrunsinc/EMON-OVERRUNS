@@ -994,6 +994,11 @@ table.vp-fields { width: 100%; border-collapse: collapse; font-size: 12px; }
 .vp-fields th { width: 36%; padding: 5px 8px; text-align: left; font-weight: normal; color: #444; border-bottom: 1px dotted #bbb; }
 .vp-fields td { padding: 5px 8px; font-weight: bold; border-bottom: 1px dotted #bbb; overflow-wrap: anywhere; }
 .vp-fields tr:last-child > * { border-bottom: 0; }
+/* a date or a record number in a printed paragraph stays on one line */
+.nw { white-space: nowrap; }
+/* a record with many details (an e-bill's statistics) stays on one page */
+table.vp-fields.many { font-size: 10.5px; }
+.vp-fields.many th, .vp-fields.many td { padding: 2.5px 8px; }
 .vp-valid { display: flex; align-items: flex-start; gap: 10px; }
 .vp-valid table { flex: 1; }
 .vp-qr { padding: 6px 10px 6px 0; text-align: center; font-size: 9px; }
@@ -1084,6 +1089,9 @@ table.grid.cr-diff { margin: 6px 0; }
 .bdt-calc small { font-size: 10.5px; font-weight: bold; letter-spacing: .05em; text-transform: uppercase; color: #7a5200; }
 .bdt-calc b { font: bold 30px var(--font-report); color: #6e4300; }
 .bdt-calc span { font: 13px var(--font-mono); color: #5c4400; }
+.rel-calc span + small { margin-top: 6px; }
+.find-row { display: flex; gap: 6px; align-items: center; }
+.find-row input { flex: 1; min-width: 0; }
 .rcpt-prev { width: 100%; max-width: 260px; min-height: 60px; display: grid; place-items: center; overflow: hidden; border-radius: 8px; border: 1px dashed var(--panel-line); background: #fff; color: var(--ink-soft); font-size: 11px; }
 .rcpt-prev img { width: 100%; max-height: 220px; object-fit: contain; }
 .amt-panel { display: grid; align-content: start; gap: 6px; }
@@ -1210,7 +1218,7 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
 .sb-qr { width: 92px; height: 92px; image-rendering: pixelated; display: block; margin: 0 auto; }
 .sb-code { font: 8.5px var(--font-mono); max-width: 126px; margin: 2px auto 0; }
 .sb-code small { display: block; font: bold 7.5px var(--font-report); letter-spacing: .06em; }
-.sb-psteps { display: grid; grid-template-columns: repeat(5, 1fr); }
+.sb-psteps { display: grid; grid-template-columns: repeat(4, 1fr); }
 .sb-psteps > div { padding: 4px 6px; border-right: 1px solid #ccc; display: flex; flex-direction: column; font-size: 10.5px; }
 .sb-psteps > div:last-child { border-right: 0; }
 .sb-psteps b { font-size: 9.5px; }
@@ -1223,3 +1231,45 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
   .sb-step { min-width: 70px; font-size: 10.5px; }
   .sb-sum > div { min-width: calc(50% - 4px); flex: 1 1 calc(50% - 4px); }
 }
+
+/* ===================== 2.0: signatures ===================== */
+/* The Director's signature on an approved document: the picture stands on the signature line. */
+.psig:has(.esig) { margin-top: 62px; }
+.psig .sig-on { position: relative; }
+.psig .esig { position: absolute; left: 50%; bottom: calc(100% - 8px); transform: translateX(-50%); height: 15mm; max-width: 95%; object-fit: contain; }
+.psig.one { grid-template-columns: 1fr 1fr; }
+.ol-auth.has-sig .esig { display: block; height: 15mm; max-width: 100%; margin: 0 auto -4mm; object-fit: contain; position: relative; z-index: 2; }
+.doccard.esigned .dc-main small { color: var(--ok); }
+
+/* Signature Verification Form */
+.sv-intro { font-size: 11px; margin: 4px 0 10px; }
+.sv-form .pbox > .pdecl { margin: 8px; }
+.sv-form.blank .pcell .pv { min-height: 24px; }
+.sv-form.blank .sv-box { height: 34mm; }
+.sv-form.blank .sv-box.sv-ini { height: 24mm; }
+.sv-boxes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 10px; }
+.sv-box { position: relative; height: 30mm; border: 1.5px solid #000; border-radius: 3px; background: #fff; }
+.sv-box > span { position: absolute; left: 6px; top: 4px; font-size: 8.5px; text-transform: uppercase; color: #444; letter-spacing: .04em; }
+.sv-row { display: flex; align-items: center; gap: 12px; padding: 0 10px 10px; }
+.sv-row p { margin: 0; font-size: 10px; color: #333; }
+.sv-box.sv-ini { flex: 0 0 38mm; height: 20mm; }
+.sv-one { display: grid; place-items: center; height: 34mm; margin: 10px; border: 1.5px solid #000; border-radius: 3px; background: #fff; }
+.sv-one img { max-height: 28mm; max-width: 90%; object-fit: contain; }
+.sv-one span { color: #777; font-style: italic; }
+.sv-cap { padding: 0 10px 8px; font-size: 9.5px; color: #333; text-align: center; }
+.sv-by { padding: 0 6px 8px; font-size: 10.5px; }
+.sv-status { padding: 6px; font-size: 11px; }
+.sv-status.approved b { color: #1b5e20; }
+.sv-status.rejected b { color: #b00020; }
+.sv-status.pending b { color: #8a5a00; }
+.sv-remarks { margin: 14px 6px 8px; padding-bottom: 14px; border-bottom: 1px solid #000; font-size: 10px; }
+.pbox .psig { margin: 46px 10px 10px; }
+.pbox .psig:has(.esig) { margin-top: 62px; }
+
+/* My Signature (My Profile) and the signature dialog (User) */
+.sigset { margin-top: 10px; }
+.sig-show, .sig-check { display: grid; place-items: center; min-height: 90px; margin: 6px 0; padding: 10px; border: 1px dashed var(--panel-line); border-radius: 8px;
+  background: repeating-linear-gradient(45deg, #fff, #fff 8px, #f6f8fb 8px, #f6f8fb 16px); }
+.sig-show img, .sig-check img { max-height: 110px; max-width: 100%; object-fit: contain; }
+.sig-st { margin-bottom: 6px; }
+.fm-built { margin-bottom: 12px; }

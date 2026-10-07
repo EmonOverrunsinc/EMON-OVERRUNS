@@ -163,7 +163,8 @@
       <div class="tabpanes" id="emPanes">
         <div data-p="0"><div id="emSlips">${E.grid({ cols: SLIP_COLS, rows: slips, onRow: true, foot: { net_pay: peso(paid) }, empty: "No salary or advance payments recorded yet." })}</div></div>
         <div data-p="1" hidden>
-          ${app ? `<div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${app.application_no}`, sub: `Approved ${app.approval_no || ""}`, ownerType: "job_application", ownerId: app.id, att: await E.attachmentsOf("job_application", app.id), print: () => printJobApp(app), canUpload: isAdmin() })}</div>
+          ${app ? `<div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${app.application_no}`, sub: `Approved ${app.approval_no || ""}`, ownerType: "job_application", ownerId: app.id, att: await E.attachmentsOf("job_application", app.id), print: () => printJobApp(app), canUpload: isAdmin(),
+            approved: jaApproved(app) ? { name: app.approved_by_name, at: app.approved_at } : null })}</div>
             <p><a href="#jobapp/${app.id}">Open job application ${esc(app.application_no)}</a></p>` : ""}
           ${E.filesHtml(att, "No documents uploaded.")}
           ${isAdmin() ? `<div class="fields wide" style="margin-top:8px">${E.fileField("emSig", "Upload Signature Form", 'accept="image/*,application/pdf"')}${E.fileField("emApp", "Upload Application Form", 'multiple accept="image/*,application/pdf"')}</div>` : ""}
@@ -415,7 +416,7 @@
   V.jobapps = async () => {
     E.shell("jobapps", "Employee — Job Applications", `${empTabs("jobapps")}
       <div class="tabs" id="jaF"><button type="button" class="on" data-f="submitted">Waiting for Review</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
-      <div id="jaRes">${busy()}</div>`, "People who created an account and applied for a job. Open one, print the form, have it signed by both sides, upload the signed copy, choose the access and approve.");
+      <div id="jaRes">${busy()}</div>`, "People who created an account and applied for a job. Open one, print the form, have the applicant sign it, upload the signed copy, choose the access and approve. Your signature is printed on the form when you approve.");
     const run = async (f) => {
       $("#jaRes").innerHTML = busy();
       let q = sb.from("job_applications").select("*").order("created_at", { ascending: false });
@@ -435,7 +436,10 @@
   const EXP_COLS = ["Company", "Position", "From", "To"];
   // The printed job application (laid out like the company's paper template), on one A4 page: the application
   // number, name, phone and email sit under the company name, beside the QR code and the photo.
+  // An approved job application is printed with the Director's signature (no signed copy by the Director).
+  const jaApproved = (a) => a.status === "approved" && !!a.approved_by_name;
   function jobAppPage(a, photoUrl) {
+    const sign = jaApproved(a) ? E.approvedBy(null, a.approved_by_name, a.approved_at) : null;
     const edu = Array.isArray(a.education) ? a.education : [], exp = Array.isArray(a.experience) ? a.experience : [];
     const row4 = (cells) => `<tr>${cells.map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`;
     return `<div class="ja-head">
@@ -458,10 +462,10 @@
       ${E.box("Position Applied For", `<div class="pgrid2">${E.cell("Position", a.position_title, "hl")}${E.cell("Company", a.company_name, "hl")}${E.cell("Monthly Salary (PHP)", a.apply_salary != null ? peso(a.apply_salary) : "")}${E.cell("Duty Hours", a.apply_duty_hours)}
         ${E.cell("Joining Date", E.mdy(a.apply_joining_date), "span2")}</div>`)}
       ${E.box("Declaration", `<p class="pdecl" style="padding:4px 6px;margin:0">I hereby declare that all the information given above is true and correct to the best of my knowledge. If any information is found to be false, my application or employment may be cancelled.</p>`)}
-      ${E.sigs("Applicant's Signature / Date", `Authorized Signature (${esc(C.company.name)}) / Date`)}`;
+      ${E.sigs("Applicant's Signature / Date", sign ? `Authorized Signature (${esc(C.company.name)})` : `Authorized Signature (${esc(C.company.name)}) / Date`, sign)}`;
   }
   async function printJobApp(a) {
-    const photo = a.photo_path ? await E.signedUrl(a.photo_path, 900) : "";
+    const [photo] = await Promise.all([a.photo_path ? E.signedUrl(a.photo_path, 900) : "", E.loadSignatures()]);
     E.openPreview(`Job Application ${a.application_no}`, [jobAppPage(a, photo)]);
   }
 
@@ -482,10 +486,11 @@
         <div class="ch-main"><div class="ch-name"><h2>${esc(a.full_name)}</h2>${pill(a.status)}</div>
           <div class="ch-sub">${esc(a.position_title)} · ${esc(a.company_name)}</div>
           <div class="ch-ids">${E.idBox("Application No", a.application_no)}${E.idBox("Submitted", mdy(a.created_at))}${E.idBox("Phone", a.phone)}${E.idBox("Email", a.email)}</div></div></section>
-      <div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${a.application_no}`, sub: "Print, sign (applicant and Director), then upload the signed copy", ownerType: "job_application", ownerId: a.id, att, print: () => printJobApp(a), canUpload: isAdmin() })}</div>
+      <div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${a.application_no}`, sub: "Print, have the applicant sign it, then upload the signed copy", ownerType: "job_application", ownerId: a.id, att, print: () => printJobApp(a), canUpload: isAdmin(),
+        approved: jaApproved(a) ? { name: a.approved_by_name, at: a.approved_at } : null })}</div>
       ${isAdmin() && a.status === "submitted" ? `<fieldset class="opt review"><legend>Director's Approval</legend><ol class="steps">
-        <li><b>Print</b> the job application form above. The applicant and the Director both sign it.</li>
-        <li><b>Upload the signed form:</b> ${signed ? `<span class="ok-txt">✔ Uploaded — it now replaces the system form above.</span>` : `<span class="bad-txt">not uploaded yet</span> — press <b>Upload Signed Copy</b> on the form card.`}</li>
+        <li><b>Print</b> the job application form above and have the applicant sign it. You do not sign it by hand: your signature is printed on it when you approve.</li>
+        <li><b>Upload the form signed by the applicant:</b> ${signed ? `<span class="ok-txt">✔ Uploaded.</span>` : `<span class="bad-txt">not uploaded yet</span> — press <b>Upload Signed Copy</b> on the form card.`}</li>
         <li><b>Choose access</b> for the new employee:<div class="fields wide" style="margin-top:6px">${accessFields("staff", ["customers"])}</div></li>
         <li><b>Decide:</b><div class="fields wide"><label for="jaNote">Note</label><input type="text" id="jaNote" placeholder="Optional"></div>
           <div class="btnrow"><button type="button" class="btn ok" id="jaApprove" ${signed ? "" : 'disabled title="Upload the signed application form first"'}>Approve — Create Employee</button><button type="button" class="btn danger" id="jaReject">Reject</button></div></li>
@@ -604,15 +609,16 @@
       sb.from("project_payments").select("*").eq("project_id", id).order("pay_date"),
       E.attachmentsOf("project", id)]);
     const lines = items.data || [], payments = pays.data || [];
-    const approved = att.some((a) => a.kind === "approval");
     const w = E.canWrite("projects");
+    // approved by the Director: the project application is printed with the Director's signature
+    const signed = ["approved", "completed"].includes(pr.status) && !!pr.approved_by_name;
     const printApp = () => E.openPreview(`Project ${pr.project_no}`, [`${E.printHead("PROJECT APPLICATION", `<img src="${E.pdf417DataUrl("EMONPRJ|" + pr.project_no)}" alt="" class="ph-bar"><div class="mono">${esc(pr.project_no)}</div>`)}
       ${E.box("Project", `<div class="pgrid2">${E.cell("Project Title", pr.title, "span2")}${E.cell("Location", pr.location)}${E.cell("Start / End", `${mdy(pr.start_date) || "—"} → ${mdy(pr.end_date) || "—"}`)}${E.cell("Description", pr.description, "span2")}</div>`)}
       ${E.box("Project Budget", `<table class="rp"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit Cost</th><th class="num">Amount</th></tr></thead><tbody>
         ${lines.map((l) => `<tr><td>${esc(l.description)}</td><td class="num">${l.qty}</td><td class="num">${peso(l.unit_cost)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
         <tr class="grand"><td colspan="3" class="num">TOTAL PROJECT COST (₱)</td><td class="num">${peso(pr.total_cost)}</td></tr></tbody></table>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(pr.total_cost))}</div></div>`)}
-      ${E.sigs(`Prepared by: ${esc(pr.created_by_name || "")}`, "Approved by / Date")}`]);
+      ${E.sigs(`Prepared by: ${esc(pr.created_by_name || "")}`, signed ? "Approved by" : "Approved by / Date", signed ? E.approvedBy(null, pr.approved_by_name, pr.approved_at) : null)}`]);
     $(".band h1").textContent = `Project — ${pr.project_no}`;
     $("#main").innerHTML = `
       <div class="window"><div class="wtitle">${esc(pr.project_no)} — ${esc(pr.title)} ${pill(pr.status)}</div><div class="wbody">
@@ -623,13 +629,13 @@
         <div class="tiles"><div class="tile"><div class="k">Total Project Cost</div><div class="v">₱ ${peso(pr.total_cost)}</div></div>
           <div class="tile ok"><div class="k">Paid</div><div class="v">₱ ${peso(pr.total_paid)}</div></div>
           <div class="tile ${num(pr.remaining) > 0 ? "warn" : "ok"}"><div class="k">Remaining</div><div class="v">₱ ${peso(pr.remaining)}</div></div></div>
-        <div class="docgrid">${E.docCard({ key: "prj", title: `Project Application ${pr.project_no}`, sub: "Print it, get it approved and signed, then upload the approved document", ownerType: "project", ownerId: pr.id, att, print: printApp, canUpload: w && pr.status === "pending", kind: "approval", uploadLabel: "Upload Approved Document" })}</div>
+        <div class="docgrid">${E.docCard({ key: "prj", title: `Project Application ${pr.project_no}`, sub: "Check it, then the Director approves it in the portal", ownerType: "project", ownerId: pr.id, att, print: printApp, canUpload: false, kind: "approval", copyName: "Approved Document",
+          approved: signed ? { name: pr.approved_by_name, at: pr.approved_at } : null })}</div>
         <div><b>Project Budget</b>${E.grid({ cols: [{ label: "Description", get: (r) => r.description }, { label: "Qty", num: true, get: (r) => r.qty }, { label: "Unit Cost (₱)", num: true, get: (r) => peso(r.unit_cost) }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }], rows: lines, foot: { amount: peso(pr.total_cost) } })}</div>
         ${pr.status === "pending" ? `<fieldset class="opt review"><legend>Approval</legend>
-          <ol class="steps"><li><b>Print</b> the project application above and get it signed.</li>
-          <li><b>Approved document:</b> ${approved ? `<span class="ok-txt">✔ Uploaded — it now replaces the application above.</span>` : `<span class="bad-txt">not uploaded yet</span> — press <b>Upload Approved Document</b> on the card.`}</li>
-          ${isAdmin() ? `<li><b>Decide:</b><div class="fields wide"><label for="pjNote">Note</label><input type="text" id="pjNote"></div>
-            <div class="btnrow"><button type="button" class="btn ok" data-pa="approve" ${approved ? "" : 'disabled title="Upload the approved document first"'}>Approve Project</button><button type="button" class="btn danger" data-pa="reject">Reject</button></div></li>` : "<li>Waiting for the Director to approve.</li>"}</ol></fieldset>` : ""}
+          <ol class="steps"><li><b>Check</b> the project application above (Print / Download).</li>
+          ${isAdmin() ? `<li><b>Decide:</b> no signed copy is needed — your signature is printed on the project application when you approve.<div class="fields wide"><label for="pjNote">Note</label><input type="text" id="pjNote"></div>
+            <div class="btnrow"><button type="button" class="btn ok" data-pa="approve">Approve Project</button><button type="button" class="btn danger" data-pa="reject">Reject</button></div></li>` : "<li>Waiting for the Director to approve.</li>"}</ol></fieldset>` : ""}
         ${pr.status === "approved" && w ? `<form class="opt" id="ppForm" novalidate style="border:1px solid var(--panel-line);background:var(--panel);padding:8px 10px"><b>Record Payment</b>
           <div class="formgrid"><div class="fields wide"><label for="ppDate">Date</label><input type="date" id="ppDate" value="${isoToday()}">
             <label for="ppAmt">Amount (₱) *</label><input type="number" id="ppAmt" min="0.01" step="0.01">
@@ -705,7 +711,7 @@
       <div class="btnrow">${w ? `<a class="btn primary" href="#newvoucher">${ic("plus")} New Payment</a><a class="btn" href="#newpaycompany">${ic("plus")} Add Company</a>` : ""}</div>
       <div class="tabs" id="blTabs"><button type="button" class="on" data-t="0">Companies</button><button type="button" data-t="1" id="blEbTab">E-Bills</button></div>
       <div class="tabpanes" id="blPanes"><div data-p="0"><div id="blRes">${busy()}</div></div><div data-p="1" hidden><div id="blEb">${busy()}</div></div></div>`,
-      "Add a company and choose its currency: PHP, BDT, or both. <b>New Payment</b> records the amount in that currency (for both: PHP × rate = BDT) and creates a payment voucher. <b>E-Bills</b> are the stock-bills released by an approved release order; a payment can be linked to one.");
+      "Add a company and choose its currency: PHP, BDT, or both. <b>New Payment</b> records the amount in that currency (for both: PHP × rate = BDT) and creates a payment voucher. <b>E-Bills</b> are the e-bills from Inventory, released by an approved Released Notice; a payment can be linked to one.");
     $$("#blTabs button").forEach((t) => (t.onclick = () => { $$("#blTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#blPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
     if (E.loadEbills) E.loadEbills($("#blEb")).then((list) => { const t = $("#blEbTab"); if (t && list.length) t.textContent = `E-Bills (${list.length})`; });
     const { data, error } = await sb.from("pay_company_totals").select("*").order("name");
@@ -880,8 +886,8 @@
         <fieldset class="opt"><legend>Paid To</legend><div class="fields wide">
           <label for="nvCo">Company *</label><select id="nvCo"><option value="">— Choose company —</option>${cos.map((c) => c.status === "suspended" ? `<option value="${c.id}" disabled>${esc(c.name)} (SUSPENDED)</option>` : `<option value="${c.id}" ${c.id === companyId ? "selected" : ""}>${esc(c.name)} — ${esc(CUR[curOf(c)])}</option>`).join("")}</select>
           <label for="nvAcc">Account *</label><select id="nvAcc"><option value="">— Choose the company first —</option></select>
-          <label for="nvSb" class="nv-sb">Stock-Bill (E-Bill)</label><select id="nvSb" class="nv-sb"><option value="">— None —</option></select>
-          <span class="nv-sb"></span><small class="muted nv-sb" id="nvSbInfo">Optional: link this payment to a released stock-bill of this company. A stock-bill is paid in BDT.</small></div></fieldset>
+          <label for="nvSb" class="nv-sb">E-Bill</label><select id="nvSb" class="nv-sb"><option value="">— None —</option></select>
+          <span class="nv-sb"></span><small class="muted nv-sb" id="nvSbInfo">Optional: link this payment to a released e-bill of this company. An e-bill is paid in BDT.</small></div></fieldset>
         <fieldset class="opt"><legend>Amount</legend><div class="formgrid">
           <div class="fields wide">
             <label for="nvDate">Payment Date</label><input type="date" id="nvDate" value="${isoToday()}">
@@ -932,15 +938,15 @@
       $$(".nv-bdt").forEach((x) => (x.hidden = cur !== "BDT"));
       calc();
     };
-    // Released stock-bills (e-bills) of the company, with what is still unpaid; only for a company paid in BDT.
+    // Released e-bills of the company, with what is still unpaid; only for a company paid in BDT.
     let bills = [];
     const sbInfo = () => {
       if (!$("#nvSb")) return; // the page was left
       const r = bills.find((x) => x.id === $("#nvSb").value);
-      const total = r ? num(r.total_cost) + num(r.shipping_cost) : 0;
+      const total = r ? num(r.bill_total) : 0;
       $("#nvSbInfo").textContent = r ? `E-Bill total ${bdt(total)} · paid ${bdt(r.paid_bdt)} · balance ${bdt(total - num(r.paid_bdt))}`
-        : "Optional: link this payment to a released stock-bill of this company. A stock-bill is paid in BDT.";
-      if (r && !$("#nvPurpose").value.trim()) $("#nvPurpose").value = `Payment for Stock-Bill ${r.bill_no}`;
+        : "Optional: link this payment to a released e-bill of this company. An e-bill is paid in BDT.";
+      if (r && !$("#nvPurpose").value.trim()) $("#nvPurpose").value = `Payment for E-Bill ${r.bill_no}`;
     };
     const loadSb = async (pick) => {
       const co = $("#nvCo").value, on = !!co && curNow() !== "PHP";
@@ -948,10 +954,10 @@
       bills = [];
       $("#nvSb").innerHTML = `<option value="">— None —</option>`;
       if (!on) return sbInfo();
-      const { data } = await sb.from("stock_bill_totals").select("id, bill_no, total_cost, shipping_cost, paid_bdt, release_date").eq("company_id", co).in("status", ["released", "sold", "paid"]).order("release_date", { ascending: false });
+      const { data } = await sb.from("stock_bill_totals").select("id, bill_no, bill_total, paid_bdt, release_date").eq("company_id", co).in("status", ["released", "sold", "paid"]).order("release_date", { ascending: false });
       if ($("#nvCo")?.value !== co) return; // another company was chosen, or the page was left
       bills = data || [];
-      $("#nvSb").innerHTML = `<option value="">— None —</option>${bills.map((r) => { const bal = num(r.total_cost) + num(r.shipping_cost) - num(r.paid_bdt);
+      $("#nvSb").innerHTML = `<option value="">— None —</option>${bills.map((r) => { const bal = num(r.bill_total) - num(r.paid_bdt);
         return `<option value="${r.id}" ${r.id === pick ? "selected" : ""}>${esc(r.bill_no)} — ${bal > 0 ? "balance " + esc(bdt(bal)) : "fully paid"}</option>`; }).join("")}`;
       sbInfo();
     };
@@ -994,7 +1000,7 @@
       ${E.box("Paid To", `<div class="pgrid2">${E.cell("Company", co.name, "hl")}${E.cell("Contact Person", co.contact_person)}${E.cell("Account Name", a.account_name)}${E.cell("Account Number", a.account_number)}
         ${E.cell("Bank / Branch", [a.bank_name, a.branch_name].filter(Boolean).join(" — "))}${E.cell("Address", co.address || co.country)}</div>`)}
       ${E.box("Payment", `<div class="prow3">${E.cell("Purpose", v.purpose)}${E.cell("Method", v.method)}${E.cell("Reference No", v.reference_no)}</div>
-        ${v.stock_bills ? E.cell("For Stock-Bill (E-Bill)", v.stock_bills.bill_no, "hl") : ""}
+        ${v.stock_bills ? E.cell("For E-Bill", v.stock_bills.bill_no, "hl") : ""}
         <table class="rp v-amt"><tbody>
           ${v.amount_php != null ? `<tr class="${v.amount_bdt == null ? "v-bdt" : ""}"><td>Amount (Philippine Peso)</td><td class="num">PHP ${peso(v.amount_php)}</td></tr>` : ""}
           ${v.exchange_rate != null ? `<tr><td>Exchange Rate (BDT per 1 PHP)</td><td class="num">× ${rateText(v.exchange_rate)}</td></tr>` : ""}
@@ -1020,7 +1026,7 @@
         <span>Account</span><span>${esc([a.account_name, a.account_number, a.bank_name, a.branch_name].filter(Boolean).join(" · ") || "—")}</span>
         <span>Date</span><span>${mdy(v.pay_date)}</span><span>Purpose</span><span>${esc(v.purpose || "—")}</span>
         <span>Method</span><span>${esc(v.method || "—")}${v.reference_no ? " · Ref " + esc(v.reference_no) : ""}</span><span>Issued By</span><span>${esc(v.created_by_name || "")}</span>
-        ${v.stock_bills ? `<span>For Stock-Bill</span><span><a href="#ebill/${v.stock_bills.id}"><b>${esc(v.stock_bills.bill_no)}</b></a> (e-bill)</span>` : ""}</div>
+        ${v.stock_bills ? `<span>For E-Bill</span><span><a href="#ebill/${v.stock_bills.id}"><b>${esc(v.stock_bills.bill_no)}</b></a></span>` : ""}</div>
         <div class="amt-panel">${v.amount_php != null ? `<div class="${v.amount_bdt == null ? "hl" : ""}"><small>Amount (PHP)</small><b>₱ ${peso(v.amount_php)}</b></div>` : ""}
           ${v.exchange_rate != null ? `<div><small>Exchange Rate</small><b>× ${rateText(v.exchange_rate)}</b></div>` : ""}
           ${v.amount_bdt != null ? `<div class="hl"><small>Amount (BDT)</small><b>${bdt(v.amount_bdt)}</b></div>` : ""}<small class="muted">${esc(amountWords(v))}</small></div></div>

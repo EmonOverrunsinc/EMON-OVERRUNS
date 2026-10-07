@@ -1,0 +1,589 @@
+-- =====================================================================
+-- EMON OVERRUNS E-PORTAL — Update 2.0: E-Bill, the Released Notice and orders that can be changed
+-- 1. A stock-bill is now called an E-Bill. Its number is the company's letters, the year and a number, for example
+--    MF-2026-0001 for MODINA FASHION (the first letters of the company's first and last word, like the initials
+--    of a customer's account number). The batch no and the total boxes are needed on a new e-bill.
+-- 2. The steps of an e-bill: 1 SHIP → 2 RELEASED → 3 SALES → 4 PAID (no ARRIVED step). They are saved as
+--    shipped, released, sold and paid, as before.
+-- 3. Released Notice: the order letter for an e-bill, found by its Batch No. Price per box (PHP) × total boxes =
+--    total (PHP); × the exchange rate of the day = the released charge (BDT); plus the shipping fee (BDT).
+--    Once the Director approves it, the e-bill is RELEASED and the released charge and the shipping fee are added
+--    to its total cost.
+-- 4. Order letters are numbered EO-YYYY-MM-#### (for example EO-2026-10-0001), counted again each month.
+--    Orders made before keep their numbers.
+-- 5. An order waiting for approval can be changed by the person who sent it or by the Director. It is checked again
+--    like a new order, keeps its number, and the change is recorded.
+-- 6. Signatures: everyone can upload their signature (My Profile); the Director's counts at once, anyone else's waits
+--    for the Director's approval (User). A document the Director approves prints the Director's approved signature by
+--    itself, so no signed copy is uploaded; a project is approved without an uploaded approved document.
+-- No records are changed or removed. Run once in the Supabase SQL Editor after 012_update_1_9.sql.
+-- It is safe to run again.
+-- =====================================================================
+
+-- ---------- 1. the released charge, on the order and on the e-bill ----------
+alter table public.order_letters add column if not exists price_per_box numeric(14,2) check (price_per_box is null or price_per_box > 0);
+alter table public.order_letters add column if not exists exchange_rate numeric(12,4) check (exchange_rate is null or exchange_rate > 0);
+alter table public.order_letters add column if not exists release_php numeric(14,2);
+alter table public.order_letters add column if not exists release_bdt numeric(14,2);
+alter table public.stock_bills add column if not exists release_price_per_box numeric(14,2);
+alter table public.stock_bills add column if not exists release_exchange_rate numeric(12,4);
+alter table public.stock_bills add column if not exists release_php numeric(14,2);
+alter table public.stock_bills add column if not exists release_bdt numeric(14,2);
+
+-- The steps of an e-bill as they are shown: 1 SHIP, 2 RELEASED, 3 SALES, 4 PAID (an e-bill marked ARRIVED before
+-- this update is still at SHIP).
+create or replace function public.ebill_status_name(p_status text) returns text
+language sql immutable set search_path = '' as $$
+  select case p_status when 'shipped' then 'SHIP' when 'arrived' then 'SHIP' when 'sold' then 'SALES' else upper(coalesce(p_status, '')) end;
+$$;
+revoke execute on function public.ebill_status_name(text) from public, anon;
+grant execute on function public.ebill_status_name(text) to authenticated;
+
+-- ---------- 2. e-bill number: company letters-YYYY-#### ----------
+-- The first letters of the company's first and last word, leaving out Ltd, Inc, Co and the like
+-- (MODINA FASHION → MF, Modina Apparels Ltd → MA); a one-word name gives its first two letters (ZARA → ZA).
+create or replace function public.company_initials(p_name text) returns text
+language sql immutable set search_path = '' as $$
+  with w as (
+    select upper(x) as word, n from regexp_split_to_table(coalesce(p_name, ''), '[^A-Za-z]+') with ordinality t(x, n)
+    where x <> '' and upper(x) not in ('LTD','LIMITED','INC','CO','CORP','CORPORATION','COMPANY','LLC','PLC','PVT','PRIVATE','PTE','THE','AND','OF'))
+  select coalesce(
+    case when (select count(*) from w) >= 2 then (select left(word, 1) from w order by n limit 1) || (select left(word, 1) from w order by n desc limit 1)
+         when (select count(*) from w) = 1 then (select left(word, 2) from w) end,
+    'EB');
+$$;
+revoke execute on function public.company_initials(text) from public, anon;
+grant execute on function public.company_initials(text) to authenticated;
+
+-- The number the next e-bill of a company will get (the final number is given on save).
+create or replace function public.preview_ebill_no(p_company uuid, p_date date default null) returns text
+language sql stable security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+  select x.ini || '-' || x.yr || '-' || lpad((coalesce((select d.last_no from public.doc_counters d where d.prefix = 'EB' || x.ini || x.yr), 0) + 1)::text, 4, '0')
+  from (select public.company_initials(pc.name) as ini, to_char(coalesce(p_date, current_date), 'YYYY') as yr
+        from public.pay_companies pc where pc.id = p_company) x
+  where public.can_write('inventory');
+$$;
+revoke execute on function public.preview_ebill_no(uuid, date) from public, anon;
+grant execute on function public.preview_ebill_no(uuid, date) to authenticated;
+
+-- A new e-bill: number, item table and totals (as before), and the total boxes are needed.
+create or replace function public.stock_bills_before_insert() returns trigger
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare
+  types text[];
+  ncol int;
+  iq int; ip int; it int;
+  r jsonb; nr jsonb; rows jsonb := '[]'::jsonb;
+  q numeric; p numeric; tq numeric := 0; tc numeric := 0;
+  k int; empty boolean;
+  ini text; yr text;
+begin
+  if not exists (select 1 from public.pay_companies c where c.id = new.company_id) then raise exception 'Choose the company'; end if;
+  if jsonb_typeof(new.item_columns) is distinct from 'array' or jsonb_typeof(new.items) is distinct from 'array' then
+    raise exception 'The item table is not complete';
+  end if;
+  ncol := jsonb_array_length(new.item_columns);
+  if ncol < 3 or ncol > 10 then raise exception 'The item table must have 3 to 10 columns'; end if;
+  if exists (select 1 from jsonb_array_elements(new.item_columns) c where coalesce(trim(c->>'name'), '') = '') then
+    raise exception 'Every column needs a name';
+  end if;
+  types := array(select coalesce(c->>'type', 'text') from jsonb_array_elements(new.item_columns) with ordinality t(c, n) order by n);
+  if exists (select 1 from unnest(types) x where x not in ('text','qty','price','total'))
+     or cardinality(array_positions(types, 'qty')) <> 1 or cardinality(array_positions(types, 'price')) <> 1 or cardinality(array_positions(types, 'total')) <> 1 then
+    raise exception 'The item table must have one Qty, one Price and one Total column';
+  end if;
+  new.item_columns := (select jsonb_agg(jsonb_build_object('name', left(trim(c->>'name'), 40), 'type', coalesce(c->>'type', 'text')) order by n)
+                       from jsonb_array_elements(new.item_columns) with ordinality t(c, n));
+  iq := array_position(types, 'qty') - 1; ip := array_position(types, 'price') - 1; it := array_position(types, 'total') - 1;
+  -- Every row is checked again here: Qty × Price = Total, and the totals of the bill come from the rows.
+  for r in select value from jsonb_array_elements(new.items) loop
+    if jsonb_typeof(r) is distinct from 'array' or jsonb_array_length(r) <> ncol then raise exception 'Each item row must have % values', ncol; end if;
+    begin
+      q := coalesce(nullif(trim(r->>iq), '')::numeric, 0);
+      p := coalesce(nullif(trim(r->>ip), '')::numeric, 0);
+    exception when others then
+      raise exception 'Qty and Price must be numbers';
+    end;
+    if q < 0 or p < 0 then raise exception 'Qty and Price cannot be less than 0'; end if;
+    nr := '[]'::jsonb; empty := q = 0 and p = 0;
+    for k in 0 .. ncol - 1 loop
+      if types[k + 1] = 'text' and coalesce(trim(r->>k), '') <> '' then empty := false; end if;
+      nr := nr || case types[k + 1] when 'qty' then to_jsonb(q) when 'price' then to_jsonb(p) when 'total' then to_jsonb(round(q * p, 2))
+                  else to_jsonb(left(trim(coalesce(r->>k, '')), 200)) end;
+    end loop;
+    continue when empty;
+    rows := rows || jsonb_build_array(nr);
+    tq := tq + q; tc := tc + round(q * p, 2);
+  end loop;
+  if jsonb_array_length(rows) = 0 or tc <= 0 then raise exception 'Add at least one item with its Qty and Price'; end if;
+  -- the Released Notice counts its charge by the box
+  if coalesce(new.total_boxes, 0) <= 0 then raise exception 'Enter the total boxes'; end if;
+  new.items := rows;
+  new.total_qty := tq;
+  new.total_cost := tc;
+  new.supplier_bill_no := nullif(trim(new.supplier_bill_no), '');
+  new.batch_no := nullif(trim(new.batch_no), '');
+  -- the Released Notice finds the e-bill by its batch no
+  if new.batch_no is null then raise exception 'Enter the batch no'; end if;
+  new.shipment_no := nullif(trim(new.shipment_no), '');
+  ini := public.company_initials((select c.name from public.pay_companies c where c.id = new.company_id));
+  yr := to_char(new.bill_date, 'YYYY');
+  new.bill_no := ini || '-' || yr || '-' || lpad(public.next_counter('EB' || ini || yr)::text, 4, '0');
+  new.status := 'shipped';
+  new.release_date := null; new.shipping_cost := null; new.shipping_bill_no := null; new.release_order_no := null;
+  new.release_price_per_box := null; new.release_exchange_rate := null; new.release_php := null; new.release_bdt := null;
+  new.arrived_at := null; new.released_at := null; new.sold_at := null; new.paid_at := null; new.paid_by_name := null;
+  new.created_by := auth.uid();
+  new.created_by_name := (select full_name from public.profiles where id = auth.uid());
+  return new;
+end;
+$$;
+
+create or replace function public.stock_bills_after_insert() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.stock_bill_events (stock_bill_id, action, note, actor, actor_name)
+  values (new.id, 'E-Bill added — SHIP', 'Bill cost BDT ' || to_char(new.total_cost, 'FM999,999,999,990.00') || ' · ' || new.total_boxes || ' box(es)', auth.uid(), new.created_by_name);
+  return new;
+end;
+$$;
+
+-- ---------- 3. Sales Report lines (the wording says e-bill) ----------
+create or replace function public.stock_bill_entries_before_insert() returns trigger
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare b public.stock_bills;
+begin
+  select * into b from public.stock_bills x where x.id = new.stock_bill_id;
+  if b.id is null then raise exception 'Choose the e-bill'; end if;
+  if b.status = 'paid' then raise exception 'E-Bill % is PAID and closed. Nothing more can be added to it', b.bill_no; end if;
+  if new.entry_type = 'sales' and b.status not in ('released','sold') then
+    raise exception 'Net sales can be added after the e-bill is RELEASED (it is at % now)', public.ebill_status_name(b.status);
+  end if;
+  new.receipt_no := nullif(trim(new.receipt_no), '');
+  new.description := nullif(trim(new.description), '');
+  if new.entry_type in ('fee','penalty') and new.receipt_no is null then
+    raise exception 'Enter the receipt number of the %', case new.entry_type when 'fee' then 'fee' else 'penalty' end;
+  end if;
+  new.created_by := auth.uid();
+  new.created_by_name := (select full_name from public.profiles where id = auth.uid());
+  return new;
+end;
+$$;
+
+-- ---------- 4. steps: SALES (inventory staff), PAID (the Director); there is no ARRIVED step ----------
+create or replace function public.stock_bill_action(p_id uuid, p_action text, p_note text default null) returns public.stock_bills
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare
+  b public.stock_bills;
+  me text := (select full_name from public.profiles where id = auth.uid());
+  h text;
+begin
+  select * into b from public.stock_bills where id = p_id for update;
+  if b.id is null then raise exception 'E-bill not found'; end if;
+  if p_action = 'paid' then
+    if not public.is_admin() then raise exception 'Only the Director can mark an e-bill as PAID'; end if;
+  elsif not public.can_write('inventory') then
+    raise exception 'You do not have access to change e-bills';
+  end if;
+  perform public.allow_record_change();
+  if p_action = 'sold' then
+    if b.status <> 'released' then raise exception 'E-Bill % is at % — only a RELEASED e-bill can be marked as SALES', b.bill_no, public.ebill_status_name(b.status); end if;
+    if not exists (select 1 from public.stock_bill_entries x where x.stock_bill_id = p_id and x.entry_type = 'sales') then
+      raise exception 'Add the net sales in the Sales Report first';
+    end if;
+    update public.stock_bills set status = 'sold', sold_at = now() where id = p_id returning * into b;
+  elsif p_action = 'paid' then
+    if b.status <> 'sold' then raise exception 'E-Bill % is at % — only an e-bill at SALES can be marked as PAID', b.bill_no, public.ebill_status_name(b.status); end if;
+    update public.stock_bills set status = 'paid', paid_at = now(), paid_by_name = me where id = p_id returning * into b;
+    -- the secret code of the Statistics Report: 24 random characters
+    h := upper(md5(gen_random_uuid()::text || clock_timestamp()::text));
+    insert into public.stock_bill_secrets (stock_bill_id, secret_code)
+    values (p_id, 'EBX-' || substr(h, 1, 6) || '-' || substr(h, 7, 6) || '-' || substr(h, 13, 6) || '-' || substr(h, 19, 6))
+    on conflict (stock_bill_id) do nothing;
+  else
+    raise exception 'Unknown action %', p_action;
+  end if;
+  insert into public.stock_bill_events (stock_bill_id, action, note, actor, actor_name)
+  values (p_id, 'marked ' || public.ebill_status_name(b.status), nullif(trim(p_note), ''), auth.uid(), me);
+  return b;
+end;
+$$;
+
+-- ---------- 5. totals: the released charge is part of the e-bill's total cost ----------
+-- (the columns stay in the same order, with the released charge at the end)
+create or replace view public.stock_bill_totals with (security_invoker = true) as
+  select b.id, b.bill_no, b.company_id, b.bill_date, b.supplier_bill_no, b.item_columns, b.items, b.total_qty, b.total_cost, b.total_boxes,
+    b.batch_no, b.shipment_no, b.shipment_date, b.notes, b.status, b.release_date, b.shipping_cost, b.shipping_bill_no, b.release_order_no,
+    b.arrived_at, b.released_at, b.sold_at, b.paid_at, b.paid_by_name, b.created_by, b.created_by_name, b.created_at,
+    pc.name as company_name, pc.currency as company_currency,
+    coalesce(e.net_sales, 0)::numeric(14,2) as net_sales,
+    coalesce(e.eoo_fees, 0)::numeric(14,2) as eoo_fees,
+    coalesce(e.other_fees, 0)::numeric(14,2) as other_fees,
+    coalesce(e.penalties, 0)::numeric(14,2) as penalties,
+    (b.total_cost + coalesce(b.release_bdt, 0) + coalesce(b.shipping_cost, 0))::numeric(14,2) as bill_total,
+    (b.total_cost + coalesce(b.release_bdt, 0) + coalesce(b.shipping_cost, 0) + coalesce(e.eoo_fees, 0) + coalesce(e.other_fees, 0) + coalesce(e.penalties, 0))::numeric(14,2) as total_expenses,
+    coalesce(v.paid, 0)::numeric(14,2) as paid_bdt,
+    coalesce(v.vouchers, 0)::int as vouchers_count,
+    case when b.status = 'paid' and (select public.has_module('inventory')) then
+      (coalesce(e.net_sales, 0) - (b.total_cost + coalesce(b.release_bdt, 0) + coalesce(b.shipping_cost, 0) + coalesce(e.eoo_fees, 0) + coalesce(e.other_fees, 0) + coalesce(e.penalties, 0)))::numeric(14,2) end as profit,
+    b.release_price_per_box, b.release_exchange_rate, b.release_php, b.release_bdt
+  from public.stock_bills b
+  left join public.pay_companies pc on pc.id = b.company_id
+  left join lateral (select sum(x.amount) filter (where x.entry_type = 'sales') as net_sales,
+                            sum(x.amount) filter (where x.entry_type = 'eoo_fee') as eoo_fees,
+                            sum(x.amount) filter (where x.entry_type = 'fee') as other_fees,
+                            sum(x.amount) filter (where x.entry_type = 'penalty') as penalties
+                     from public.stock_bill_entries x where x.stock_bill_id = b.id) e on true
+  left join lateral (select sum(p.amount_bdt) as paid, count(*) as vouchers from public.pay_vouchers p where p.stock_bill_id = b.id) v on true;
+revoke select on public.stock_bill_totals from anon;
+grant select on public.stock_bill_totals to authenticated;
+
+-- ---------- 6. an order waiting for approval can be changed ----------
+-- A new order tells the Director that it needs approval (but not the Director who made it).
+create or replace function public.order_letters_after_insert() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.notifications (user_id, title, body, link)
+  select p.id, 'Order ' || new.order_no || ' needs approval', new.subject, 'order/' || new.id
+  from public.profiles p where p.role = 'admin' and p.status = 'active' and p.id is distinct from auth.uid();
+  return new;
+end;
+$$;
+
+-- The person who sent the order, or the Director, changes it while it waits for approval. The kind of order and who it
+-- is for stay the same. The changed order goes through the same checks as a new order (and its amounts are counted
+-- again), keeps its number and stays WAITING FOR APPROVAL. The change is recorded and the Director is told.
+create or replace function public.update_pending_order(p_id uuid, p_changes jsonb) returns public.order_letters
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare
+  o public.order_letters;
+  chk public.order_letters;
+  j jsonb; oj jsonb; cj jsonb;
+  k text;
+  editable text[] := array['subject','details','resolution','order_date','amount','first_due_date','installments','installment_amount',
+    'installment_every','closure_reason','adjust_type','release_date','price_per_box','exchange_rate','shipping_cost','shipping_bill_no'];
+  ch jsonb := '{}'::jsonb; prev jsonb := '{}'::jsonb;
+  me text := (select full_name from public.profiles where id = auth.uid());
+begin
+  if not public.is_active() then raise exception 'Your account is not active'; end if;
+  select * into o from public.order_letters where id = p_id for update;
+  if o.id is null then raise exception 'Order not found'; end if;
+  if o.status <> 'pending' then
+    raise exception 'Order % is already %. Only an order waiting for approval can be changed', o.order_no, upper(o.status);
+  end if;
+  if not (public.is_admin() or (o.created_by = auth.uid() and (
+       (o.customer_id is not null and (public.can_write('orders') or public.can_write('customers')))
+    or (o.employee_id is not null and public.can_write('employees'))
+    or (o.company_id is not null and public.can_write('billing'))
+    or (o.stock_bill_id is not null and public.can_write('inventory'))))) then
+    raise exception 'Only the person who sent this order or the Director can change it';
+  end if;
+  if jsonb_typeof(p_changes) is distinct from 'object' then raise exception 'Nothing to change'; end if;
+  select x into k from jsonb_object_keys(p_changes) x where not (x = any(editable)) limit 1;
+  if k is not null then raise exception 'This cannot be changed on an order: %', k; end if;
+  oj := to_jsonb(o);
+  j := oj || p_changes;
+  j := j || jsonb_build_object('subject', nullif(trim(j->>'subject'), ''), 'details', nullif(trim(j->>'details'), ''),
+                               'resolution', nullif(trim(j->>'resolution'), ''));
+  if j->>'subject' is null then raise exception 'Enter the subject'; end if;
+  if j->>'details' is null then raise exception 'Write the details of the order'; end if;
+  -- Checked like a new order: the changed order is saved as a new one and taken back at once; only its checked values
+  -- are kept. For the check, this order is set aside, so it does not count as an order already waiting.
+  perform public.allow_record_change();
+  begin
+    update public.order_letters set status = 'rejected' where id = p_id;
+    insert into public.order_letters
+    select (jsonb_populate_record(null::public.order_letters, j || jsonb_build_object('id', gen_random_uuid(), 'order_no', null))).*
+    returning * into chk;
+    raise exception using errcode = 'EO2CK', message = 'checked';
+  exception when sqlstate 'EO2CK' then
+    null;
+  end;
+  cj := to_jsonb(chk);
+  foreach k in array editable || array['release_php','release_bdt'] loop
+    if (oj->k) is distinct from (cj->k) then
+      ch := ch || jsonb_build_object(k, cj->k);
+      prev := prev || jsonb_build_object(k, oj->k);
+    end if;
+  end loop;
+  if ch = '{}'::jsonb then return o; end if;
+  update public.order_letters set subject = chk.subject, details = chk.details, resolution = chk.resolution, order_date = chk.order_date,
+    amount = chk.amount, first_due_date = chk.first_due_date, installments = chk.installments, installment_amount = chk.installment_amount,
+    installment_every = chk.installment_every, closure_reason = chk.closure_reason, adjust_type = chk.adjust_type,
+    release_date = chk.release_date, price_per_box = chk.price_per_box, exchange_rate = chk.exchange_rate,
+    release_php = chk.release_php, release_bdt = chk.release_bdt, shipping_cost = chk.shipping_cost, shipping_bill_no = chk.shipping_bill_no,
+    stock_info = chk.stock_info, balance_due = chk.balance_due, days_overdue = chk.days_overdue
+  where id = p_id returning * into o;
+  insert into public.record_changes (target_table, target_id, action, changes, previous, target_label, actor, actor_name)
+  values ('order_letters', p_id, 'order changed', ch, prev, o.order_no, auth.uid(), me);
+  if not public.is_admin() then
+    perform public.notify_admins('Order ' || o.order_no || ' was changed', o.subject, 'order/' || o.id);
+  end if;
+  return o;
+end;
+$$;
+revoke execute on function public.update_pending_order(uuid, jsonb) from public, anon;
+grant execute on function public.update_pending_order(uuid, jsonb) to authenticated;
+
+-- ---------- 7. signatures ----------
+-- A signature is a picture in the records storage under signature/<the person's id>/. The Director's own signature counts
+-- at once; anyone else's waits until the Director approves it.
+alter table public.profiles add column if not exists signature_path text;
+alter table public.profiles add column if not exists signature_status text check (signature_status is null or signature_status in ('pending','approved','rejected'));
+alter table public.profiles add column if not exists signature_at timestamptz;
+alter table public.profiles add column if not exists signature_approved_by uuid references public.profiles(id) on delete set null;
+alter table public.profiles add column if not exists signature_approved_by_name text;
+alter table public.profiles add column if not exists signature_approved_at timestamptz;
+alter table public.profiles add column if not exists signature_note text;
+create index if not exists profiles_signature_approved_by_idx on public.profiles(signature_approved_by);
+
+-- My own signature (p_path null takes it off).
+create or replace function public.set_my_signature(p_path text) returns public.profiles
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare me public.profiles;
+begin
+  select * into me from public.profiles where id = auth.uid() for update;
+  if me.id is null or me.status <> 'active' then raise exception 'Your account is not active'; end if;
+  if p_path is not null and p_path not like 'signature/' || me.id::text || '/%' then raise exception 'Upload the signature to your own folder'; end if;
+  if p_path is not null and not exists (select 1 from storage.objects o where o.bucket_id = 'records' and o.name = p_path) then
+    raise exception 'The signature file was not found. Upload it again';
+  end if;
+  update public.profiles set signature_path = p_path, signature_at = case when p_path is null then null else now() end,
+    signature_status = case when p_path is null then null when me.role = 'admin' then 'approved' else 'pending' end,
+    signature_approved_by = case when p_path is not null and me.role = 'admin' then me.id end,
+    signature_approved_by_name = case when p_path is not null and me.role = 'admin' then me.full_name end,
+    signature_approved_at = case when p_path is not null and me.role = 'admin' then now() end,
+    signature_note = null
+  where id = me.id returning * into me;
+  if p_path is not null and me.role <> 'admin' then
+    perform public.notify_admins(coalesce(me.full_name, 'Someone') || ' uploaded a signature', 'Approve it in User', 'logins');
+  end if;
+  return me;
+end;
+$$;
+revoke execute on function public.set_my_signature(text) from public, anon;
+grant execute on function public.set_my_signature(text) to authenticated;
+
+-- The Director approves or rejects someone's signature, takes it off, or uploads it for them (approved at once).
+create or replace function public.signature_action(p_user uuid, p_action text, p_note text default null, p_path text default null) returns public.profiles
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare u public.profiles; me text := (select full_name from public.profiles where id = auth.uid());
+begin
+  if not public.is_admin() then raise exception 'Only the Director can approve signatures'; end if;
+  select * into u from public.profiles where id = p_user for update;
+  if u.id is null then raise exception 'User not found'; end if;
+  if p_action = 'upload' then
+    if p_path is null or p_path not like 'signature/' || u.id::text || '/%' then raise exception 'Upload the signature to the person''s own folder'; end if;
+    if not exists (select 1 from storage.objects o where o.bucket_id = 'records' and o.name = p_path) then raise exception 'The signature file was not found. Upload it again'; end if;
+    update public.profiles set signature_path = p_path, signature_at = now(), signature_status = 'approved', signature_approved_by = auth.uid(),
+      signature_approved_by_name = me, signature_approved_at = now(), signature_note = nullif(trim(p_note), '')
+    where id = u.id returning * into u;
+  elsif p_action in ('approve','reject') then
+    if u.signature_path is null then raise exception 'There is no signature to %', p_action; end if;
+    if u.signature_status <> 'pending' then raise exception 'This signature is already %', upper(u.signature_status); end if;
+    if p_action = 'reject' and nullif(trim(p_note), '') is null then raise exception 'Write why the signature is not approved'; end if;
+    update public.profiles set signature_status = case p_action when 'approve' then 'approved' else 'rejected' end, signature_approved_by = auth.uid(),
+      signature_approved_by_name = me, signature_approved_at = now(), signature_note = nullif(trim(p_note), '')
+    where id = u.id returning * into u;
+    perform public.notify_user(u.id, case p_action when 'approve' then 'Your signature is approved' else 'Your signature was not approved' end,
+      coalesce(nullif(trim(p_note), ''), 'Your Signature Verification Form is ready in My Profile'), 'profile');
+  elsif p_action = 'remove' then
+    update public.profiles set signature_path = null, signature_status = null, signature_at = null, signature_approved_by = null,
+      signature_approved_by_name = null, signature_approved_at = null, signature_note = nullif(trim(p_note), '')
+    where id = u.id returning * into u;
+  else
+    raise exception 'Unknown action %', p_action;
+  end if;
+  return u;
+end;
+$$;
+revoke execute on function public.signature_action(uuid, text, text, text) from public, anon;
+grant execute on function public.signature_action(uuid, text, text, text) to authenticated;
+
+-- The Directors' approved signatures, for the documents they approve (and the signature forms they approve).
+create or replace function public.director_signatures() returns table (id uuid, full_name text, signature_path text)
+language sql stable security definer set search_path = '' as $$
+  select p.id, p.full_name, p.signature_path from public.profiles p
+  where p.role = 'admin' and p.signature_status = 'approved' and p.signature_path is not null and public.is_active();
+$$;
+revoke execute on function public.director_signatures() from public, anon;
+grant execute on function public.director_signatures() to authenticated;
+
+-- Storage: a signature picture is seen by its owner and the Director; a Director's approved signature by everyone
+-- signed in (it is printed on the documents the Director approves). Everyone may upload into their own folder.
+create or replace function public.is_director_signature(p_name text) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.profiles p where p.role = 'admin' and p.signature_status = 'approved' and p.signature_path = p_name);
+$$;
+revoke execute on function public.is_director_signature(text) from public, anon;
+grant execute on function public.is_director_signature(text) to authenticated;
+drop policy if exists "storage records: signatures" on storage.objects;
+create policy "storage records: signatures" on storage.objects as restrictive for select to authenticated
+  using (bucket_id <> 'records' or coalesce((storage.foldername(name))[1], '') <> 'signature'
+         or (storage.foldername(name))[2] = (select auth.uid())::text or (select public.is_admin()) or public.is_director_signature(name));
+drop policy if exists "storage records: own signature" on storage.objects;
+create policy "storage records: own signature" on storage.objects for insert to authenticated
+  with check (bucket_id = 'records' and (storage.foldername(name))[1] = 'signature'
+              and (storage.foldername(name))[2] = (select auth.uid())::text and (select public.is_active()));
+
+-- ---------- 8. the other functions: created again exactly as they are now, with only these lines changed ----------
+
+do $$
+declare
+  -- function name, the exact old text, the new text
+  fixes text[][] := array[
+    ['order_letters_before_insert', '''Choose one customer, employee, company or stock-bill for this order''',
+     '''Choose one customer, employee, company or e-bill for this order'''],
+    ['order_letters_before_insert', '  if kind = ''stock_bill'' then
+    if new.subject_type <> ''release'' then raise exception ''A stock-bill order must be a release order''; end if;
+    select * into bl from public.stock_bills b where b.id = new.stock_bill_id;
+    if bl.id is null then raise exception ''Choose the stock-bill''; end if;
+    if bl.status not in (''shipped'',''arrived'') then
+      raise exception ''Stock-Bill % is already %. Only an open stock-bill (SHIPPED or ARRIVED) can be released'', bl.bill_no, upper(bl.status);
+    end if;
+    if exists (select 1 from public.order_letters x where x.stock_bill_id = bl.id and x.status = ''pending'') then
+      raise exception ''Stock-Bill % already has a release order waiting for approval'', bl.bill_no;
+    end if;
+    if new.release_date is null then raise exception ''Enter the release date''; end if;
+    if bl.shipment_date is not null and new.release_date < bl.shipment_date then raise exception ''The release date cannot be before the shipment date''; end if;
+    if new.shipping_cost is null or new.shipping_cost < 0 then raise exception ''Enter the shipping bill amount (0 if there is none)''; end if;
+    new.shipping_bill_no := nullif(trim(new.shipping_bill_no), '''');
+    new.amount := null;
+    new.stock_info := jsonb_build_object(''bill_no'', bl.bill_no, ''company'', (select pc.name from public.pay_companies pc where pc.id = bl.company_id),
+      ''supplier_bill_no'', bl.supplier_bill_no, ''batch_no'', bl.batch_no, ''shipment_no'', bl.shipment_no, ''shipment_date'', bl.shipment_date,
+      ''total_boxes'', bl.total_boxes, ''total_qty'', bl.total_qty, ''bill_cost'', bl.total_cost, ''status'', bl.status);
+  elsif new.subject_type = ''release'' then
+    raise exception ''A release order is only for a stock-bill'';
+  else
+    new.release_date := null; new.shipping_cost := null; new.shipping_bill_no := null; new.stock_info := null;
+',
+     '  if kind = ''stock_bill'' then
+    -- Released Notice, found by the e-bill''s batch no: price per box (PHP) × total boxes = total (PHP);
+    -- × the exchange rate of the day = the released charge (BDT); plus the shipping fee (BDT).
+    if new.subject_type <> ''release'' then raise exception ''An e-bill order must be a Released Notice''; end if;
+    select * into bl from public.stock_bills b where b.id = new.stock_bill_id;
+    if bl.id is null then raise exception ''Choose the e-bill''; end if;
+    if bl.status not in (''shipped'',''arrived'') then
+      raise exception ''E-Bill % is already at %. Only an e-bill at SHIP can be released'', bl.bill_no, public.ebill_status_name(bl.status);
+    end if;
+    if exists (select 1 from public.order_letters x where x.stock_bill_id = bl.id and x.status = ''pending'') then
+      raise exception ''E-Bill % already has a Released Notice waiting for approval'', bl.bill_no;
+    end if;
+    if coalesce(bl.total_boxes, 0) <= 0 then raise exception ''E-Bill % has no total boxes. Correct the e-bill first'', bl.bill_no; end if;
+    if new.release_date is null then raise exception ''Enter the released date''; end if;
+    if bl.shipment_date is not null and new.release_date < bl.shipment_date then raise exception ''The released date cannot be before the shipment date''; end if;
+    if coalesce(new.price_per_box, 0) <= 0 then raise exception ''Enter the price per box (PHP)''; end if;
+    if coalesce(new.exchange_rate, 0) <= 0 then raise exception ''Enter the exchange rate (BDT for 1 PHP)''; end if;
+    if new.shipping_cost is null or new.shipping_cost < 0 then raise exception ''Enter the shipping fee (0 if there is none)''; end if;
+    new.release_php := round(new.price_per_box * bl.total_boxes, 2);
+    new.release_bdt := round(new.release_php * new.exchange_rate, 2);
+    new.shipping_bill_no := nullif(trim(new.shipping_bill_no), '''');
+    new.amount := null;
+    new.stock_info := jsonb_build_object(''bill_no'', bl.bill_no, ''company'', (select pc.name from public.pay_companies pc where pc.id = bl.company_id),
+      ''supplier_bill_no'', bl.supplier_bill_no, ''batch_no'', bl.batch_no, ''shipment_no'', bl.shipment_no, ''shipment_date'', bl.shipment_date,
+      ''total_boxes'', bl.total_boxes, ''total_qty'', bl.total_qty, ''bill_cost'', bl.total_cost, ''status'', bl.status,
+      ''total_cost'', bl.total_cost + new.release_bdt + new.shipping_cost);
+  elsif new.subject_type = ''release'' then
+    raise exception ''A Released Notice is only for an e-bill'';
+  else
+    new.release_date := null; new.shipping_cost := null; new.shipping_bill_no := null; new.stock_info := null;
+    new.price_per_box := null; new.exchange_rate := null; new.release_php := null; new.release_bdt := null;
+'],
+    ['order_letters_before_insert', 'new.order_no := ''ORDER-'' || to_char(new.order_date, ''YYYY'') || ''-'' || lpad(public.next_counter(''ORDER'' || to_char(new.order_date, ''YYYY''))::text, 3, ''0'');',
+     '-- order letters are numbered EO-YYYY-MM-#### (EO-2026-10-0001), counted again each month
+  new.order_no := ''EO-'' || to_char(new.order_date, ''YYYY-MM'') || ''-'' || lpad(public.next_counter(''EOORDER'' || to_char(new.order_date, ''YYYYMM''))::text, 4, ''0'');'],
+    ['carry_out_order', '    if bl.id is null then raise exception ''The stock-bill of this order was deleted''; end if;
+    if bl.status not in (''shipped'',''arrived'') then raise exception ''Stock-Bill % is % and cannot be released again'', bl.bill_no, upper(bl.status); end if;
+    update public.stock_bills set status = ''released'', release_date = o.release_date, shipping_cost = o.shipping_cost,
+      shipping_bill_no = o.shipping_bill_no, release_order_no = o.order_no, released_at = now() where id = bl.id;
+    insert into public.stock_bill_events (stock_bill_id, action, note, actor, actor_name)
+    values (bl.id, ''released by '' || o.order_no, ''Shipping cost BDT '' || to_char(o.shipping_cost, ''FM999,999,999,990.00''), auth.uid(), me);
+    res := ''Stock-Bill '' || bl.bill_no || '' is now RELEASED — total cost BDT '' || to_char(bl.total_cost + o.shipping_cost, ''FM999,999,999,990.00'')
+      || '' (shipping BDT '' || to_char(o.shipping_cost, ''FM999,999,999,990.00'') || '')'';
+',
+     '    if bl.id is null then raise exception ''The e-bill of this order was deleted''; end if;
+    if bl.status not in (''shipped'',''arrived'') then raise exception ''E-Bill % is at % and cannot be released again'', bl.bill_no, public.ebill_status_name(bl.status); end if;
+    -- the released charge and the shipping fee are added to the e-bill''s total cost
+    update public.stock_bills set status = ''released'', release_date = o.release_date, shipping_cost = o.shipping_cost,
+      shipping_bill_no = o.shipping_bill_no, release_order_no = o.order_no, released_at = now(),
+      release_price_per_box = o.price_per_box, release_exchange_rate = o.exchange_rate, release_php = o.release_php, release_bdt = o.release_bdt
+    where id = bl.id;
+    insert into public.stock_bill_events (stock_bill_id, action, note, actor, actor_name)
+    values (bl.id, ''released by '' || o.order_no,
+      case when o.release_bdt is not null then bl.total_boxes || '' boxes × PHP '' || to_char(o.price_per_box, ''FM999,999,999,990.00'')
+        || '' = PHP '' || to_char(o.release_php, ''FM999,999,999,990.00'') || '' × '' || rtrim(rtrim(to_char(o.exchange_rate, ''FM999,990.0000''), ''0''), ''.'')
+        || '' = BDT '' || to_char(o.release_bdt, ''FM999,999,999,990.00'') || '' · '' else '''' end
+        || ''Shipping fee BDT '' || to_char(o.shipping_cost, ''FM999,999,999,990.00''), auth.uid(), me);
+    res := ''E-Bill '' || bl.bill_no || '' is now RELEASED — total cost BDT ''
+      || to_char(bl.total_cost + coalesce(o.release_bdt, 0) + o.shipping_cost, ''FM999,999,999,990.00'')
+      || '' (released charge BDT '' || to_char(coalesce(o.release_bdt, 0), ''FM999,999,999,990.00'')
+      || '', shipping fee BDT '' || to_char(o.shipping_cost, ''FM999,999,999,990.00'') || '')'';
+'],
+    ['undo_order', '    update public.stock_bills set status = coalesce(prev, ''arrived''), release_date = null, shipping_cost = null, shipping_bill_no = null,
+      release_order_no = null, released_at = null
+',
+     '    update public.stock_bills set status = coalesce(prev, ''shipped''), release_date = null, shipping_cost = null, shipping_bill_no = null,
+      release_order_no = null, released_at = null, release_price_per_box = null, release_exchange_rate = null, release_php = null, release_bdt = null
+'],
+    ['undo_order', '    values (o.stock_bill_id, o.order_no || '' deleted — status back to '' || upper(prev), o.subject, auth.uid(), me);',
+     '    values (o.stock_bill_id, o.order_no || '' deleted — status back to '' || public.ebill_status_name(prev), o.subject, auth.uid(), me);'],
+    ['pay_vouchers_before_insert', '''That stock-bill belongs to a different company''',
+     '''That e-bill belongs to a different company'''],
+    ['pay_vouchers_before_insert', '''Only a released stock-bill (e-bill) can be paid''',
+     '''Only a RELEASED e-bill can be paid'''],
+    ['pay_vouchers_before_insert', '''A stock-bill is paid in BDT, but this company is paid in PHP only''',
+     '''An e-bill is paid in BDT, but this company is paid in PHP only'''],
+    ['delete_record', '''This stock-bill has a release order. Delete the order letter first''',
+     '''This e-bill has a Released Notice. Delete the order letter first'''],
+    ['delete_record', '''This stock-bill has payments in Billing. Delete those payment vouchers first''',
+     '''This e-bill has payments in Billing. Delete those payment vouchers first'''],
+    ['delete_record', '''This stock-bill is already SOLD or PAID, so its release order cannot be deleted''',
+     '''This e-bill is already at SALES or PAID, so its Released Notice cannot be deleted'''],
+    ['verify_record', '-- A stock-bill shows only for the secret code of its Statistics Report (never for its number).',
+     '-- An e-bill shows only for the secret code of its Statistics Report (never for its number).'],
+    ['verify_record', '''type'', ''Stock-Bill Statistics''',
+     '''type'', ''E-Bill Statistics'''],
+    ['verify_record', 'jsonb_build_array(''Stock-Bill No'', r.bill_no)',
+     'jsonb_build_array(''E-Bill No'', r.bill_no)'],
+    ['verify_record', 'jsonb_build_array(''Supplier Bill No'', r.supplier_bill_no)',
+     'jsonb_build_array(''Bill No'', r.supplier_bill_no)'],
+    ['verify_record', 'jsonb_build_array(''Shipment No'', coalesce(r.shipment_no, ''—''))',
+     'jsonb_build_array(''System Record No'', coalesce(r.shipment_no, ''—''))'],
+    ['verify_record', 'jsonb_build_array(''Release Date'', coalesce(to_char(r.release_date, ''DD Mon YYYY''), ''—''))',
+     'jsonb_build_array(''Released Date'', coalesce(to_char(r.release_date, ''DD Mon YYYY''), ''—''))'],
+    ['verify_record', 'jsonb_build_array(''Shipping Cost (BDT)'', to_char(coalesce(r.shipping_cost, 0), ''FM999,999,999,990.00'')),',
+     'jsonb_build_array(''Released Charge (BDT)'', to_char(coalesce(r.release_bdt, 0), ''FM999,999,999,990.00'')),
+          jsonb_build_array(''Shipping Fee (BDT)'', to_char(coalesce(r.shipping_cost, 0), ''FM999,999,999,990.00'')),'],
+    ['verify_record', 'r.total_cost + coalesce(r.shipping_cost, 0)',
+     'r.total_cost + coalesce(r.release_bdt, 0) + coalesce(r.shipping_cost, 0)'],
+    ['verify_record', '-- A release order shows only that it is a genuine order (no stock-bill figures).
+    select o.order_no, o.order_date, o.subject, o.status, o.approved_by_name, pc.name as co_name into r',
+     '-- A Released Notice shows only that it is a genuine order (no e-bill figures).
+    select o.order_no, o.order_date, o.subject, o.status, o.approved_by_name, pc.name as co_name, b.batch_no into r'],
+    ['verify_record', 'jsonb_build_array(''Type'', ''Release Order'')',
+     'jsonb_build_array(''Type'', ''Released Notice'' || coalesce('' '' || r.batch_no, ''''))'],
+    ['project_action', '    if not exists (select 1 from public.attachments a where a.owner_type = ''project'' and a.owner_id = p_id and a.kind = ''approval'') then
+      raise exception ''Upload the approved project document first'';
+    end if;
+',
+     '    -- 2.0: no uploaded approved document is needed: the Director''s signature is printed on the approved project
+']
+  ];
+  f record; def text; new_def text; i int;
+begin
+  for f in select p.oid, p.proname from pg_proc p
+           where p.pronamespace = 'public'::regnamespace and p.prokind = 'f' and pg_get_userbyid(p.proowner) = current_user
+             and p.proname in ('order_letters_before_insert', 'carry_out_order', 'undo_order', 'pay_vouchers_before_insert', 'delete_record', 'verify_record', 'project_action')
+  loop
+    def := pg_get_functiondef(f.oid);
+    new_def := def;
+    for i in 1 .. array_length(fixes, 1) loop
+      -- changed once: when the new text is already there (the script was run before), nothing is changed
+      if fixes[i][1] = f.proname and position(fixes[i][3] in new_def) = 0 then
+        if position(fixes[i][2] in new_def) = 0 then raise exception 'Update 2.0: % has changed; text not found: %', f.proname, left(fixes[i][2], 60); end if;
+        new_def := replace(new_def, fixes[i][2], fixes[i][3]);
+      end if;
+    end loop;
+    if new_def <> def then execute new_def; end if;
+  end loop;
+end $$;

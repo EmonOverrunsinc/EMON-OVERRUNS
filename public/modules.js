@@ -37,7 +37,7 @@
     stock_bill: ["stock_bills", "bill_no"]
   };
   async function ownerNo(ownerType, ownerId) {
-    // a sales report line's file: the stock-bill number and the receipt number, e.g. "SB-2026-0001 PN-55"
+    // a sales report line's file: the e-bill number and the receipt number, e.g. "MF-2026-0001 PN-55"
     if (ownerType === "stock_bill_entry") {
       const { data } = await sb.from("stock_bill_entries").select("receipt_no, stock_bills(bill_no)").eq("id", ownerId).maybeSingle();
       return [data?.stock_bills?.bill_no, data?.receipt_no].filter(Boolean).join(" ");
@@ -52,7 +52,7 @@
   const KIND = {
     photo: "Profile Photo", requirement: "Requirement", signed_form: "Signed Copy", receipt: "Payment Receipt", delivery_receipt: "Delivery Receipt",
     purchase_order: "Purchase Order", proof: "Proof", application: "Application Form", signature: "Signature Form", report: "Report", approval: "Approved Document", other: "Other",
-    bill: "Stock-Bill Copy", shipping_bill: "Shipping Bill", sales_report: "Sales Report"
+    bill: "E-Bill Copy", shipping_bill: "Shipping Fee Receipt", sales_report: "Sales Report"
   };
   async function autoName(ownerType, ownerId, kind, extraIndex = 0) {
     const [no, existing] = await Promise.all([
@@ -128,14 +128,93 @@
   }
   const latestSigned = (att, kind = "signed_form") => att.filter((a) => a.kind === kind).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
 
+  // ---------- signatures ----------
+  // Everyone can upload their signature (My Profile): the Director's counts at once, anyone else's after the Director
+  // approves it (User). A document the Director approves prints the Director's approved signature by itself.
+  const SIG = { list: null, at: 0, pics: new Map() };
+  // A stored signature as a picture (a data URL, kept), so a print can show it at once.
+  async function signaturePic(path) {
+    if (!path) return "";
+    if (!SIG.pics.has(path)) {
+      let pic = "";
+      try {
+        const u = await signedUrl(path, 300);
+        const blob = u ? await (await fetch(u)).blob() : null;
+        if (blob) pic = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => ok(""); r.readAsDataURL(blob); });
+      } catch { pic = ""; }
+      if (!/^data:image\//.test(pic)) return "";
+      SIG.pics.set(path, pic);
+    }
+    return SIG.pics.get(path);
+  }
+  // The Directors' approved signatures, loaded before a print (again after 5 minutes, or at once with force).
+  async function loadSignatures(force = false) {
+    if (!S.session || S.profile?.status !== "active") return [];
+    if (!force && SIG.list && Date.now() - SIG.at < 5 * 60e3) return SIG.list;
+    const { data } = await sb.rpc("director_signatures");
+    SIG.list = data || []; SIG.at = Date.now();
+    await Promise.all(SIG.list.map((x) => signaturePic(x.signature_path)));
+    return SIG.list;
+  }
+  // The approval of a document by the Director, for its print: the name, the date and the signature picture (empty
+  // until the Director's signature is uploaded). id: the Director's id; without it the name is used.
+  function approvedBy(id, name, at) {
+    if (!id && !name) return null;
+    const x = (SIG.list || []).find((d) => (id ? d.id === id : d.full_name === name));
+    return { name: name || x?.full_name || "", at, pic: x ? SIG.pics.get(x.signature_path) || "" : "" };
+  }
+  // A photo of a signature made ready to print: the paper made clear, the edges cut off, at most 900 × 320.
+  async function cleanSignature(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(new Error("This picture could not be read. Use a JPG or PNG photo.")); i.src = url; });
+      const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+      const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+      const cx = cv.getContext("2d", { willReadFrequently: true }); cx.drawImage(img, 0, 0, w, h);
+      const d = cx.getImageData(0, 0, w, h), px = d.data, n = w * h, lum = new Float32Array(n);
+      for (let i = 0; i < n; i++) lum[i] = (px[i * 4] * 299 + px[i * 4 + 1] * 587 + px[i * 4 + 2] * 114) / 1000;
+      // the paper: a light value most of the picture has; ink is clearly darker than the paper
+      const paper = Array.from(lum).sort((a, b) => a - b)[Math.floor(n * 0.6)];
+      let x0 = w, y0 = h, x1 = -1, y1 = -1;
+      for (let i = 0; i < n; i++) {
+        const a = Math.max(0, Math.min(1, (paper - 25 - lum[i]) / 70));
+        px[i * 4 + 3] = Math.round(a * 255);
+        if (a > 0.35) { const x = i % w, y = (i / w) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      }
+      if (x1 < 0 || (x1 - x0) < 20 || (y1 - y0) < 8) throw new Error("No signature was found in this picture. Sign on white paper with dark ink and take a clear photo.");
+      cx.putImageData(d, 0, 0);
+      const pad = 10; x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(w - 1, x1 + pad); y1 = Math.min(h - 1, y1 + pad);
+      const cw = x1 - x0 + 1, ch = y1 - y0 + 1, f = Math.min(1, 900 / cw, 320 / ch);
+      const out = document.createElement("canvas"); out.width = Math.round(cw * f); out.height = Math.round(ch * f);
+      out.getContext("2d").drawImage(cv, x0, y0, cw, ch, 0, 0, out.width, out.height);
+      return await new Promise((ok) => out.toBlob(ok, "image/png"));
+    } finally { URL.revokeObjectURL(url); }
+  }
+  // Upload a signature picture for a person (into their own folder) and give back its path.
+  async function uploadSignature(file, userId) {
+    const blob = await cleanSignature(file);
+    const path = `signature/${userId}/Signature_${Date.now()}.png`;
+    const up = await sb.storage.from("records").upload(path, blob, { contentType: "image/png" });
+    if (up.error) throw up.error;
+    return path;
+  }
+
   // ---------- document cards ----------
   // One card per printable document. Until a signed copy is uploaded the card prints the system form;
   // once the signed copy is uploaded it replaces the form (the system form can no longer be printed here).
   // kind: which upload counts as the signed copy ("approval" for an approved project document).
+  // approved ({ name, at }): the Director approved the document. Its print carries the Director's signature, so there is
+  // no signed copy to upload; a copy uploaded before the approval can still be opened.
   const DC = new Map();
-  function docCard({ key, title, sub = "", ownerType, ownerId, att, print, canUpload = isStaff(), printLabel = "Print / Download", kind = "signed_form", uploadLabel = "Upload Signed Copy", copyName = "Signed copy" }) {
+  function docCard({ key, title, sub = "", ownerType, ownerId, att, print, canUpload = isStaff(), printLabel = "Print / Download", kind = "signed_form", uploadLabel = "Upload Signed Copy", copyName = "Signed copy", approved = null }) {
     DC.set(key, { att, print, kind, copyName });
     const signed = latestSigned(att, kind);
+    if (approved) return `<div class="doccard signed esigned">
+      <div class="dc-ic">${ic("doc")}<span class="dc-ok">${ic("check")}</span></div>
+      <div class="dc-main"><b>${esc(title)}</b><small>Approved${approved.name ? ` by ${esc(approved.name)}` : ""}${approved.at ? ` on ${mdy(approved.at)}` : ""} · the Director's signature is printed on it</small></div>
+      <div class="dc-act"><button type="button" class="btn primary" data-dc-print="${esc(key)}">${ic("print")} ${esc(printLabel)}</button>
+        ${signed ? `<button type="button" class="btn" data-dc-view="${esc(key)}">${ic("eye")} ${esc(copyName)}</button>` : ""}</div></div>`;
     const upId = `dcUp_${key.replace(/\W/g, "_")}`;
     const mayUpload = signed ? isAdmin() : canUpload;
     return `<div class="doccard${signed ? " signed" : ""}">
@@ -149,7 +228,8 @@
       </div></div>`;
   }
   function bindDocCards(root, reload) {
-    $$("[data-dc-print]", root).forEach((b) => (b.onclick = () => DC.get(b.dataset.dcPrint)?.print()));
+    // the Director's signature is loaded first, so an approved document prints with it
+    $$("[data-dc-print]", root).forEach((b) => (b.onclick = async () => { b.disabled = true; await loadSignatures().catch(() => {}); b.disabled = false; DC.get(b.dataset.dcPrint)?.print(); }));
     $$("[data-dc-view]", root).forEach((b) => (b.onclick = () => { const d = DC.get(b.dataset.dcView); if (d) viewFile(latestSigned(d.att, d.kind)); }));
     $$("[data-dc-up]", root).forEach((inp) => (inp.onchange = async (e) => {
       const files = Array.from(e.target.files).slice(0, 1);
@@ -226,7 +306,12 @@
   const box = (title, inner) => `<div class="pbox"><div class="pbox-h">${esc(title)}</div>${inner}</div>`;
   const cell = (label, value, cls = "") => `<div class="pcell ${cls}"><div class="pl">${esc(label)}</div><div class="pv">${value === "" || value == null ? "&nbsp;" : esc(value)}</div></div>`;
   const radio = (on, label) => `<div class="pradio"><span class="dot ${on ? "on" : ""}"></span>${esc(label)}</div>`;
-  const sigs = (left, right) => `<div class="psig"><div><div class="line"></div>${left}</div><div><div class="line"></div>${right}</div></div>`;
+  // Two signature lines. sign (approvedBy): the Director approved the document, so the Director's signature picture stands
+  // on the right line, with the name and the date under it.
+  const sigCol = (label, sign) => sign
+    ? `<div class="sig-on">${sign.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="line"></div>${label}${sign.name ? `: <b class="nw">${esc(sign.name)}</b>` : ""}${sign.at ? ` &nbsp;·&nbsp; <span class="nw">${esc(mdy(sign.at))}</span>` : ""}</div>`
+    : `<div><div class="line"></div>${label}</div>`;
+  const sigs = (left, right, sign = null) => `<div class="psig">${sigCol(left)}${sigCol(right, sign)}</div>`;
   // Printed documents carry no status stamps; the signed copy uploaded afterwards is the record.
   const stampHtml = () => "";
 
@@ -476,7 +561,8 @@
     };
   };
 
-  function applicationPage(c, photoUrl, reqs) {
+  // sign: the Director's approval (approvedBy), printed with the Director's signature.
+  function applicationPage(c, photoUrl, reqs, sign = null) {
     const qr = E.qrDataUrl(custQr(c));
     const bar = E.pdf417DataUrl(c.application_no);
     return `${printHead("CUSTOMER ACCOUNT APPLICATION", `<div class="ph-codes">
@@ -497,13 +583,21 @@
         ${cell("Address Check", c.address_verified ? "VERIFIED" : "NOT VERIFIED")}${cell("Credit Limit (PHP)", c.credit_limit != null ? peso(c.credit_limit) : "")}
         ${cell("Opening Balance (PHP)", peso(c.opening_balance))}</div>`)}
       <p class="pdecl">I certify that the information above is true and correct, and I agree to the terms of ${esc(C.company.name)}.</p>
-      ${sigs("Customer Signature over Printed Name &nbsp; / &nbsp; Date", "Approved by (Signature) &nbsp; / &nbsp; Date")}
+      ${sigs("Customer Signature over Printed Name &nbsp; / &nbsp; Date", sign ? "Approved by" : "Approved by (Signature) &nbsp; / &nbsp; Date", sign)}
       <div class="rp-foot"><span>Submit this signed form to the ${esc(C.company.name)} office.</span><span>${esc(c.application_no)}</span></div>`;
   }
+  // An approved account: the Director who approved it and when (from its history).
+  const isApprovedAccount = (c) => ["active", "suspended", "closed"].includes(c.status);
+  async function accountApproval(c) {
+    if (!isApprovedAccount(c)) return null;
+    const { data } = await sb.from("customer_events").select("actor, actor_name, created_at").eq("customer_id", c.id).eq("action", "approve").order("created_at", { ascending: false }).limit(1);
+    const ev = (data || [])[0];
+    return { id: ev?.actor || c.reviewed_by, name: ev?.actor_name || "", at: ev?.created_at || c.reviewed_at };
+  }
   async function printApplication(c) {
-    const att = await attachmentsOf("customer", c.id);
+    const [att, ok] = await Promise.all([attachmentsOf("customer", c.id), accountApproval(c), loadSignatures()]);
     const photoUrl = c.photo_path ? await signedUrl(c.photo_path, 900) : "";
-    E.openPreview(`Application ${c.application_no}`, [applicationPage(c, photoUrl, att.filter((a) => a.kind === "requirement"))]);
+    E.openPreview(`Application ${c.application_no}`, [applicationPage(c, photoUrl, att.filter((a) => a.kind === "requirement"), ok ? approvedBy(ok.id, ok.name, ok.at) : null)]);
   }
 
   // Suspended / closed accounts are marked for everyone who opens them.
@@ -584,7 +678,8 @@
         <span class="grow"></span>
         ${tools("customers", c, `${c.account_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers") })}
       </div>
-      <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", sub: `${c.application_no} · print, sign, then upload the signed copy`, ownerType: "customer", ownerId: c.id, att, print: () => printApplication(c), canUpload: isStaff() && c.status !== "closed" })}</div>
+      <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", sub: `${c.application_no} · print, have the customer sign it, then upload the signed copy`, ownerType: "customer", ownerId: c.id, att, print: () => printApplication(c), canUpload: isStaff() && c.status !== "closed",
+        approved: isApprovedAccount(c) ? (() => { const a = [...(ev.data || [])].reverse().find((x) => x.action === "approve"); return { name: a?.actor_name || "", at: a?.created_at || c.reviewed_at }; })() : null })}</div>
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed) : ""}
       <div class="tabs" id="pfTabs">${tabs.map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes">
@@ -670,8 +765,9 @@
           <div class="btnrow"><button type="button" class="btn primary" id="rvCheck">Check &amp; Verify</button>
           <button type="button" class="btn" id="rvFb">${c.facebook_verified ? "Mark Facebook NOT verified" : "Mark Facebook verified"}</button>
           <button type="button" class="btn" id="rvAddr">${c.address_verified ? "Mark Address NOT verified" : "Mark Address verified"}</button></div><div id="rvResult">${c.status === "verified" ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
-        <li><b>Signed application form:</b> ${signed.length ? `<span class="ok-txt">✔ Uploaded — it now shows as the Customer Application Form above.</span>`
-          : `<span class="bad-txt">not uploaded yet.</span> Print the form from the <b>Customer Application Form</b> card above, have it signed, then press <b>Upload Signed Copy</b>.`}</li>
+        <li><b>Application form signed by the customer:</b> ${signed.length ? `<span class="ok-txt">✔ Uploaded.</span>`
+          : `<span class="bad-txt">not uploaded yet.</span> Print the form from the <b>Customer Application Form</b> card above, have the customer sign it, then press <b>Upload Signed Copy</b>.`}
+          You do not sign it by hand: your signature is printed on the form when you approve.</li>
         <li><b>Decide:</b>
           <div class="fields wide"><label for="rvNote">Note</label><input type="text" id="rvNote" placeholder="Optional note (shown in history)"></div>
           <div class="btnrow"><button type="button" class="btn ok" id="rvApprove" ${signed.length ? "" : "disabled title=\"Upload the signed application form first\""}>Approve — Activate Account</button>
@@ -1303,7 +1399,8 @@
         <span>Factory Status</span><span>${esc(m.factory_status || "—")}</span>
         <span>Approved By</span><span>${esc(m.approved_by_name || "—")} ${m.approved_at ? mdy(m.approved_at) : ""}</span>
         <span>Paid / Settled</span><span>${m.paid_at ? `${esc(m.paid_by_name || "")} ${mdy(m.paid_at)}` : "—"}</span></div></div>
-      <div class="docgrid">${docCard({ key: "memo", title: `Credit Memo ${m.memo_no}`, sub: `₱ ${peso(m.request_amount)} · ${mdy(m.memo_date)}`, ownerType: "credit_memo", ownerId: m.id, att, print: () => E.openPreview(`Credit Memo ${m.memo_no}`, [memoPage(m)]) })}</div>
+      <div class="docgrid">${docCard({ key: "memo", title: `Credit Memo ${m.memo_no}`, sub: `₱ ${peso(m.request_amount)} · ${mdy(m.memo_date)}`, ownerType: "credit_memo", ownerId: m.id, att, print: () => E.openPreview(`Credit Memo ${m.memo_no}`, [memoPage(m)]),
+        approved: memoApproved(m) ? { name: m.approved_by_name, at: m.approved_at } : null })}</div>
       <div><b>Proof</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No proof uploaded.")}</div>
       ${isAdmin() && ["pending", "approved"].includes(m.status) ? `<fieldset class="opt review"><legend>Director's Decision</legend>
         <div class="fields wide"><label for="cmNote">Note</label><input type="text" id="cmNote"></div>
@@ -1320,8 +1417,11 @@
     }));
     E.setRecords(`Credit memo: ${m.memo_no}`);
   };
+  // A credit memo the Director approved is printed with the Director's signature on "Approval Signature".
+  const memoApproved = (m) => ["approved", "paid"].includes(m.status) && !!(m.approved_by || m.approved_by_name);
   function memoPage(m) {
     const c = m.customers;
+    const sign = memoApproved(m) ? approvedBy(m.approved_by, m.approved_by_name, m.approved_at) : null;
     return `<div class="cm-head"><div><div class="cm-co">${esc(C.company.name)}</div><div class="cm-date">${esc(mdy(m.memo_date))}</div></div>
         <div class="cm-rep"><div><span>REPORT:</span> <b>${esc(m.memo_no)}</b></div><img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt=""></div></div>
       <div class="ph-title" style="text-align:left">CUSTOMER COMPLAINT</div>
@@ -1337,7 +1437,7 @@
         <div>${cell("Assigned By", m.assigned_by)}${cell("Inspection Notes", m.inspection_notes)}</div>
         <div class="pcell"><div class="pl">Status</div><div class="pv" style="white-space:pre-wrap;font-weight:bold">${esc((m.factory_status || "").toUpperCase())}</div>
 </div></div>`)}
-      ${sigs("Customer Signature &nbsp; Date: ____________", "Approval Signature &nbsp; Date: ____________")}`;
+      ${sigs("Customer Signature &nbsp; Date: ____________", sign ? "Approval Signature" : "Approval Signature &nbsp; Date: ____________", sign)}`;
   }
 
   // ======================================================================
@@ -1385,11 +1485,83 @@
   };
 
   // ======================================================================
+  // Signature Verification Form: blank (Download Forms), with boxes to collect a person's signatures; or one person's
+  // form with the signature on record. Once the Director approves the signature, the Director's signature is printed
+  // in the approval box by itself.
+  // ======================================================================
+  const SIG_STATUS = { approved: "APPROVED", pending: "WAITING FOR THE DIRECTOR'S APPROVAL", rejected: "NOT APPROVED" };
+  const sigPill = (st) => pill(st === "approved" ? "approved" : st === "rejected" ? "rejected" : "pending", st === "pending" ? "WAITING FOR APPROVAL" : SIG_STATUS[st] || "");
+  // p: null for the blank form, or { id, full_name, position, employee_no, username, phone, email, signature_pic,
+  // signature_status, signature_at, signature_note, approval } (approval: approvedBy, when the signature is approved).
+  function signatureFormPage(p = null) {
+    const ref = p ? "SVF-" + String(p.id || "").replace(/-/g, "").slice(0, 8).toUpperCase() : "";
+    const one = (label, sign) => `<div class="psig one"><div></div>${sigCol(label, sign)}</div>`;
+    const sign = p && p.signature_status === "approved" ? p.approval : null;
+    const details = p
+      ? [["Full Name", p.full_name, "hl"], ["Position / Designation", p.position], ["Employee No / ID No", p.employee_no], ["Username", p.username ? "@" + p.username : ""], ["Phone Number", p.phone], ["Email Address", p.email]]
+      : [["Full Name", ""], ["Position / Designation", ""], ["Employee No / ID No", ""], ["Department", ""], ["Phone Number", ""], ["Email Address", ""]];
+    const boxes = p
+      ? `<div class="sv-one">${p.signature_pic ? `<img src="${esc(p.signature_pic)}" alt="Signature">` : `<span>No signature uploaded yet</span>`}</div>
+        <div class="sv-cap">Signature on record${p.signature_at ? ` · uploaded on ${esc(mdy(p.signature_at))}` : ""}</div>`
+      : `<div class="sv-boxes">${[1, 2, 3].map((n) => `<div class="sv-box"><span>Signature ${n}</span></div>`).join("")}</div>
+        <div class="sv-row"><div class="sv-box sv-ini"><span>Initials</span></div><p>Sign inside each box with black or blue ink, the same way you sign every document. Keep each signature inside its box and do not touch the lines.</p></div>`;
+    return `${printHead("SIGNATURE VERIFICATION FORM", `<div class="sb-no"><small>Form No</small><b>EO-SVF</b><small>${p ? `Ref: ${esc(ref)}` : "Version 2.0"}</small></div>`)}
+      <div class="sv-form${p ? "" : " blank"}"><p class="sv-intro">${p ? `The signature of <b>${esc(p.full_name || "")}</b> kept on record by ${esc(C.company.name)}.`
+        : `Write your details, then sign three times in the boxes below. The Director checks the signatures; once approved, your signature is kept on record by ${esc(C.company.name)}.`}</p>
+      ${box("Personal Details", `<div class="pgrid2">${details.map(([k, x, c]) => cell(k, x || "", c || "")).join("")}</div>`)}
+      ${box(p ? "Signature" : "Specimen Signatures", boxes)}
+      ${box("Declaration", `<p class="pdecl">I confirm that ${p ? "this signature is" : "the signatures above are"} my own. I allow ${esc(C.company.name)} to keep ${p ? "it" : "them"} on record and to print my approved signature on the documents I prepare or approve in the ${esc(E.APP)}.</p>
+        ${p ? `<div class="sv-by">Uploaded by <b>${esc(p.full_name || "")}</b>${p.signature_at ? ` on ${esc(mdy(p.signature_at))}` : ""} in the ${esc(E.APP)}.</div>` : sigs("Signature over Printed Name", "Date")}`)}
+      ${box("For Office Use — Verification", `${p ? `<div class="sv-status ${esc(p.signature_status || "none")}">Status: <b>${esc(SIG_STATUS[p.signature_status] || "NO SIGNATURE YET")}</b>${p.signature_status === "rejected" && p.signature_note ? ` — ${esc(p.signature_note)}` : ""}</div>` : ""}
+        ${p ? one(sign ? "Approved by the Director" : "Verified and Approved by the Director / Date", sign)
+          : `${sigs("Received and Checked by / Date", "Verified and Approved by the Director / Date")}<div class="sv-remarks">Remarks:</div>`}`)}
+      </div><div class="rp-foot"><span>${esc(E.APP)} — Signature Verification Form EO-SVF</span><span>${p ? esc(ref) : "Keep this form in the person's file"}</span></div>`;
+  }
+  // One person's form (from My Profile or User): the signature on record and, once approved, the Director's signature.
+  async function openSignatureForm(prof, emp = null) {
+    const [, pic] = await Promise.all([loadSignatures(), signaturePic(prof.signature_path)]);
+    E.openPreview(`Signature Verification Form ${prof.full_name || ""}`.trim(), [signatureFormPage({
+      id: prof.id, full_name: prof.full_name, email: prof.email, username: prof.username, position: E.personTitle(prof.role, emp?.position),
+      employee_no: emp?.employee_no || "", phone: emp?.phone || "", signature_pic: pic, signature_status: prof.signature_status,
+      signature_at: prof.signature_at, signature_note: prof.signature_note,
+      approval: prof.signature_status === "approved" ? approvedBy(prof.signature_approved_by, prof.signature_approved_by_name, prof.signature_approved_at) : null })]);
+  }
+  // The blank form, to print or save as PDF (Download Forms).
+  const openBlankSignatureForm = () => E.openPreview("Signature Verification Form", [signatureFormPage(null)], { undated: true });
+  // Choose a signature photo: it is cleaned (white paper removed) and shown before it is saved. save(path) stores it.
+  function pickSignature(input, userId, title, save) {
+    input.onchange = async (e) => {
+      const f = e.target.files[0]; e.target.value = "";
+      if (!f) return;
+      if (f.size > 15 * 1024 * 1024) return toast("Choose a photo under 15 MB.", true);
+      let blob;
+      try { blob = await cleanSignature(f); } catch (err) { return toast(err.message || "This picture could not be used.", true); }
+      const url = URL.createObjectURL(blob);
+      const m = E.modal(title, `<div class="sig-check"><img src="${url}" alt="Signature"></div><p class="muted">This is how the signature will be printed. The white paper is taken away.</p>`,
+        `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${ic("check")} Save Signature</button>`);
+      const done = () => { URL.revokeObjectURL(url); m.close(); };
+      $("[data-x]", m.el).onclick = done;
+      $("[data-ok]", m.el).onclick = async () => {
+        const b = $("[data-ok]", m.el); b.disabled = true;
+        const path = `signature/${userId}/Signature_${Date.now()}.png`;
+        const up = await sb.storage.from("records").upload(path, blob, { contentType: "image/png" });
+        if (up.error) { b.disabled = false; return fail(up.error, "Upload failed"); }
+        const ok = await save(path);
+        if (ok) done(); else b.disabled = false;
+      };
+    };
+  }
+
+  // ======================================================================
   // My Profile (photo, username, employee record, payslip history) and Company Logo
   // ======================================================================
   V.profile = async () => {
     const av = E.publicUrl("avatars", S.profile.avatar_path);
     E.shell("profile", "My Profile", busy());
+    // the signature's status may have changed since sign-in (the Director approves it)
+    const { data: fresh } = await sb.from("profiles").select("signature_path, signature_status, signature_at, signature_approved_by, signature_approved_by_name, signature_approved_at, signature_note").eq("id", S.profile.id).maybeSingle();
+    if (fresh) Object.assign(S.profile, fresh);
+    const sp = S.profile, myPic = await signaturePic(sp.signature_path);
     const { data: emp } = await sb.from("employees").select("*").eq("profile_id", S.profile.id).maybeSingle();
     const slips = emp ? (await sb.from("payslips").select("*").eq("employee_id", emp.id).order("pay_date", { ascending: false })).data || [] : [];
     // Approved orders about me (memo, suspension, reactivation): tap one to see and print the letter.
@@ -1412,6 +1584,15 @@
         </fieldset>
         <fieldset class="opt"><legend>Password</legend><p>Change the password you sign in with.</p><div class="btnrow"><button type="button" class="btn" id="mpPw">${ic("key")} Change Password</button></div></fieldset>
       </div>
+      <fieldset class="opt sigset" id="mpSigBox"><legend>My Signature</legend>
+        ${myPic ? `<div class="sig-show"><img src="${esc(myPic)}" alt="My signature"></div><div class="sig-st">${sigPill(sp.signature_status)}${sp.signature_status === "approved" && sp.signature_approved_by_name ? ` <small>by ${esc(sp.signature_approved_by_name)} on ${mdy(sp.signature_approved_at)}</small>` : ""}</div>` : `<p><b>No signature yet.</b></p>`}
+        ${sp.signature_status === "rejected" && sp.signature_note ? `<div class="hint err">Not approved: ${esc(sp.signature_note)}. Upload a clearer signature.</div>` : ""}
+        <p class="muted">${isAdmin() ? "Your signature is printed by itself on every document you approve (order letters, applications, credit memos, projects and signature forms)."
+          : "Upload your signature; the Director approves it, then your Signature Verification Form is ready."} Sign on white paper with dark ink, take a clear photo and upload it: the white paper is taken away for you.</p>
+        <div class="btnrow"><label class="btn primary" for="mpSig">${ic("upload")} ${myPic ? "Change Signature" : "Upload Signature"}</label><input type="file" id="mpSig" accept="image/*" hidden>
+          ${sp.signature_path ? `<button type="button" class="btn" id="mpSigForm">${ic("print")} Signature Verification Form</button><button type="button" class="btn danger" id="mpSigRm">${ic("trash")} Remove</button>`
+            : `<button type="button" class="btn" id="mpSigBlank">${ic("print")} Blank Signature Verification Form</button>`}</div>
+      </fieldset>
       ${emp ? `<h3>My Payslip History</h3>
         <div class="tiles"><div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div><div class="tile ok"><div class="k">Total Received (₱)</div><div class="v">₱ ${peso(netTotal)}</div></div></div>
         <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}
@@ -1419,6 +1600,22 @@
     if (emp) E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
     if (myOrders.length) E.bindGrid($("#mpOrders"), myOrders, (r) => E.printOrder(r.id));
     $("#mpPw").onclick = () => E.changePassword();
+    pickSignature($("#mpSig"), sp.id, "My Signature", async (path) => {
+      const r = await sb.rpc("set_my_signature", { p_path: path });
+      if (r.error) { fail(r.error, "Could not save the signature"); return false; }
+      if (isAdmin()) await loadSignatures(true);
+      toast(isAdmin() ? "Signature saved. It is printed on the documents you approve." : "Signature saved. It waits for the Director's approval.");
+      V.profile(); return true;
+    });
+    if ($("#mpSigForm")) $("#mpSigForm").onclick = () => openSignatureForm(S.profile, emp);
+    if ($("#mpSigBlank")) $("#mpSigBlank").onclick = openBlankSignatureForm;
+    if ($("#mpSigRm")) $("#mpSigRm").onclick = async () => {
+      if (!(await E.confirmBox("Remove your signature? It is no longer printed on documents.", { ok: "Remove", danger: true }))) return;
+      const r = await sb.rpc("set_my_signature", { p_path: null });
+      if (r.error) return fail(r.error, "Could not remove the signature");
+      if (isAdmin()) await loadSignatures(true);
+      toast("Signature removed."); V.profile();
+    };
     $("#mpFile").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
       if (f.size > 5 * 1024 * 1024) return toast("Choose a photo under 5 MB.", true);
@@ -1457,6 +1654,7 @@
   // shared with modules2.js and modules3.js
   Object.assign(E, {
     extOf, viewFile, latestSigned, uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, isImage,
-    docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, stampHtml, uuid, cleanQ, idBox, METHOD
+    docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, stampHtml, uuid, cleanQ, idBox, METHOD,
+    loadSignatures, approvedBy, signaturePic, uploadSignature, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm
   });
 })();
