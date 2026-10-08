@@ -608,12 +608,14 @@
           <tr class="grand ${loss ? "loss" : "gain"}"><td>${loss ? "NET LOSS" : "NET PROFIT"}</td><td class="num">BDT ${peso(Math.abs(profit))}</td></tr></tbody></table>
         <div class="sb-formula">Net Sales ${peso(b.net_sales)} − Total Expenses ${peso(expensesOf(b))} = ${loss ? "−" : ""}${peso(Math.abs(profit))} · ${esc(words(Math.abs(profit), "TAKA"))}</div>`)}
         ${E.box("Secret Code", `<div class="sb-secret"><b>${esc(d.secret)}</b><span>Scan the QR code at the top of this e-bill (or type the code) in Verification to check it. The e-bill and its profit or loss are shown only with this secret code. Keep this e-bill private.</span></div>`)}` : ""}`;
-    // The statement: the charges (bill cost, released charge, shipping fee) and the payments, with the running balance.
-    const lines = [{ date: b.bill_date, what: "Bill cost (items)", ref: b.supplier_bill_no ? `Bill No ${b.supplier_bill_no}` : b.bill_no, chg: num(b.total_cost), pay: 0 }];
-    if (b.release_bdt != null) lines.push({ date: b.release_date, what: `Released charge (${chargeText(b)})`, ref: b.release_order_no || "", chg: num(b.release_bdt), pay: 0 });
-    if (b.shipping_cost != null) lines.push({ date: b.release_date, what: "Shipping fee", ref: b.shipping_bill_no || b.release_order_no || "", chg: num(b.shipping_cost), pay: 0 });
-    payRows.forEach((r) => lines.push({ date: r.date, what: r.php != null ? `Payment by memo — PHP ${peso(r.php)} × ${rate(r.rate)}` : r.what, ref: r.no, chg: 0, pay: r.bdt }));
-    lines.sort((x, y) => String(x.date || "").localeCompare(String(y.date || "")) || y.chg - x.chg);
+    // The statement: the bill cost first, then the released charge, the shipping fee and the payments by date (charges
+    // before payments on the same day), with the running balance.
+    const later = [];
+    if (b.release_bdt != null) later.push({ date: b.release_date, what: `Released charge (${chargeText(b)})`, ref: b.release_order_no || "", chg: num(b.release_bdt), pay: 0 });
+    if (b.shipping_cost != null) later.push({ date: b.release_date, what: "Shipping fee", ref: b.shipping_bill_no || b.release_order_no || "", chg: num(b.shipping_cost), pay: 0 });
+    payRows.forEach((r) => later.push({ date: r.date, what: r.php != null ? `Payment by memo — PHP ${peso(r.php)} × ${rate(r.rate)}` : r.what, ref: r.no, chg: 0, pay: r.bdt }));
+    later.sort((x, y) => String(x.date || "").localeCompare(String(y.date || "")) || y.chg - x.chg);
+    const lines = [{ date: b.bill_date, what: "Bill cost (items)", ref: b.supplier_bill_no ? `Bill No ${b.supplier_bill_no}` : b.bill_no, chg: num(b.total_cost), pay: 0 }, ...later];
     let run = 0;
     lines.forEach((x) => { run += x.chg - x.pay; x.bal = run; });
     const itemCols = [{ label: "No.", num: true, get: (r) => r[0] }, ...cols.map((c, ci) => ({ label: colHead(c), num: isNum(c), get: (r) => cellText(c, r[ci + 1]) }))];
