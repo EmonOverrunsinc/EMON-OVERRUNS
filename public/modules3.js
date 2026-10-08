@@ -953,8 +953,8 @@
         ${o.balance_due != null ? tr("New Balance", `<b>${php(num(o.balance_due) + (o.adjust_type === "reduce" ? -1 : 1) * num(o.amount))}</b>`) : ""}${o.first_due_date ? tr("Settle On or Before", `<b>${v(E.mdy(o.first_due_date))}</b>`) : ""}`
       : o.amount != null ? tr("Amount", `PHP ${peso(o.amount)} <small>(${esc(words(o.amount))})</small>`) : "";
     const plan = t === "installment" ? schedule(num(o.amount), num(o.installments), o.first_due_date, o.installment_every, num(o.installment_amount)) : [];
-    // a Released Notice: "RELEASED I-17 ORDER FOR MODINA FASHION", type "RELEASED NOTICE I-17"
-    const title = t === "release" ? `RELEASED ${batchOf(o) ? batchOf(o) + " " : ""}ORDER FOR ${String(si.company || "").toUpperCase()}`.trim() : TITLE[t] || "ORDER";
+    // a Released Notice: the title is only "RELEASED I-17" (the batch no), type "RELEASED NOTICE I-17"
+    const title = t === "release" ? (batchOf(o) ? `RELEASED ${batchOf(o)}` : "RELEASED NOTICE") : TITLE[t] || "ORDER";
     return `${E.printHead(title, `<img src="${E.pdf417DataUrl("EMONORDER|" + o.order_no)}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>`)}
       <div class="ol-sec">DETAILS OF ORDER</div>
       <table class="ol-kv"><tbody>${tr("Type of Order", t === "release" ? `<b>${v(typeName(o).toUpperCase())}</b>` : v(o.subject))}${tr("Order For", v(KINDS[kind].label))}
