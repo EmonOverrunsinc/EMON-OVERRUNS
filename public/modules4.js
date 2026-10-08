@@ -1,7 +1,8 @@
-/* EMON OVERRUNS E-PORTAL — 10 Inventory: e-bills in BDT with their own item columns and rows (and the bill uploaded),
-   the Released Notice (an order letter: price per box × boxes × exchange rate + shipping fee), the Sales Report (net
-   sales, EOO fees, other fees and penalties with receipts), the steps 1 SHIP → 2 RELEASED → 3 SALES → 4 PAID, the profit or
-   loss (shown after PAID), the Statistics Report with its secret code, and the e-bills in Billing. */
+/* EMON OVERRUNS E-PORTAL — 10 E-Bill: e-bills in BDT with their own item columns and rows (and the bill uploaded), the
+   shipping company, the Released Notice (an order letter: price per box × boxes × exchange rate + shipping fee), the
+   Sales Report (net sales, EOO fees, other fees and penalties with receipts; more can be added after PAID), the steps
+   1 SHIP → 2 RELEASED → 3 SALES → 4 PAID, the payments (memos in the Director Portal, in PESOS, paid in BDT), the
+   profit or loss (shown after PAID) and one E-Bill document with every record, like a statement of account. */
 (function () {
   "use strict";
   const E = window.EO;
@@ -41,38 +42,42 @@
     : `<b class="${num(r.profit) < 0 ? "loss" : "gain"}">${signed(r.profit)}</b>`);
 
   // ======================================================================
-  // Inventory: the list of e-bills
+  // E-Bill: the list of e-bills
   // ======================================================================
   const LIST_COLS = [
     { label: "E-Bill No", get: (r) => r.bill_no }, { label: "Bill Date", get: (r) => mdy(r.bill_date) }, { label: "Company", get: (r) => r.company_name || "" },
     { label: "Batch No", get: (r) => r.batch_no || "" }, { label: "System Record No", get: (r) => r.shipment_no || "" }, { label: "Shipment Date", get: (r) => mdy(r.shipment_date) },
     { label: "Boxes", num: true, get: (r) => r.total_boxes ?? "" }, { label: "Total Qty", num: true, get: (r) => qtyText(r.total_qty) },
     { label: "Total Cost (BDT)", key: "cost", num: true, html: (r) => `<b class="bdt">${peso(totalCost(r))}</b>` },
+    { label: "Balance (BDT)", key: "bal", num: true, get: (r) => peso(totalCost(r) - num(r.paid_bdt)) },
     { label: "Profit / Loss (BDT)", num: true, html: profitHtml }, { label: "Status", html: (r) => ebillPill(r.status) }
   ];
   V.inventory = async () => {
     const w = E.canWrite("inventory");
-    E.shell("inventory", "Inventory", `
-      <div class="tiles" id="ivTiles">${["E-Bills", "At SHIP (Not Released)", "Total Cost (BDT)", "Net Profit / Loss — Paid (BDT)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>
+    E.shell("inventory", "E-Bill", `
+      <div class="tiles" id="ivTiles">${["E-Bills", "At SHIP (Not Released)", "Total Cost (BDT)", "Balance (BDT)", "Net Profit / Loss — Paid (BDT)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>
       <div class="btnrow">${w ? `<a class="btn primary" href="#newstockbill">${ic("plus")} Add E-Bill</a><a class="btn" href="#neworder/stock_bill">${ic("doc")} Released Notice</a>` : ""}</div>
       <div class="tabs" id="ivF"><button type="button" class="on" data-f="">All</button>${STATUS.map((s) => `<button type="button" data-f="${s}">${STATUS_NAME[s].toUpperCase()}</button>`).join("")}</div>
-      <div class="inv-find"><input type="search" id="ivQ" placeholder="Search by e-bill no, company, batch no, bill no or system record no" aria-label="Search e-bills"></div>
+      <div class="inv-find"><input type="search" id="ivQ" placeholder="Search by e-bill no, company, batch no, bill no, system record no or shipping company" aria-label="Search e-bills"></div>
       <div id="ivRes">${busy()}</div>`,
-      "E-bills of the goods bought, in BDT. <b>Add E-Bill</b> records the bill with its items. The <b>Released Notice</b> (an order letter, found by the batch no) releases it and adds the released charge and the shipping fee; then add the <b>Sales Report</b>. The profit or loss shows after the Director marks it <b>PAID</b>.");
+      "E-bills of the goods bought, in BDT. <b>Add E-Bill</b> records the bill with its items. The <b>Released Notice</b> (an order letter, found by the batch no) releases it and adds the released charge and the shipping fee; then add the <b>Sales Report</b>. A memo in the Director Portal pays an e-bill. The profit or loss shows after the Director marks it <b>PAID</b>.");
     const { data, error } = await sb.from("stock_bill_totals")
-      .select("id, bill_no, bill_date, company_name, supplier_bill_no, batch_no, shipment_no, shipment_date, total_boxes, total_qty, total_cost, release_bdt, shipping_cost, status, profit, created_at")
+      .select("id, bill_no, bill_date, company_name, supplier_bill_no, batch_no, shipment_no, shipment_date, total_boxes, total_qty, total_cost, release_bdt, shipping_cost, paid_bdt, status, profit, shipping_company, shipping_company_code, created_at")
       .order("created_at", { ascending: false }).limit(2000);
-    if (error) return fail(error, "Could not load the e-bills (run the 2.0 database update)");
+    if (error) return fail(error, "Could not load the e-bills (run the 2.1 database update)");
     const all = data || [];
     const paid = all.filter((r) => r.status === "paid"), profit = paid.reduce((s, r) => s + num(r.profit), 0);
+    const due = all.reduce((s, r) => s + totalCost(r) - num(r.paid_bdt), 0);
     const tiles = [["", String(all.length)], ["warn", String(all.filter((r) => isOpen(r.status)).length)], ["", bdt(all.reduce((s, r) => s + totalCost(r), 0))],
-      [profit < 0 ? "bad" : "ok", (profit < 0 ? "− " : "") + bdt(Math.abs(profit))]];
+      [due > 0 ? "warn" : "ok", bdt(due)], [profit < 0 ? "bad" : "ok", (profit < 0 ? "− " : "") + bdt(Math.abs(profit))]];
     $$("#ivTiles .tile").forEach((t, i) => { t.className = "tile " + tiles[i][0]; $(".v", t).textContent = tiles[i][1]; });
     let f = "";
     const show = () => {
       const q = $("#ivQ").value.trim().toLowerCase();
-      const rows = all.filter((r) => (!f || STATUS[stepOf(r.status)] === f) && (!q || [r.bill_no, r.company_name, r.batch_no, r.shipment_no, r.supplier_bill_no].join(" ").toLowerCase().includes(q)));
-      $("#ivRes").innerHTML = E.grid({ cols: LIST_COLS, rows, onRow: true, foot: { cost: `<b class="bdt">${peso(rows.reduce((s, r) => s + totalCost(r), 0))}</b>` },
+      const rows = all.filter((r) => (!f || STATUS[stepOf(r.status)] === f)
+        && (!q || [r.bill_no, r.company_name, r.batch_no, r.shipment_no, r.supplier_bill_no, r.shipping_company, r.shipping_company_code].join(" ").toLowerCase().includes(q)));
+      $("#ivRes").innerHTML = E.grid({ cols: LIST_COLS, rows, onRow: true, foot: { cost: `<b class="bdt">${peso(rows.reduce((s, r) => s + totalCost(r), 0))}</b>`,
+        bal: peso(rows.reduce((s, r) => s + totalCost(r) - num(r.paid_bdt), 0)) },
         empty: all.length ? "No e-bills match." : w ? "No e-bills yet. Press Add E-Bill." : "No e-bills yet." });
       E.bindGrid($("#ivRes"), rows, (r) => (location.hash = "stockbill/" + r.id));
       E.setRecords(`E-bills: ${rows.length}`);
@@ -87,7 +92,7 @@
   // ======================================================================
   V.newstockbill = async () => {
     if (!E.canWrite("inventory")) { location.hash = "inventory"; return; }
-    E.shell("newstockbill", "Inventory — Add E-Bill", busy());
+    E.shell("newstockbill", "Add E-Bill", busy());
     const { data: cos, error } = await sb.from("pay_companies").select("id, name, status").order("name");
     if (error) return fail(error, "Could not load the companies");
     if (!(cos || []).length) {
@@ -109,6 +114,10 @@
             <label for="sbShip">System Record No</label><input type="text" id="sbShip" placeholder="e.g. SR-1029">
             <label for="sbShipDate">Shipment Date</label><input type="date" id="sbShipDate">
             <span>Total Qty</span><b id="sbQtyOut">0</b>
+          </div>
+          <div class="fields wide">
+            <label for="sbShipCo">Shipping Company</label><input type="text" id="sbShipCo" maxlength="120" placeholder="e.g. Sea Star Lines">
+            <label for="sbShipCode">Shipping Company Code</label><input type="text" id="sbShipCode" maxlength="40" placeholder="e.g. SSL-7">
           </div></div></fieldset>
         <fieldset class="opt"><legend>Items (BDT)</legend>
           <div class="hint small">Type the items as they are on the bill. <b>Add Column</b> adds a column (up to ${MAX_COLS}); you can rename any column or remove one with ×. <b>Add Row</b> adds an item. Qty × Price = Total is calculated for you.</div>
@@ -208,7 +217,8 @@
       const { data: b, error: err } = await sb.from("stock_bills").insert({
         company_id: co, bill_date: $("#sbDate").value || isoToday(), supplier_bill_no: $("#sbRef").value.trim() || null, item_columns, items,
         total_boxes: boxes, batch_no: $("#sbBatch").value.trim() || null, shipment_no: $("#sbShip").value.trim() || null,
-        shipment_date: $("#sbShipDate").value || null, notes: $("#sbNotes").value.trim() || null
+        shipment_date: $("#sbShipDate").value || null, notes: $("#sbNotes").value.trim() || null,
+        shipping_company: $("#sbShipCo").value.trim() || null, shipping_company_code: $("#sbShipCode").value.trim() || null
       }).select("id, bill_no, total_cost").single();
       if (err) { E.setBusy(e.target, false); return fail(err, "Could not save the e-bill"); }
       const failed = await E.uploadRecords("stock_bill", b.id, "bill", E.filesOf("sbFile"));
@@ -239,45 +249,53 @@
   }).join("")}</div>`;
 
   V.stockbill = async (id) => {
-    E.shell("stockbill", "Inventory — E-Bill", busy());
-    const [bq, eq, vq, oq, evq] = await Promise.all([
+    E.shell("stockbill", "E-Bill", busy());
+    const [bq, eq, pq, vq, oq, mq, evq] = await Promise.all([
       sb.from("stock_bill_totals").select("*").eq("id", id).maybeSingle(),
       sb.from("stock_bill_entries").select("*").eq("stock_bill_id", id).order("entry_date").order("created_at"),
+      sb.from("stock_bill_payments").select("*").eq("stock_bill_id", id).order("pay_date").order("created_at"),
+      // payment vouchers linked to the e-bill in Billing before 2.1
       sb.from("pay_vouchers").select("id, voucher_no, pay_date, amount_bdt, purpose, method, reference_no").eq("stock_bill_id", id).order("pay_date").order("voucher_no"),
       sb.from("order_letters").select("*").eq("stock_bill_id", id).order("created_at", { ascending: false }),
+      // memos waiting for approval that will pay this e-bill (seen by the Director and Billing)
+      sb.from("order_letters").select("id, order_no, order_date, subject, amount, exchange_rate, amount_bdt, created_by_name").eq("memo_bill_id", id).eq("status", "pending").order("created_at"),
       sb.from("stock_bill_events").select("*").eq("stock_bill_id", id).order("created_at", { ascending: false }).order("id", { ascending: false })
     ]);
     const b = bq.data;
     if (location.hash !== "#stockbill/" + id) return; // another page was opened while this one loaded
     if (!b) { $("#main").innerHTML = `<div class="empty">E-bill not found. <a href="#inventory">Back</a></div>`; return; }
-    const entries = eq.data || [], vouchers = vq.data || [], orders = oq.data || [], events = evq.data || [];
+    const entries = eq.data || [], pays = pq.data || [], vouchers = vq.data || [], orders = oq.data || [], waiting = mq.data || [], events = evq.data || [];
     const files = await billFiles(b, entries, orders, vouchers);
     if (location.hash !== "#stockbill/" + id) return;
     const w = E.canWrite("inventory"), admin = isAdmin(), st = b.status;
     const pending = orders.find((o) => o.status === "pending");
-    const balance = totalCost(b) - num(b.paid_bdt);
+    const paid = num(b.paid_bdt), balance = totalCost(b) - paid;
     const reload = () => V.stockbill(id);
-    $(".band h1").textContent = `Inventory — E-Bill ${b.bill_no}`;
-    const banner = st === "paid" ? `<div class="banner ok">✔ PAID — marked by ${esc(b.paid_by_name || "")} on ${mdy(b.paid_at)}. The profit or loss and the Statistics Report are ready.</div>`
+    $(".band h1").textContent = `E-Bill ${b.bill_no}`;
+    const banner = st === "paid" ? `<div class="banner ok">✔ PAID — marked by ${esc(b.paid_by_name || "")} on ${mdy(b.paid_at)}. The profit or loss and the secret code are on the E-Bill. More sales reports can still be added.</div>`
       : pending ? `<div class="banner warn">Released Notice <a href="#order/${pending.id}">${esc(pending.order_no)}</a> is waiting for the Director's approval.</div>` : "";
     const profitTile = st === "paid"
       ? [profitOf(b) < 0 ? "bad" : "ok", profitOf(b) < 0 ? "Net Loss (BDT)" : "Net Profit (BDT)", peso(Math.abs(profitOf(b)))]
       : ["muted", "Net Profit / Loss", "Shown after PAID"];
     const tiles = [["", "Bill Cost (BDT)", peso(b.total_cost)], ["", "Released Charge (BDT)", b.release_bdt == null ? "—" : peso(b.release_bdt)],
-      ["", "Shipping Fee (BDT)", b.shipping_cost == null ? "—" : peso(b.shipping_cost)],
-      ["", "Total Cost (BDT)", peso(totalCost(b))], ["warn", "Fees and Penalties (BDT)", peso(feesOf(b))], ["ok", "Net Sales (BDT)", peso(b.net_sales)], profitTile];
+      ["", "Shipping Fee (BDT)", b.shipping_cost == null ? "—" : peso(b.shipping_cost)], ["", "Total Cost (BDT)", peso(totalCost(b))],
+      ["ok", "Paid (BDT)", peso(paid)], [balance > 0 ? "warn" : "ok", "Balance (BDT)", peso(balance)],
+      ["warn", "Fees and Penalties (BDT)", peso(feesOf(b))], ["ok", "Net Sales (BDT)", peso(b.net_sales)], profitTile];
     const acts = [];
     if (w && isOpen(st) && !pending) acts.push(`<a class="btn primary" href="#neworder/stock_bill/${b.id}">${ic("doc")} Released Notice</a>`);
-    if (w && (st === "released" || st === "sold")) acts.push(`<button type="button" class="btn primary" id="sbSales">${ic("plus")} Add Sales Report</button>`);
-    if (w && st !== "paid") acts.push(`<button type="button" class="btn" id="sbFee">${ic("plus")} Add Fee / Penalty</button>`);
+    // sales reports, fees and penalties can still be added after PAID
+    if (w && !isOpen(st)) acts.push(`<button type="button" class="btn primary" id="sbSales">${ic("plus")} Add Sales Report</button>`);
+    if (w) acts.push(`<button type="button" class="btn" id="sbFee">${ic("plus")} Add Fee / Penalty</button>`);
     if (w && st === "released") acts.push(`<button type="button" class="btn" id="sbSold">${ic("check")} Mark as SALES</button>`);
     if (admin && st === "sold") acts.push(`<button type="button" class="btn ok" id="sbPaid">${ic("check")} Mark as PAID</button>`);
+    // a memo in the Director Portal pays the e-bill
+    if (E.canWrite("billing")) acts.push(`<a class="btn" href="#neworder/memo/${b.id}">${ic("plus")} Memo Payment</a>`);
     const entryFile = (r) => files.find((a) => a.owner_type === "stock_bill_entry" && a.owner_id === r.id);
     const receiptCell = (r) => {
       const f = entryFile(r);
       if (f) return `<button type="button" class="btn small" data-open="${esc(f.storage_path)}" data-mime="${esc(f.mime || "")}" data-name="${esc(f.file_name)}">${ic("eye")} View</button>`;
       if (r.entry_type !== "fee" && r.entry_type !== "penalty") return "—";
-      return `<span class="pill unpaid">MISSING</span>${w && st !== "paid" ? ` <label class="btn small" for="up_${r.id}">${ic("upload")} Upload</label><input type="file" id="up_${r.id}" hidden accept="image/*,application/pdf" data-entry="${r.id}">` : ""}`;
+      return `<span class="pill unpaid">MISSING</span>${w ? ` <label class="btn small" for="up_${r.id}">${ic("upload")} Upload</label><input type="file" id="up_${r.id}" hidden accept="image/*,application/pdf" data-entry="${r.id}">` : ""}`;
     };
     const entryCols = [
       { label: "Date", get: (r) => mdy(r.entry_date) }, { label: "Type", html: (r) => `<span class="et ${r.entry_type}">${esc(ENTRY[r.entry_type] || r.entry_type)}</span>` },
@@ -285,22 +303,27 @@
       { label: "Amount (BDT)", num: true, html: (r) => `<b>${peso(r.amount)}</b>` }, { label: "Receipt", html: receiptCell }, { label: "Added By", get: (r) => r.created_by_name || "" },
       { label: "", html: (r) => tools("stock_bill_entries", r, `${ENTRY[r.entry_type] || ""} ${bdt(r.amount)} on ${b.bill_no}`, { reload }) }
     ];
-    const payCols = [{ label: "Voucher No", get: (r) => r.voucher_no }, { label: "Date", get: (r) => mdy(r.pay_date) }, { label: "Purpose", get: (r) => r.purpose || "" },
-      { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount (BDT)", key: "a", num: true, html: (r) => `<b class="bdt">${peso(r.amount_bdt)}</b>` }];
+    // Payments: the memos approved in the Director Portal (and payment vouchers linked in Billing before 2.1)
+    const payRows = payRowsOf(pays, vouchers);
+    const openMemo = admin || E.canOpen("billing");
+    const payCols = [{ label: "Date", get: (r) => mdy(r.date) }, { label: "Memo No", get: (r) => r.no }, { label: "Subject", get: (r) => r.what },
+      { label: "Amount (PHP)", num: true, get: (r) => (r.php == null ? "" : peso(r.php)) }, { label: "Rate", num: true, get: (r) => (r.rate == null ? "" : rate(r.rate)) },
+      { label: "Amount (BDT)", key: "a", num: true, html: (r) => `<b class="bdt">${peso(r.bdt)}</b>` }, { label: "Approved By", get: (r) => r.by || "" }];
     const evCols = [{ label: "Date / Time", get: (r) => E.dateTime(r.created_at) }, { label: "What Happened", get: (r) => cap(r.action) }, { label: "Note", get: (r) => r.note || "" }, { label: "By", get: (r) => r.actor_name || "" }];
     const sum4 = [["Net Sales", b.net_sales, "ok"], ["EOO Fees", b.eoo_fees], ["Other Fees", b.other_fees], ["Penalties", b.penalties]];
+    const balText = balance > 0 ? `balance ${bdt(balance)}` : balance < 0 ? `overpaid ${bdt(-balance)}` : "fully paid";
     $("#main").innerHTML = `${banner}
       <section class="cust-hero sb-hero st-${esc(st)}"><div class="ch-photo sb-ic">${ic("box")}</div>
         <div class="ch-main"><div class="ch-name"><h2>${esc(b.bill_no)}</h2>${ebillPill(st)}</div>
           <div class="ch-sub"><b>${esc(b.company_name || "")}</b>${b.supplier_bill_no ? ` · Bill No ${esc(b.supplier_bill_no)}` : ""} · Bill Date ${mdy(b.bill_date)}</div>
-          <div class="ch-ids">${E.idBox("Batch No", b.batch_no)}${E.idBox("System Record No", b.shipment_no)}${E.idBox("Shipment Date", mdy(b.shipment_date))}${E.idBox("Total Boxes", b.total_boxes == null ? "" : String(b.total_boxes))}${E.idBox("Total Qty", qtyText(b.total_qty))}${E.idBox("Released Date", mdy(b.release_date))}${E.idBox("Added By", b.created_by_name)}</div></div></section>
+          <div class="ch-ids">${E.idBox("Batch No", b.batch_no)}${E.idBox("System Record No", b.shipment_no)}${E.idBox("Shipment Date", mdy(b.shipment_date))}${E.idBox("Shipping Company", b.shipping_company)}${E.idBox("Shipping Company Code", b.shipping_company_code)}${E.idBox("Total Boxes", b.total_boxes == null ? "" : String(b.total_boxes))}${E.idBox("Total Qty", qtyText(b.total_qty))}${E.idBox("Released Date", mdy(b.release_date))}${E.idBox("Added By", b.created_by_name)}</div></div></section>
       ${stepsHtml(b)}
       <div class="tiles sb-tiles">${tiles.map(([k, l, v]) => `<div class="tile ${k}"><div class="k">${l}</div><div class="v">${esc(v)}</div></div>`).join("")}</div>
       ${b.release_bdt != null ? `<div class="due-info">Released charge: <b>${esc(chargeText(b))} = ${bdt(b.release_bdt)}</b> · Shipping fee: <b>${bdt(b.shipping_cost)}</b> · Released by <b>${esc(b.release_order_no || "")}</b></div>` : ""}
       <div class="actionbar">${acts.join("")}<span class="grow"></span>${tools("stock_bills", b, `E-Bill ${b.bill_no}`, { reload, afterDelete: () => (location.hash = "inventory") })}</div>
-      <div class="docgrid">${E.docCard({ key: "sb", title: `E-Bill ${b.bill_no}`, sub: `${bdt(totalCost(b))} · ${(b.items || []).length} item(s)`, ownerType: "stock_bill", ownerId: b.id, att: [], print: () => printBill(b), canUpload: false })}
-        ${st === "paid" ? E.docCard({ key: "sbs", title: `Statistics Report ${b.bill_no}`, sub: "All records and uploads, the profit or loss and the secret code", ownerType: "stock_bill", ownerId: b.id, att: [], print: () => printStats(b.id), canUpload: false }) : ""}</div>
-      <div class="tabs" id="sbTabs">${[`Items (${(b.items || []).length})`, `Sales Report (${entries.length})`, `Released Notice (${orders.length})`, `Payments (${vouchers.length})`, `Files (${files.length})`, `History (${events.length})`]
+      <div class="docgrid">${E.docCard({ key: "sb", title: `E-Bill ${b.batch_no || b.bill_no}`, ownerType: "stock_bill", ownerId: b.id, att: [], print: () => printEbill(b.id), canUpload: false,
+        sub: `${b.bill_no} · every record, like a statement of account · total cost ${bdt(totalCost(b))} · ${balText}${st === "paid" ? " · with the profit or loss and the secret code" : ""}` })}</div>
+      <div class="tabs" id="sbTabs">${[`Items (${(b.items || []).length})`, `Sales Report (${entries.length})`, `Released Notice (${orders.length})`, `Payments (${payRows.length})`, `Files (${files.length})`, `History (${events.length})`]
         .map((l, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${l}</button>`).join("")}</div>
       <div class="tabpanes" id="sbPanes">
         <div data-p="0">${itemsGrid(b)}${b.notes ? `<p class="muted"><b>Notes:</b> ${esc(b.notes)}</p>` : ""}</div>
@@ -308,16 +331,21 @@
           <div id="sbEntries">${E.grid({ cols: entryCols, rows: entries, empty: isOpen(st) ? "No sales report yet. Net sales can be added after the e-bill is released; EOO fees, other fees and penalties at any time." : "No sales report yet." })}</div></div>
         <div data-p="2" hidden><div id="sbOrders">${E.ordersGrid ? E.ordersGrid(orders, "No Released Notice yet.") : ""}</div>
           ${w && isOpen(st) && !pending ? `<div class="btnrow"><a class="btn primary" href="#neworder/stock_bill/${b.id}">${ic("doc")} Released Notice</a></div>` : ""}</div>
-        <div data-p="3" hidden><div class="due-info">E-Bill Total: <b>${bdt(totalCost(b))}</b> · Paid: <b>${bdt(b.paid_bdt)}</b> · Balance: <b>${bdt(balance)}</b>${isOpen(st) ? " — the e-bill shows in Billing once its Released Notice is approved." : ""}
-          ${!isOpen(st) && E.canOpen("ebill") ? ` <a class="btn small" href="#ebill/${b.id}">${ic("eye")} Open E-Bill</a>` : ""}</div>
-          <div id="sbPays">${E.grid({ cols: payCols, rows: vouchers, onRow: E.canOpen("voucher"), foot: { a: `<b class="bdt">${peso(b.paid_bdt)}</b>` }, empty: "No payments yet. Billing pays the e-bill with a payment voucher linked to it." })}</div></div>
+        <div data-p="3" hidden><div class="due-info">Total Cost: <b>${bdt(totalCost(b))}</b> · Paid: <b>${bdt(paid)}</b> · Balance: <b>${bdt(balance)}</b></div>
+          ${waiting.length ? `<div class="banner warn">Waiting for the Director's approval: ${waiting.map((o) => `<a href="#order/${o.id}">${esc(o.order_no)}</a> (₱ ${peso(o.amount)} × ${esc(rate(o.exchange_rate))} = ${esc(bdt(o.amount_bdt))})`).join(", ")}</div>` : ""}
+          <div id="sbPays">${E.grid({ cols: payCols, rows: payRows, onRow: openMemo || E.canOpen("voucher"), foot: { a: `<b class="bdt">${peso(paid)}</b>` },
+            empty: `No payments yet. A memo to ${b.company_name || "the company"} in the Director Portal pays this e-bill: write the amount in PESOS and choose this e-bill. Once the Director approves it, the BDT amount is paid here.` })}</div>
+          ${E.canWrite("billing") ? `<div class="btnrow"><a class="btn primary" href="#neworder/memo/${b.id}">${ic("plus")} Memo Payment</a></div>` : ""}</div>
         <div data-p="4" hidden>${E.filesHtml(files, "No files uploaded.")}
           ${w ? `<div class="sb-up"><label for="sbUpKind">Add File</label><select id="sbUpKind">${[["bill", "E-Bill Copy"], ["shipping_bill", "Shipping Fee Receipt"], ["sales_report", "Sales Report"], ["receipt", "Receipt"], ["other", "Other"]].map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>
             <label class="btn" for="sbUpFile">${ic("upload")} Choose File</label><input type="file" id="sbUpFile" hidden multiple accept="image/*,application/pdf"></div>` : ""}</div>
         <div data-p="5" hidden>${E.grid({ cols: evCols, rows: events, empty: "No history yet." })}</div>
       </div>${rhBox("stock_bills", b.id)}`;
     $$("#sbTabs button").forEach((t) => (t.onclick = () => { $$("#sbTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#sbPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
-    if (E.canOpen("voucher")) E.bindGrid($("#sbPays"), vouchers, (r) => (location.hash = "voucher/" + r.id));
+    E.bindGrid($("#sbPays"), payRows, (r) => {
+      if (r.oid && openMemo) location.hash = "order/" + r.oid;
+      else if (r.vid && E.canOpen("voucher")) location.hash = "voucher/" + r.vid;
+    });
     E.bindGrid($("#sbOrders"), orders, (r) => (location.hash = "order/" + r.id));
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), reload);
@@ -340,6 +368,12 @@
     };
     E.setRecords(`E-Bill: ${b.bill_no}`);
   };
+  // The payments of an e-bill, oldest first: memos approved in the Director Portal (PHP × rate = BDT), and payment
+  // vouchers linked to it in Billing before 2.1.
+  const payRowsOf = (pays, vouchers) => [
+    ...pays.map((p) => ({ date: p.pay_date, no: p.order_no, oid: p.order_id, what: p.subject || "Memo", php: p.amount_php, rate: p.exchange_rate, bdt: num(p.amount_bdt), by: p.approved_by_name || "" })),
+    ...vouchers.map((v) => ({ date: v.pay_date, no: v.voucher_no, vid: v.id, what: `Payment voucher${v.purpose ? " — " + v.purpose : ""}`, php: null, rate: null, bdt: num(v.amount_bdt), by: "" }))
+  ].sort((x, y) => String(x.date).localeCompare(String(y.date)));
 
   // Mark as SALES (inventory) or PAID (the Director), with an optional note.
   function statusDialog(b, action, reload) {
@@ -348,8 +382,8 @@
     const body = action === "paid" ? `<p>Mark <b>${esc(b.bill_no)}</b> as <b>PAID</b>?</p>
         <table class="kv-sum"><tbody><tr><th>Net Sales</th><td>${bdt(b.net_sales)}</td></tr><tr><th>Total Cost (bill + released charge + shipping fee)</th><td>− ${bdt(totalCost(b))}</td></tr>
           <tr><th>EOO Fees, Other Fees and Penalties</th><td>− ${bdt(feesOf(b))}</td></tr><tr class="${p < 0 ? "loss" : "gain"}"><th>${p < 0 ? "Net Loss" : "Net Profit"}</th><td>${bdt(Math.abs(p))}</td></tr></tbody></table>
-        <p class="muted">After PAID, nothing more can be added to this e-bill. The profit or loss is shown, and the Statistics Report is made with its secret code.</p>
-        ${bal > 0 ? `<div class="hint err">The e-bill still shows ${bdt(bal)} unpaid in Billing.</div>` : ""}`
+        <p class="muted">After PAID, the profit or loss is shown and the E-Bill gets its secret code. More sales reports can still be added. No payment is needed to mark it PAID.</p>
+        ${bal > 0 ? `<div class="hint">Paid so far: ${bdt(b.paid_bdt)} · balance ${bdt(bal)}.</div>` : ""}`
       : `<p>Mark <b>${esc(b.bill_no)}</b> as <b>SALES</b>? Net sales so far: <b>${bdt(b.net_sales)}</b>.</p><p class="muted">Sales reports, fees and penalties can still be added until the Director marks it PAID.</p>`;
     const m = E.modal(`Mark as ${what} — ${b.bill_no}`, `${body}<label class="fl" for="stNote">Note (optional)</label><input type="text" id="stNote">`,
       `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>Mark as ${what}</button>`);
@@ -360,10 +394,10 @@
       btn.disabled = false;
       if (error) return fail(error, `Could not mark the e-bill as ${what}`);
       m.close();
-      toast(`${b.bill_no} is now at ${what}.${action === "paid" ? " The Statistics Report is ready." : ""}`);
+      toast(`${b.bill_no} is now at ${what}.${action === "paid" ? " The E-Bill shows the profit or loss and the secret code." : ""}`);
       await reload();
-      // marking PAID makes the Statistics Report straight away
-      if (action === "paid") printStats(b.id);
+      // marking PAID opens the E-Bill with the profit or loss and the secret code straight away
+      if (action === "paid") printEbill(b.id);
     };
   }
 
@@ -376,7 +410,7 @@
         <label for="slEoo">EOO Fees (BDT)</label><input type="number" id="slEoo" min="0" step="0.01" placeholder="Leave empty if none">
         <label for="slNote">Note</label><input type="text" id="slNote" placeholder="e.g. Sales report, week 1">
         ${E.fileField("slFile", "Sales Report File", 'accept="image/*,application/pdf"')}
-      </div><p class="muted">Net sales: the amount sold after returns and discounts. More sales reports can be added until the e-bill is marked PAID.</p>`,
+      </div><p class="muted">Net sales: the amount sold after returns and discounts. More sales reports can be added at any time, also after the e-bill is marked PAID.</p>`,
       `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>Save Sales Report</button>`);
     $("[data-x]", m.el).onclick = m.close;
     $("[data-ok]", m.el).onclick = async () => {
@@ -471,66 +505,9 @@
     const tot = out.reduce((a, x) => a + x, 0);
     return out.map((x) => (x * 100) / tot);
   }
-  // The item table's widths, fitted to its column names, numbers and totals.
-  const itemFit = (cols, rows, b) => fitWidths(itemWidths(cols), ["No.", ...cols.map(colHead)],
-    [[String(rows.length), ...(cols.some((c) => !isNum(c)) ? [] : ["TOTAL"])], ...cols.map((c, ci) => [...rows.map((r) => cellText(c, r[ci])),
-      ...(c.type === "qty" ? [qtyText(b.total_qty)] : c.type === "total" ? [peso(b.total_cost)] : [])])], cols.length > 7);
   const companyOf = async (b) => (await sb.from("pay_companies").select("name, contact_person, contact, address, country").eq("id", b.company_id).maybeSingle()).data || {};
   const pageFoot = (label, n, of) => `<div class="rp-foot"><span>${esc(E.APP)} — ${esc(label)}</span><span>Page ${n} of ${of}</span></div>`;
   const contHead = (text) => `<div class="sb-cont"><b>${esc(C.company.name)}</b><span>${esc(text)}</span></div>`;
-
-  // The e-bill on A4 (from Inventory, or from Billing with its payments): company header like the invoice, the company
-  // and shipment, the items (continued on more pages when needed), and the cost with the released charge and shipping fee.
-  function billPages(b, co, { ebill = false, vouchers = [] } = {}) {
-    const cols = b.item_columns || [], rows = b.items || [];
-    const title = "E-BILL", label = `E-Bill ${b.bill_no}`;
-    const firstText = cols.find((c) => !isNum(c));
-    const paid = vouchers.reduce((s, v) => s + num(v.amount_bdt), 0), total = totalCost(b);
-    const head = `${E.printHead(title, `<div class="sb-no"><small>Batch No</small><b>${esc(b.batch_no || "—")}</b><small>E-Bill No: ${esc(b.bill_no)}</small>${b.supplier_bill_no ? `<small>Bill No: ${esc(b.supplier_bill_no)}</small>` : ""}</div>`)}
-      <div class="vno-row"><span>Bill Date: <b>${esc(mdy(b.bill_date))}</b></span><span>Prepared By: <b>${esc(b.created_by_name || "")}</b></span><span>Status: <b>${esc(ebillStep(b.status))}</b></span></div>
-      ${E.box("Company and Shipment", `<div class="pgrid2">${E.cell("Company", co.name || b.company_name, "hl")}${E.cell("Contact Person", co.contact_person)}${E.cell("Address", co.address || co.country)}${E.cell("Phone / Email", co.contact)}</div>
-        <div class="pgrid4">${E.cell("Batch No", b.batch_no)}${E.cell("System Record No", b.shipment_no)}${E.cell("Shipment Date", mdy(b.shipment_date))}${E.cell("Total Boxes", b.total_boxes ?? "")}</div>`)}`;
-    const W = itemFit(cols, rows, b);
-    const table = (chunk, from, last) => `<table class="rp sb-items fixed${cols.length > 7 ? " tight" : ""}">${colgroup(W)}<thead><tr><th class="num">No.</th>${cols.map((c) => `<th class="${isNum(c) ? "num" : ""}">${esc(colHead(c))}</th>`).join("")}</tr></thead>
-      <tbody>${chunk.map((r, i) => `<tr><td class="num">${from + i + 1}</td>${cols.map((c, ci) => `<td class="${isNum(c) ? "num" : ""}">${esc(cellText(c, r[ci]))}</td>`).join("")}</tr>`).join("")}</tbody>
-      ${last ? `<tfoot><tr><td>${firstText ? "" : "TOTAL"}</td>${cols.map((c) => `<td class="${isNum(c) ? "num" : ""}">${c.type === "qty" ? esc(qtyText(b.total_qty)) : c.type === "total" ? esc(peso(b.total_cost)) : c === firstText ? "TOTAL" : ""}</td>`).join("")}</tr></tfoot>` : ""}</table>`;
-    const summary = `${E.box(ebill ? "Amount Payable" : "Cost", `<table class="rp v-amt"><tbody>
-        <tr><td>Bill Cost (items)</td><td class="num">BDT ${peso(b.total_cost)}</td></tr>
-        ${b.release_bdt != null ? `<tr><td>Released Charge (${esc(chargeText(b))})</td><td class="num">BDT ${peso(b.release_bdt)}</td></tr>` : ""}
-        ${b.shipping_cost != null ? `<tr><td>Shipping Fee${b.shipping_bill_no ? ` (Shipping Bill ${esc(b.shipping_bill_no)})` : ""}</td><td class="num">BDT ${peso(b.shipping_cost)}</td></tr>` : ""}
-        <tr class="v-bdt"><td>Total Cost</td><td class="num">BDT ${peso(total)}</td></tr>
-        ${ebill ? `<tr><td>Paid</td><td class="num">BDT ${peso(paid)}</td></tr><tr class="v-bdt"><td>Balance</td><td class="num">BDT ${peso(total - paid)}</td></tr>` : ""}</tbody></table>
-        <div class="pcell"><div class="pl">Total Cost in Words</div><div class="pv words">${esc(words(total, "TAKA"))}</div></div>`)}
-      ${b.release_date ? E.box("Released", `<div class="prow3">${E.cell("Released Date", mdy(b.release_date))}${E.cell("Released Notice No", b.release_order_no)}${E.cell("Exchange Rate (BDT for 1 PHP)", b.release_exchange_rate == null ? "" : rate(b.release_exchange_rate))}</div>`) : ""}
-      ${ebill && vouchers.length ? E.box("Payments", `<table class="rp"><thead><tr><th>Voucher No</th><th>Date</th><th>Purpose</th><th>Reference</th><th class="num">Amount (BDT)</th></tr></thead><tbody>
-        ${vouchers.map((v) => `<tr><td>${esc(v.voucher_no)}</td><td>${esc(mdy(v.pay_date))}</td><td>${esc(v.purpose || "")}</td><td>${esc(v.reference_no || "")}</td><td class="num">${peso(v.amount_bdt)}</td></tr>`).join("")}</tbody></table>`) : ""}
-      ${b.notes ? `<p class="pdecl"><b>Notes:</b> ${esc(b.notes)}</p>` : ""}
-      ${ebill ? `<div class="soa-sys">This is a system-generated e-bill. No signature is required.</div>` : E.sigs(`Prepared by: ${esc(b.created_by_name || "")}`, "Checked by (Signature) / Date")}`;
-    // Room in printed lines: about 34 under the header of the first page and 46 on the next pages. The cost (and for
-    // the e-bill the payments) comes after the last item: on its page when it fits, otherwise on one more page.
-    const L = rows.map((r) => linesFor(["", ...cols.map((c, ci) => cellText(c, r[ci]))], W, cols.length > 7));
-    const sumLines = 12 + (b.release_bdt != null ? 1 : 0) + (b.shipping_cost != null ? 1 : 0) + (b.release_date ? 3 : 0) + (b.notes ? 2 : 0)
-      + (ebill ? 4 + (vouchers.length ? 3 + vouchers.length : 0) : 4);
-    const chunks = [];
-    if (L.reduce((s, x) => s + x, 0) + sumLines <= 34) chunks.push([0, rows.length]);
-    else for (let i = 0, budget = 34; i < rows.length; budget = 46) {
-      let j = i, used = 0;
-      while (j < rows.length && (j === i || used + L[j] <= budget)) used += L[j++];
-      chunks.push([i, j]); i = j;
-    }
-    const [a, z] = chunks[chunks.length - 1];
-    const room = (chunks.length === 1 ? 34 : 46) - L.slice(a, z).reduce((s, x) => s + x, 0) >= sumLines;
-    const cont = contHead(`${title} · Batch No ${b.batch_no || "—"} · ${b.bill_no} — continued`);
-    const pages = chunks.map(([i, j], k) => (k ? cont : head) + table(rows.slice(i, j), i, k === chunks.length - 1) + (k === chunks.length - 1 && room ? summary : ""));
-    if (!room) pages.push(cont + summary);
-    return pages.map((p, i) => p + pageFoot(label, i + 1, pages.length));
-  }
-  async function printBill(b) {
-    E.openPreview(`E-Bill ${b.bill_no}`, billPages(b, await companyOf(b)));
-  }
-  async function printEbill(b, vouchers) {
-    E.openPreview(`E-Bill ${b.bill_no}`, billPages(b, await companyOf(b), { ebill: true, vouchers }));
-  }
 
   // Report sections laid out over A4 pages: a section continues on the next page when it does not fit.
   function sectionHtml(s, rows, cont, last) {
@@ -540,10 +517,12 @@
         : `<tr><td colspan="${s.cols.length}">${esc(s.empty || "None.")}</td></tr>`}</tbody>
       ${last && s.foot && rows.length ? `<tfoot><tr>${s.foot.map((v, i) => `<td class="${s.cols[i].num ? "num" : ""}">${esc(v)}</td>`).join("")}</tr></tfoot>` : ""}</table>`;
   }
-  function flowPages(sections, budget) {
+  // Lines per page: budget; the first page has `first` lines left under its own boxes. Returns the pages (the first
+  // one goes under those boxes, and may be empty) and the lines left on the last page.
+  function flowPages(sections, budget, first = budget) {
     for (const s of sections) s.widths = fitWidths(s.widths, s.cols.map((c) => c.label), s.cols.map((c, i) => [...s.rows.map((r) => c.get(r)), ...(s.foot ? [s.foot[i]] : [])]), s.tight);
     const pages = [[]];
-    let left = budget;
+    let left = first;
     const next = () => { pages.push([]); left = budget; };
     for (const s of sections) {
       const lines = (r) => linesFor(s.cols.map((c) => c.get(r)), s.widths, s.tight);
@@ -562,15 +541,21 @@
         if (!end) next();
       } while (i < s.rows.length);
     }
-    return pages.filter((p) => p.length).map((p) => p.join(""));
+    return { pages: pages.map((p) => p.join("")), left };
   }
 
-  // Statistics Report (after PAID): every detail of the e-bill, the profit or loss, the items, sales report, Released
-  // Notice, payments and history, every uploaded file (photos printed), and the secret code as a QR code to verify it.
-  async function printStats(id) {
-    const [bq, eq, vq, oq, evq, sq] = await Promise.all([
+  // ======================================================================
+  // The E-Bill: one document with every record of the e-bill, like a statement of account. The title is "E-BILL" and
+  // the batch no (E-BILL I-17). Page 1: the company and shipment, the steps and the account summary (total cost, paid,
+  // balance); after PAID also the profit or loss and the secret code, with its QR code at the top. Then the items, the
+  // statement (charges and payments with the running balance), the Sales Report, the Released Notice, the payments,
+  // the history and the uploaded files (photos printed).
+  // ======================================================================
+  async function printEbill(id) {
+    const [bq, eq, pq, vq, oq, evq, sq] = await Promise.all([
       sb.from("stock_bill_totals").select("*").eq("id", id).maybeSingle(),
       sb.from("stock_bill_entries").select("*").eq("stock_bill_id", id).order("entry_date").order("created_at"),
+      sb.from("stock_bill_payments").select("*").eq("stock_bill_id", id).order("pay_date").order("created_at"),
       sb.from("pay_vouchers").select("id, voucher_no, pay_date, amount_bdt, purpose, method, reference_no").eq("stock_bill_id", id).order("pay_date").order("voucher_no"),
       sb.from("order_letters").select("id, order_no, order_date, subject, status, release_date, shipping_cost, shipping_bill_no, price_per_box, exchange_rate, release_php, release_bdt, approved_by_name, created_by_name").eq("stock_bill_id", id).order("created_at"),
       sb.from("stock_bill_events").select("*").eq("stock_bill_id", id).order("created_at").order("id"),
@@ -578,130 +563,108 @@
     ]);
     const b = bq.data;
     if (!b) return toast("This e-bill could not be opened.", true);
-    if (b.status !== "paid" || !sq.data) return toast("The Statistics Report is made when the Director marks the e-bill PAID.", true);
-    const entries = eq.data || [], vouchers = vq.data || [], orders = oq.data || [], events = evq.data || [];
+    const entries = eq.data || [], pays = pq.data || [], vouchers = vq.data || [], orders = oq.data || [], events = evq.data || [];
     const [files, co] = await Promise.all([billFiles(b, entries, orders, vouchers), companyOf(b)]);
     const imgs = files.filter((f) => E.isImage(f));
     const urls = await Promise.all(imgs.map((f) => E.signedUrl(f.storage_path, 3600)));
-    E.openPreview(`Statistics Report ${b.bill_no}`, statsPages(b, { co, entries, vouchers, orders, events, files, photos: imgs.map((f, i) => ({ ...f, url: urls[i] })).filter((f) => f.url), secret: sq.data.secret_code }));
+    E.openPreview(`E-Bill ${b.batch_no || b.bill_no}`, ebillPages(b, { co, entries, pays, vouchers, orders, events, files,
+      photos: imgs.map((f, i) => ({ ...f, url: urls[i] })).filter((f) => f.url), secret: b.status === "paid" ? sq.data?.secret_code || "" : "" }));
   }
-  function statsPages(b, d) {
+  function ebillPages(b, d) {
     const cols = b.item_columns || [];
+    const total = totalCost(b), paid = num(b.paid_bdt), bal = total - paid, isPaid = b.status === "paid" && !!d.secret;
     const profit = profitOf(b), loss = profit < 0;
+    const label = `E-Bill ${b.batch_no || b.bill_no}`;
+    const payRows = payRowsOf(d.pays, d.vouchers);
     const sumType = (t) => d.entries.filter((x) => x.entry_type === t).reduce((s, x) => s + num(x.amount), 0);
     const belongs = (f) => f.owner_type === "stock_bill" ? "E-Bill"
       : f.owner_type === "stock_bill_entry" ? (() => { const x = d.entries.find((e) => e.id === f.owner_id); return x ? `${ENTRY[x.entry_type]}${x.receipt_no ? " " + x.receipt_no : ""}` : "Sales Report"; })()
       : f.owner_type === "order_letter" ? (d.orders.find((o) => o.id === f.owner_id)?.order_no || "Released Notice")
       : f.owner_type === "pay_voucher" ? (d.vouchers.find((v) => v.id === f.owner_id)?.voucher_no || "Payment") : "";
     const KINDS = { bill: "E-Bill Copy", shipping_bill: "Shipping Fee Receipt", sales_report: "Sales Report", receipt: "Receipt", signed_form: "Signed Copy", other: "Other" };
-    const pl = [["Bill Cost (items)", b.total_cost], [b.release_bdt != null ? `Released Charge (${chargeText(b)})` : "Released Charge", num(b.release_bdt)], ["Shipping Fee", num(b.shipping_cost)],
-      ["Total Cost (bill + released charge + shipping fee)", totalCost(b), "sub"],
-      ["EOO Fees", b.eoo_fees], ["Other Fees", b.other_fees], ["Penalties", b.penalties], ["Total Expenses", expensesOf(b), "sub"], ["Net Sales", b.net_sales, "sub"]];
-    const first = `${E.printHead("E-BILL STATISTICS REPORT", `<img src="${E.qrDataUrl(verifyUrl(d.secret))}" alt="" class="sb-qr"><div class="sb-code"><small>SECRET CODE</small>${esc(d.secret).replace(/-/g, "-<wbr>")}</div>`)}
-      <div class="vno-row"><span>Batch No: <b>${esc(b.batch_no || "—")}</b></span><span>E-Bill No: <b>${esc(b.bill_no)}</b></span><span>Status: <b>PAID</b></span><span>Marked Paid: <b>${esc(mdy(b.paid_at))}${b.paid_by_name ? " by " + esc(b.paid_by_name) : ""}</b></span></div>
-      ${E.box("E-Bill", `<div class="pgrid4">${E.cell("Company", d.co.name || b.company_name, "hl")}${E.cell("Bill No", b.supplier_bill_no)}${E.cell("Bill Date", mdy(b.bill_date))}${E.cell("Prepared By", b.created_by_name)}
-        ${E.cell("Batch No", b.batch_no)}${E.cell("System Record No", b.shipment_no)}${E.cell("Shipment Date", mdy(b.shipment_date))}${E.cell("Total Boxes", b.total_boxes ?? "")}
-        ${E.cell("Total Qty", qtyText(b.total_qty))}${E.cell("Released Date", mdy(b.release_date))}${E.cell("Released Notice No", b.release_order_no)}${E.cell("Exchange Rate (BDT for 1 PHP)", b.release_exchange_rate == null ? "" : rate(b.release_exchange_rate))}</div>`)}
+    // the top right: the batch no; after PAID the QR code of the secret code
+    const right = isPaid
+      ? `<img src="${E.qrDataUrl(verifyUrl(d.secret))}" alt="" class="sb-qr"><div class="sb-code"><small>SECRET CODE</small>${esc(d.secret).replace(/-/g, "-<wbr>")}</div>`
+      : `<div class="sb-no"><small>Batch No</small><b>${esc(b.batch_no || "—")}</b><small>E-Bill No: ${esc(b.bill_no)}</small>${b.supplier_bill_no ? `<small>Bill No: ${esc(b.supplier_bill_no)}</small>` : ""}</div>`;
+    const words2 = (n) => (n < 0 ? `OVERPAID — ${words(-n, "TAKA")}` : words(n, "TAKA"));
+    const first = `${E.printHead(`E-BILL${b.batch_no ? " " + b.batch_no : ""}`, right)}
+      <div class="vno-row"><span>E-Bill No: <b>${esc(b.bill_no)}</b></span><span>Bill Date: <b>${esc(mdy(b.bill_date))}</b></span><span>Status: <b>${esc(ebillStep(b.status))}</b></span><span>Prepared By: <b>${esc(b.created_by_name || "")}</b></span></div>
+      ${E.box("Company and Shipment", `<div class="pgrid2">${E.cell("Company", d.co.name || b.company_name, "hl")}${E.cell("Contact Person", d.co.contact_person)}${E.cell("Address", d.co.address || d.co.country)}${E.cell("Phone / Email", d.co.contact)}</div>
+        <div class="pgrid4">${E.cell("Batch No", b.batch_no)}${E.cell("Bill No", b.supplier_bill_no)}${E.cell("System Record No", b.shipment_no)}${E.cell("Shipment Date", mdy(b.shipment_date))}
+        ${E.cell("Shipping Company", b.shipping_company)}${E.cell("Shipping Company Code", b.shipping_company_code)}${E.cell("Total Boxes", b.total_boxes ?? "")}${E.cell("Total Qty", qtyText(b.total_qty))}</div>`)}
       ${E.box("Status", `<div class="sb-psteps">${STATUS.map((s) => `<div><b>${STATUS_NAME[s].toUpperCase()}</b><span>${esc(mdy(b[STATUS_AT[s]]) || "—")}</span></div>`).join("")}</div>`)}
-      ${E.box("Profit and Loss (BDT)", `<table class="rp sb-pl"><tbody>${pl.map(([k, v, cls]) => `<tr class="${cls || ""}"><td>${esc(k)}</td><td class="num">${peso(v)}</td></tr>`).join("")}
-        <tr class="grand ${loss ? "loss" : "gain"}"><td>${loss ? "NET LOSS" : "NET PROFIT"}</td><td class="num">BDT ${peso(Math.abs(profit))}</td></tr></tbody></table>
-        <div class="pcell"><div class="pl">${loss ? "Net Loss" : "Net Profit"} in Words</div><div class="pv words">${esc(words(Math.abs(profit), "TAKA"))}</div></div>
-        <div class="sb-formula">Net Sales ${peso(b.net_sales)} − Total Expenses ${peso(expensesOf(b))} = ${loss ? "−" : ""}${peso(Math.abs(profit))}</div>`)}
-      ${E.box("Secret Code", `<div class="sb-secret"><b>${esc(d.secret)}</b><span>Scan the QR code at the top of this report (or type the code) in Verification to check this report. The e-bill and its profit or loss are shown only with this secret code. Keep this report private.</span></div>`)}`;
+      ${E.box("Account Summary (BDT)", `<table class="rp v-amt"><tbody>
+        <tr><td>Bill Cost (items)</td><td class="num">BDT ${peso(b.total_cost)}</td></tr>
+        ${b.release_bdt != null ? `<tr><td>Released Charge (${esc(chargeText(b))})</td><td class="num">BDT ${peso(b.release_bdt)}</td></tr>` : ""}
+        ${b.shipping_cost != null ? `<tr><td>Shipping Fee${b.shipping_bill_no ? ` (Shipping Bill ${esc(b.shipping_bill_no)})` : ""}</td><td class="num">BDT ${peso(b.shipping_cost)}</td></tr>` : ""}
+        <tr class="v-bdt"><td>Total Cost</td><td class="num">BDT ${peso(total)}</td></tr>
+        <tr><td>Paid (${payRows.length} payment(s))</td><td class="num">BDT ${peso(paid)}</td></tr>
+        <tr class="v-bdt"><td>Balance</td><td class="num">BDT ${peso(bal)}</td></tr></tbody></table>
+        <div class="pcell"><div class="pl">Balance in Words</div><div class="pv words">${esc(words2(bal))}</div></div>`)}
+      ${isPaid ? `${E.box("Profit and Loss (BDT)", `<table class="rp sb-pl"><tbody>
+          <tr class="sub"><td>Net Sales</td><td class="num">${peso(b.net_sales)}</td></tr>
+          <tr><td>Total Cost (bill + released charge + shipping fee)</td><td class="num">${peso(total)}</td></tr>
+          <tr><td>EOO Fees, Other Fees and Penalties</td><td class="num">${peso(feesOf(b))}</td></tr>
+          <tr class="grand ${loss ? "loss" : "gain"}"><td>${loss ? "NET LOSS" : "NET PROFIT"}</td><td class="num">BDT ${peso(Math.abs(profit))}</td></tr></tbody></table>
+        <div class="sb-formula">Net Sales ${peso(b.net_sales)} − Total Expenses ${peso(expensesOf(b))} = ${loss ? "−" : ""}${peso(Math.abs(profit))} · ${esc(words(Math.abs(profit), "TAKA"))}</div>`)}
+        ${E.box("Secret Code", `<div class="sb-secret"><b>${esc(d.secret)}</b><span>Scan the QR code at the top of this e-bill (or type the code) in Verification to check it. The e-bill and its profit or loss are shown only with this secret code. Keep this e-bill private.</span></div>`)}` : ""}`;
+    // The statement: the charges (bill cost, released charge, shipping fee) and the payments, with the running balance.
+    const lines = [{ date: b.bill_date, what: "Bill cost (items)", ref: b.supplier_bill_no ? `Bill No ${b.supplier_bill_no}` : b.bill_no, chg: num(b.total_cost), pay: 0 }];
+    if (b.release_bdt != null) lines.push({ date: b.release_date, what: `Released charge (${chargeText(b)})`, ref: b.release_order_no || "", chg: num(b.release_bdt), pay: 0 });
+    if (b.shipping_cost != null) lines.push({ date: b.release_date, what: "Shipping fee", ref: b.shipping_bill_no || b.release_order_no || "", chg: num(b.shipping_cost), pay: 0 });
+    payRows.forEach((r) => lines.push({ date: r.date, what: r.php != null ? `Payment by memo — PHP ${peso(r.php)} × ${rate(r.rate)}` : r.what, ref: r.no, chg: 0, pay: r.bdt }));
+    lines.sort((x, y) => String(x.date || "").localeCompare(String(y.date || "")) || y.chg - x.chg);
+    let run = 0;
+    lines.forEach((x) => { run += x.chg - x.pay; x.bal = run; });
     const itemCols = [{ label: "No.", num: true, get: (r) => r[0] }, ...cols.map((c, ci) => ({ label: colHead(c), num: isNum(c), get: (r) => cellText(c, r[ci + 1]) }))];
     const sections = [
       { title: "ITEMS", cols: itemCols, rows: (b.items || []).map((r, i) => [i + 1, ...r]), tight: cols.length > 7, widths: itemWidths(cols),
         foot: itemCols.map((c, i) => (cols[i - 1]?.type === "qty" ? qtyText(b.total_qty) : cols[i - 1]?.type === "total" ? peso(b.total_cost)
           : i === cols.findIndex((x) => !isNum(x)) + 1 ? "TOTAL" : "")) },
-      { title: "SALES REPORT", rows: d.entries, empty: "No sales report.", widths: [12, 11, 12, 34, 16, 15],
+      { title: "STATEMENT (BDT)", rows: lines, widths: [11, 37, 16, 12, 12, 12],
+        cols: [{ label: "Date", get: (r) => mdy(r.date) }, { label: "Particulars", get: (r) => r.what }, { label: "Reference", get: (r) => r.ref || "" },
+          { label: "Charges", num: true, get: (r) => (r.chg ? peso(r.chg) : "") }, { label: "Payments", num: true, get: (r) => (r.pay ? peso(r.pay) : "") }, { label: "Balance", num: true, get: (r) => peso(r.bal) }],
+        foot: ["", "TOTAL", "", peso(total), peso(paid), peso(bal)] },
+      { title: "SALES REPORT (BDT)", rows: d.entries, empty: "No sales report yet.", widths: [12, 11, 12, 34, 16, 15],
         cols: [{ label: "Date", get: (r) => mdy(r.entry_date) }, { label: "Type", get: (r) => ENTRY[r.entry_type] || r.entry_type }, { label: "Receipt No", get: (r) => r.receipt_no || "" },
-          { label: "Description", get: (r) => r.description || "" }, { label: "Added By", get: (r) => r.created_by_name || "" }, { label: "Amount (BDT)", num: true, get: (r) => peso(r.amount) }],
+          { label: "Description", get: (r) => r.description || "" }, { label: "Added By", get: (r) => r.created_by_name || "" }, { label: "Amount", num: true, get: (r) => peso(r.amount) }],
         foot: ["", "", "", `Net Sales ${peso(sumType("sales"))} · Fees and Penalties ${peso(sumType("eoo_fee") + sumType("fee") + sumType("penalty"))}`, "", ""] },
-      { title: "RELEASED NOTICE", rows: d.orders, empty: "No Released Notice.", widths: [17, 11, 11, 11, 16, 17, 17],
+      { title: "RELEASED NOTICE", rows: d.orders, empty: "Not released yet.", widths: [17, 11, 11, 11, 16, 17, 17],
         cols: [{ label: "Order No", get: (r) => r.order_no }, { label: "Order Date", get: (r) => mdy(r.order_date) }, { label: "Released Date", get: (r) => mdy(r.release_date) },
           { label: "Status", get: (r) => String(r.status).toUpperCase() }, { label: "Approved By", get: (r) => r.approved_by_name || "" },
           { label: "Released Charge (BDT)", num: true, get: (r) => (r.release_bdt == null ? "" : peso(r.release_bdt)) },
           { label: "Shipping Fee (BDT)", num: true, get: (r) => (r.shipping_cost == null ? "" : peso(r.shipping_cost)) }] },
-      { title: "PAYMENTS IN BILLING (E-BILL)", rows: d.vouchers, empty: "No payments.", widths: [17, 12, 25, 14, 17, 15],
-        cols: [{ label: "Voucher No", get: (r) => r.voucher_no }, { label: "Date", get: (r) => mdy(r.pay_date) }, { label: "Purpose", get: (r) => r.purpose || "" },
-          { label: "Method", get: (r) => r.method || "" }, { label: "Reference", get: (r) => r.reference_no || "" }, { label: "Amount (BDT)", num: true, get: (r) => peso(r.amount_bdt) }],
-        foot: ["", "", "", "", "Total Paid", peso(d.vouchers.reduce((s, v) => s + num(v.amount_bdt), 0))] },
+      { title: "PAYMENTS (MEMOS IN THE DIRECTOR PORTAL)", rows: payRows, empty: "No payments yet.", widths: [11, 17, 25, 13, 8, 13, 13],
+        cols: [{ label: "Date", get: (r) => mdy(r.date) }, { label: "Memo No", get: (r) => r.no }, { label: "Subject", get: (r) => r.what },
+          { label: "Amount (PHP)", num: true, get: (r) => (r.php == null ? "" : peso(r.php)) }, { label: "Rate", num: true, get: (r) => (r.rate == null ? "" : rate(r.rate)) },
+          { label: "Amount (BDT)", num: true, get: (r) => peso(r.bdt) }, { label: "Approved By", get: (r) => r.by || "" }],
+        foot: ["", "", "Total Paid", "", "", peso(paid), ""] },
       { title: "HISTORY", rows: d.events, empty: "No history.", widths: [20, 28, 34, 18],
         cols: [{ label: "Date / Time", get: (r) => E.dateTime(r.created_at) }, { label: "What Happened", get: (r) => cap(r.action) }, { label: "Note", get: (r) => r.note || "" }, { label: "By", get: (r) => r.actor_name || "" }] },
       { title: "UPLOADED FILES", rows: d.files, empty: "No files were uploaded.", widths: [5, 33, 15, 18, 12, 17],
         cols: [{ label: "No.", num: true, get: (r) => d.files.indexOf(r) + 1 }, { label: "File", get: (r) => r.file_name }, { label: "Kind", get: (r) => KINDS[r.kind] || cap(r.kind) },
           { label: "Belongs To", get: belongs }, { label: "Uploaded", get: (r) => mdy(r.created_at) }, { label: "Printed", get: (r) => (d.photos.some((p) => p.id === r.id) ? "Photo below" : E.isImage(r) ? "—" : "Open in the portal") }] }
     ];
-    const body = [first, ...flowPages(sections, 46)];
+    // Lines on page 1 under the boxes (a page holds about 48 lines): the header 9, the company and shipment 8, the
+    // steps 3 and the account summary 10; after PAID also the profit or loss 9 and the secret code 4.
+    const { pages, left } = flowPages(sections, 46, 48 - 30 - (isPaid ? 13 : 0));
+    pages[0] = first + pages[0];
+    const sys = `<div class="soa-sys">This is a system-generated e-bill. No signature is required.</div>`;
+    if (left < 3) pages.push(sys); else pages[pages.length - 1] += sys;
     // the photos, four on a page
     for (let i = 0; i < d.photos.length; i += 4) {
-      body.push(`<div class="sb-sec">UPLOADED PHOTOS${i ? " (continued)" : ""}</div><div class="sb-photos">${d.photos.slice(i, i + 4).map((p, k) => `<figure class="sb-photo"><img src="${esc(p.url)}" alt="${esc(p.file_name)}">
+      pages.push(`<div class="sb-sec">UPLOADED PHOTOS${i ? " (continued)" : ""}</div><div class="sb-photos">${d.photos.slice(i, i + 4).map((p, k) => `<figure class="sb-photo"><img src="${esc(p.url)}" alt="${esc(p.file_name)}">
         <figcaption>${i + k + 1}. ${esc(p.file_name)} — ${esc(KINDS[p.kind] || cap(p.kind))} · <span class="nw">${esc(belongs(p))}</span> · <span class="nw">${esc(mdy(p.created_at))}</span></figcaption></figure>`).join("")}</div>`);
     }
-    return body.map((p, i) => (i ? contHead(`Statistics Report ${b.bill_no} — Page ${i + 1} of ${body.length}`) : "") + p + pageFoot(`Statistics Report ${b.bill_no}`, i + 1, body.length));
+    return pages.map((p, i) => (i ? contHead(`${label} · ${b.bill_no} — Page ${i + 1} of ${pages.length}`) : "") + p + pageFoot(label, i + 1, pages.length));
   }
 
-  // ======================================================================
-  // Billing: e-bills (released) and their payments
-  // ======================================================================
-  const payState = (r) => (totalCost(r) - num(r.paid_bdt) <= 0 ? "paid" : num(r.paid_bdt) > 0 ? "partial" : "unpaid");
-  // All e-bills, or one company's, in the holder; returns the rows.
-  async function loadEbills(holder, companyId) {
-    let q = sb.from("stock_bill_totals").select("id, bill_no, company_id, company_name, batch_no, shipment_no, release_date, release_order_no, total_cost, release_bdt, shipping_cost, paid_bdt, status")
-      .in("status", ["released", "sold", "paid"]).order("release_date", { ascending: false }).order("bill_no", { ascending: false });
-    if (companyId) q = q.eq("company_id", companyId);
-    const { data, error } = await q;
-    if (!holder || !holder.isConnected) return [];
-    if (error) { holder.innerHTML = `<div class="empty">Could not load the e-bills (run the 2.0 database update).</div>`; return []; }
-    const rows = data || [];
-    const sum = (f) => rows.reduce((s, r) => s + f(r), 0);
-    holder.innerHTML = E.grid({ cols: [
-      { label: "E-Bill No", get: (r) => r.bill_no }, ...(companyId ? [] : [{ label: "Company", get: (r) => r.company_name || "" }]),
-      { label: "Batch No", get: (r) => r.batch_no || "" }, { label: "Released Date", get: (r) => mdy(r.release_date) }, { label: "Released Notice", get: (r) => r.release_order_no || "" },
-      { label: "Total (BDT)", key: "t", num: true, get: (r) => peso(totalCost(r)) }, { label: "Paid (BDT)", key: "p", num: true, get: (r) => peso(r.paid_bdt) },
-      { label: "Balance (BDT)", key: "b", num: true, html: (r) => `<b class="bdt">${peso(totalCost(r) - num(r.paid_bdt))}</b>` }, { label: "Payment", html: (r) => pill(payState(r)) }],
-      rows, onRow: true, foot: { t: peso(sum(totalCost)), p: peso(sum((r) => num(r.paid_bdt))), b: `<b class="bdt">${peso(sum((r) => totalCost(r) - num(r.paid_bdt)))}</b>` },
-      empty: "No e-bills yet. An e-bill shows here once its Released Notice is approved." });
-    E.bindGrid(holder, rows, (r) => (location.hash = "ebill/" + r.id));
-    return rows;
-  }
-
-  V.ebill = async (id) => {
-    E.shell("ebill", "Billing — E-Bill", busy());
-    const [bq, vq] = await Promise.all([
-      sb.from("stock_bill_totals").select("*").eq("id", id).maybeSingle(),
-      sb.from("pay_vouchers").select("*, pay_accounts(account_name,account_number,bank_name)").eq("stock_bill_id", id).order("pay_date").order("voucher_no")
-    ]);
-    const b = bq.data;
-    if (location.hash !== "#ebill/" + id) return;
-    if (!b || isOpen(b.status)) { $("#main").innerHTML = `<div class="empty">E-bill not found. An e-bill shows in Billing once its Released Notice is approved. <a href="#billing">Back</a></div>`; return; }
-    const vouchers = vq.data || [];
-    const paid = vouchers.reduce((s, v) => s + num(v.amount_bdt), 0), total = totalCost(b), balance = total - paid;
-    const w = E.canWrite("billing");
-    $(".band h1").textContent = `Billing — E-Bill ${b.bill_no}`;
-    $("#main").innerHTML = `<div class="window"><div class="wtitle">E-Bill ${esc(b.bill_no)} · ${esc(b.company_name || "")} ${pill(balance <= 0 ? "paid" : paid > 0 ? "partial" : "unpaid")}</div><div class="wbody">
-      <div class="formgrid"><div class="fields wide">
-        <span>Company</span><span>${E.canOpen("paycompany") ? `<a href="#paycompany/${b.company_id}"><b>${esc(b.company_name || "")}</b></a>` : `<b>${esc(b.company_name || "")}</b>`}</span>
-        <span>E-Bill No</span><b>${esc(b.bill_no)}</b>${b.supplier_bill_no ? `<span>Bill No</span><span>${esc(b.supplier_bill_no)}</span>` : ""}
-        <span>Bill Date</span><span>${mdy(b.bill_date)}</span><span>Batch No</span><span>${esc(b.batch_no || "—")}</span>
-        <span>System Record No</span><span>${esc(b.shipment_no || "—")}</span><span>Shipment Date</span><span>${esc(mdy(b.shipment_date) || "—")}</span>
-        <span>Released</span><span>${esc([mdy(b.release_date), b.release_order_no].filter(Boolean).join(" · "))}</span>
-        ${b.release_bdt != null ? `<span>Released Charge</span><span>${esc(chargeText(b))} = BDT ${peso(b.release_bdt)}</span>` : ""}
-        <span>Boxes / Qty</span><span>${esc(b.total_boxes ?? "—")} / ${esc(qtyText(b.total_qty))}</span></div>
-        <div class="amt-panel"><div><small>Bill Cost (BDT)</small><b>${peso(b.total_cost)}</b></div><div><small>Released Charge (BDT)</small><b>${peso(b.release_bdt)}</b></div>
-          <div><small>Shipping Fee (BDT)</small><b>${peso(b.shipping_cost)}</b></div>
-          <div class="hl"><small>E-Bill Total (BDT)</small><b>${bdt(total)}</b></div><div><small>Paid (BDT)</small><b>${peso(paid)}</b></div>
-          <div class="${balance > 0 ? "hl" : ""}"><small>Balance (BDT)</small><b>${bdt(balance)}</b></div><small class="muted">${esc(words(total, "TAKA"))}</small></div></div>
-      <div class="docgrid">${E.docCard({ key: "eb", title: `E-Bill ${b.bill_no}`, sub: `${bdt(total)} · ${balance > 0 ? "balance " + bdt(balance) : "fully paid"}`, ownerType: "stock_bill", ownerId: b.id, att: [], print: () => printEbill(b, vouchers), canUpload: false })}</div>
-      <div class="sb-subh">Items</div>${itemsGrid(b)}
-      <div class="sb-subh">Payments (${vouchers.length})</div><div id="ebPays">${E.grid({ cols: [{ label: "Voucher No", get: (r) => r.voucher_no }, { label: "Date", get: (r) => mdy(r.pay_date) },
-        { label: "Account", get: (r) => (r.pay_accounts ? `${r.pay_accounts.account_name}${r.pay_accounts.account_number ? " · " + r.pay_accounts.account_number : ""}` : "—") }, { label: "Purpose", get: (r) => r.purpose || "" },
-        { label: "Amount (BDT)", key: "a", num: true, html: (r) => `<b class="bdt">${peso(r.amount_bdt)}</b>` }], rows: vouchers, onRow: true, foot: { a: `<b class="bdt">${peso(paid)}</b>` }, empty: "No payments yet." })}</div>
-    </div><div class="wfoot">${w && balance > 0 ? `<a class="btn primary" href="#newvoucher/${b.company_id}/${b.id}">${ic("plus")} New Payment</a>` : ""}${E.canOpen("stockbill") ? `<a class="btn" href="#stockbill/${b.id}">${ic("eye")} Open in Inventory</a>` : ""}<a class="btn" href="#billing">Close</a></div></div>`;
-    E.bindGrid($("#ebPays"), vouchers, (r) => (location.hash = "voucher/" + r.id));
-    E.bindDocCards($("#main"), () => V.ebill(id));
-    E.setRecords(`E-Bill: ${b.bill_no}`);
+  // E-bills are no longer in Billing: an old link to one opens the e-bill.
+  V.ebill = (id) => {
+    if (E.canOpen("stockbill")) { location.replace("#stockbill/" + id); return; }
+    toast("E-bills are in the E-Bill section now. Ask the Director for access.", true);
+    location.replace("#billing");
   };
 
-  Object.assign(E, { loadEbills, qtyText });
+  Object.assign(E, { qtyText, printEbill });
 })();

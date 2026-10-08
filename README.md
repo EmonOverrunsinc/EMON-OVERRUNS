@@ -1,4 +1,4 @@
-# Emon Overruns Portal (E-Portal v2.0)
+# Emon Overruns Portal (E-Portal v2.1)
 
 **Live:** https://emon-overruns.vercel.app
 
@@ -16,11 +16,11 @@ It is laid out like AutoCount: option panel, then Inquiry, Preview and Print, th
 | 5. Employee | Employees, job applications, positions, payroll and payslips |
 | 6. Community | Company posts (kept 30 days) and chat |
 | 7. Project | Projects with their costs and payments |
-| 8. Billing | Billing companies (PHP, BDT or both), payment vouchers, and e-bills (released by their Released Notice) that a payment can be linked to |
-| 9. Order Letter | Requests for customers, employees, billing companies and e-bills (closure, reactivation, additional charge, settlement adjustment, balance certificate, Released Notice and more). Every order waits for approval first and can be changed until then (Edit Order, by the person who sent it or the Director); once the Director approves it, it is carried out at once. The letter shows only the customer's name and account no (all details for a closed, reactivated or reopened account), or the company's name and authorized person |
-| 10. Inventory | E-bills in BDT with their own item columns and rows and the uploaded bill (batch no and total boxes needed); Released Notice: an order letter found by the batch no, price per box (PHP) × boxes = total (PHP), × the exchange rate of the day = released charge (BDT), plus the shipping fee, all shown in BDT and added to the e-bill's total cost once approved; Sales Report (net sales, EOO fees, other fees and penalties with their receipts); steps 1 SHIP → 2 RELEASED → 3 SALES → 4 PAID; the e-bill prints its batch no at the top; the profit or loss shows after the Director marks it PAID, with a Statistics Report and its secret code |
-| Verification | Anyone can check a record by its number or by scanning its QR / PDF417 code, without signing in. An e-bill is shown only for the secret code on its Statistics Report |
-| Corrections | Records are only added; corrections and cancellations are approved by the Director |
+| 8. Billing | Billing companies (PHP, BDT or both) and payment vouchers (e-bills are paid with a memo in the Director Portal) |
+| 9. Director Portal | Order letters for customers, employees, billing companies and e-bills (closure, reactivation, additional charge, settlement adjustment, balance certificate, Released Notice, memo and more). A memo to a company can have an amount in PESOS with the exchange rate of the day (the BDT amount is counted for you) and can name one e-bill of the company: once approved, the BDT amount is paid on that e-bill and its balance goes down. Every order waits for approval first and can be changed until then (Edit Order, by the person who sent it or the Director); once the Director approves it, it is carried out at once. The letter shows only the customer's name and account no (all details for a closed, reactivated or reopened account), or the company's name and authorized person |
+| 10. E-Bill | E-bills in BDT with their own item columns and rows and the uploaded bill (batch no and total boxes needed; shipping company name and code); Released Notice: an order letter found by the batch no, price per box (PHP) × boxes = total (PHP), × the exchange rate of the day = released charge (BDT), plus the shipping fee, all shown in BDT and added to the e-bill's total cost once approved; Sales Report (net sales, EOO fees, other fees and penalties with their receipts; more can be added after PAID); payments by memo with the paid amount and the balance; steps 1 SHIP → 2 RELEASED → 3 SALES → 4 PAID (no payment is needed to mark it PAID); the profit or loss shows after the Director marks it PAID. One document, **E-BILL** with its batch no (for example E-BILL I-17), shows every record like a statement of account: the account summary, items, statement with the running balance, Sales Report, Released Notice, payments, history and files; after PAID also the profit or loss and the secret code |
+| Verification | Anyone can check a record by its number or by scanning its QR / PDF417 code, without signing in. An e-bill is shown only for the secret code printed on its E-Bill once it is PAID |
+| Corrections | Records are only added; corrections and cancellations are approved by the Director. What the Director deletes is gone for good, with its files, history lines and notices |
 | User | Logins, access levels, which modules each person can open, and everyone's signature: approve, reject, remove or upload it (Director) |
 | Download Forms | Blank company forms, and the built-in **SIGNATURE VERIFICATION FORM** (A4 PDF with boxes for three specimen signatures, the initials and the Director's approval) |
 | My Profile | Photo, username, password, payslips, and **My Signature**: upload a photo of your signature (the white paper is taken away) and print your Signature Verification Form |
@@ -31,7 +31,7 @@ signature. Every document the Director approves (order letters and certificates,
 job applications, projects) prints the Director's signature, name and date by itself, so no signed copy is uploaded
 after approval. A customer's or applicant's own signed form can still be uploaded before approval.
 
-Amounts are in **PHP (₱)** (Billing also uses BDT; Inventory uses BDT). Dates show as MM-DD-YYYY in Manila time. Vouchers print the amount in words, for example "PESOS ONE THOUSAND … AND 50/100 ONLY".
+Amounts are in **PHP (₱)** (Billing also uses BDT; E-Bill uses BDT). Dates show as MM-DD-YYYY in Manila time. Vouchers print the amount in words, for example "PESOS ONE THOUSAND … AND 50/100 ONLY".
 
 Numbers: account no initials-YYYYMM### (e.g. EH-202610001), payment receipt A-YYYY-MMDD-###, credit memo EOC-YYYYMM###, order letter EO-YYYY-MM-#### (e.g. EO-2026-10-0001; orders made before update 2.0 keep ORDER-YYYY-###), e-bill company letters-YYYY-#### (e.g. MF-2026-0001 for MODINA FASHION).
 
@@ -44,8 +44,9 @@ Database scripts, run once each in this order in the Supabase SQL Editor: `porta
 run it again after any later update that replaces a function, so the replaced function keeps Manila time).
 `010_update_1_7.sql` (wording: the database says Director instead of CEO, Employee instead of Staff, and clearer messages and history lines).
 `011_update_1_8.sql` (a wrong upload can be removed and uploaded again; customer credit limit, opening balance, address checked by hand, account number preview).
-`012_update_1_9.sql` (Inventory: stock-bills, release order, e-bills in Billing, sales report, PAID with the profit or loss and the secret code).
+`012_update_1_9.sql` (Inventory, now E-Bill: stock-bills, release order, e-bills in Billing, sales report, PAID with the profit or loss and the secret code).
 `013_update_2_0.sql` (Update 2.0: E-Bill numbers by company letters, the steps SHIP → RELEASED → SALES → PAID with no ARRIVED step, the Released Notice with price per box, exchange rate and shipping fee in BDT, order letters numbered EO-YYYY-MM-####, an order waiting for approval can be changed, and signatures: uploaded in My Profile, approved by the Director, printed on approved documents).
+`014_update_2_1.sql` (Update 2.1: a memo to a company in PESOS × the exchange rate = BDT, paid on the e-bill it names once approved; the shipping company of an e-bill; Sales Report lines after PAID; what the Director deletes leaves no line in any history, and the old "deleted" lines are removed).
 
 ## Setup (one time)
 1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.

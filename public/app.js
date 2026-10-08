@@ -6,7 +6,7 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "2.0";
+  const VERSION = "2.1";
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -573,8 +573,8 @@
     { k: "community", n: "6", label: "Community" },
     { k: "projects", n: "7", label: "Project" },
     { k: "billing", n: "8", label: "Billing" },
-    { k: "orders", n: "9", label: "Order Letter" },
-    { k: "inventory", n: "10", label: "Inventory" }
+    { k: "orders", n: "9", label: "Director Portal" },
+    { k: "inventory", n: "10", label: "E-Bill" }
   ];
   // Which menu item (module) each page belongs to; pages a user has no access to are blocked.
   const MODULE_OF = {
@@ -600,7 +600,7 @@
     ["logins", "User", () => isAdmin()],
     ["forms", "Download Forms", () => true]
   ];
-  const ACTIVE_OF = { orders: "orders", neworder: "orders", editorder: "orders", order: "orders", payslip: "employees", ebill: "billing", find: "", profile: "", settings: "" };
+  const ACTIVE_OF = { orders: "orders", neworder: "orders", editorder: "orders", order: "orders", payslip: "employees", ebill: "inventory", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
   const ALIAS = { users: "employees", userres: "employees", resolutions: "community", resolution: "community", verification: "verify", supplier: "billing", newsupplier: "billing", search: "dashboard" };
   const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);
