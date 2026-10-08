@@ -532,11 +532,13 @@
     { label: "Paid (₱)", key: "total_paid", num: true, get: (r) => peso(r.total_paid) }, { label: "Remaining (₱)", key: "remaining", num: true, get: (r) => peso(r.remaining) },
     { label: "Status", html: (r) => pill(r.status) }
   ];
+  // A budget line's qty is optional: empty when it was left out.
+  const qtyOf = (l) => (l.qty == null ? "" : Number(l.qty).toLocaleString("en-PH", { maximumFractionDigits: 2 }));
   V.projects = async () => {
     E.shell("projects", "Project", `
       <div class="tabs" id="pjTabs"><button type="button" class="on" data-f="approved">Approved</button><button type="button" data-f="pending">Waiting for Approval</button><button type="button" data-f="completed">Completed</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${E.canWrite("projects") ? `<a class="btn primary" href="#newproject">+ New Project Application</a>` : ""}</div><div id="pjRes">${busy()}</div>`,
-      "Submit a project with its budget. Upload the approved document; once the Director approves it, the project moves to <b>Approved</b> and payments can be recorded against its total cost.");
+      "Submit a project with its budget: each line with its amount (the qty is optional). Once the Director approves it, the project moves to <b>Approved</b> and payments can be recorded against its total cost.");
     const run = async (f) => {
       $("#pjRes").innerHTML = busy();
       let q = sb.from("project_balances").select("*").order("created_at", { ascending: false });
@@ -564,20 +566,20 @@
           <div class="fields wide"><label for="pjStart">Start Date</label><input type="date" id="pjStart">
             <label for="pjEnd">Target End Date</label><input type="date" id="pjEnd"></div></div></fieldset>
         <fieldset class="opt"><legend>Project Budget</legend>
-          <div class="grid-scroll"><table class="grid budget"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit Cost (₱)</th><th class="num">Amount (₱)</th><th></th></tr></thead><tbody id="pjLines"></tbody>
-          <tfoot><tr><td colspan="3" class="num">Total Project Cost</td><td class="num" id="pjTotal">0.00</td><td></td></tr></tfoot></table></div>
+          <div class="hint small">Write each budget line with its amount. The qty is optional.</div>
+          <div class="grid-scroll"><table class="grid budget"><thead><tr><th>Description *</th><th class="num">Qty (optional)</th><th class="num">Amount (₱) *</th><th></th></tr></thead><tbody id="pjLines"></tbody>
+          <tfoot><tr><td colspan="2" class="num">Total Project Cost</td><td class="num" id="pjTotal">0.00</td><td></td></tr></tfoot></table></div>
           <div class="btnrow"><button type="button" class="btn" id="pjAdd">+ Add Budget Line</button></div>
           <small id="pjWords"></small></fieldset>
       </div><div class="wfoot"><a class="btn" href="#projects">Cancel</a><button type="submit" class="btn primary">Submit for Approval</button></div></form>`);
     const recalc = () => {
-      let t = 0;
-      $$("#pjLines tr").forEach((tr) => { const a = num($(".q", tr).value) * num($(".u", tr).value); $(".a", tr).textContent = peso(a); t += a; });
-      $("#pjTotal").textContent = peso(t); $("#pjWords").textContent = words(t); return t;
+      const t = Math.round($$("#pjLines .a").reduce((s, i) => s + num(i.value), 0) * 100) / 100;
+      $("#pjTotal").textContent = peso(t); $("#pjWords").textContent = t ? words(t) : ""; return t;
     };
     const addLine = () => {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td><input type="text" class="d" aria-label="Description"></td><td><input type="number" class="q" value="1" min="0" step="0.01" aria-label="Qty"></td>
-        <td><input type="number" class="u" value="0" min="0" step="0.01" aria-label="Unit cost"></td><td class="num a">0.00</td><td><button type="button" class="btn danger" aria-label="Remove line">✕</button></td>`;
+      tr.innerHTML = `<td><input type="text" class="d" aria-label="Description"></td><td><input type="number" class="q" min="0" step="0.01" placeholder="Optional" aria-label="Qty (optional)"></td>
+        <td><input type="number" class="a" min="0" step="0.01" placeholder="0.00" aria-label="Amount"></td><td><button type="button" class="btn danger" aria-label="Remove line">✕</button></td>`;
       $("#pjLines").appendChild(tr);
       $$("input", tr).forEach((i) => (i.oninput = recalc));
       $("button", tr).onclick = () => { tr.remove(); recalc(); };
@@ -587,14 +589,18 @@
       e.preventDefault();
       const title = $("#pjTitle").value.trim();
       if (!title) return toast("Enter the project title.", true);
-      const lines = $$("#pjLines tr").map((tr) => ({ description: $(".d", tr).value.trim(), qty: num($(".q", tr).value), unit_cost: num($(".u", tr).value) })).filter((l) => l.description);
-      if (!lines.length) return toast("Add at least one budget line with a description.", true);
-      const total = lines.reduce((s, l) => s + l.qty * l.unit_cost, 0);
+      const all = $$("#pjLines tr").map((tr) => ({ description: $(".d", tr).value.trim(), q: $(".q", tr).value.trim(), amount: num($(".a", tr).value) }));
+      const lines = all.filter((l) => l.description || l.q || l.amount);
+      if (!lines.length) return toast("Add at least one budget line with its description and amount.", true);
+      if (lines.some((l) => !l.description)) return toast("Write the description of each budget line.", true);
+      if (lines.some((l) => !(l.amount > 0))) return toast("Enter the amount of each budget line.", true);
+      if (lines.some((l) => l.q !== "" && !(num(l.q) > 0))) return toast("The qty must be more than 0, or leave it empty.", true);
+      const total = lines.reduce((s, l) => s + l.amount, 0);
       E.setBusy(e.target, true, "Submitting");
       const { data: pr, error } = await sb.from("projects").insert({ title, location: $("#pjLoc").value.trim() || null, description: $("#pjDesc").value.trim() || null,
         start_date: $("#pjStart").value || null, end_date: $("#pjEnd").value || null, total_cost: Math.round(total * 100) / 100 }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not submit the project"); }
-      const { error: e2 } = await sb.from("project_items").insert(lines.map((l) => ({ ...l, project_id: pr.id })));
+      const { error: e2 } = await sb.from("project_items").insert(lines.map((l) => ({ project_id: pr.id, description: l.description, qty: l.q === "" ? null : num(l.q), amount: l.amount })));
       if (e2) fail(e2, "Project saved, but the budget lines could not be saved");
       toast(`Project ${pr.project_no} submitted.`); location.hash = "project/" + pr.id;
     };
@@ -614,9 +620,9 @@
     const signed = ["approved", "completed"].includes(pr.status) && !!pr.approved_by_name;
     const printApp = () => E.openPreview(`Project ${pr.project_no}`, [`${E.printHead("PROJECT APPLICATION", `<img src="${E.pdf417DataUrl("EMONPRJ|" + pr.project_no)}" alt="" class="ph-bar"><div class="mono">${esc(pr.project_no)}</div>`)}
       ${E.box("Project", `<div class="pgrid2">${E.cell("Project Title", pr.title, "span2")}${E.cell("Location", pr.location)}${E.cell("Start / End", `${mdy(pr.start_date) || "—"} → ${mdy(pr.end_date) || "—"}`)}${E.cell("Description", pr.description, "span2")}</div>`)}
-      ${E.box("Project Budget", `<table class="rp"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit Cost</th><th class="num">Amount</th></tr></thead><tbody>
-        ${lines.map((l) => `<tr><td>${esc(l.description)}</td><td class="num">${l.qty}</td><td class="num">${peso(l.unit_cost)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
-        <tr class="grand"><td colspan="3" class="num">TOTAL PROJECT COST (₱)</td><td class="num">${peso(pr.total_cost)}</td></tr></tbody></table>
+      ${E.box("Project Budget", `<table class="rp"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Amount</th></tr></thead><tbody>
+        ${lines.map((l) => `<tr><td>${esc(l.description)}</td><td class="num">${esc(qtyOf(l))}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
+        <tr class="grand"><td colspan="2" class="num">TOTAL PROJECT COST (₱)</td><td class="num">${peso(pr.total_cost)}</td></tr></tbody></table>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(pr.total_cost))}</div></div>`)}
       ${E.sigs(`Prepared by: ${esc(pr.created_by_name || "")}`, signed ? "Approved by" : "Approved by / Date", signed ? E.approvedBy(null, pr.approved_by_name, pr.approved_at) : null)}`]);
     $(".band h1").textContent = `Project — ${pr.project_no}`;
@@ -631,7 +637,7 @@
           <div class="tile ${num(pr.remaining) > 0 ? "warn" : "ok"}"><div class="k">Remaining</div><div class="v">₱ ${peso(pr.remaining)}</div></div></div>
         <div class="docgrid">${E.docCard({ key: "prj", title: `Project Application ${pr.project_no}`, sub: "Check it, then the Director approves it in the portal", ownerType: "project", ownerId: pr.id, att, print: printApp, canUpload: false, kind: "approval", copyName: "Approved Document",
           approved: signed ? { name: pr.approved_by_name, at: pr.approved_at } : null })}</div>
-        <div><b>Project Budget</b>${E.grid({ cols: [{ label: "Description", get: (r) => r.description }, { label: "Qty", num: true, get: (r) => r.qty }, { label: "Unit Cost (₱)", num: true, get: (r) => peso(r.unit_cost) }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }], rows: lines, foot: { amount: peso(pr.total_cost) } })}</div>
+        <div><b>Project Budget</b>${E.grid({ cols: [{ label: "Description", get: (r) => r.description }, { label: "Qty", num: true, get: qtyOf }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }], rows: lines, foot: { amount: peso(pr.total_cost) } })}</div>
         ${pr.status === "pending" ? `<fieldset class="opt review"><legend>Approval</legend>
           <ol class="steps"><li><b>Check</b> the project application above (Print / Download).</li>
           ${isAdmin() ? `<li><b>Decide:</b> no signed copy is needed — your signature is printed on the project application when you approve.<div class="fields wide"><label for="pjNote">Note</label><input type="text" id="pjNote"></div>

@@ -10,6 +10,8 @@
 -- 5. What the Director deletes is gone for good: no "deleted" line is written in any history, and the history lines
 --    and notices the record made go with it. The old "deleted" lines, and the lines and notices of records deleted
 --    before, are removed once.
+-- 6. Project budget: each line is its description and amount (the main figure); the qty is optional, and there is no
+--    unit cost any more.
 -- Run once in the Supabase SQL Editor after 013_update_2_0.sql. It is safe to run again.
 -- =====================================================================
 
@@ -97,7 +99,35 @@ $$;
 revoke execute on function public.memo_ebills(uuid) from public, anon;
 grant execute on function public.memo_ebills(uuid) to authenticated;
 
--- ---------- 4. changed functions (in the block below) ----------
+-- ---------- 4. Project budget: the amount is the main figure, the qty is optional ----------
+-- A budget line is its description and its amount; the qty can be left empty (it is only shown). Lines saved before
+-- keep their amount (it was qty × unit cost).
+alter table public.project_items alter column amount drop expression if exists;
+alter table public.project_items alter column qty drop not null;
+alter table public.project_items alter column qty drop default;
+alter table public.project_items alter column unit_cost drop not null;
+alter table public.project_items alter column unit_cost drop default;
+alter table public.project_items drop constraint if exists project_items_qty_check;
+alter table public.project_items add constraint project_items_qty_check check (qty is null or qty > 0);
+alter table public.project_items drop constraint if exists project_items_amount_check;
+alter table public.project_items add constraint project_items_amount_check check (amount is not null and amount >= 0);
+
+create or replace function public.project_items_before_insert() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  new.description := nullif(trim(new.description), '');
+  if new.description is null then raise exception 'Write the description of each budget line'; end if;
+  -- a line made the old way (qty × unit cost) gets its amount from them
+  if new.amount is null and new.qty is not null and new.unit_cost is not null then new.amount := round(new.qty * new.unit_cost, 2); end if;
+  if new.amount is null or new.amount <= 0 then raise exception 'Enter the amount of each budget line'; end if;
+  return new;
+end;
+$$;
+revoke execute on function public.project_items_before_insert() from public, anon, authenticated;
+drop trigger if exists project_items_bi on public.project_items;
+create trigger project_items_bi before insert on public.project_items for each row execute function public.project_items_before_insert();
+
+-- ---------- 5. changed functions (in the block below) ----------
 -- order_letters_before_insert: a company memo's amount (PHP), exchange rate and BDT amount, and the e-bill it pays.
 -- update_pending_order: the e-bill of a memo can be changed while the memo waits for approval.
 -- carry_out_order: an approved memo pays its BDT amount on the e-bill it names.
@@ -324,7 +354,7 @@ begin
   end loop;
 end $$;
 
--- ---------- 5. once: the "deleted" lines, and the lines and notices of records deleted before ----------
+-- ---------- 6. once: the "deleted" lines, and the lines and notices of records deleted before ----------
 do $$
 begin
   perform public.allow_record_change();
