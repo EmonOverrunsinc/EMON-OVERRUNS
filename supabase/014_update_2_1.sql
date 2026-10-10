@@ -12,6 +12,7 @@
 --    before, are removed once.
 -- 6. Project budget: each line is its description and amount (the main figure); the qty is optional, and there is no
 --    unit cost any more.
+-- 7. A customer's LOCATION check takes the place of the address check: FOUND, NO NEED TO CHECK LOCATION or NOT FOUND.
 -- Run once in the Supabase SQL Editor after 013_update_2_0.sql. It is safe to run again.
 -- =====================================================================
 
@@ -127,6 +128,34 @@ revoke execute on function public.project_items_before_insert() from public, ano
 drop trigger if exists project_items_bi on public.project_items;
 create trigger project_items_bi before insert on public.project_items for each row execute function public.project_items_before_insert();
 
+-- ---------- 4b. a customer's LOCATION check: found, no need to check, or not found ----------
+-- It takes the place of the address check (verified or not): an address verified before is FOUND, one not verified is
+-- NOT FOUND. The old yes/no field stays in step with it (FOUND = yes).
+alter table public.customers add column if not exists location_check text;
+do $$
+begin
+  if exists (select 1 from public.customers where location_check is null) then
+    perform public.allow_record_change();
+    update public.customers set location_check = case when address_verified then 'found' else 'not_found' end where location_check is null;
+  end if;
+end $$;
+alter table public.customers drop constraint if exists customers_location_check_check;
+alter table public.customers add constraint customers_location_check_check check (location_check in ('found','no_need','not_found'));
+alter table public.customers alter column location_check set not null;
+
+create or replace function public.customers_location_before_insert() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  -- an app before 2.1 sends only the address check (yes or no)
+  new.location_check := coalesce(new.location_check, case when new.address_verified then 'found' else 'not_found' end);
+  new.address_verified := new.location_check = 'found';
+  return new;
+end;
+$$;
+revoke execute on function public.customers_location_before_insert() from public, anon, authenticated;
+drop trigger if exists customers_location_bi on public.customers;
+create trigger customers_location_bi before insert on public.customers for each row execute function public.customers_location_before_insert();
+
 -- ---------- 5. changed functions (in the block below) ----------
 -- order_letters_before_insert: a company memo's amount (PHP), exchange rate and BDT amount, and the e-bill it pays.
 -- update_pending_order: the e-bill of a memo can be changed while the memo waits for approval.
@@ -135,6 +164,7 @@ create trigger project_items_bi before insert on public.project_items for each r
 -- stock_bill_entries_before_insert: Sales Report lines after PAID.
 -- delete_record, undo_order, remove_attachment: what the Director deletes leaves no line in any history.
 -- verify_record: an e-bill's secret code shows what is paid, the balance and the shipping company.
+-- customer_action: the Director sets a customer's location check (found, no need to check, not found).
 do $$
 declare
   -- function name, the exact old text, the new text
@@ -329,13 +359,31 @@ declare
      '          jsonb_build_array(''Total Cost (BDT)'', to_char(r.total_cost + coalesce(r.release_bdt, 0) + coalesce(r.shipping_cost, 0), ''FM999,999,999,990.00'')),
           jsonb_build_array(''Paid (BDT)'', to_char(r.paid_bdt, ''FM999,999,999,990.00'')),
           jsonb_build_array(''Balance (BDT)'', to_char(r.total_cost + coalesce(r.release_bdt, 0) + coalesce(r.shipping_cost, 0) - r.paid_bdt, ''FM999,999,999,990.00'')),
-          jsonb_build_array(''EOO Fees (BDT)'',']
+          jsonb_build_array(''EOO Fees (BDT)'','],
+    ['customer_action', '    when ''address_unverified'' then c.status
+    else null end;',
+     '    when ''address_unverified'' then c.status
+    when ''location_found'' then c.status
+    when ''location_no_need'' then c.status
+    when ''location_not_found'' then c.status
+    else null end;'],
+    ['customer_action', '    address_verified = case p_action when ''address_verified'' then true when ''address_unverified'' then false else address_verified end,
+',
+     '    -- 2.1: the location check (the old address check stays in step with it: FOUND = verified)
+    address_verified = case when p_action in (''address_verified'',''location_found'') then true
+      when p_action in (''address_unverified'',''location_no_need'',''location_not_found'') then false else address_verified end,
+    location_check = case when p_action in (''address_verified'',''location_found'') then ''found'' when p_action = ''location_no_need'' then ''no_need''
+      when p_action in (''address_unverified'',''location_not_found'') then ''not_found'' else location_check end,
+'],
+    ['customer_action', '  values (p_id, replace(p_action, ''_'', '' ''), p_note,',
+     '  values (p_id, case p_action when ''location_found'' then ''location: found'' when ''location_no_need'' then ''location: no need to check''
+    when ''location_not_found'' then ''location: not found'' else replace(p_action, ''_'', '' '') end, p_note,']
   ];
   f record; def text; new_def text; i int;
 begin
   for f in select p.oid, p.proname from pg_proc p
            where p.pronamespace = 'public'::regnamespace and p.prokind = 'f' and pg_get_userbyid(p.proowner) = current_user
-             and p.proname in ('order_letters_before_insert', 'update_pending_order', 'carry_out_order', 'undo_order', 'delete_record', 'remove_attachment', 'stock_bill_entries_before_insert', 'stock_bills_before_insert', 'editable_columns', 'verify_record')
+             and p.proname in ('order_letters_before_insert', 'update_pending_order', 'carry_out_order', 'undo_order', 'delete_record', 'remove_attachment', 'stock_bill_entries_before_insert', 'stock_bills_before_insert', 'editable_columns', 'verify_record', 'customer_action')
   loop
     def := pg_get_functiondef(f.oid);
     new_def := def;

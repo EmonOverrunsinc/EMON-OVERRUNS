@@ -749,6 +749,12 @@ a.mini-brand { color: inherit; text-decoration: none; }
 .ch-flags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .flag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 10px; background: #eaf6ea; color: var(--ok); font-size: 11px; font-weight: bold; }
 .flag .ic { width: 12px; height: 12px; stroke-width: 3; }
+/* 2.1: the customer's location check */
+.flag.muted { background: #eef0f3; color: var(--ink-soft); }
+.flag.bad { background: #fdecea; color: var(--bad); }
+.loc-pick { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-soft); }
+.loc-pick select { width: auto; padding: 2px 6px; font-size: 12px; }
+.loc-checks { flex-wrap: wrap; }
 .ch-qr { text-align: center; padding: 6px; border-radius: 10px; background: #fff; border: 1px solid var(--grid-head); }
 .ch-qr canvas { display: block; width: 116px; height: 116px; image-rendering: pixelated; }
 .ch-qr small { color: var(--ink-soft); font-size: 10px; display: block; }

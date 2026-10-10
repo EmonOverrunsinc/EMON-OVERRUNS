@@ -18,20 +18,22 @@
   const pad = (n) => String(n).padStart(2, "0");
   const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const isoToday = () => isoDay(new Date());
-  // Every date shows month first, as MM-DD-YYYY (06-20-2026); with the time: 06-20-2026 3:15 PM.
+  // Every date shows as MON DD YYYY in capitals (AUG 01 2026, OCT 09 2026); with the time: OCT 09 2026 3:15 PM. The parts
+  // are joined with no-break spaces, so a date is never split over two lines.
   // A saved time (2026-10-05T17:30:00+00:00) shows the day it was where the user is, not the server's UTC day.
+  const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
   const mdy = (iso) => {
     if (!iso) return "";
     let s = String(iso);
     if (/^\d{4}-\d\d-\d\d[T ]\d\d:\d\d/.test(s)) { const t = new Date(s.replace(" ", "T").replace(/([+-]\d\d)$/, "$1:00")); if (!isNaN(t)) s = isoDay(t); }
-    const [y, m, d] = s.slice(0, 10).split("-"); return `${m}-${d}-${y}`;
+    const [y, m, d] = s.slice(0, 10).split("-");
+    return MON[Number(m) - 1] && d ? `${MON[Number(m) - 1]}\u00a0${d}\u00a0${y}` : s;
   };
-  const stamp = (d = new Date()) => `${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  const longDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "2-digit" });
-  const dateTime = (iso) => { if (!iso) return ""; const d = new Date(iso), h = d.getHours(); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${d.getFullYear()} ${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "AM" : "PM"}`; };
-  // Dates the database writes as "20 Jun 2026" (record verification) show as 06-20-2026 too.
-  const MONTH_NO = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
-  const fixDates = (v) => String(v ?? "").replace(/\b(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})\b/g, (_, d, m, y) => `${MONTH_NO[m]}-${pad(d)}-${y}`);
+  const stamp = (d = new Date()) => `${mdy(isoDay(d))} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const longDate = (iso) => `${new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(iso)}`;
+  const dateTime = (iso) => { if (!iso) return ""; const d = new Date(iso), h = d.getHours(); return `${mdy(isoDay(d))} ${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "AM" : "PM"}`; };
+  // Dates the database writes as "20 Jun 2026" (record verification) show as JUN 20 2026 too.
+  const fixDates = (v) => String(v ?? "").replace(/\b(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})\b/g, (_, d, m, y) => `${m.toUpperCase()}\u00a0${pad(d)}\u00a0${y}`);
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const isAdmin = () => S.profile?.role === "admin";

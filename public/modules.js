@@ -486,8 +486,8 @@
             </div></div></fieldset>
           <fieldset class="opt"><legend>Full Address</legend>
             <div class="fields wide"><label for="ncAddr">Address *</label><input type="text" id="ncAddr" required placeholder="House no, street, barangay, city, province">
-              <span>Address Check</span><div class="checks"><label><input type="radio" name="ncAddrv" value="no" checked> Not Verified</label><label><input type="radio" name="ncAddrv" value="yes"> Verified</label></div>
-            </div><small>Mark Verified only if the address was checked (for example, by a visit or a document). The Director can also verify it later from the customer profile.</small></fieldset>
+              <span>Location *</span><div class="checks loc-checks">${Object.entries(LOCATION).map(([k, l]) => `<label><input type="radio" name="ncLoc" value="${k}"> ${esc(l)}</label>`).join("")}</div>
+            </div><small>FOUND: the location was checked and found (for example, by a visit or a document). NOT FOUND: it was checked and not found. The Director can change it later from the customer profile.</small></fieldset>
           <fieldset class="opt"><legend>Account</legend><div class="fields wide">
             <label for="ncCredit">Credit Limit (₱)</label><input type="number" id="ncCredit" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
             <label for="ncOpen">Opening Balance (₱)</label><input type="number" id="ncOpen" min="0" step="0.01" inputmode="decimal" placeholder="Optional — leave empty if none">
@@ -533,6 +533,8 @@
       if (!v("ncFirst") || !v("ncLast")) return toast("Enter the first and last name.", true);
       if (!v("ncPhone")) return toast("Enter the phone number.", true);
       if (!v("ncAddr")) return toast("Enter the full address.", true);
+      const loc = $("input[name=ncLoc]:checked")?.value;
+      if (!loc) return toast("Choose the location: FOUND, NO NEED TO CHECK LOCATION or NOT FOUND.", true);
       if (num(v("ncCredit")) < 0 || num(v("ncOpen")) < 0) return toast("The credit limit and opening balance cannot be negative.", true);
       const extra = $("input[name=ncFbx]:checked").value === "yes";
       if (extra && !v("ncFb2")) return toast("Enter the additional Facebook name, or choose No.", true);
@@ -547,7 +549,7 @@
       }
       const { data: c, error } = await sb.from("customers").insert({
         id, first_name: v("ncFirst"), last_name: v("ncLast"), photo_path, address: v("ncAddr"),
-        address_verified: $("input[name=ncAddrv]:checked").value === "yes",
+        location_check: loc, address_verified: loc === "found",
         credit_limit: v("ncCredit") ? num(v("ncCredit")) : null, opening_balance: num(v("ncOpen")) || 0,
         business_start_date: v("ncStart") || null, business_name: v("ncBiz") || null,
         facebook_name: v("ncFb") || null, has_extra_facebook: extra, extra_facebook_name: extra ? v("ncFb2") : null,
@@ -562,6 +564,13 @@
   };
 
   // sign: the Director's approval (approvedBy), printed with the Director's signature.
+  // A customer's LOCATION check (2.1, in place of the address check): found, no need to check, or not found. A database
+  // before 2.1 has only the address check (verified = found).
+  const LOCATION = { found: "✔ FOUND", no_need: "NO NEED TO CHECK LOCATION", not_found: "✖ NOT FOUND" };
+  const locOf = (c) => (LOCATION[c.location_check] ? c.location_check : c.address_verified ? "found" : "not_found");
+  const locFlag = (c) => ({ found: `<span class="flag ok">${ic("check")} Location found</span>`, no_need: `<span class="flag muted">No need to check location</span>`,
+    not_found: `<span class="flag bad">${ic("x")} Location not found</span>` })[locOf(c)];
+  const locSelect = (c, id) => `<label class="loc-pick" for="${id}">Location <select id="${id}">${Object.entries(LOCATION).map(([k, l]) => `<option value="${k}" ${k === locOf(c) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`;
   function applicationPage(c, photoUrl, reqs, sign = null) {
     const qr = E.qrDataUrl(custQr(c));
     const bar = E.pdf417DataUrl(c.application_no);
@@ -580,7 +589,7 @@
         ${c.has_extra_facebook ? cell("Additional Facebook", "YES — " + (c.extra_facebook_name || ""), "span2") : ""}</div>`)}
       ${box("Requirements Submitted", `<div class="pv" style="padding:6px">${reqs.length ? reqs.map((r) => "☑ " + esc(r.file_name)).join("<br>") : "None uploaded yet"}</div>`)}
       ${box("For Office Use", `<div class="pgrid2">${cell("Issued By", c.issued_by_name)}${cell("Status", c.status.toUpperCase())}
-        ${cell("Address Check", c.address_verified ? "VERIFIED" : "NOT VERIFIED")}${cell("Credit Limit (PHP)", c.credit_limit != null ? peso(c.credit_limit) : "")}
+        ${cell("Location", LOCATION[locOf(c)])}${cell("Credit Limit (PHP)", c.credit_limit != null ? peso(c.credit_limit) : "")}
         ${cell("Opening Balance (PHP)", peso(c.opening_balance))}</div>`)}
       <p class="pdecl">I certify that the information above is true and correct, and I agree to the terms of ${esc(C.company.name)}.</p>
       ${sigs("Customer Signature over Printed Name &nbsp; / &nbsp; Date", sign ? "Approved by" : "Approved by (Signature) &nbsp; / &nbsp; Date", sign)}
@@ -657,7 +666,7 @@
             ${idBox("Account No", c.account_no)}${idBox("Application No", c.application_no)}${idBox("Opened", mdy(c.application_date))}${c.credit_limit != null ? idBox("Credit Limit", "₱ " + peso(c.credit_limit)) : ""}
             ${isAdmin() ? `<div class="idbox"><small>Private ID</small><b class="mono" id="pvCode" data-code="${esc(secret.data?.private_code || "")}">••••••••</b> <button type="button" class="linkbtn" id="pvShow">Show</button></div>` : ""}
           </div>
-          <div class="ch-flags">${c.address_verified ? `<span class="flag ok">${ic("check")} Address verified</span>` : `<span class="flag">${ic("x")} Address not verified</span>`}${isAdmin() && c.status !== "closed" ? `<button type="button" class="linkbtn" id="pfAddrV">${c.address_verified ? "Mark address not verified" : "Verify address"}</button>` : ""}${c.facebook_verified ? `<span class="flag ok">${ic("check")} Facebook verified</span>` : ""}</div>
+          <div class="ch-flags">${locFlag(c)}${isAdmin() && c.status !== "closed" ? locSelect(c, "pfLoc") : ""}${c.facebook_verified ? `<span class="flag ok">${ic("check")} Facebook verified</span>` : ""}</div>
         </div>
         <div class="ch-qr"><canvas id="pfQr" aria-label="Customer QR code"></canvas><small>Public ID</small><b class="mono key" id="pfKey">${esc(c.public_id || "")}</b><button type="button" class="linkbtn" id="pfCopy">${ic("copy")} Copy</button></div>
       </section>
@@ -693,7 +702,7 @@
         <div data-p="7" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
-    if ($("#pfAddrV")) $("#pfAddrV").onclick = () => markAddress(c);
+    if ($("#pfLoc")) $("#pfLoc").onchange = (e) => setLocation(c, e.target.value);
     // Change or remove the profile photo. The new photo is kept in Files; the old one leaves Files (and, for the
     // Director, is deleted from storage too).
     const dropOld = (old) => { if (old && isAdmin()) sb.storage.from("records").remove([old]).catch(() => {}); };
@@ -742,7 +751,7 @@
   function detailsTable(c) {
     const rows = [
       ["First Name", c.first_name], ["Last Name", c.last_name], ["Phone", c.phone], ["Email", c.email],
-      ["Full Address", c.address], ["Address Check", c.address_verified ? "✔ VERIFIED" : "✖ NOT VERIFIED"],
+      ["Full Address", c.address], ["Location", LOCATION[locOf(c)]],
       ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], ["Opening Balance", "₱ " + peso(c.opening_balance)],
       ["Business Name", c.business_name], ["Business Start Date", mdy(c.business_start_date)],
       ["Facebook Name", c.facebook_name], ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
@@ -752,10 +761,12 @@
     return `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
   }
 
-  async function markAddress(c) {
-    const r = await sb.rpc("customer_action", { p_id: c.id, p_action: c.address_verified ? "address_unverified" : "address_verified", p_note: null });
-    if (r.error) return fail(r.error, "Could not update the address check");
-    toast(c.address_verified ? "Address marked as not verified." : "Address marked as verified.");
+  // The Director sets the location check: found, no need to check, or not found.
+  async function setLocation(c, loc) {
+    if (!LOCATION[loc] || loc === locOf(c)) return;
+    const r = await sb.rpc("customer_action", { p_id: c.id, p_action: "location_" + loc, p_note: null });
+    if (r.error) return fail(r.error, "Could not update the location");
+    toast(`Location: ${LOCATION[loc]}.`);
     V.customer(c.id);
   }
   function reviewPanel(c, signed) {
@@ -764,7 +775,7 @@
         <li><b>Check records:</b> look for the same name, phone, email or Facebook name already in the database.
           <div class="btnrow"><button type="button" class="btn primary" id="rvCheck">Check &amp; Verify</button>
           <button type="button" class="btn" id="rvFb">${c.facebook_verified ? "Mark Facebook NOT verified" : "Mark Facebook verified"}</button>
-          <button type="button" class="btn" id="rvAddr">${c.address_verified ? "Mark Address NOT verified" : "Mark Address verified"}</button></div><div id="rvResult">${c.status === "verified" ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
+          ${locSelect(c, "rvLoc")}</div><div id="rvResult">${c.status === "verified" ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
         <li><b>Application form signed by the customer:</b> ${signed.length ? `<span class="ok-txt">✔ Uploaded.</span>`
           : `<span class="bad-txt">not uploaded yet.</span> Print the form from the <b>Customer Application Form</b> card above, have the customer sign it, then press <b>Upload Signed Copy</b>.`}
           You do not sign it by hand: your signature is printed on the form when you approve.</li>
@@ -801,7 +812,7 @@
       const r = await sb.rpc("customer_action", { p_id: c.id, p_action: c.facebook_verified ? "facebook_unverified" : "facebook_verified", p_note: null });
       if (r.error) return fail(r.error, "Could not update"); V.customer(c.id);
     };
-    $("#rvAddr").onclick = () => markAddress(c);
+    $("#rvLoc").onchange = (e) => setLocation(c, e.target.value);
     const act = async (a) => {
       const r = await sb.rpc("customer_action", { p_id: c.id, p_action: a, p_note: $("#rvNote").value.trim() || null });
       if (r.error) return fail(r.error, "Could not update the account");

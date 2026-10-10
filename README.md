@@ -9,7 +9,7 @@ It is laid out like AutoCount: option panel, then Inquiry, Preview and Print, th
 | Menu | What it does |
 |---|---|
 | Dashboard | Totals, what is waiting for the Director (applications, orders, corrections, credit memos) and the monthly chart |
-| 1. Customer | Application with photo and requirements, account no (shown as a preview on the form), address check, credit limit, opening balance, wallet-style Public ID with its QR, approval, profile with balance, monthly SOA and history |
+| 1. Customer | Application with photo and requirements, account no (shown as a preview on the form), LOCATION check (FOUND, NO NEED TO CHECK LOCATION or NOT FOUND), credit limit, opening balance, wallet-style Public ID with its QR, approval, profile with balance, monthly SOA and history |
 | 2. Invoice | Sales for ACTIVE customers (PO, boxes, pcs, amount, receipts, delivery receipt) |
 | 3. Payment | Cash, bank transfer, online transfer or deposit, with a printable acknowledgment receipt |
 | 4. Credit Memo | Complaints and defect claims; approved credits and discounts reduce the balance due |
@@ -31,7 +31,7 @@ signature. Every document the Director approves (order letters and certificates,
 job applications, projects) prints the Director's signature, name and date by itself, so no signed copy is uploaded
 after approval. A customer's or applicant's own signed form can still be uploaded before approval.
 
-Amounts are in **PHP (₱)** (Billing also uses BDT; E-Bill uses BDT). Dates show as MM-DD-YYYY in Manila time. Vouchers print the amount in words, for example "PESOS ONE THOUSAND … AND 50/100 ONLY".
+Amounts are in **PHP (₱)** (Billing also uses BDT; E-Bill uses BDT). Dates show as MON DD YYYY in capitals, for example AUG 01 2026 or OCT 09 2026, in Manila time (on screens, cards, prints and PDFs; the date fields still open the calendar). Vouchers print the amount in words, for example "PESOS ONE THOUSAND … AND 50/100 ONLY".
 
 Numbers: account no initials-YYYYMM### (e.g. EH-202610001), payment receipt A-YYYY-MMDD-###, credit memo EOC-YYYYMM###, order letter EO-YYYY-MM-#### (e.g. EO-2026-10-0001; orders made before update 2.0 keep ORDER-YYYY-###), e-bill company letters-YYYY-#### (e.g. MF-2026-0001 for MODINA FASHION).
 
@@ -46,7 +46,7 @@ run it again after any later update that replaces a function, so the replaced fu
 `011_update_1_8.sql` (a wrong upload can be removed and uploaded again; customer credit limit, opening balance, address checked by hand, account number preview).
 `012_update_1_9.sql` (Inventory, now E-Bill: stock-bills, release order, e-bills in Billing, sales report, PAID with the profit or loss and the secret code).
 `013_update_2_0.sql` (Update 2.0: E-Bill numbers by company letters, the steps SHIP → RELEASED → SALES → PAID with no ARRIVED step, the Released Notice with price per box, exchange rate and shipping fee in BDT, order letters numbered EO-YYYY-MM-####, an order waiting for approval can be changed, and signatures: uploaded in My Profile, approved by the Director, printed on approved documents).
-`014_update_2_1.sql` (Update 2.1: a memo to a company in PESOS × the exchange rate = BDT, paid on the e-bill it names once approved; the shipping company of an e-bill; Sales Report lines after PAID; what the Director deletes leaves no line in any history, and the old "deleted" lines are removed; a project budget line is its amount, with the qty optional).
+`014_update_2_1.sql` (Update 2.1: a memo to a company in PESOS × the exchange rate = BDT, paid on the e-bill it names once approved; the shipping company of an e-bill; Sales Report lines after PAID; what the Director deletes leaves no line in any history, and the old "deleted" lines are removed; a project budget line is its amount, with the qty optional; a customer's LOCATION check — FOUND, NO NEED TO CHECK LOCATION or NOT FOUND — takes the place of the address check).
 
 ## Setup (one time)
 1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.

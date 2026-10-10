@@ -78,7 +78,8 @@
     release_date: "Released Date", price_per_box: "Price per Box (PHP)", exchange_rate: "Exchange Rate", release_php: "Total (PHP)", release_bdt: "Released Charge (BDT)",
     shipping_cost: "Shipping Fee (BDT)", shipping_bill_no: "Shipping Fee Receipt No", amount_bdt: "Amount (BDT)", memo_bill_id: "Pay on E-Bill" };
   const fieldLabel = (table, k) => (FIELDS[table] || []).find((f) => f.k === k)?.label || (table === "order_letters" && ORDER_FIELDS[k]) || k.replace(/_/g, " ");
-  const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v) : String(v));
+  const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v)
+    : /^\d{4}-\d\d-\d\d$/.test(v) ? mdy(v) : String(v));
   // names: e-bill numbers by id (the e-bill a memo pays is saved as its id)
   const changeList = (table, ch, prev, names) => Object.keys(ch || {}).map((k) => {
     const v = (x) => (k === "memo_bill_id" ? (x ? names?.get(x) || "another e-bill" : "(none)") : showVal(x));
@@ -760,11 +761,11 @@
       $("#noDetailsL").textContent = t === "balance_certificate" ? "Purpose *" : "Details *";
       if (!dirty) $("#noDetails").value = wording();
     };
-    // The letter's wording for what is in the form now.
-    const wording = () => defaultDetails(kind, type(), who, { bal: bal(), days: num(due?.days_overdue), amt: num($("#noAmt").value), n: Math.floor(num($("#noN").value)),
+    // The letter's wording for what is in the form now (saved with plain spaces in its dates).
+    const wording = () => String(defaultDetails(kind, type(), who, { bal: bal(), days: num(due?.days_overdue), amt: num($("#noAmt").value), n: Math.floor(num($("#noN").value)),
       each: num($("#noInst").value), every: $("#noEvery").value, due: $("#noDue").value, date: $("#noDate").value, reason: reason(), adj: $("input[name=noAdj]:checked")?.value,
       release: $("#noRelDate").value, ship: $("#noShipAmt").value.trim(), ppb: $("#noPpb").value, rate: $("#noRate").value,
-      memoAmt: num($("#noMemoAmt").value), memoRate: num($("#noMemoRate").value), memoBill: memoBillOf() });
+      memoAmt: num($("#noMemoAmt").value), memoRate: num($("#noMemoRate").value), memoBill: memoBillOf() })).replace(/\u00a0/g, " ");
     // Changing an order: the form starts with what the order has now. Its wording keeps changing with the figures only
     // when it was not written by hand.
     let filled = false;
@@ -983,8 +984,9 @@
 
   // The Authorized Representative: once the Director approves, the Director's signature over the name.
   const authBlock = (approved, o, sign) => `<div class="ol-auth${sign?.pic ? " has-sig" : ""}">${sign?.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="ol-auth-name">${approved ? esc(o.approved_by_name || "") : "&nbsp;"}</div><div class="line"></div>Authorized Representative</div>`;
-  // A printed paragraph: dates (10-14-2026) and record numbers (EO-2026-10-0001, I-17) are not split over two lines.
-  const para = (s) => esc(s).replace(/\b(\d{2}-\d{2}-\d{4}|[A-Z]{1,6}(?:-\d+)+)\b/g, '<span class="nw">$1</span>').replace(/\n/g, "<br>");
+  // A printed paragraph: dates (OCT 14 2026, and 10-14-2026 in letters written before 2.1) and record numbers
+  // (EO-2026-10-0001, I-17) are not split over two lines.
+  const para = (s) => esc(s).replace(/\b((?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC) \d{2} \d{4}|\d{2}-\d{2}-\d{4}|[A-Z]{1,6}(?:-\d+)+)\b/g, '<span class="nw">$1</span>').replace(/\n/g, "<br>");
   // The printed order, laid out like an official order: details of the order, the customer / employee /
   // company information, the order itself with what it is about (amount due, promise, installment schedule,
   // reason for closing) and the decision, then APPROVED / DISAPPROVED with the date signed and one line for
