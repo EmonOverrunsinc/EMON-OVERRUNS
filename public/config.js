@@ -8,6 +8,8 @@ window.EMON_CONFIG = {
     address: ["156 Ignacio Street, Pasay City", "Metro Manila 1300"],
     email: "emonoverruns@gmail.com",
     phone: "09777672585",
-    director: "Emon Hasan, Managing Director"
+    director: "Emon Hasan, Managing Director",
+    // every printed page carries a small QR of the website: scanning it opens this address
+    website: "https://emonoverruns.online"
   }
 };

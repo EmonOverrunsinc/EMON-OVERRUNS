@@ -6,7 +6,8 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "2.0";
+  const VERSION = "2.1";
+  const BUILD = "2.1.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -18,20 +19,27 @@
   const pad = (n) => String(n).padStart(2, "0");
   const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const isoToday = () => isoDay(new Date());
-  // Every date shows month first, as MM-DD-YYYY (06-20-2026); with the time: 06-20-2026 3:15 PM.
+  // Every date shows as MONTH DD YYYY in capitals (AUGUST 01 2026, OCTOBER 09 2026); with the time: OCTOBER 09 2026
+  // 3:15 PM. The parts are joined with no-break spaces, so a date is never split over two lines.
   // A saved time (2026-10-05T17:30:00+00:00) shows the day it was where the user is, not the server's UTC day.
+  const MON = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
   const mdy = (iso) => {
     if (!iso) return "";
     let s = String(iso);
     if (/^\d{4}-\d\d-\d\d[T ]\d\d:\d\d/.test(s)) { const t = new Date(s.replace(" ", "T").replace(/([+-]\d\d)$/, "$1:00")); if (!isNaN(t)) s = isoDay(t); }
-    const [y, m, d] = s.slice(0, 10).split("-"); return `${m}-${d}-${y}`;
+    const [y, m, d] = s.slice(0, 10).split("-");
+    return MON[Number(m) - 1] && d ? `${MON[Number(m) - 1]}\u00a0${d}\u00a0${y}` : s;
   };
-  const stamp = (d = new Date()) => `${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  const longDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "2-digit" });
-  const dateTime = (iso) => { if (!iso) return ""; const d = new Date(iso), h = d.getHours(); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${d.getFullYear()} ${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "AM" : "PM"}`; };
-  // Dates the database writes as "20 Jun 2026" (record verification) show as 06-20-2026 too.
-  const MONTH_NO = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
-  const fixDates = (v) => String(v ?? "").replace(/\b(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})\b/g, (_, d, m, y) => `${MONTH_NO[m]}-${pad(d)}-${y}`);
+  const stamp = (d = new Date()) => `${mdy(isoDay(d))} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const longDate = (iso) => `${new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(iso)}`;
+  const dateTime = (iso) => { if (!iso) return ""; const d = new Date(iso), h = d.getHours(); return `${mdy(isoDay(d))} ${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "AM" : "PM"}`; };
+  // Dates the database writes as "20 Jun 2026" (record verification) show as JUNE 20 2026 too.
+  const fixDates = (v) => String(v ?? "").replace(/\b(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})\b/g,
+    (_, d, m, y) => `${MON.find((x) => x.startsWith(m.toUpperCase()))}\u00a0${pad(d)}\u00a0${y}`);
+  // The website (config.js): its name for printed headers, and a link for the screens anyone can see.
+  const siteName = () => String(C.company.website || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const siteText = () => (siteName() ? ` · ${esc(siteName())}` : "");
+  const siteLink = () => (siteName() ? ` · <a class="co-site" href="${esc(C.company.website)}" target="_blank" rel="noopener">${esc(siteName())}</a>` : "");
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const isAdmin = () => S.profile?.role === "admin";
@@ -190,6 +198,16 @@
     catch (e) { console.error(e); return false; }
   }
   function qrDataUrl(text) { const c = document.createElement("canvas"); return drawQr(c, text) ? c.toDataURL("image/png") : ""; }
+  // 2.1: the QR of the website for the foot of every printed page, made once. Error correction Q (a smudge or a fold
+  // still scans) keeps it at 29 × 29 modules, so it stays small on paper.
+  let webQrUrl = "";
+  function websiteQr() {
+    if (webQrUrl || !C.company.website) return webQrUrl;
+    const c = document.createElement("canvas");
+    try { window.bwipjs.toCanvas(c, { bcid: "qrcode", text: C.company.website, eclevel: "Q", scale: 6, padding: 2, backgroundcolor: "FFFFFF" }); webQrUrl = c.toDataURL("image/png"); }
+    catch (e) { console.error(e); }
+    return webQrUrl;
+  }
   // Try the image as-is and rotated, with a white quiet zone around it.
   async function decodeImageFile(file) {
     const url = URL.createObjectURL(file);
@@ -242,8 +260,34 @@
     return `<header class="co-head">${logoHtml()}<div class="co-text">
       <b>${esc(C.company.name)} <span class="co-tag">E-PORTAL</span></b>
       <span>${esc(C.company.address.join(", "))}</span>
-      <span>${esc(C.company.email)} · ${esc(C.company.phone)}</span></div></header>`;
+      <span>${esc(C.company.email)} · ${esc(C.company.phone)}${siteLink()}</span></div></header>`;
   }
+
+  // ---------- new versions ----------
+  // version.json (never kept in the browser) names the version on the server. When it is not the version of this page,
+  // a bar offers Update now, and the next page change loads the new version (nothing typed is lost that way).
+  let newBuild = "";
+  const reloadedFor = (v) => { try { if (v) sessionStorage.setItem("eo-build", v); return sessionStorage.getItem("eo-build"); } catch (_) { return ""; } };
+  async function checkVersion() {
+    try {
+      const r = await fetch("version.json?t=" + Date.now(), { cache: "no-store" });
+      if (!r.ok) return;
+      const v = String((await r.json()).version || "");
+      if (!v || v === BUILD || v === newBuild) return;
+      newBuild = v;
+      if ($(".update-bar")) return;
+      const bar = document.createElement("div");
+      bar.className = "update-bar"; bar.setAttribute("role", "status");
+      bar.innerHTML = `${ic("install")} A new version of the ${esc(APP)} is ready. <button type="button" class="btn small primary">Update now</button>`;
+      bar.querySelector("button").onclick = () => { reloadedFor(v); location.reload(); };
+      document.body.appendChild(bar);
+    } catch (_) { /* offline: checked again later */ }
+  }
+  setTimeout(checkVersion, 4000);
+  setInterval(checkVersion, 5 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checkVersion(); });
+  // the next page change loads the new version (once: if the server still sends this one, the bar stays)
+  window.addEventListener("hashchange", () => { if (newBuild && reloadedFor() !== newBuild) { reloadedFor(newBuild); location.reload(); } });
 
   // ---------- sign in, create account, email codes ----------
   // Sign out of this device only; the same account stays signed in on the user's other phones and computers.
@@ -573,8 +617,8 @@
     { k: "community", n: "6", label: "Community" },
     { k: "projects", n: "7", label: "Project" },
     { k: "billing", n: "8", label: "Billing" },
-    { k: "orders", n: "9", label: "Order Letter" },
-    { k: "inventory", n: "10", label: "Inventory" }
+    { k: "orders", n: "9", label: "Director Portal" },
+    { k: "inventory", n: "10", label: "E-Bill" }
   ];
   // Which menu item (module) each page belongs to; pages a user has no access to are blocked.
   const MODULE_OF = {
@@ -600,7 +644,7 @@
     ["logins", "User", () => isAdmin()],
     ["forms", "Download Forms", () => true]
   ];
-  const ACTIVE_OF = { orders: "orders", neworder: "orders", editorder: "orders", order: "orders", payslip: "employees", ebill: "billing", find: "", profile: "", settings: "" };
+  const ACTIVE_OF = { orders: "orders", neworder: "orders", editorder: "orders", order: "orders", payslip: "employees", ebill: "inventory", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
   const ALIAS = { users: "employees", userres: "employees", resolutions: "community", resolution: "community", verification: "verify", supplier: "billing", newsupplier: "billing", search: "dashboard" };
   const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);
@@ -869,6 +913,9 @@
     // a blank form (undated) does not.
     const printed = dateTime(new Date().toISOString());
     const dated = (p) => (undated || /Date Printed|rp-stamp|Printed \d/.test(p) ? "" : `<div class="pg-date">Date Printed: ${esc(printed)}</div>`);
+    // and ends with the QR of the website (scan it to open the website)
+    const qr = websiteQr(), site = String(C.company.website || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
+    const web = qr ? `<div class="pg-web"><span>Scan to visit<br><b>${esc(site)}</b></span><img src="${qr}" alt="QR code: ${esc(site)}"></div>` : "";
     S.docTitle = document.title;
     document.title = title; // "Save as PDF" uses this as the file name
     const pv = document.createElement("div");
@@ -881,7 +928,7 @@
         <select id="pvZoom" style="width:auto"><option>50</option><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
         <button type="button" class="btn" id="pvClose">Close</button>
       </div>
-      <div class="pv-desk" id="pvDesk">${pages.map((p) => `<div class="page${cls}"><img class="wm" src="${SEAL}" alt="">${dated(p)}${p}</div>`).join("")}</div>
+      <div class="pv-desk" id="pvDesk">${pages.map((p) => `<div class="page${cls}"><img class="wm" src="${SEAL}" alt="">${dated(p)}${p}${web}</div>`).join("")}</div>
       <div class="statusbar"><span id="pvCur">Current Page No: 1</span><span>Total Page No: ${pages.length}</span><span id="pvZf">Zoom Factor: 100%</span></div>`;
     document.body.appendChild(pv);
     document.body.classList.toggle("print-a5l", size === "a5l");
@@ -912,7 +959,7 @@
     const now = stamp();
     const stampHtml = `<div class="rp-stamp">Date : ${now}<br>User ID : ${esc((S.profile?.full_name || "").toUpperCase())}</div>`;
     const top = logo
-      ? `<div class="rp-brand">${logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</div></div>${stampHtml}</div>`
+      ? `<div class="rp-brand">${logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}${siteText()}</div></div>${stampHtml}</div>`
       : stampHtml;
     const chunks = [];
     for (let i = 0; i < rows.length; i += perPage) chunks.push(rows.slice(i, i + perPage));
@@ -1143,7 +1190,7 @@
   Object.assign(window.EO, {
     APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
-    shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages,
+    shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, siteLink,
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey,
     roleName, personTitle, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
     changePassword: () => renderSetPassword(false)

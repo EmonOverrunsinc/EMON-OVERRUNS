@@ -1,4 +1,4 @@
-/* EMON OVERRUNS E-PORTAL — job applicant portal, 6 Community, 9 Order Letter, Verification (public),
+/* EMON OVERRUNS E-PORTAL — job applicant portal, 6 Community, 9 Director Portal (order letters), Verification (public),
    Messages (chat), Corrections, and the Add Correction / Delete (Director) tools used on every record
    (saved records are never edited; only the Director deletes, permanently). */
 (function () {
@@ -49,7 +49,7 @@
   // Details that can be corrected — must match editable_columns() in the database. Amounts, transaction dates and
   // record numbers are never corrected: a wrong money record is deleted by the Director and recorded again.
   const FIELDS = {
-    customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool"), F("credit_limit", "Credit Limit (₱)", "money")],
+    customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("facebook_link", "Facebook Account Link"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool"), F("credit_limit", "Credit Limit (₱)", "money")],
     customer_invoices: [F("purchase_date", "Purchase Date", "date"), F("po_number", "PO Number"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int")],
     payments_received: [F("method", "Method", "select", METHODS), F("bank_name", "Bank Name"), F("bank_account", "Deposit Account"), F("reference_no", "Reference No"), F("notes", "Notes")],
     credit_memos: [F("payment_ref", "Payment Reference"), F("po_number", "Purchase Order"), F("article", "Article"), F("brand", "Brand"), F("style", "Style"), F("batch_no", "Batch No"), F("serial_no", "Serial No"), F("purchase_date", "Purchase Date", "date"),
@@ -63,7 +63,8 @@
     pay_accounts: [F("account_name", "Account Name"), F("account_number", "Account Number"), F("bank_name", "Bank Name"), F("branch_name", "Branch"), F("notes", "Notes")],
     pay_vouchers: [F("purpose", "Purpose"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
     job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife's / Husband's Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("apply_salary", "Expected Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date")],
-    stock_bills: [F("supplier_bill_no", "Bill No"), F("batch_no", "Batch No"), F("shipment_no", "System Record No"), F("shipment_date", "Shipment Date", "date"), F("total_boxes", "Total Boxes", "int"), F("notes", "Notes")]
+    stock_bills: [F("supplier_bill_no", "Bill No"), F("batch_no", "Batch No"), F("shipment_no", "System Record No"), F("shipment_date", "Shipment Date", "date"), F("total_boxes", "Total Boxes", "int"), F("notes", "Notes"),
+      F("shipping_company", "Shipping Company"), F("shipping_company_code", "Shipping Company Code")]
   };
   // Money records: their amounts and dates are not corrected (the Director deletes a wrong one and it is recorded again).
   const MONEY = ["customer_invoices", "payments_received", "credit_memos", "payslips", "pay_vouchers", "project_payments", "order_letters", "stock_bills", "stock_bill_entries"];
@@ -75,10 +76,15 @@
   const ORDER_FIELDS = { subject: "Subject", details: "Details", resolution: "Resolution / Terms", order_date: "Order Date", amount: "Amount", first_due_date: "Due Date",
     installments: "Installments", installment_amount: "Installment Amount", installment_every: "Pay", closure_reason: "Reason for Closure", adjust_type: "Adjustment",
     release_date: "Released Date", price_per_box: "Price per Box (PHP)", exchange_rate: "Exchange Rate", release_php: "Total (PHP)", release_bdt: "Released Charge (BDT)",
-    shipping_cost: "Shipping Fee (BDT)", shipping_bill_no: "Shipping Fee Receipt No" };
+    shipping_cost: "Shipping Fee (BDT)", shipping_bill_no: "Shipping Fee Receipt No", amount_bdt: "Amount (BDT)", memo_bill_id: "Pay on E-Bill" };
   const fieldLabel = (table, k) => (FIELDS[table] || []).find((f) => f.k === k)?.label || (table === "order_letters" && ORDER_FIELDS[k]) || k.replace(/_/g, " ");
-  const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v) : String(v));
-  const changeList = (table, ch, prev) => Object.keys(ch || {}).map((k) => `${fieldLabel(table, k)}: ${showVal(prev?.[k])} → ${showVal(ch[k])}`).join("; ");
+  const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v)
+    : /^\d{4}-\d\d-\d\d$/.test(v) ? mdy(v) : String(v));
+  // names: e-bill numbers by id (the e-bill a memo pays is saved as its id)
+  const changeList = (table, ch, prev, names) => Object.keys(ch || {}).map((k) => {
+    const v = (x) => (k === "memo_bill_id" ? (x ? names?.get(x) || "another e-bill" : "(none)") : showVal(x));
+    return `${fieldLabel(table, k)}: ${v(prev?.[k])} → ${v(ch[k])}`;
+  }).join("; ");
 
   function fieldInput(f, v) {
     const id = "ed_" + f.k;
@@ -112,7 +118,7 @@
     if (!fields) return toast("This record cannot be corrected.", true);
     const admin = isAdmin();
     const m = E.modal(`${admin ? "Add Correction" : "Request Correction"} — ${label}`, `
-      <div class="hint">The saved record is not edited. ${admin ? "A correction record is added" : "When the Director approves, a correction record is added"} with the new details, and the original details are kept with it.</div>
+      <div class="hint">${admin ? "The record takes the new details at once" : "When the Director approves, the record takes the new details"}. The correction itself is not kept: it leaves no history.</div>
       <div class="fields wide edit-grid">${fields.map((f) => fieldInput(f, row[f.k])).join("")}</div>
       ${MONEY.includes(table) ? `<small class="muted">Amounts and transaction dates cannot be corrected. If they are wrong, ${admin ? "delete this record" : "ask the Director to delete this record"} and record it again.</small>` : ""}
       <label class="fl" for="edReason">Reason for the correction *</label><textarea id="edReason" rows="2" placeholder="e.g. The wrong phone number was typed"></textarea>`,
@@ -129,7 +135,7 @@
       btn.disabled = false;
       if (error) return fail(error, admin ? "Could not add the correction" : "Could not send the correction");
       m.close();
-      toast(admin ? `Correction ${data.request_no} added.` : `Correction ${data.request_no} sent to the Director for approval.`);
+      toast(admin ? "Correction saved: the record shows the new details." : `Correction ${data.request_no} sent to the Director for approval.`);
       if (reload) reload();
     };
   }
@@ -139,9 +145,11 @@
     // A carried-out order letter is also undone (see undo_order in the database).
     const undo = table === "order_letters" && row.status === "applied" && row.stock_bill_id
       ? `<br><br>This Released Notice was carried out, so deleting it also <b>undoes it</b>: the e-bill goes back to SHIP, and its released date, released charge and shipping fee are removed.`
+      : table === "order_letters" && row.status === "applied" && row.memo_bill_id
+      ? `<br><br>This memo paid <b>BDT ${peso(row.amount_bdt)}</b> on E-Bill ${esc(row.stock_info?.bill_no || "")}, so deleting it also <b>removes that payment</b>: the e-bill's balance goes back up.`
       : table === "order_letters" && row.status === "applied"
       ? `<br><br>This order was carried out, so deleting it also <b>undoes it</b>: the status goes back to what it was before the order (if no later order changed it again), and a charge or settlement adjustment is removed from the balance and the statements.` : "";
-    if (!(await E.confirmBox(`Delete <b>${esc(label)}</b> permanently? It will be removed from the portal with its files and cannot be brought back.${undo}`, { title: "Delete Record", ok: "Delete", danger: true }))) return;
+    if (!(await E.confirmBox(`Delete <b>${esc(label)}</b> permanently? It will be removed from the portal with its files and its history lines, and cannot be brought back.${undo}`, { title: "Delete Record", ok: "Delete", danger: true }))) return;
     const { data: paths, error } = await sb.rpc("delete_record", { p_table: table, p_id: row.id });
     if (error) return fail(error, "Could not delete");
     const files = [...new Set((paths || []).filter(Boolean))];
@@ -169,7 +177,8 @@
     });
     $$("[data-rh]", root).forEach((el) => { const [t, id] = el.dataset.rh.split(":"); recordHistory(el, t, id); });
   }
-  // Corrections added to one record (with requests still waiting), newest first. Director only.
+  // Changes to one record (corrections still waiting, files removed, an order changed before approval), newest first.
+  // An approved correction leaves no line here (2.1). Director only.
   const rhBox = (table, id) => isAdmin() ? `<div class="rhist" data-rh="${esc(table)}:${esc(id)}" hidden></div>` : "";
   async function recordHistory(el, table, id) {
     const [done, reqs] = await Promise.all([
@@ -178,16 +187,21 @@
     ]);
     if (!el.isConnected) return;
     const why = new Map((reqs.data || []).map((r) => [r.request_no, r.reason]));
+    // a memo changed before approval: the e-bills it named, by number
+    const billIds = [...new Set((done.data || []).flatMap((r) => [r.changes?.memo_bill_id, r.previous?.memo_bill_id]).filter(Boolean))];
+    const names = new Map(billIds.length ? ((await sb.from("stock_bills").select("id, bill_no, batch_no").in("id", billIds)).data || [])
+      .map((b) => [b.id, `${b.bill_no}${b.batch_no ? ` (Batch No ${b.batch_no})` : ""}`]) : []);
+    if (!el.isConnected) return;
     const rows = [
       ...(reqs.data || []).filter((r) => r.status === "pending").map((r) => ({ at: r.created_at, no: r.request_no, st: "pending", what: "Correction request", detail: changeList(table, r.changes, r.previous), why: r.reason, by: r.requested_by_name })),
       ...(done.data || []).map((r) => r.action === "file removed"
         ? { at: r.created_at, no: "", st: "removed", what: "File removed", detail: r.previous?.file || "", why: "", by: r.actor_name }
-        : r.action === "order changed" ? { at: r.created_at, no: "", st: "changed", what: "Changed before approval", detail: changeList(table, r.changes, r.previous), why: "", by: r.actor_name }
+        : r.action === "order changed" ? { at: r.created_at, no: "", st: "changed", what: "Changed before approval", detail: changeList(table, r.changes, r.previous, names), why: "", by: r.actor_name }
         : { at: r.created_at, no: r.request_no || "", st: "approved", what: "Correction", detail: changeList(table, r.changes, r.previous), why: why.get(r.request_no) || "", by: r.actor_name })
     ];
     if (!rows.length) { el.hidden = true; return; }
     el.hidden = false;
-    el.innerHTML = `<b>Corrections</b>${E.grid({ cols: [
+    el.innerHTML = `<b>Changes</b>${E.grid({ cols: [
       { label: "Date / Time", get: (r) => E.stamp(new Date(r.at)) }, { label: "Correction No", get: (r) => r.no }, { label: "Type", html: (r) => `${esc(r.what)} ${pill(r.st)}` },
       { label: "Original → Corrected", get: (r) => r.detail || "—" }, { label: "Reason", get: (r) => r.why || "" }, { label: "By", get: (r) => r.by || "" }], rows })}`;
   }
@@ -198,20 +212,20 @@
   V.changes = async () => {
     if (!isAdmin()) { location.hash = "dashboard"; return; }
     E.shell("changes", "Corrections", `
-      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button><button type="button" data-f="log">Correction Log</button></div>
+      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button><button type="button" data-f="log">Change Log</button></div>
       <div id="crRes">${busy()}</div>`,
-      "Saved records are never edited. Employees send <b>corrections</b> (wrong details) here; <b>Approve</b> adds the correction record. Your own corrections are added straight away. Only you can see corrections.");
+      "Employees send <b>corrections</b> (wrong details) here. <b>Approve</b> puts the new details on the record, and the correction is then removed: it leaves no history. Your own corrections change the record straight away. Only you can see corrections.");
     const run = async (f) => {
       $("#crRes").innerHTML = busy();
       if (f === "log") {
         const { data, error } = await sb.from("record_changes").select("*").order("created_at", { ascending: false }).limit(500);
-        if (error) return fail(error, "Could not load the correction log");
+        if (error) return fail(error, "Could not load the change log");
         const rows = data || [];
         $("#crRes").innerHTML = E.grid({ cols: [
           { label: "Date / Time", get: (r) => E.stamp(new Date(r.created_at)) }, { label: "Record", get: (r) => `${TABLE_NAME[r.target_table] || r.target_table}: ${r.target_label || ""}` },
           { label: "Original → Corrected", get: (r) => r.action === "file removed" ? `File removed: ${r.previous?.file || ""}` : changeList(r.target_table, r.changes, r.previous) },
-          { label: "By", get: (r) => r.actor_name || "" }, { label: "Correction No", get: (r) => r.request_no || "" }], rows, empty: "No corrections yet." });
-        return E.setRecords(`Corrections: ${rows.length}`);
+          { label: "By", get: (r) => r.actor_name || "" }, { label: "Correction No", get: (r) => r.request_no || "" }], rows, empty: "No changes yet." });
+        return E.setRecords(`Changes: ${rows.length}`);
       }
       let q = sb.from("change_requests").select("*").order("created_at", { ascending: false }).limit(300);
       if (f) q = q.eq("status", f);
@@ -231,7 +245,7 @@
         b.disabled = true;
         const { error: e2 } = await sb.rpc("review_change_request", { p_id: b.dataset.cr, p_action: b.dataset.a, p_note: note });
         if (e2) { b.disabled = false; return fail(e2, "Could not update the request"); }
-        toast(b.dataset.a === "reject" ? "Request rejected." : "Approved — the correction was added to the record."); run(f); E.refreshBadge();
+        toast(b.dataset.a === "reject" ? "Request rejected." : "Approved — the record shows the new details, and the correction is removed."); run(f); E.refreshBadge();
       }));
       E.setRecords(`Requests: ${rows.length}`);
     };
@@ -485,9 +499,9 @@
   }
 
   // ======================================================================
-  // 9. Order Letter — for a customer, an employee, a billing company or an e-bill (Released Notice). Staff send a request;
-  // the Director approves it and it is carried out at once (the Director's own order is carried out straight away).
-  // Order letters are numbered EO-YYYY-MM-#### by the database.
+  // 9. Director Portal — order letters for a customer, an employee, a billing company or an e-bill (Released Notice), and
+  // memos to a company in PESOS that can pay an e-bill in BDT. Every order waits for the Director's approval and is then
+  // carried out at once. Order letters are numbered EO-YYYY-MM-#### by the database.
   // ======================================================================
   const SUBJ = {
     suspension: ["Suspension", "Suspension of Account"], closure: ["Closure", "Closure of Account"], reactivation: ["Reactivation", "Reactivation of Account"], reopen: ["Reopening", "Reopening of Account"],
@@ -516,7 +530,7 @@
       types: (st) => st === "suspended" ? ["reactivation", "termination", "memo"] : st === "terminated" ? ["memo"] : st === "waiting" ? ["termination", "memo"] : ["suspension", "termination", "memo"] },
     company: { label: "Billing Company", write: () => E.canWrite("billing"), subject: { suspension: "Suspension of Payments", reactivation: "Reactivation of Payments", memo: "Notice" },
       types: (st) => st === "suspended" ? ["reactivation", "memo"] : ["suspension", "memo"] },
-    // Released Notice: only an e-bill at SHIP can be released (Inventory), found by its batch no.
+    // Released Notice: only an e-bill at SHIP can be released (E-Bill staff), found by its batch no.
     stock_bill: { label: "E-Bill", write: () => E.canWrite("inventory"), subject: {}, types: () => ["release"] }
   };
   const rateText = (n) => Number(n || 0).toLocaleString("en-PH", { maximumFractionDigits: 4 });
@@ -560,11 +574,11 @@
   ];
   const canOrder = () => Object.values(KINDS).some((k) => k.write());
   V.orders = async () => {
-    E.shell("orders", "Order Letter", `
+    E.shell("orders", "Director Portal", `
       <div class="tabs" id="olF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="applied">Applied</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${canOrder() ? `<a class="btn primary" href="#neworder">${ic("plus")} Request Order</a>` : ""}</div>
       <div id="olRes">${busy()}</div>`,
-      "Orders for customers, employees, billing companies and e-bills (Released Notice). Employees send a request; the Director approves it and it is carried out at once.");
+      "Order letters for customers, employees, billing companies and e-bills (Released Notice), and memos to companies: a memo in PESOS can pay an e-bill in BDT. Employees send a request; the Director approves it and it is carried out at once.");
     const run = async (f) => {
       $("#olRes").innerHTML = busy();
       let q = sb.from("order_letters").select(ORDER_LIST).order("created_at", { ascending: false }).limit(1000);
@@ -603,6 +617,13 @@
     }[t] || "";
     if (kind === "company") {
       const name = w?.name || "[company]";
+      // a memo with an amount: PHP × rate = BDT, paid on the e-bill it names
+      if (t === "memo") {
+        if (!(d.memoAmt > 0)) return "";
+        const taka = Math.round(d.memoAmt * num(d.memoRate) * 100) / 100, bill = d.memoBill;
+        return `Please be informed that PHP ${peso(d.memoAmt)}${d.memoRate > 0 ? ` (BDT ${peso(taka)} at the exchange rate of BDT ${rateText(d.memoRate)} for 1 PHP)` : ""} `
+          + (bill ? `is paid to ${name} for E-Bill ${bill.bill_no}${bill.batch_no ? `, Batch No ${bill.batch_no}` : ""}.` : `is recorded for ${name}.`);
+      }
       return {
         suspension: `Please be informed that payments to ${name} are SUSPENDED effective ${when}. No new payment vouchers will be issued until the company is reactivated by an approved order.`,
         reactivation: `Please be informed that payments to ${name} are REACTIVATED effective ${when}.`
@@ -632,6 +653,12 @@
   V.neworder = async (a, b, edit = null) => {
     const allowed = Object.keys(KINDS).filter((k) => KINDS[k].write());
     if (!allowed.length && !edit) { toast("You cannot request orders.", true); location.hash = "dashboard"; return; }
+    // #neworder/memo/<e-bill id> (Memo Payment on an e-bill): a memo to the e-bill's company that pays this e-bill
+    let memoBill = null;
+    if (a === "memo" && !edit) {
+      const { data } = b ? await sb.from("stock_bills").select("id, company_id").eq("id", b).maybeSingle() : { data: null };
+      memoBill = data?.id || null; a = "company"; b = data?.company_id || null;
+    }
     let kind = edit ? kindOf(edit) : KINDS[a] ? a : "customer";
     let presetId = KINDS[a] ? b : a;
     if (!edit && !allowed.includes(kind)) { kind = allowed[0]; presetId = null; }
@@ -652,6 +679,13 @@
             <label for="noShipFile">Shipping Fee Receipt (photo or PDF)</label><input type="file" id="noShipFile" accept="image/*,application/pdf"></div>
           <div class="bdt-calc rel-calc"><small>Total (PHP)</small><span id="noRelPhp">—</span><small>Released Charge (BDT)</small><span id="noRelBdt">—</span>
             <small>Total Cost (BDT): bill + released charge + shipping fee</small><b id="noRelTotal">BDT 0.00</b><span id="noRelCalc"></span><small id="noRelWords"></small></div></div></fieldset>
+        <fieldset class="opt" id="noMemoBox" hidden><legend>Amount in PESOS → BDT</legend><div class="formgrid">
+          <div class="fields wide"><label for="noMemoAmt">Amount (PHP)</label><input type="number" id="noMemoAmt" min="0.01" step="0.01" placeholder="e.g. 10000">
+            <label for="noMemoRate">Exchange Rate (BDT for 1 PHP)</label><input type="number" id="noMemoRate" min="0.0001" step="0.0001" placeholder="e.g. 2.01">
+            <label for="noMemoBill">Pay on E-Bill</label><select id="noMemoBill"><option value="">— None: a memo only —</option></select></div>
+          <div class="bdt-calc"><small>Amount (BDT)</small><b id="noMemoBdt">BDT 0.00</b><span id="noMemoCalc">PHP × rate = BDT</span><small id="noMemoWords"></small></div></div>
+          <div class="due-info" id="noMemoInfo" hidden></div>
+          <div class="hint small">Optional. Write the amount in PESOS and the exchange rate of the day: the amount in BDT is counted for you. Choose an e-bill of this company to pay it: once the Director approves the memo, the BDT amount is paid on that e-bill and its balance goes down.</div></fieldset>
         <fieldset class="opt" id="noCloseBox" hidden><legend>Closure</legend><div class="fields wide">
           <label for="noReason">Reason for Closure *</label><select id="noReason"><option value="">— Choose the reason —</option>${CLOSE_REASONS.map((r) => `<option>${esc(r)}</option>`).join("")}</select>
           <label for="noReason2" class="noOther">Other Reason *</label><input type="text" id="noReason2" class="noOther" placeholder="Write the reason"></div></fieldset>
@@ -668,8 +702,9 @@
       </div><div class="wfoot"><button type="button" class="btn" id="noCancel">Cancel</button><button type="submit" class="btn primary" id="noSubmit">${edit ? "Save Changes" : isAdmin() ? "Submit Order" : "Send for Approval"}</button></div></form>`,
       edit ? "Change the order while it waits for approval: who it is for and the kind of order stay the same. It keeps its number and is checked again when you save."
         : "Choose who the order is for and the kind of order: the details are filled in for you. The order waits for approval, so it can still be changed (Edit Order); once the Director approves it, it is carried out at once.");
-    let who = null, due = null, dirty = false;
+    let who = null, due = null, dirty = false, subjTyped = false, memoBills = [];
     const touched = new Set();
+    const memoBillOf = () => memoBills.find((x) => x.id === $("#noMemoBill").value) || null;
     const types = () => (edit ? [edit.subject_type] : KINDS[kind].types(who?.status));
     const type = () => $("input[name=noType]:checked")?.value || types()[0];
     const bal = () => num(due?.balance_due);
@@ -691,6 +726,18 @@
         $("#noRelTotal").textContent = `BDT ${peso(total)}`;
         $("#noRelCalc").textContent = who ? `${peso(bill)} + ${peso(charge)} + ${peso(ship)} = ${peso(total)}` : "";
         $("#noRelWords").textContent = who && total ? words(total, "TAKA") : "";
+      }
+      // A memo to a company: PHP × rate = BDT, and the e-bill it pays (with its balance before and after)
+      const memo = kind === "company" && t === "memo";
+      $("#noMemoBox").hidden = !memo;
+      if (memo) {
+        const mAmt = num($("#noMemoAmt").value), mRate = num($("#noMemoRate").value), taka = Math.round(mAmt * mRate * 100) / 100, bill = memoBillOf();
+        $("#noMemoBdt").textContent = `BDT ${peso(taka)}`;
+        $("#noMemoCalc").textContent = mAmt && mRate ? `₱ ${peso(mAmt)} × ${rateText(mRate)} = BDT ${peso(taka)}` : "PHP × rate = BDT";
+        $("#noMemoWords").textContent = taka ? words(taka, "TAKA") : "";
+        $("#noMemoInfo").hidden = !bill;
+        if (bill) $("#noMemoInfo").innerHTML = `E-Bill <b>${esc(bill.bill_no)}</b>${bill.batch_no ? ` · Batch No <b>${esc(bill.batch_no)}</b>` : ""} · ${esc(E.ebillStep(bill.status))} · Total Cost <b>BDT ${peso(bill.total_bdt)}</b> · Paid BDT ${peso(bill.paid_bdt)} · Balance <b>BDT ${peso(bill.balance_bdt)}</b>${taka ? ` → after this memo <b>BDT ${peso(num(bill.balance_bdt) - taka)}</b>` : ""}`;
+        if (!edit && !subjTyped) $("#noSubj").value = bill ? `Payment for E-Bill ${bill.batch_no || bill.bill_no}` : KINDS.company.subject.memo;
       }
       const amtOn = cust && AMOUNT_TYPES.includes(t);
       $("#noAmtBox").hidden = !amtOn;
@@ -715,10 +762,11 @@
       $("#noDetailsL").textContent = t === "balance_certificate" ? "Purpose *" : "Details *";
       if (!dirty) $("#noDetails").value = wording();
     };
-    // The letter's wording for what is in the form now.
-    const wording = () => defaultDetails(kind, type(), who, { bal: bal(), days: num(due?.days_overdue), amt: num($("#noAmt").value), n: Math.floor(num($("#noN").value)),
+    // The letter's wording for what is in the form now (saved with plain spaces in its dates).
+    const wording = () => String(defaultDetails(kind, type(), who, { bal: bal(), days: num(due?.days_overdue), amt: num($("#noAmt").value), n: Math.floor(num($("#noN").value)),
       each: num($("#noInst").value), every: $("#noEvery").value, due: $("#noDue").value, date: $("#noDate").value, reason: reason(), adj: $("input[name=noAdj]:checked")?.value,
-      release: $("#noRelDate").value, ship: $("#noShipAmt").value.trim(), ppb: $("#noPpb").value, rate: $("#noRate").value });
+      release: $("#noRelDate").value, ship: $("#noShipAmt").value.trim(), ppb: $("#noPpb").value, rate: $("#noRate").value,
+      memoAmt: num($("#noMemoAmt").value), memoRate: num($("#noMemoRate").value), memoBill: memoBillOf() })).replace(/\u00a0/g, " ");
     // Changing an order: the form starts with what the order has now. Its wording keeps changing with the figures only
     // when it was not written by hand.
     let filled = false;
@@ -735,14 +783,17 @@
       }
       if (o.adjust_type) { const r = $(`input[name=noAdj][value="${o.adjust_type}"]`); if (r) r.checked = true; }
       set("noRelDate", o.release_date); set("noPpb", o.price_per_box); set("noRate", o.exchange_rate); set("noShipAmt", o.shipping_cost);
+      if (o.company_id && o.subject_type === "memo") { set("noMemoAmt", o.amount); set("noMemoRate", o.exchange_rate); }
       $("#noDetails").value = o.details || "";
       dirty = true; refresh();
       dirty = (o.details || "").trim() !== wording().trim();
       filled = true;
     };
     const showTypes = () => {
-      $("#noTypes").innerHTML = types().map((k, i) => `<label class="subj"><input type="radio" name="noType" value="${k}" ${i ? "" : "checked"}><span>${esc(SUBJ[k][0])}</span></label>`).join("");
-      const pick = () => { $("#noSubj").value = kind === "stock_bill" && who ? `RELEASED NOTICE FOR ${who.batch_no || who.bill_no}` : KINDS[kind].subject[type()] || SUBJ[type()][1]; touched.clear(); dirty = false; refresh(); };
+      // opened with Memo Payment from an e-bill: the memo is chosen
+      const first = memoBill && types().includes("memo") ? "memo" : types()[0];
+      $("#noTypes").innerHTML = types().map((k) => `<label class="subj"><input type="radio" name="noType" value="${k}" ${k === first ? "checked" : ""}><span>${esc(SUBJ[k][0])}</span></label>`).join("");
+      const pick = () => { $("#noSubj").value = kind === "stock_bill" && who ? `RELEASED NOTICE FOR ${who.batch_no || who.bill_no}` : KINDS[kind].subject[type()] || SUBJ[type()][1]; subjTyped = false; touched.clear(); dirty = false; refresh(); };
       $$("input[name=noType]").forEach((r) => (r.onchange = pick));
       if (edit) { if (!filled) prefill(); else refresh(); return; }
       pick();
@@ -769,9 +820,29 @@
         ["Total Qty", qtyText(who.total_qty)], ["Bill Cost (BDT)", peso(who.total_cost)]]
         .map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(v || "—")}</b></div>`).join("")}</div>`;
     };
+    // The e-bills of the company, for a memo that pays one (the Director, or Billing staff who write memos).
+    const loadMemoBills = async (pick) => {
+      const sel = $("#noMemoBill");
+      if (!sel) return;
+      memoBills = [];
+      sel.innerHTML = `<option value="">— None: a memo only —</option>`;
+      if (kind !== "company" || !who) return refresh();
+      const co = who.id;
+      const [{ data }, last] = await Promise.all([sb.rpc("memo_ebills", { p_company: co }),
+        edit || $("#noMemoRate").value ? { data: [] } : sb.from("order_letters").select("exchange_rate").not("exchange_rate", "is", null).order("created_at", { ascending: false }).limit(1)]);
+      if (!$("#noMemoBill") || kind !== "company" || who?.id !== co) return; // another company was chosen, or the page was left
+      memoBills = data || [];
+      sel.innerHTML = `<option value="">— None: a memo only —</option>${memoBills.map((r) => `<option value="${r.id}">${esc(`${r.batch_no ? `Batch No ${r.batch_no} — ` : ""}${r.bill_no} · ${E.ebillStep(r.status)} · balance BDT ${peso(r.balance_bdt)}`)}</option>`).join("")}`;
+      if (pick && memoBills.some((r) => r.id === pick)) sel.value = pick;
+      // the exchange rate starts as the last one used (it can be changed)
+      const lastRate = last.data?.[0]?.exchange_rate;
+      if (!$("#noMemoRate").value && lastRate) $("#noMemoRate").value = Number(lastRate);
+      refresh();
+    };
     // The customer, employee, company or e-bill the order is for.
     const showWho = async (id) => {
-      who = null; due = null; dirty = false;
+      who = null; due = null; dirty = false; memoBills = [];
+      $("#noMemoBill").innerHTML = `<option value="">— None: a memo only —</option>`;
       setCurrency(kind === "stock_bill");
       $("#noDueInfo").hidden = true;
       const box = $("#noWho");
@@ -784,8 +855,9 @@
           : kind === "employee" ? `${who.employee_no} — ${fullName(who)}` : kind === "company" ? who.name : `${fullName(who)} (${who.account_no || ""})`;
         box.innerHTML = `<div class="fields wide"><span>${esc(KINDS[kind].label)}</span><b>${esc(name)}</b></div>`;
         if (kind === "stock_bill") showBill();
-        // a customer's amount due is needed first, to tell whether the wording was written by hand
+        // a customer's amount due (or a memo's e-bill) is needed first, to tell whether the wording was written by hand
         if (kind === "customer" && who) due = (await sb.rpc("account_due", { p_customer: who.id })).data || null;
+        if (kind === "company" && edit.subject_type === "memo") await loadMemoBills(edit.memo_bill_id);
         showTypes();
         if (kind === "customer") loadDue();
         return;
@@ -842,14 +914,17 @@
         const list = (data || []).filter((r) => !(emp && r.profile_id === S.profile.id));
         box.innerHTML = `<div class="fields wide"><label for="noPick">${emp ? "Employee" : "Company"} *</label><select id="noPick"><option value="">— Choose ${emp ? "the employee" : "the company"} —</option>
           ${list.map((r) => `<option value="${r.id}" ${r.id === id ? "selected" : ""}>${esc(emp ? `${r.employee_no} — ${fullName(r)}` : r.name)} (${esc(String(r.status).toUpperCase())})</option>`).join("")}</select></div>`;
-        $("#noPick").onchange = () => { who = list.find((r) => r.id === $("#noPick").value) || null; dirty = false; showTypes(); };
+        $("#noPick").onchange = () => { who = list.find((r) => r.id === $("#noPick").value) || null; dirty = false; showTypes(); if (!emp) loadMemoBills(); };
         who = list.find((r) => r.id === id) || null;
+        if (!emp && who) loadMemoBills(memoBill);
       }
       showTypes();
     };
     $$("input[name=noKind]").forEach((r) => (r.onchange = () => { kind = r.value; showWho(null); }));
     ["noAmt", "noN", "noDue", "noInst"].forEach((id) => ($("#" + id).oninput = () => { touched.add(id); refresh(); }));
-    ["noDate", "noEvery", "noReason", "noReason2", "noRelDate", "noShipAmt", "noPpb", "noRate"].forEach((id) => ($("#" + id).oninput = refresh));
+    ["noDate", "noEvery", "noReason", "noReason2", "noRelDate", "noShipAmt", "noPpb", "noRate", "noMemoAmt", "noMemoRate"].forEach((id) => ($("#" + id).oninput = refresh));
+    $("#noMemoBill").onchange = refresh;
+    $("#noSubj").addEventListener("input", () => (subjTyped = true));
     $$("input[name=noAdj]").forEach((r) => (r.onchange = refresh));
     $("#noReason").onchange = refresh;
     $("#noDetails").oninput = () => (dirty = true);
@@ -869,6 +944,12 @@
         if (!(num($("#noRate").value) > 0)) return toast("Enter the exchange rate of today (BDT for 1 PHP).", true);
         if ($("#noShipAmt").value.trim() === "" || num($("#noShipAmt").value) < 0) return toast("Enter the shipping fee (0 if there is none).", true);
       }
+      const memo = kind === "company" && t === "memo", mAmt = num($("#noMemoAmt").value), mRate = num($("#noMemoRate").value), mBill = $("#noMemoBill").value;
+      if (memo) {
+        if ($("#noMemoAmt").value.trim() !== "" && !(mAmt > 0)) return toast("The amount must be more than 0.", true);
+        if (mBill && !(mAmt > 0)) return toast("Enter the amount in PESOS: it is paid on the e-bill.", true);
+        if (mAmt > 0 && !(mRate > 0)) return toast("Enter the exchange rate (BDT for 1 PHP).", true);
+      }
       if (cust && t === "closure" && !reason()) return toast("Choose the reason for closing the account.", true);
       const amtOn = cust && AMOUNT_TYPES.includes(t), amt = num($("#noAmt").value), n = Math.floor(num($("#noN").value));
       if (amtOn && amt <= 0) return toast("Enter the amount.", true);
@@ -880,11 +961,12 @@
       const rec = {
         order_date: $("#noDate").value || isoToday(), subject: $("#noSubj").value.trim(),
         details: $("#noDetails").value.trim(), resolution: $("#noRes").value.trim() || null,
-        amount: amtOn ? amt : null, first_due_date: amtOn ? $("#noDue").value || null : null,
+        amount: amtOn ? amt : memo && mAmt > 0 ? mAmt : null, first_due_date: amtOn ? $("#noDue").value || null : null,
         installments: t === "installment" ? n : null, installment_amount: t === "installment" && $("#noInst").value ? num($("#noInst").value) : null,
         installment_every: t === "installment" ? $("#noEvery").value : null, closure_reason: cust && t === "closure" ? reason() : null,
         adjust_type: t === "settlement" ? adj : null,
-        ...(kind === "stock_bill" ? { release_date: $("#noRelDate").value, price_per_box: num($("#noPpb").value), exchange_rate: num($("#noRate").value), shipping_cost: num($("#noShipAmt").value) } : {})
+        ...(kind === "stock_bill" ? { release_date: $("#noRelDate").value, price_per_box: num($("#noPpb").value), exchange_rate: num($("#noRate").value), shipping_cost: num($("#noShipAmt").value) } : {}),
+        ...(memo ? { exchange_rate: mAmt > 0 ? mRate : null, memo_bill_id: mBill || null } : {})
       };
       E.setBusy(e.target, true, edit ? "Saving" : "Submitting");
       const { data, error } = edit ? await sb.rpc("update_pending_order", { p_id: edit.id, p_changes: rec })
@@ -903,8 +985,9 @@
 
   // The Authorized Representative: once the Director approves, the Director's signature over the name.
   const authBlock = (approved, o, sign) => `<div class="ol-auth${sign?.pic ? " has-sig" : ""}">${sign?.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="ol-auth-name">${approved ? esc(o.approved_by_name || "") : "&nbsp;"}</div><div class="line"></div>Authorized Representative</div>`;
-  // A printed paragraph: dates (10-14-2026) and record numbers (EO-2026-10-0001, I-17) are not split over two lines.
-  const para = (s) => esc(s).replace(/\b(\d{2}-\d{2}-\d{4}|[A-Z]{1,6}(?:-\d+)+)\b/g, '<span class="nw">$1</span>').replace(/\n/g, "<br>");
+  // A printed paragraph: dates (OCTOBER 14 2026, and 10-14-2026 in letters written before 2.1) and record numbers
+  // (EO-2026-10-0001, I-17) are not split over two lines.
+  const para = (s) => esc(s).replace(/\b((?:JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER) \d{2} \d{4}|\d{2}-\d{2}-\d{4}|[A-Z]{1,6}(?:-\d+)+)\b/g, '<span class="nw">$1</span>').replace(/\n/g, "<br>");
   // The printed order, laid out like an official order: details of the order, the customer / employee /
   // company information, the order itself with what it is about (amount due, promise, installment schedule,
   // reason for closing) and the decision, then APPROVED / DISAPPROVED with the date signed and one line for
@@ -951,6 +1034,12 @@
       : t === "settlement" ? `${o.balance_due != null ? tr("Previous Balance", php(o.balance_due)) : ""}
         ${tr("Settlement Adjustment", `<b>${ADJ[o.adjust_type]?.[1] || ""} ${php(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`)}
         ${o.balance_due != null ? tr("New Balance", `<b>${php(num(o.balance_due) + (o.adjust_type === "reduce" ? -1 : 1) * num(o.amount))}</b>`) : ""}${o.first_due_date ? tr("Settle On or Before", `<b>${v(E.mdy(o.first_due_date))}</b>`) : ""}`
+      // a memo to a company: PHP × rate = BDT, and the e-bill it pays (with the balance after it, once carried out)
+      : t === "memo" && kind === "company" && o.amount != null ? `${tr("Amount (PHP)", `<b>PHP ${peso(o.amount)}</b> <small>(${esc(words(o.amount))})</small>`)}
+        ${o.exchange_rate != null ? tr("Exchange Rate", `BDT ${rateText(o.exchange_rate)} for 1 PHP`) : ""}
+        ${o.amount_bdt != null ? tr("Amount (BDT)", `<b>BDT ${peso(o.amount_bdt)}</b> <small>(PHP ${peso(o.amount)} × ${rateText(o.exchange_rate)} · ${esc(words(o.amount_bdt, "TAKA"))})</small>`) : ""}
+        ${si.bill_no ? tr("Paid on E-Bill", `<b>${esc(si.bill_no)}</b>${si.batch_no ? ` · Batch No <b>${esc(si.batch_no)}</b>` : ""}`) : ""}
+        ${si.balance_after != null ? `${tr("E-Bill Total Cost", `BDT ${peso(si.total_cost)}`)}${tr("Paid Before", `BDT ${peso(si.paid_before)}`)}${tr("Balance After This Memo", `<b>BDT ${peso(si.balance_after)}</b>`)}` : ""}`
       : o.amount != null ? tr("Amount", `PHP ${peso(o.amount)} <small>(${esc(words(o.amount))})</small>`) : "";
     const plan = t === "installment" ? schedule(num(o.amount), num(o.installments), o.first_due_date, o.installment_every, num(o.installment_amount)) : [];
     // a Released Notice: the title is only "RELEASED I-17" (the batch no), type "RELEASED NOTICE I-17"
@@ -1028,7 +1117,7 @@
   };
 
   V.order = async (id) => {
-    E.shell("order", "Order Letter", busy());
+    E.shell("order", "Director Portal", busy());
     const { data: o } = await sb.from("order_letters").select(ORDER_ALL).eq("id", id).maybeSingle();
     if (!o) { $("#main").innerHTML = `<div class="empty">Order not found. <a href="#orders">Back</a></div>`; return; }
     const att = await E.attachmentsOf("order_letter", id);
@@ -1037,6 +1126,7 @@
     const page = { customer: "customer/" + o.customer_id, employee: "employee/" + o.employee_id, company: "paycompany/" + o.company_id, stock_bill: "stockbill/" + o.stock_bill_id }[kind];
     const whoHtml = kind === "stock_bill" ? `<a href="#${page}"><b>${esc(si.bill_no || "")}</b> (${esc(si.company || "")})</a> ${w.status ? E.ebillPill(w.status) : ""}` : !w ? "—" : `<a href="#${page}"><b>${esc(kind === "company" ? w.name : fullName(w))}</b>${kind === "company" ? "" : ` (${esc(kind === "employee" ? w.employee_no : w.account_no)})`}</a> ${pill(w.status)}`;
     const closeTo = E.canOpen("orders") ? "orders" : page;
+    const memoAmt = kind === "company" && o.subject_type === "memo" && o.amount != null;
     $(".band h1").textContent = `Order — ${o.order_no}`;
     const editable = canEditOrder(o);
     const banner = {
@@ -1058,7 +1148,12 @@
               <span>Exchange Rate</span><span>BDT ${rateText(o.exchange_rate)} for 1 PHP</span><span>Released Charge</span><b>BDT ${peso(o.release_bdt)}</b>` : ""}
               <span>Bill Cost</span><span>BDT ${peso(si.bill_cost)}</span><span>Shipping Fee</span><span>BDT ${peso(o.shipping_cost)}</span>
               <span>Total Cost</span><b>BDT ${peso(num(si.bill_cost) + num(o.release_bdt) + num(o.shipping_cost))}</b>` : ""}
-            ${o.closure_reason ? `<span>Reason for Closure</span><b>${esc(o.closure_reason)}</b>` : ""}${o.amount != null ? `<span>${o.subject_type === "promise_to_pay" ? "Amount to Pay" : o.subject_type === "charge" ? "Charge Amount" : o.subject_type === "settlement" ? "Adjustment" : "Amount"}</span><b>${o.subject_type === "settlement" ? `${ADJ[o.adjust_type]?.[0] || ""} ` : ""}₱ ${peso(o.amount)}</b>` : ""}
+            ${memoAmt ? `<span>Amount (PHP)</span><b>₱ ${peso(o.amount)}</b>
+              ${o.exchange_rate != null ? `<span>Exchange Rate</span><span>BDT ${rateText(o.exchange_rate)} for 1 PHP</span>` : ""}
+              ${o.amount_bdt != null ? `<span>Amount (BDT)</span><b>BDT ${peso(o.amount_bdt)}</b>` : ""}
+              ${si.bill_no ? `<span>Pay on E-Bill</span><span>${E.canOpen("stockbill") && o.memo_bill_id ? `<a href="#stockbill/${o.memo_bill_id}"><b>${esc(si.bill_no)}</b></a>` : `<b>${esc(si.bill_no)}</b>`}${si.batch_no ? ` · Batch No ${esc(si.batch_no)}` : ""}</span>` : ""}
+              ${si.balance_after != null ? `<span>E-Bill Balance</span><span>BDT ${peso(num(si.total_cost) - num(si.paid_before))} → <b>BDT ${peso(si.balance_after)}</b> after this memo</span>` : ""}` : ""}
+            ${o.closure_reason ? `<span>Reason for Closure</span><b>${esc(o.closure_reason)}</b>` : ""}${o.amount != null && !memoAmt ? `<span>${o.subject_type === "promise_to_pay" ? "Amount to Pay" : o.subject_type === "charge" ? "Charge Amount" : o.subject_type === "settlement" ? "Adjustment" : "Amount"}</span><b>${o.subject_type === "settlement" ? `${ADJ[o.adjust_type]?.[0] || ""} ` : ""}₱ ${peso(o.amount)}</b>` : ""}
             ${["charge", "settlement"].includes(o.subject_type) && o.balance_due != null ? `<span>New Balance</span><b>₱ ${peso(num(o.balance_due) + (o.adjust_type === "reduce" ? -1 : 1) * num(o.amount))}</b>` : ""}
             ${o.installments ? `<span>Installments</span><span>${o.installments} × ₱ ${peso(o.installment_amount)}, ${esc((EVERY[o.installment_every] || EVERY.month).toLowerCase())}</span>` : ""}${o.first_due_date ? `<span>${o.subject_type === "installment" ? "First Due Date" : "Due Date"}</span><span>${mdy(o.first_due_date)}</span>` : ""}</div></div>
         <div class="letter-box"><div class="lb-h">Details</div><p>${esc(o.details || "").replace(/\n/g, "<br>")}</p>${o.resolution ? `<div class="lb-h">Resolution / Terms</div><p>${esc(o.resolution).replace(/\n/g, "<br>")}</p>` : ""}</div>
@@ -1093,7 +1188,7 @@
     "Credit Memo": ["credit_memos", "memo_no", "creditmemo"], "Statement of Account": ["statements", "statement_no", "customer", "customer_id"], "Order Letter": ["order_letters", "order_no", "order"],
     "Payment Voucher": ["pay_vouchers", "voucher_no", "voucher"], Payslip: ["payslips", "payslip_no", "payslip"], "Job Application": ["job_applications", "application_no", "jobapp"],
     Employee: ["employees", "employee_no", "employee"], Project: ["projects", "project_no", "project"], "Project Payment": ["project_payments", "payment_no", "project", "project_id"],
-    "E-Bill Statistics": ["stock_bills", "bill_no", "stockbill"], "Stock-Bill Statistics": ["stock_bills", "bill_no", "stockbill"]
+    "E-Bill": ["stock_bills", "bill_no", "stockbill"], "E-Bill Statistics": ["stock_bills", "bill_no", "stockbill"], "Stock-Bill Statistics": ["stock_bills", "bill_no", "stockbill"]
   };
   const verifyUrl = (no) => `${location.origin}${location.pathname}#verify/${encodeURIComponent(no)}`;
   V.verify = async (code) => {
@@ -1172,7 +1267,8 @@
     const who = fields.find(([k]) => ["Account Name", "Customer", "Received From", "Employee", "Name", "Applicant", "Paid To", "Account", "Company"].includes(k));
     const rest = fields.filter((f) => f !== idField);
     // the QR code checks the record again: a customer by the Public ID key, an e-bill only by its secret code
-    const key = d.type === "Customer Account" ? (fields.find(([k]) => k === "Public ID") || [])[1] : /Bill Statistics$/.test(d.type) ? (fields.find(([k]) => k === "Secret Code") || [])[1] : null;
+    const key = d.type === "Customer Account" ? (fields.find(([k]) => k === "Public ID") || [])[1]
+      : /^(E-Bill|E-Bill Statistics|Stock-Bill Statistics)$/.test(d.type) ? (fields.find(([k]) => k === "Secret Code") || [])[1] : null;
     const row = (k, v) => `<tr><th>${esc(k)}</th><td${k === "Public ID" ? ' class="key"' : ""}>${esc(v)}</td></tr>`;
     const rows = rest.map(([k, v]) => row(k, E.fixDates(plain(v)))).join("");
     const page = `<div class="vp">${E.printHead(`VERIFIED BY ${C.company.name}`)}

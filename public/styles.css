@@ -220,7 +220,7 @@ table.grid tfoot td { background: var(--grid-head); font-weight: bold; border-to
 
 .page {
   width: 210mm; max-width: 100%; min-height: 270mm; margin: 0 auto 16px;
-  background: var(--paper); color: #000; padding: 12mm 14mm;
+  background: var(--paper); color: #000; padding: 20mm 14mm 9mm;
   font: 11px/1.35 var(--font-report);
   box-shadow: 0 1px 4px rgba(0,0,0,.4);
   display: flex; flex-direction: column;
@@ -267,7 +267,7 @@ table.rp.sum { width: 75%; }
   .preview { position: static; background: #fff; padding: 0; }
   .preview .pv-title, .preview .pv-tools, .preview .statusbar { display: none; }
   .preview .pv-desk { padding: 0; overflow: visible; }
-  .page { box-shadow: none; margin: 0; page-break-after: always; min-height: 0; max-width: none; }
+  .page { box-shadow: none; margin: 0; page-break-after: always; min-height: 296mm; max-width: none; }
 }
 
 @media (max-width: 520px) {
@@ -510,9 +510,9 @@ main h3 { margin: 14px 0 6px; color: var(--title-2); }
 .ph-qr { width: 92px; height: 92px; image-rendering: pixelated; display: block; }
 .ph-bar { height: 46px; image-rendering: pixelated; display: block; }
 .ph-title { text-align: center; font: bold 16px var(--font-report); margin: 10px 0 8px; letter-spacing: .05em; }
-.pbox { border: 1px solid #000; margin-bottom: 8px; }
+.pbox { border: 1px solid #000; margin-bottom: 6px; }
 .pbox-h { background: #eee; border-bottom: 1px solid #000; padding: 3px 6px; font-weight: bold; font-size: 10px; text-transform: uppercase; }
-.pcell { padding: 4px 6px; border-bottom: 1px solid #ccc; }
+.pcell { padding: 3px 6px; border-bottom: 1px solid #ccc; }
 .pl { font-size: 8.5px; text-transform: uppercase; color: #333; }
 .pv { font-size: 11.5px; min-height: 15px; }
 .pv.words { text-transform: uppercase; text-decoration: underline; }
@@ -555,6 +555,14 @@ main h3 { margin: 14px 0 6px; color: var(--title-2); }
 /* The date the page was printed, small in the top right corner */
 .page > .pg-date { position: absolute; top: 4.5mm; right: 14mm; font-size: 8.5px; color: #333; }
 .page.a5l > .pg-date { top: 2.5mm; right: 11mm; }
+/* 2.1: the foot of every printed page: the QR of the website (13 mm, easy to scan) with its address. It stands at the
+   bottom of the page; a footer that already stands there keeps its place above it. */
+.page > .pg-web { margin-top: auto; align-self: flex-end; display: flex; align-items: center; gap: 2mm; padding-top: 2mm;
+  font-size: 7.5px; line-height: 1.3; color: #333; text-align: right; break-inside: avoid; }
+.page > .pg-web b { font-size: 8px; color: #000; letter-spacing: .02em; }
+.page > .pg-web img { display: block; width: 13mm; height: 13mm; image-rendering: pixelated; }
+.page > .rp-foot ~ .pg-web, .page > .vp-sys ~ .pg-web { margin-top: 0; }
+.page.a5l > .pg-web img { width: 12mm; height: 12mm; }
 /* Logo images keep their colours on white */
 img.co-logo, img.tb-logo-img, img.hero-logo, img.ph-logo, img.login-logo, img.drawer-logo, img.soa-logo-img { background: #fff; border-radius: 6px; }
 
@@ -749,6 +757,12 @@ a.mini-brand { color: inherit; text-decoration: none; }
 .ch-flags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .flag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 10px; background: #eaf6ea; color: var(--ok); font-size: 11px; font-weight: bold; }
 .flag .ic { width: 12px; height: 12px; stroke-width: 3; }
+/* 2.1: the customer's location check */
+.flag.muted { background: #eef0f3; color: var(--ink-soft); }
+.flag.bad { background: #fdecea; color: var(--bad); }
+.loc-pick { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-soft); }
+.loc-pick select { width: auto; padding: 2px 6px; font-size: 12px; }
+.loc-checks { flex-wrap: wrap; }
 .ch-qr { text-align: center; padding: 6px; border-radius: 10px; background: #fff; border: 1px solid var(--grid-head); }
 .ch-qr canvas { display: block; width: 116px; height: 116px; image-rendering: pixelated; }
 .ch-qr small { color: var(--ink-soft); font-size: 10px; display: block; }
@@ -909,17 +923,17 @@ main h3.sec, main h3 { display: flex; align-items: center; gap: 6px; }
 .letter-box p { margin: 4px 0 10px; line-height: 1.55; }
 .lb-h { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); }
 /* Printed order: details of order, information and order tables, APPROVED / DISAPPROVED, one authorized line */
-.ol-sec { margin: 10px 0 3px; font-size: 11.5px; font-weight: bold; letter-spacing: .04em; }
+.ol-sec { margin: 8px 0 3px; font-size: 11.5px; font-weight: bold; letter-spacing: .04em; }
 table.ol-kv { border-collapse: collapse; font-size: 11.5px; }
 .ol-kv th { padding: 1px 24px 1px 0; text-align: left; font-weight: normal; color: #333; white-space: nowrap; vertical-align: top; }
 .ol-kv td { padding: 1px 0; }
 .ol-intro { margin: 8px 0 2px; font-size: 11px; }
 table.ol-grid { width: 100%; border-collapse: collapse; font-size: 11.5px; }
-.ol-grid th, .ol-grid td { padding: 3px 7px; border: 1px solid #000; text-align: left; vertical-align: top; }
+.ol-grid th, .ol-grid td { padding: 2px 7px; border: 1px solid #000; text-align: left; vertical-align: top; }
 .ol-grid th { width: 32%; font-weight: normal; }
 .ol-grid small { color: #333; }
 .ol-grid tr.ol-dec > * { font-weight: bold; letter-spacing: .04em; }
-.ol-sign { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-top: 30px; flex-wrap: wrap; }
+.ol-sign { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-top: 16px; flex-wrap: wrap; }
 .ol-ad { font-size: 12px; font-weight: bold; }
 .ol-ad > span { display: inline-block; padding: 2px 9px; border: 2px solid transparent; border-radius: 50%; }
 .ol-ad > span.on { border-color: #000; }
@@ -1233,12 +1247,13 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
 }
 
 /* ===================== 2.0: signatures ===================== */
-/* The Director's signature on an approved document: the picture stands on the signature line. */
-.psig:has(.esig) { margin-top: 62px; }
+/* The Director's signature on an approved document: the picture stands on the signature line, above the words (2.1: it
+   no longer covers the name or the date under the line). */
+.psig:has(.esig) { margin-top: 72px; }
 .psig .sig-on { position: relative; }
-.psig .esig { position: absolute; left: 50%; bottom: calc(100% - 8px); transform: translateX(-50%); height: 15mm; max-width: 95%; object-fit: contain; }
+.psig .esig { position: absolute; left: 50%; bottom: calc(100% + 2.5mm); transform: translateX(-50%); height: 15mm; max-width: 90%; object-fit: contain; object-position: center bottom; }
 .psig.one { grid-template-columns: 1fr 1fr; }
-.ol-auth.has-sig .esig { display: block; height: 15mm; max-width: 100%; margin: 0 auto -4mm; object-fit: contain; position: relative; z-index: 2; }
+.ol-auth.has-sig .esig { display: block; height: 15mm; max-width: 90%; margin: 0 auto 2.5mm; object-fit: contain; object-position: center bottom; }
 .doccard.esigned .dc-main small { color: var(--ok); }
 
 /* Signature Verification Form */
@@ -1264,7 +1279,7 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
 .sv-status.pending b { color: #8a5a00; }
 .sv-remarks { margin: 14px 6px 8px; padding-bottom: 14px; border-bottom: 1px solid #000; font-size: 10px; }
 .pbox .psig { margin: 46px 10px 10px; }
-.pbox .psig:has(.esig) { margin-top: 62px; }
+.pbox .psig:has(.esig) { margin-top: 72px; }
 
 /* My Signature (My Profile) and the signature dialog (User) */
 .sigset { margin-top: 10px; }
@@ -1273,3 +1288,14 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
 .sig-show img, .sig-check img { max-height: 110px; max-width: 100%; object-fit: contain; }
 .sig-st { margin-bottom: 6px; }
 .fm-built { margin-bottom: 12px; }
+
+/* ===================== 2.1: the customer check, the website, new versions ===================== */
+.addr-msg.warn { background: #fff6e0; color: #8a5a00; font-weight: bold; }
+.person-check:empty { display: none; }
+.person-check { margin: 0 0 10px; }
+.person-check .grid-wrap, #rvResult .grid-wrap { margin-top: 6px; }
+.co-text a.co-site, .hero a.co-site { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.update-bar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 9999; display: flex; align-items: center; gap: 10px;
+  max-width: calc(100% - 24px); padding: 8px 12px; border-radius: 10px; background: #1f4a8c; color: #fff; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+.update-bar .ic { width: 16px; height: 16px; flex: none; }
+@media print { .update-bar { display: none !important; } }

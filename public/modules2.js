@@ -12,7 +12,7 @@
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
   const rhBox = (t, id) => (E.rhBox ? E.rhBox(t, id) : "");
   // Menu access an employee can be given (Community, Verification and Download Forms are open to everyone).
-  const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["employees", "5 Employee (HR)"], ["projects", "7 Project"], ["billing", "8 Billing"], ["orders", "9 Order Letter"], ["inventory", "10 Inventory"]];
+  const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["employees", "5 Employee (HR)"], ["projects", "7 Project"], ["billing", "8 Billing"], ["orders", "9 Director Portal"], ["inventory", "10 E-Bill"]];
   const accessText = (role, mods) => {
     if (role === "admin") return "Everything (Director)";
     const list = (mods || []).map((m) => (MODULES.find((x) => x[0] === m) || [m, m])[1]).join(", ") || "Dashboard and Community";
@@ -444,7 +444,7 @@
     const row4 = (cells) => `<tr>${cells.map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`;
     return `<div class="ja-head">
         <div class="ja-main">
-          <div class="ja-left">${E.logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</div></div></div>
+          <div class="ja-left">${E.logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}${E.siteText()}</div></div></div>
           <div class="ja-ids"><div><span>Application No</span><b>${esc(a.application_no)}</b></div><div><span>Name</span><b>${esc(a.full_name)}</b></div>
             <div><span>Phone</span><b>${esc(a.phone || "")}</b></div><div><span>Email</span><b>${esc(a.email || "")}</b></div>
             ${a.status === "approved" ? `<div class="ja-appr">( APPROVED ) ${esc(a.approval_no || "")} ${esc(E.mdy(a.approved_at))}</div>` : ""}</div></div>
@@ -462,7 +462,7 @@
       ${E.box("Position Applied For", `<div class="pgrid2">${E.cell("Position", a.position_title, "hl")}${E.cell("Company", a.company_name, "hl")}${E.cell("Monthly Salary (PHP)", a.apply_salary != null ? peso(a.apply_salary) : "")}${E.cell("Duty Hours", a.apply_duty_hours)}
         ${E.cell("Joining Date", E.mdy(a.apply_joining_date), "span2")}</div>`)}
       ${E.box("Declaration", `<p class="pdecl" style="padding:4px 6px;margin:0">I hereby declare that all the information given above is true and correct to the best of my knowledge. If any information is found to be false, my application or employment may be cancelled.</p>`)}
-      ${E.sigs("Applicant's Signature / Date", sign ? `Authorized Signature (${esc(C.company.name)})` : `Authorized Signature (${esc(C.company.name)}) / Date`, sign)}`;
+      ${E.sigs("Applicant's Signature / Date", sign ? "Authorized Signature" : `Authorized Signature (${esc(C.company.name)}) / Date`, sign)}`;
   }
   async function printJobApp(a) {
     const [photo] = await Promise.all([a.photo_path ? E.signedUrl(a.photo_path, 900) : "", E.loadSignatures()]);
@@ -532,11 +532,13 @@
     { label: "Paid (₱)", key: "total_paid", num: true, get: (r) => peso(r.total_paid) }, { label: "Remaining (₱)", key: "remaining", num: true, get: (r) => peso(r.remaining) },
     { label: "Status", html: (r) => pill(r.status) }
   ];
+  // A budget line's qty is optional: empty when it was left out.
+  const qtyOf = (l) => (l.qty == null ? "" : Number(l.qty).toLocaleString("en-PH", { maximumFractionDigits: 2 }));
   V.projects = async () => {
     E.shell("projects", "Project", `
       <div class="tabs" id="pjTabs"><button type="button" class="on" data-f="approved">Approved</button><button type="button" data-f="pending">Waiting for Approval</button><button type="button" data-f="completed">Completed</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${E.canWrite("projects") ? `<a class="btn primary" href="#newproject">+ New Project Application</a>` : ""}</div><div id="pjRes">${busy()}</div>`,
-      "Submit a project with its budget. Upload the approved document; once the Director approves it, the project moves to <b>Approved</b> and payments can be recorded against its total cost.");
+      "Submit a project with its budget: each line with its amount (the qty is optional). Once the Director approves it, the project moves to <b>Approved</b> and payments can be recorded against its total cost.");
     const run = async (f) => {
       $("#pjRes").innerHTML = busy();
       let q = sb.from("project_balances").select("*").order("created_at", { ascending: false });
@@ -564,20 +566,20 @@
           <div class="fields wide"><label for="pjStart">Start Date</label><input type="date" id="pjStart">
             <label for="pjEnd">Target End Date</label><input type="date" id="pjEnd"></div></div></fieldset>
         <fieldset class="opt"><legend>Project Budget</legend>
-          <div class="grid-scroll"><table class="grid budget"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit Cost (₱)</th><th class="num">Amount (₱)</th><th></th></tr></thead><tbody id="pjLines"></tbody>
-          <tfoot><tr><td colspan="3" class="num">Total Project Cost</td><td class="num" id="pjTotal">0.00</td><td></td></tr></tfoot></table></div>
+          <div class="hint small">Write each budget line with its amount. The qty is optional.</div>
+          <div class="grid-scroll"><table class="grid budget"><thead><tr><th>Description *</th><th class="num">Qty (optional)</th><th class="num">Amount (₱) *</th><th></th></tr></thead><tbody id="pjLines"></tbody>
+          <tfoot><tr><td colspan="2" class="num">Total Project Cost</td><td class="num" id="pjTotal">0.00</td><td></td></tr></tfoot></table></div>
           <div class="btnrow"><button type="button" class="btn" id="pjAdd">+ Add Budget Line</button></div>
           <small id="pjWords"></small></fieldset>
       </div><div class="wfoot"><a class="btn" href="#projects">Cancel</a><button type="submit" class="btn primary">Submit for Approval</button></div></form>`);
     const recalc = () => {
-      let t = 0;
-      $$("#pjLines tr").forEach((tr) => { const a = num($(".q", tr).value) * num($(".u", tr).value); $(".a", tr).textContent = peso(a); t += a; });
-      $("#pjTotal").textContent = peso(t); $("#pjWords").textContent = words(t); return t;
+      const t = Math.round($$("#pjLines .a").reduce((s, i) => s + num(i.value), 0) * 100) / 100;
+      $("#pjTotal").textContent = peso(t); $("#pjWords").textContent = t ? words(t) : ""; return t;
     };
     const addLine = () => {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td><input type="text" class="d" aria-label="Description"></td><td><input type="number" class="q" value="1" min="0" step="0.01" aria-label="Qty"></td>
-        <td><input type="number" class="u" value="0" min="0" step="0.01" aria-label="Unit cost"></td><td class="num a">0.00</td><td><button type="button" class="btn danger" aria-label="Remove line">✕</button></td>`;
+      tr.innerHTML = `<td><input type="text" class="d" aria-label="Description"></td><td><input type="number" class="q" min="0" step="0.01" placeholder="Optional" aria-label="Qty (optional)"></td>
+        <td><input type="number" class="a" min="0" step="0.01" placeholder="0.00" aria-label="Amount"></td><td><button type="button" class="btn danger" aria-label="Remove line">✕</button></td>`;
       $("#pjLines").appendChild(tr);
       $$("input", tr).forEach((i) => (i.oninput = recalc));
       $("button", tr).onclick = () => { tr.remove(); recalc(); };
@@ -587,14 +589,18 @@
       e.preventDefault();
       const title = $("#pjTitle").value.trim();
       if (!title) return toast("Enter the project title.", true);
-      const lines = $$("#pjLines tr").map((tr) => ({ description: $(".d", tr).value.trim(), qty: num($(".q", tr).value), unit_cost: num($(".u", tr).value) })).filter((l) => l.description);
-      if (!lines.length) return toast("Add at least one budget line with a description.", true);
-      const total = lines.reduce((s, l) => s + l.qty * l.unit_cost, 0);
+      const all = $$("#pjLines tr").map((tr) => ({ description: $(".d", tr).value.trim(), q: $(".q", tr).value.trim(), amount: num($(".a", tr).value) }));
+      const lines = all.filter((l) => l.description || l.q || l.amount);
+      if (!lines.length) return toast("Add at least one budget line with its description and amount.", true);
+      if (lines.some((l) => !l.description)) return toast("Write the description of each budget line.", true);
+      if (lines.some((l) => !(l.amount > 0))) return toast("Enter the amount of each budget line.", true);
+      if (lines.some((l) => l.q !== "" && !(num(l.q) > 0))) return toast("The qty must be more than 0, or leave it empty.", true);
+      const total = lines.reduce((s, l) => s + l.amount, 0);
       E.setBusy(e.target, true, "Submitting");
       const { data: pr, error } = await sb.from("projects").insert({ title, location: $("#pjLoc").value.trim() || null, description: $("#pjDesc").value.trim() || null,
         start_date: $("#pjStart").value || null, end_date: $("#pjEnd").value || null, total_cost: Math.round(total * 100) / 100 }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not submit the project"); }
-      const { error: e2 } = await sb.from("project_items").insert(lines.map((l) => ({ ...l, project_id: pr.id })));
+      const { error: e2 } = await sb.from("project_items").insert(lines.map((l) => ({ project_id: pr.id, description: l.description, qty: l.q === "" ? null : num(l.q), amount: l.amount })));
       if (e2) fail(e2, "Project saved, but the budget lines could not be saved");
       toast(`Project ${pr.project_no} submitted.`); location.hash = "project/" + pr.id;
     };
@@ -614,9 +620,9 @@
     const signed = ["approved", "completed"].includes(pr.status) && !!pr.approved_by_name;
     const printApp = () => E.openPreview(`Project ${pr.project_no}`, [`${E.printHead("PROJECT APPLICATION", `<img src="${E.pdf417DataUrl("EMONPRJ|" + pr.project_no)}" alt="" class="ph-bar"><div class="mono">${esc(pr.project_no)}</div>`)}
       ${E.box("Project", `<div class="pgrid2">${E.cell("Project Title", pr.title, "span2")}${E.cell("Location", pr.location)}${E.cell("Start / End", `${mdy(pr.start_date) || "—"} → ${mdy(pr.end_date) || "—"}`)}${E.cell("Description", pr.description, "span2")}</div>`)}
-      ${E.box("Project Budget", `<table class="rp"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit Cost</th><th class="num">Amount</th></tr></thead><tbody>
-        ${lines.map((l) => `<tr><td>${esc(l.description)}</td><td class="num">${l.qty}</td><td class="num">${peso(l.unit_cost)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
-        <tr class="grand"><td colspan="3" class="num">TOTAL PROJECT COST (₱)</td><td class="num">${peso(pr.total_cost)}</td></tr></tbody></table>
+      ${E.box("Project Budget", `<table class="rp"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Amount</th></tr></thead><tbody>
+        ${lines.map((l) => `<tr><td>${esc(l.description)}</td><td class="num">${esc(qtyOf(l))}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
+        <tr class="grand"><td colspan="2" class="num">TOTAL PROJECT COST (₱)</td><td class="num">${peso(pr.total_cost)}</td></tr></tbody></table>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(pr.total_cost))}</div></div>`)}
       ${E.sigs(`Prepared by: ${esc(pr.created_by_name || "")}`, signed ? "Approved by" : "Approved by / Date", signed ? E.approvedBy(null, pr.approved_by_name, pr.approved_at) : null)}`]);
     $(".band h1").textContent = `Project — ${pr.project_no}`;
@@ -631,7 +637,7 @@
           <div class="tile ${num(pr.remaining) > 0 ? "warn" : "ok"}"><div class="k">Remaining</div><div class="v">₱ ${peso(pr.remaining)}</div></div></div>
         <div class="docgrid">${E.docCard({ key: "prj", title: `Project Application ${pr.project_no}`, sub: "Check it, then the Director approves it in the portal", ownerType: "project", ownerId: pr.id, att, print: printApp, canUpload: false, kind: "approval", copyName: "Approved Document",
           approved: signed ? { name: pr.approved_by_name, at: pr.approved_at } : null })}</div>
-        <div><b>Project Budget</b>${E.grid({ cols: [{ label: "Description", get: (r) => r.description }, { label: "Qty", num: true, get: (r) => r.qty }, { label: "Unit Cost (₱)", num: true, get: (r) => peso(r.unit_cost) }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }], rows: lines, foot: { amount: peso(pr.total_cost) } })}</div>
+        <div><b>Project Budget</b>${E.grid({ cols: [{ label: "Description", get: (r) => r.description }, { label: "Qty", num: true, get: qtyOf }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }], rows: lines, foot: { amount: peso(pr.total_cost) } })}</div>
         ${pr.status === "pending" ? `<fieldset class="opt review"><legend>Approval</legend>
           <ol class="steps"><li><b>Check</b> the project application above (Print / Download).</li>
           ${isAdmin() ? `<li><b>Decide:</b> no signed copy is needed — your signature is printed on the project application when you approve.<div class="fields wide"><label for="pjNote">Note</label><input type="text" id="pjNote"></div>
@@ -709,11 +715,8 @@
     E.shell("billing", "Billing", `
       <div class="tiles" id="blTiles">${["Companies", "Total Paid (PHP)", "Total Paid (BDT)", "This Month (BDT)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>
       <div class="btnrow">${w ? `<a class="btn primary" href="#newvoucher">${ic("plus")} New Payment</a><a class="btn" href="#newpaycompany">${ic("plus")} Add Company</a>` : ""}</div>
-      <div class="tabs" id="blTabs"><button type="button" class="on" data-t="0">Companies</button><button type="button" data-t="1" id="blEbTab">E-Bills</button></div>
-      <div class="tabpanes" id="blPanes"><div data-p="0"><div id="blRes">${busy()}</div></div><div data-p="1" hidden><div id="blEb">${busy()}</div></div></div>`,
-      "Add a company and choose its currency: PHP, BDT, or both. <b>New Payment</b> records the amount in that currency (for both: PHP × rate = BDT) and creates a payment voucher. <b>E-Bills</b> are the e-bills from Inventory, released by an approved Released Notice; a payment can be linked to one.");
-    $$("#blTabs button").forEach((t) => (t.onclick = () => { $$("#blTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#blPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
-    if (E.loadEbills) E.loadEbills($("#blEb")).then((list) => { const t = $("#blEbTab"); if (t && list.length) t.textContent = `E-Bills (${list.length})`; });
+      <div id="blRes">${busy()}</div>`,
+      "Add a company and choose its currency: PHP, BDT, or both. <b>New Payment</b> records the amount in that currency (for both: PHP × rate = BDT) and creates a payment voucher. E-bills are paid with a memo in the Director Portal.");
     const { data, error } = await sb.from("pay_company_totals").select("*").order("name");
     if (error) return fail(error, "Could not load billing (run the 1.3 database update)");
     const rows = data || [];
@@ -812,7 +815,7 @@
       <div class="actionbar">${w && !suspended ? `<a class="btn primary" href="#newvoucher/${c.id}">${ic("plus")} New Payment</a>` : ""}<button type="button" class="btn" id="pcRecord">${ic("download")} Download Payment Record</button>
         ${w ? `<a class="btn" href="#neworder/company/${c.id}">${ic("doc")} ${suspended ? "Reactivate Company" : "Request Order"}</a>` : ""}
         <span class="grow"></span>${tools("pay_companies", c, c.name, { reload: () => V.paycompany(id), afterDelete: () => (location.hash = "billing") })}</div>
-      <div class="tabs" id="pcTabs"><button type="button" class="on" data-t="0">Payment Vouchers (${vouchers.length})</button><button type="button" data-t="1">Monthly Records (${months.length})</button><button type="button" data-t="2">Accounts (${accounts.length})</button><button type="button" data-t="3">Orders (${orders.length})</button><button type="button" data-t="4" id="pcEbTab">E-Bills</button></div>
+      <div class="tabs" id="pcTabs"><button type="button" class="on" data-t="0">Payment Vouchers (${vouchers.length})</button><button type="button" data-t="1">Monthly Records (${months.length})</button><button type="button" data-t="2">Accounts (${accounts.length})</button><button type="button" data-t="3">Orders (${orders.length})</button></div>
       <div class="tabpanes" id="pcPanes">
         <div data-p="0"><div id="pcVouchers">${E.grid({ cols: voucherCols(cur), rows: vouchers, onRow: true, foot: { amount_php: peso(c.total_php), amount_bdt: `<b class="bdt">${peso(c.total_bdt)}</b>` }, empty: "No payments yet." })}</div></div>
         <div data-p="1" hidden><div id="pcMonths">${E.grid({ cols: [{ label: "Month", get: (r) => monthLabel(r.month) }, { label: "Vouchers", num: true, get: (r) => r.count },
@@ -829,9 +832,7 @@
             { label: "", html: (r) => tools("pay_accounts", r, `${r.account_name} (${c.name})`, { reload: () => V.paycompany(id) }) }], rows: accounts, empty: "No accounts yet." })}</div>
         </div>
         <div data-p="3" hidden><div id="pcOrders">${E.ordersGrid(orders, "No orders for this company.")}</div></div>
-        <div data-p="4" hidden><div id="pcEb">${busy()}</div></div>
       </div>${rhBox("pay_companies", c.id)}`;
-    if (E.loadEbills) E.loadEbills($("#pcEb"), id).then((list) => { const t = $("#pcEbTab"); if (t && list.length) t.textContent = `E-Bills (${list.length})`; });
     $$("#pcTabs button").forEach((t) => (t.onclick = () => { $$("#pcTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#pcPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
     E.bindGrid($("#pcVouchers"), vouchers, (r) => (location.hash = "voucher/" + r.id));
     E.bindGrid($("#pcMonths"), months, (r) => printRecord(c, r.list, `For the month of ${monthLabel(r.month)}`));
@@ -874,7 +875,7 @@
     }));
   }
 
-  V.newvoucher = async (companyId, stockBillId) => {
+  V.newvoucher = async (companyId) => {
     if (!E.canWrite("billing")) { location.hash = "billing"; return; }
     E.shell("newvoucher", "Billing — New Payment", busy());
     const { data: cos, error } = await sb.from("pay_companies").select("*").order("name");
@@ -885,9 +886,7 @@
         <div class="summary-box"><div class="fields wide"><span>Voucher No</span><b>Assigned on save (BD + date + number, e.g. BD${isoToday().replace(/-/g, "")}001)</b><span>Issued By</span><b>${esc(S.profile.full_name || "")}</b></div></div>
         <fieldset class="opt"><legend>Paid To</legend><div class="fields wide">
           <label for="nvCo">Company *</label><select id="nvCo"><option value="">— Choose company —</option>${cos.map((c) => c.status === "suspended" ? `<option value="${c.id}" disabled>${esc(c.name)} (SUSPENDED)</option>` : `<option value="${c.id}" ${c.id === companyId ? "selected" : ""}>${esc(c.name)} — ${esc(CUR[curOf(c)])}</option>`).join("")}</select>
-          <label for="nvAcc">Account *</label><select id="nvAcc"><option value="">— Choose the company first —</option></select>
-          <label for="nvSb" class="nv-sb">E-Bill</label><select id="nvSb" class="nv-sb"><option value="">— None —</option></select>
-          <span class="nv-sb"></span><small class="muted nv-sb" id="nvSbInfo">Optional: link this payment to a released e-bill of this company. An e-bill is paid in BDT.</small></div></fieldset>
+          <label for="nvAcc">Account *</label><select id="nvAcc"><option value="">— Choose the company first —</option></select></div></fieldset>
         <fieldset class="opt"><legend>Amount</legend><div class="formgrid">
           <div class="fields wide">
             <label for="nvDate">Payment Date</label><input type="date" id="nvDate" value="${isoToday()}">
@@ -938,31 +937,7 @@
       $$(".nv-bdt").forEach((x) => (x.hidden = cur !== "BDT"));
       calc();
     };
-    // Released e-bills of the company, with what is still unpaid; only for a company paid in BDT.
-    let bills = [];
-    const sbInfo = () => {
-      if (!$("#nvSb")) return; // the page was left
-      const r = bills.find((x) => x.id === $("#nvSb").value);
-      const total = r ? num(r.bill_total) : 0;
-      $("#nvSbInfo").textContent = r ? `E-Bill total ${bdt(total)} · paid ${bdt(r.paid_bdt)} · balance ${bdt(total - num(r.paid_bdt))}`
-        : "Optional: link this payment to a released e-bill of this company. An e-bill is paid in BDT.";
-      if (r && !$("#nvPurpose").value.trim()) $("#nvPurpose").value = `Payment for E-Bill ${r.bill_no}`;
-    };
-    const loadSb = async (pick) => {
-      const co = $("#nvCo").value, on = !!co && curNow() !== "PHP";
-      $$(".nv-sb").forEach((x) => (x.hidden = !on));
-      bills = [];
-      $("#nvSb").innerHTML = `<option value="">— None —</option>`;
-      if (!on) return sbInfo();
-      const { data } = await sb.from("stock_bill_totals").select("id, bill_no, bill_total, paid_bdt, release_date").eq("company_id", co).in("status", ["released", "sold", "paid"]).order("release_date", { ascending: false });
-      if ($("#nvCo")?.value !== co) return; // another company was chosen, or the page was left
-      bills = data || [];
-      $("#nvSb").innerHTML = `<option value="">— None —</option>${bills.map((r) => { const bal = num(r.bill_total) - num(r.paid_bdt);
-        return `<option value="${r.id}" ${r.id === pick ? "selected" : ""}>${esc(r.bill_no)} — ${bal > 0 ? "balance " + esc(bdt(bal)) : "fully paid"}</option>`; }).join("")}`;
-      sbInfo();
-    };
-    $("#nvSb").onchange = sbInfo;
-    $("#nvCo").onchange = () => { loadAcc(); mode(); loadSb(); }; loadAcc(); mode(); loadSb(stockBillId);
+    $("#nvCo").onchange = () => { loadAcc(); mode(); }; loadAcc(); mode();
     ["nvPhp", "nvRate", "nvTaka"].forEach((i) => ($("#" + i).oninput = calc));
     $("#nvRcpt").onchange = (e) => {
       const f = e.target.files[0];
@@ -980,8 +955,7 @@
       E.setBusy(e.target, true, "Saving");
       const amounts = cur === "PHP" ? { amount_php: php } : cur === "BDT" ? { amount_bdt: taka } : { amount_php: php, exchange_rate: rate };
       const { data: v, error: err } = await sb.from("pay_vouchers").insert({ company_id: co, account_id: acc, pay_date: $("#nvDate").value || isoToday(), ...amounts,
-        purpose: $("#nvPurpose").value.trim() || null, method: $("#nvMethod").value, reference_no: $("#nvRef").value.trim() || null, notes: $("#nvNotes").value.trim() || null,
-        stock_bill_id: cur !== "PHP" && $("#nvSb").value ? $("#nvSb").value : null }).select().single();
+        purpose: $("#nvPurpose").value.trim() || null, method: $("#nvMethod").value, reference_no: $("#nvRef").value.trim() || null, notes: $("#nvNotes").value.trim() || null }).select().single();
       if (err) { E.setBusy(e.target, false); return fail(err, "Could not save the payment"); }
       if (cur === "BOTH") { try { localStorage.setItem(RATE_KEY, String(rate)); } catch (_) {} }
       const f = await E.uploadRecords("pay_voucher", v.id, "receipt", E.filesOf("nvRcpt"));
@@ -1026,7 +1000,7 @@
         <span>Account</span><span>${esc([a.account_name, a.account_number, a.bank_name, a.branch_name].filter(Boolean).join(" · ") || "—")}</span>
         <span>Date</span><span>${mdy(v.pay_date)}</span><span>Purpose</span><span>${esc(v.purpose || "—")}</span>
         <span>Method</span><span>${esc(v.method || "—")}${v.reference_no ? " · Ref " + esc(v.reference_no) : ""}</span><span>Issued By</span><span>${esc(v.created_by_name || "")}</span>
-        ${v.stock_bills ? `<span>For E-Bill</span><span><a href="#ebill/${v.stock_bills.id}"><b>${esc(v.stock_bills.bill_no)}</b></a></span>` : ""}</div>
+        ${v.stock_bills ? `<span>For E-Bill</span><span>${E.canOpen("stockbill") ? `<a href="#stockbill/${v.stock_bills.id}"><b>${esc(v.stock_bills.bill_no)}</b></a>` : `<b>${esc(v.stock_bills.bill_no)}</b>`}</span>` : ""}</div>
         <div class="amt-panel">${v.amount_php != null ? `<div class="${v.amount_bdt == null ? "hl" : ""}"><small>Amount (PHP)</small><b>₱ ${peso(v.amount_php)}</b></div>` : ""}
           ${v.exchange_rate != null ? `<div><small>Exchange Rate</small><b>× ${rateText(v.exchange_rate)}</b></div>` : ""}
           ${v.amount_bdt != null ? `<div class="hl"><small>Amount (BDT)</small><b>${bdt(v.amount_bdt)}</b></div>` : ""}<small class="muted">${esc(amountWords(v))}</small></div></div>
