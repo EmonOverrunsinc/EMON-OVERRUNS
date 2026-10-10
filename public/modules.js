@@ -619,7 +619,8 @@
   // Record numbers and codes in a typewriter font; names, dates and amounts in the normal font.
   const idBox = (label, value) => `<div class="idbox"><small>${esc(label)}</small><b class="${/^[A-Z0-9][A-Z0-9-]*\d[A-Z0-9-]*$/i.test(String(value || "")) ? "mono" : ""}">${esc(value || "—")}</b></div>`;
   const fieldLabel = (table, k) => (E.fieldLabel ? E.fieldLabel(table, k) : k.replace(/_/g, " "));
-  const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v) : String(v));
+  const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v)
+    : /^\d{4}-\d\d-\d\d$/.test(v) ? mdy(v) : String(v));
   const changeText = (r) => Object.keys(r.changes || r.previous || {}).map((k) => `${fieldLabel(r.target_table, k)}: ${showVal(r.previous?.[k])} → ${showVal(r.changes?.[k])}`).join("; ");
 
   V.customer = async (id, extra) => {
@@ -650,7 +651,8 @@
     const orderBtn = { active: "Request Order", suspended: "Reactivate Account", closed: "Reopen Account" }[c.status];
     const history = [
       ...(ev.data || []).map((r) => ({ at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
-      ...(chg.data || []).map((r) => ({ at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }))
+      ...(chg.data || []).map((r) => r.action === "correction" ? { at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }
+        : { at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.action === "file removed" ? r.previous?.file || "" : changeText(r) })
     ].sort((x, y) => String(x.at).localeCompare(String(y.at)));
     const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Orders (${orders.length})`, `Files (${att.length})`, "History"];
     $(".band h1").textContent = `Customer — ${fullName(c)}`;

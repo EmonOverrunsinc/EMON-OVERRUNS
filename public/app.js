@@ -192,6 +192,16 @@
     catch (e) { console.error(e); return false; }
   }
   function qrDataUrl(text) { const c = document.createElement("canvas"); return drawQr(c, text) ? c.toDataURL("image/png") : ""; }
+  // 2.1: the QR of the website for the foot of every printed page, made once. Error correction Q (a smudge or a fold
+  // still scans) keeps it at 29 × 29 modules, so it stays small on paper.
+  let webQrUrl = "";
+  function websiteQr() {
+    if (webQrUrl || !C.company.website) return webQrUrl;
+    const c = document.createElement("canvas");
+    try { window.bwipjs.toCanvas(c, { bcid: "qrcode", text: C.company.website, eclevel: "Q", scale: 6, padding: 2, backgroundcolor: "FFFFFF" }); webQrUrl = c.toDataURL("image/png"); }
+    catch (e) { console.error(e); }
+    return webQrUrl;
+  }
   // Try the image as-is and rotated, with a white quiet zone around it.
   async function decodeImageFile(file) {
     const url = URL.createObjectURL(file);
@@ -871,6 +881,9 @@
     // a blank form (undated) does not.
     const printed = dateTime(new Date().toISOString());
     const dated = (p) => (undated || /Date Printed|rp-stamp|Printed \d/.test(p) ? "" : `<div class="pg-date">Date Printed: ${esc(printed)}</div>`);
+    // and ends with the QR of the website (scan it to open the website)
+    const qr = websiteQr(), site = String(C.company.website || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
+    const web = qr ? `<div class="pg-web"><span>Scan to visit<br><b>${esc(site)}</b></span><img src="${qr}" alt="QR code: ${esc(site)}"></div>` : "";
     S.docTitle = document.title;
     document.title = title; // "Save as PDF" uses this as the file name
     const pv = document.createElement("div");
@@ -883,7 +896,7 @@
         <select id="pvZoom" style="width:auto"><option>50</option><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
         <button type="button" class="btn" id="pvClose">Close</button>
       </div>
-      <div class="pv-desk" id="pvDesk">${pages.map((p) => `<div class="page${cls}"><img class="wm" src="${SEAL}" alt="">${dated(p)}${p}</div>`).join("")}</div>
+      <div class="pv-desk" id="pvDesk">${pages.map((p) => `<div class="page${cls}"><img class="wm" src="${SEAL}" alt="">${dated(p)}${p}${web}</div>`).join("")}</div>
       <div class="statusbar"><span id="pvCur">Current Page No: 1</span><span>Total Page No: ${pages.length}</span><span id="pvZf">Zoom Factor: 100%</span></div>`;
     document.body.appendChild(pv);
     document.body.classList.toggle("print-a5l", size === "a5l");

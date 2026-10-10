@@ -13,6 +13,8 @@
 -- 6. Project budget: each line is its description and amount (the main figure); the qty is optional, and there is no
 --    unit cost any more.
 -- 7. A customer's LOCATION check takes the place of the address check: FOUND, NO NEED TO CHECK LOCATION or NOT FOUND.
+-- 8. A correction the Director approves changes the record and leaves no history: the request, its notices and the log
+--    line are not kept. The approved corrections kept before are removed once.
 -- Run once in the Supabase SQL Editor after 013_update_2_0.sql. It is safe to run again.
 -- =====================================================================
 
@@ -165,6 +167,7 @@ create trigger customers_location_bi before insert on public.customers for each 
 -- delete_record, undo_order, remove_attachment: what the Director deletes leaves no line in any history.
 -- verify_record: an e-bill's secret code shows what is paid, the balance and the shipping company.
 -- customer_action: the Director sets a customer's location check (found, no need to check, not found).
+-- decide_change_request: an approved correction changes the record and leaves no history.
 do $$
 declare
   -- function name, the exact old text, the new text
@@ -377,13 +380,29 @@ declare
 '],
     ['customer_action', '  values (p_id, replace(p_action, ''_'', '' ''), p_note,',
      '  values (p_id, case p_action when ''location_found'' then ''location: found'' when ''location_no_need'' then ''location: no need to check''
-    when ''location_not_found'' then ''location: not found'' else replace(p_action, ''_'', '' '') end, p_note,']
+    when ''location_not_found'' then ''location: not found'' else replace(p_action, ''_'', '' '') end, p_note,'],
+    ['decide_change_request', '    prev := public.apply_record_changes(cr.target_table, cr.target_id, cr.changes);
+    insert into public.record_changes (target_table, target_id, action, changes, previous, request_no, target_label, actor, actor_name)
+    values (cr.target_table, cr.target_id, ''correction'', cr.changes, prev, cr.request_no, cr.target_label, auth.uid(), me);
+    update public.change_requests set status = ''approved'', previous = prev, review_note = p_note, reviewed_by_name = me, reviewed_at = now()
+    where id = p_id returning * into cr;
+    if cr.requested_by is distinct from auth.uid() then
+      perform public.notify_user(cr.requested_by, ''Correction '' || cr.request_no || '' approved'', coalesce(cr.target_label, cr.target_table), public.record_link(cr.target_table, cr.target_id));
+    end if;
+',
+     '    -- 2.1: the record takes the corrected details and the correction leaves no history: the request and its notice
+    -- are removed, and no log line is written
+    prev := public.apply_record_changes(cr.target_table, cr.target_id, cr.changes);
+    delete from public.notifications where title = ''Correction request '' || cr.request_no;
+    delete from public.change_requests where id = p_id;
+    cr.status := ''approved''; cr.previous := prev; cr.review_note := p_note; cr.reviewed_by_name := me; cr.reviewed_at := now();
+']
   ];
   f record; def text; new_def text; i int;
 begin
   for f in select p.oid, p.proname from pg_proc p
            where p.pronamespace = 'public'::regnamespace and p.prokind = 'f' and pg_get_userbyid(p.proowner) = current_user
-             and p.proname in ('order_letters_before_insert', 'update_pending_order', 'carry_out_order', 'undo_order', 'delete_record', 'remove_attachment', 'stock_bill_entries_before_insert', 'stock_bills_before_insert', 'editable_columns', 'verify_record', 'customer_action')
+             and p.proname in ('order_letters_before_insert', 'update_pending_order', 'carry_out_order', 'undo_order', 'delete_record', 'remove_attachment', 'stock_bill_entries_before_insert', 'stock_bills_before_insert', 'editable_columns', 'verify_record', 'customer_action', 'decide_change_request')
   loop
     def := pg_get_functiondef(f.oid);
     new_def := def;
@@ -402,7 +421,7 @@ begin
   end loop;
 end $$;
 
--- ---------- 6. once: the "deleted" lines, and the lines and notices of records deleted before ----------
+-- ---------- 6. once: the "deleted" lines, the lines and notices of records deleted before, and approved corrections ----------
 do $$
 begin
   perform public.allow_record_change();
@@ -424,6 +443,11 @@ begin
   delete from public.stock_bill_events e where e.action = 'file removed' and e.actor in (select p.id from public.profiles p where p.role = 'admin');
   delete from public.customer_events e where e.action = 'file removed' and e.actor in (select p.id from public.profiles p where p.role = 'admin');
   delete from public.record_changes r where r.action = 'file removed' and r.actor in (select p.id from public.profiles p where p.role = 'admin');
+  -- 2.1: approved corrections leave no history: their requests, log lines and notices
+  delete from public.notifications n using public.change_requests r
+    where r.status = 'approved' and n.title in ('Correction request ' || r.request_no, 'Correction ' || r.request_no || ' approved');
+  delete from public.record_changes r where r.action = 'correction';
+  delete from public.change_requests r where r.status = 'approved';
   -- notices that open a record deleted before
   delete from public.notifications n where
        (split_part(n.link, '/', 1) = 'order' and not exists (select 1 from public.order_letters x where x.id::text = split_part(n.link, '/', 2)))

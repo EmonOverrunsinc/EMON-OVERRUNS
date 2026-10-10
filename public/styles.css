@@ -267,7 +267,7 @@ table.rp.sum { width: 75%; }
   .preview { position: static; background: #fff; padding: 0; }
   .preview .pv-title, .preview .pv-tools, .preview .statusbar { display: none; }
   .preview .pv-desk { padding: 0; overflow: visible; }
-  .page { box-shadow: none; margin: 0; page-break-after: always; min-height: 0; max-width: none; }
+  .page { box-shadow: none; margin: 0; page-break-after: always; min-height: 296mm; max-width: none; }
 }
 
 @media (max-width: 520px) {
@@ -555,6 +555,14 @@ main h3 { margin: 14px 0 6px; color: var(--title-2); }
 /* The date the page was printed, small in the top right corner */
 .page > .pg-date { position: absolute; top: 4.5mm; right: 14mm; font-size: 8.5px; color: #333; }
 .page.a5l > .pg-date { top: 2.5mm; right: 11mm; }
+/* 2.1: the foot of every printed page: the QR of the website (13 mm, easy to scan) with its address. It stands at the
+   bottom of the page; a footer that already stands there keeps its place above it. */
+.page > .pg-web { margin-top: auto; align-self: flex-end; display: flex; align-items: center; gap: 2mm; padding-top: 2mm;
+  font-size: 7.5px; line-height: 1.3; color: #333; text-align: right; break-inside: avoid; }
+.page > .pg-web b { font-size: 8px; color: #000; letter-spacing: .02em; }
+.page > .pg-web img { display: block; width: 13mm; height: 13mm; image-rendering: pixelated; }
+.page > .rp-foot ~ .pg-web, .page > .vp-sys ~ .pg-web { margin-top: 0; }
+.page.a5l > .pg-web img { width: 12mm; height: 12mm; }
 /* Logo images keep their colours on white */
 img.co-logo, img.tb-logo-img, img.hero-logo, img.ph-logo, img.login-logo, img.drawer-logo, img.soa-logo-img { background: #fff; border-radius: 6px; }
 
@@ -1239,12 +1247,13 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
 }
 
 /* ===================== 2.0: signatures ===================== */
-/* The Director's signature on an approved document: the picture stands on the signature line. */
-.psig:has(.esig) { margin-top: 62px; }
+/* The Director's signature on an approved document: the picture stands on the signature line, above the words (2.1: it
+   no longer covers the name or the date under the line). */
+.psig:has(.esig) { margin-top: 66px; }
 .psig .sig-on { position: relative; }
-.psig .esig { position: absolute; left: 50%; bottom: calc(100% - 8px); transform: translateX(-50%); height: 15mm; max-width: 95%; object-fit: contain; }
+.psig .esig { position: absolute; left: 50%; bottom: calc(100% + 1px); transform: translateX(-50%); height: 15mm; max-width: 95%; object-fit: contain; }
 .psig.one { grid-template-columns: 1fr 1fr; }
-.ol-auth.has-sig .esig { display: block; height: 15mm; max-width: 100%; margin: 0 auto -4mm; object-fit: contain; position: relative; z-index: 2; }
+.ol-auth.has-sig .esig { display: block; height: 15mm; max-width: 100%; margin: 0 auto 1mm; object-fit: contain; }
 .doccard.esigned .dc-main small { color: var(--ok); }
 
 /* Signature Verification Form */
@@ -1270,7 +1279,7 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
 .sv-status.pending b { color: #8a5a00; }
 .sv-remarks { margin: 14px 6px 8px; padding-bottom: 14px; border-bottom: 1px solid #000; font-size: 10px; }
 .pbox .psig { margin: 46px 10px 10px; }
-.pbox .psig:has(.esig) { margin-top: 62px; }
+.pbox .psig:has(.esig) { margin-top: 66px; }
 
 /* My Signature (My Profile) and the signature dialog (User) */
 .sigset { margin-top: 10px; }

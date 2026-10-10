@@ -118,7 +118,7 @@
     if (!fields) return toast("This record cannot be corrected.", true);
     const admin = isAdmin();
     const m = E.modal(`${admin ? "Add Correction" : "Request Correction"} — ${label}`, `
-      <div class="hint">The saved record is not edited. ${admin ? "A correction record is added" : "When the Director approves, a correction record is added"} with the new details, and the original details are kept with it.</div>
+      <div class="hint">${admin ? "The record takes the new details at once" : "When the Director approves, the record takes the new details"}. The correction itself is not kept: it leaves no history.</div>
       <div class="fields wide edit-grid">${fields.map((f) => fieldInput(f, row[f.k])).join("")}</div>
       ${MONEY.includes(table) ? `<small class="muted">Amounts and transaction dates cannot be corrected. If they are wrong, ${admin ? "delete this record" : "ask the Director to delete this record"} and record it again.</small>` : ""}
       <label class="fl" for="edReason">Reason for the correction *</label><textarea id="edReason" rows="2" placeholder="e.g. The wrong phone number was typed"></textarea>`,
@@ -135,7 +135,7 @@
       btn.disabled = false;
       if (error) return fail(error, admin ? "Could not add the correction" : "Could not send the correction");
       m.close();
-      toast(admin ? `Correction ${data.request_no} added.` : `Correction ${data.request_no} sent to the Director for approval.`);
+      toast(admin ? "Correction saved: the record shows the new details." : `Correction ${data.request_no} sent to the Director for approval.`);
       if (reload) reload();
     };
   }
@@ -177,7 +177,8 @@
     });
     $$("[data-rh]", root).forEach((el) => { const [t, id] = el.dataset.rh.split(":"); recordHistory(el, t, id); });
   }
-  // Corrections added to one record (with requests still waiting), newest first. Director only.
+  // Changes to one record (corrections still waiting, files removed, an order changed before approval), newest first.
+  // An approved correction leaves no line here (2.1). Director only.
   const rhBox = (table, id) => isAdmin() ? `<div class="rhist" data-rh="${esc(table)}:${esc(id)}" hidden></div>` : "";
   async function recordHistory(el, table, id) {
     const [done, reqs] = await Promise.all([
@@ -200,7 +201,7 @@
     ];
     if (!rows.length) { el.hidden = true; return; }
     el.hidden = false;
-    el.innerHTML = `<b>Corrections</b>${E.grid({ cols: [
+    el.innerHTML = `<b>Changes</b>${E.grid({ cols: [
       { label: "Date / Time", get: (r) => E.stamp(new Date(r.at)) }, { label: "Correction No", get: (r) => r.no }, { label: "Type", html: (r) => `${esc(r.what)} ${pill(r.st)}` },
       { label: "Original → Corrected", get: (r) => r.detail || "—" }, { label: "Reason", get: (r) => r.why || "" }, { label: "By", get: (r) => r.by || "" }], rows })}`;
   }
@@ -211,20 +212,20 @@
   V.changes = async () => {
     if (!isAdmin()) { location.hash = "dashboard"; return; }
     E.shell("changes", "Corrections", `
-      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button><button type="button" data-f="log">Correction Log</button></div>
+      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button><button type="button" data-f="log">Change Log</button></div>
       <div id="crRes">${busy()}</div>`,
-      "Saved records are never edited. Employees send <b>corrections</b> (wrong details) here; <b>Approve</b> adds the correction record. Your own corrections are added straight away. Only you can see corrections.");
+      "Employees send <b>corrections</b> (wrong details) here. <b>Approve</b> puts the new details on the record, and the correction is then removed: it leaves no history. Your own corrections change the record straight away. Only you can see corrections.");
     const run = async (f) => {
       $("#crRes").innerHTML = busy();
       if (f === "log") {
         const { data, error } = await sb.from("record_changes").select("*").order("created_at", { ascending: false }).limit(500);
-        if (error) return fail(error, "Could not load the correction log");
+        if (error) return fail(error, "Could not load the change log");
         const rows = data || [];
         $("#crRes").innerHTML = E.grid({ cols: [
           { label: "Date / Time", get: (r) => E.stamp(new Date(r.created_at)) }, { label: "Record", get: (r) => `${TABLE_NAME[r.target_table] || r.target_table}: ${r.target_label || ""}` },
           { label: "Original → Corrected", get: (r) => r.action === "file removed" ? `File removed: ${r.previous?.file || ""}` : changeList(r.target_table, r.changes, r.previous) },
-          { label: "By", get: (r) => r.actor_name || "" }, { label: "Correction No", get: (r) => r.request_no || "" }], rows, empty: "No corrections yet." });
-        return E.setRecords(`Corrections: ${rows.length}`);
+          { label: "By", get: (r) => r.actor_name || "" }, { label: "Correction No", get: (r) => r.request_no || "" }], rows, empty: "No changes yet." });
+        return E.setRecords(`Changes: ${rows.length}`);
       }
       let q = sb.from("change_requests").select("*").order("created_at", { ascending: false }).limit(300);
       if (f) q = q.eq("status", f);
@@ -244,7 +245,7 @@
         b.disabled = true;
         const { error: e2 } = await sb.rpc("review_change_request", { p_id: b.dataset.cr, p_action: b.dataset.a, p_note: note });
         if (e2) { b.disabled = false; return fail(e2, "Could not update the request"); }
-        toast(b.dataset.a === "reject" ? "Request rejected." : "Approved — the correction was added to the record."); run(f); E.refreshBadge();
+        toast(b.dataset.a === "reject" ? "Request rejected." : "Approved — the record shows the new details, and the correction is removed."); run(f); E.refreshBadge();
       }));
       E.setRecords(`Requests: ${rows.length}`);
     };
