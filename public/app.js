@@ -904,6 +904,59 @@
     });
   }
 
+  // ---------- scanning (the E-Portal app for Windows) ----------
+  // In the Windows app every document upload gets a Scan button: the page is scanned with the scanner of the computer
+  // (an HP printer and others), added to that upload, and saved at once where the upload saves at once (a signed
+  // copy, a requirement on a profile …). A green ✔ shows it. Photos, barcode pictures and chat files have no Scan.
+  const SCAN_SKIP = new Set(["scImg", "vfImg", "cvFile"]);
+  const SCAN_IMAGES = new Set(["sgFile", "mpSig"]); // signatures on paper are scanned too
+  const scanFits = (inp) => !SCAN_SKIP.has(inp.id) && (!inp.accept || /pdf/.test(inp.accept) || SCAN_IMAGES.has(inp.id));
+  function addScanButtons(root) {
+    if (!window.EOApp?.scan || !root?.querySelectorAll) return;
+    for (const inp of root.querySelectorAll('input[type="file"]:not([data-scan])')) {
+      inp.dataset.scan = "1";
+      if (!scanFits(inp)) continue;
+      const wrap = document.createElement("span");
+      wrap.className = "scan-wrap" + (inp.hidden ? " for-hidden" : "");
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "btn scan-btn"; btn.title = "Scan the page with the scanner of this computer";
+      btn.innerHTML = `${ic("doc")} Scan`;
+      const ok = document.createElement("span");
+      ok.className = "scan-ok"; ok.hidden = true; ok.setAttribute("role", "status");
+      inp.replaceWith(wrap);
+      wrap.append(inp, btn, ok);
+      btn.onclick = () => scanInto(inp, btn, ok);
+    }
+  }
+  async function scanInto(inp, btn, ok) {
+    const label = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = `<span class="spin sm"></span> Scanning…`;
+    try {
+      let r = await window.EOApp.scan({});
+      if (r?.error && await confirmBox(`${esc(r.error)}<br><br>Open the scanner window to choose the scanner and scan from there?`, { title: "Scan", ok: "Scanner Window" }))
+        r = await window.EOApp.scan({ dialog: true });
+      if (!r?.ok) { if (r?.error) toast(r.error, true); return; }
+      const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
+      const file = new File([bytes], r.name || `Scan_${Date.now()}.jpg`, { type: r.type || "image/jpeg" });
+      const dt = new DataTransfer();
+      if (inp.multiple) for (const f of inp.files) dt.items.add(f);
+      dt.items.add(file);
+      inp.files = dt.files;
+      const n = inp.multiple ? (Number(ok.dataset.n) || 0) + 1 : 1;
+      ok.dataset.n = n; ok.textContent = n > 1 ? `✔ ${n} pages scanned` : "✔ Scanned"; ok.hidden = false;
+      inp.dispatchEvent(new Event("change", { bubbles: true }));
+    } catch (e) {
+      toast("The scan did not work: " + (e?.message || e), true);
+    } finally {
+      if (btn.isConnected) { btn.disabled = false; btn.innerHTML = label; }
+    }
+  }
+  if (window.EOApp?.scan) {
+    new MutationObserver((list) => { for (const m of list) for (const n of m.addedNodes) if (n.nodeType === 1) addScanButtons(n.matches('input[type="file"]') ? n.parentNode : n); })
+      .observe(document.body, { childList: true, subtree: true });
+    addScanButtons(document.body);
+  }
+
   // ---------- report preview window ----------
   // size: "" (A4 portrait), "landscape" (A4 landscape) or "a5l" (A5 landscape slip).
   function openPreview(title, pages, { landscape = false, size = "", undated = false } = {}) {

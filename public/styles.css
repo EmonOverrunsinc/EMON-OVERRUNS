@@ -1299,3 +1299,10 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
   max-width: calc(100% - 24px); padding: 8px 12px; border-radius: 10px; background: #1f4a8c; color: #fff; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
 .update-bar .ic { width: 16px; height: 16px; flex: none; }
 @media print { .update-bar { display: none !important; } }
+
+/* 2.1: the Scan button of the Windows app, next to a document upload */
+.scan-wrap { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.scan-wrap > input[type="file"] { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.scan-wrap.for-hidden { display: inline-flex; }
+.scan-btn .ic { width: 15px; height: 15px; }
+.scan-ok { color: var(--ok); font-weight: bold; font-size: 12px; white-space: nowrap; }

@@ -10,6 +10,14 @@ An Electron window with the E-Portal:
 - The camera (scanning codes) and the clipboard are allowed for the E-Portal only.
 - Without internet it shows a page that tries again by itself.
 - Only one copy of the app runs at a time, and it remembers its window size.
+- **Scanning (1.4)**: every document upload of the E-Portal (signed copies, requirements, receipts, e-bill files,
+  signatures, forms) has a **Scan** button. It scans the page with the scanner of the computer (an HP Smart printer or
+  any scanner Windows knows, by USB cable or on the same Wi-Fi) and puts it in that upload; where the upload saves at
+  once it is saved, and a green ✔ shows it. Nothing else is installed: the app uses the Windows scanner driver
+  (Windows Image Acquisition, through PowerShell). **Scanner › Choose Scanner…** picks the scanner when there is more
+  than one; **Scanner › Colour 200 dpi / Grey 200 dpi / Colour 300 dpi** sets the quality. When a scan does not work,
+  the E-Portal offers the scanner window, where the scanner, colour and size can be chosen. In a browser or on a phone
+  there is no Scan button (a website cannot reach a scanner).
 
 The Setup program installs for the signed-in Windows user, with no administrator rights. It adds Start menu and
 desktop shortcuts, and an uninstaller in **Settings › Apps**.

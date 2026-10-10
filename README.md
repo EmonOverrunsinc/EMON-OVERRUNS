@@ -103,6 +103,8 @@ before upload) and a custom domain for the database address.
 
 ## Apps for Windows and Android
 - **Windows 11**: `EMON-OVERRUNS-E-Portal-Setup-<version>.exe` installs the E-Portal as an app, with a desktop shortcut.
+  From version 1.4 it scans with the computer's scanner (HP Smart printers and others): a **Scan** button stands beside
+  every document upload, the scanned page is uploaded, and a green ✔ shows it.
 - **Android**: `EMON-OVERRUNS-E-Portal-<version>.apk` opens the E-Portal full screen in Chrome.
 - How they are built and signed: [apps/README.md](apps/README.md).
 
