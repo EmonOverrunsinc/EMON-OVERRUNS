@@ -295,11 +295,31 @@
     return data;
   }
 
+  // ---------- the customer check (one person, one account) ----------
+  // A Facebook link (facebook.com, m.facebook.com, fb.com …); only these open as a link.
+  const FB_LINK = /^(https?:\/\/)?((www|m|web|mbasic|touch|mobile)\.)?(facebook\.com|fb\.com|fb\.me)\/\S+$/i;
+  const fbLinkHtml = (u) => (u && FB_LINK.test(u) ? `<a href="${esc(/^https?:\/\//i.test(u) ? u : "https://" + u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a>` : "");
+  // Why a match stops the application (the database says the same when the form is sent).
+  const blockReason = (r) => `This person cannot open an account: ${/Facebook link/.test(r.matched_on || "")
+    ? `the same Facebook link is on account ${r.account_no || ""} (${String(r.status || "").toUpperCase()})`
+    : `account ${r.account_no || ""} with the same ${r.matched_on} was CLOSED`}.`;
+  // The accounts that may be the same person: BLOCKED (the same Facebook link, or the same name or Facebook name as a
+  // CLOSED account), or only similar (the same name or Facebook name as an open account).
+  function personCheckHtml(rows) {
+    if (!rows.length) return "";
+    const first = rows.find((r) => r.blocked);
+    const head = first ? `<div class="addr-msg bad">✖ BLOCKED — ${esc(blockReason(first))}</div>`
+      : `<div class="addr-msg warn">⚠ ${rows.length} account(s) with the same name or Facebook name. Check that it is not the same person.</div>`;
+    return head + E.grid({ cols: [{ label: "Account No", get: (r) => r.account_no || "" }, { label: "Name", get: fullName }, { label: "Facebook Name", get: (r) => r.facebook_name || "" },
+      { label: "Status", html: (r) => pill(r.status) }, { label: "Same", get: (r) => r.matched_on || "" },
+      { label: "Check", html: (r) => (r.blocked ? `<b class="bad-txt">BLOCKED</b>` : "Similar") }], rows });
+  }
+
   // ---------- print helpers ----------
   function printHead(title, rightHtml = "") {
     return `<div class="ph">
       <div class="ph-left">${E.logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div>
-        <div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</div></div></div>
+        <div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}${E.siteText()}</div></div></div>
       <div class="ph-right">${rightHtml}</div></div>
       <div class="ph-title">${esc(title)}</div>`;
   }
@@ -333,7 +353,7 @@
     const today = `${new Date().toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(isoToday())}`;
     E.shell("dashboard", "Dashboard", `
       <section class="hero">${E.logoHtml("hero-logo")}<div>
-        <h2>${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span></h2><p>${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</p>
+        <h2>${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span></h2><p>${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}${E.siteLink()}</p>
         <p class="welcome">Welcome, <b>${esc(myName())}</b> (${esc(E.personTitle(S.profile.role, S.position).toUpperCase())}) · ${esc(today)}</p></div></section>
       ${isAdmin() ? `<div class="todo" id="dTodo"></div>` : ""}
       ${H("customers") ? `<div class="tiles" id="dTiles">${["Active Customers", "Applications to Review", "Balance Due (₱)", "Payments This Month (₱)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>` : ""}
@@ -484,6 +504,7 @@
               <label for="ncPhoto">Profile Photo</label><input type="file" id="ncPhoto" accept="image/*">
               <span></span><div id="ncPhotoPrev" class="photo-prev">No photo</div>
             </div></div></fieldset>
+          <div id="ncCheck" class="person-check" aria-live="polite"></div>
           <fieldset class="opt"><legend>Full Address</legend>
             <div class="fields wide"><label for="ncAddr">Address *</label><input type="text" id="ncAddr" required placeholder="House no, street, barangay, city, province">
               <span>Location *</span><div class="checks loc-checks">${Object.entries(LOCATION).map(([k, l]) => `<label><input type="radio" name="ncLoc" value="${k}"> ${esc(l)}</label>`).join("")}</div>
@@ -498,10 +519,11 @@
           </div></fieldset>
           <fieldset class="opt"><legend>Facebook</legend><div class="fields wide">
             <label for="ncFb">Facebook Name</label><input type="text" id="ncFb">
+            <label for="ncFbLink">Facebook Account Link</label><input type="url" id="ncFbLink" inputmode="url" autocomplete="off" placeholder="https://www.facebook.com/…">
             <span>Additional Facebook Account?</span><div class="checks"><label><input type="radio" name="ncFbx" value="no" checked> No</label><label><input type="radio" name="ncFbx" value="yes"> Yes</label></div>
             <label for="ncFb2" class="fb2" hidden>Additional Facebook Name</label><input type="text" id="ncFb2" class="fb2" hidden>
             <span>Facebook Account</span><div class="checks"><label><input type="radio" name="ncFbv" value="no" checked> Not Verified</label><label><input type="radio" name="ncFbv" value="yes"> Verified</label></div>
-          </div></fieldset>
+          </div><small>Facebook Account Link is optional: copy the link of the customer's Facebook profile. One person can have only one account: a person whose account was CLOSED, or whose Facebook link is already on another account, cannot open an account.</small></fieldset>
           <fieldset class="opt"><legend>Requirements</legend>
             <div class="fields wide">${fileField("ncReq", "Upload Requirements", 'multiple accept="image/*,application/pdf"')}</div>
             <small>Valid ID, business permit, proof of address, or any other requirement. You can add more later from the customer profile.</small></fieldset>
@@ -520,6 +542,21 @@
     };
     ["ncFirst", "ncLast"].forEach((k) => ($("#" + k).oninput = () => { clearTimeout(pvTimer); pvTimer = setTimeout(preview, 300); }));
     preview();
+    // The customer check while the name and Facebook are typed: the same person cannot open a second account.
+    let ckTimer = null, ckSeq = 0, blockedWhy = "";
+    const personCheck = async () => {
+      const my = ++ckSeq;
+      const first = $("#ncFirst")?.value.trim() || "", last = $("#ncLast")?.value.trim() || "", fb = $("#ncFb")?.value.trim() || "", link = $("#ncFbLink")?.value.trim() || "";
+      const fb2 = $("input[name=ncFbx]:checked")?.value === "yes" ? $("#ncFb2").value.trim() : "";
+      if (!(first && last) && !fb && !fb2 && !link) { blockedWhy = ""; if ($("#ncCheck")) $("#ncCheck").innerHTML = ""; return; }
+      const { data, error } = await sb.rpc("customer_person_check", { p_first: first, p_last: last, p_fb_name: fb || null, p_fb_extra: fb2 || null, p_fb_link: link || null });
+      if (my !== ckSeq || !$("#ncCheck")) return;
+      const rows = error ? [] : data || []; // a failed check is made again by the database when the form is sent
+      blockedWhy = rows.find((r) => r.blocked) ? blockReason(rows.find((r) => r.blocked)) : "";
+      $("#ncCheck").innerHTML = personCheckHtml(rows);
+    };
+    ["ncFirst", "ncLast", "ncFb", "ncFb2", "ncFbLink"].forEach((k) => $("#" + k).addEventListener("input", () => { clearTimeout(ckTimer); ckTimer = setTimeout(personCheck, 400); }));
+    $$("input[name=ncFbx]").forEach((r) => r.addEventListener("change", () => { clearTimeout(ckTimer); ckTimer = setTimeout(personCheck, 100); }));
     $$("input[name=ncFbx]").forEach((r) => (r.onchange = () => $$(".fb2").forEach((x) => (x.hidden = r.value !== "yes" || !r.checked))));
     $("#ncPhoto").onchange = (e) => {
       const f = e.target.files[0];
@@ -535,6 +572,8 @@
       if (!v("ncAddr")) return toast("Enter the full address.", true);
       const loc = $("input[name=ncLoc]:checked")?.value;
       if (!loc) return toast("Choose the location: FOUND, NO NEED TO CHECK LOCATION or NOT FOUND.", true);
+      if (v("ncFbLink") && !FB_LINK.test(v("ncFbLink"))) return toast("Enter the Facebook account link, for example https://www.facebook.com/name — or leave it empty.", true);
+      if (blockedWhy) return toast(blockedWhy, true);
       if (num(v("ncCredit")) < 0 || num(v("ncOpen")) < 0) return toast("The credit limit and opening balance cannot be negative.", true);
       const extra = $("input[name=ncFbx]:checked").value === "yes";
       if (extra && !v("ncFb2")) return toast("Enter the additional Facebook name, or choose No.", true);
@@ -552,7 +591,7 @@
         location_check: loc, address_verified: loc === "found",
         credit_limit: v("ncCredit") ? num(v("ncCredit")) : null, opening_balance: num(v("ncOpen")) || 0,
         business_start_date: v("ncStart") || null, business_name: v("ncBiz") || null,
-        facebook_name: v("ncFb") || null, has_extra_facebook: extra, extra_facebook_name: extra ? v("ncFb2") : null,
+        facebook_name: v("ncFb") || null, facebook_link: v("ncFbLink") || null, has_extra_facebook: extra, extra_facebook_name: extra ? v("ncFb2") : null,
         facebook_verified: $("input[name=ncFbv]:checked").value === "yes", phone: v("ncPhone"), email: v("ncEmail") || null
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not submit the application"); }
@@ -586,6 +625,7 @@
       ${box("Business & Facebook", `<div class="pgrid2">
         ${cell("Business Start Date", mdy(c.business_start_date), "span2")}
         ${cell("Facebook Name", c.facebook_name)}${cell("Facebook Account", c.facebook_verified ? "VERIFIED" : "NOT VERIFIED")}
+        ${c.facebook_link ? cell("Facebook Account Link", c.facebook_link, "span2") : ""}
         ${c.has_extra_facebook ? cell("Additional Facebook", "YES — " + (c.extra_facebook_name || ""), "span2") : ""}</div>`)}
       ${box("Requirements Submitted", `<div class="pv" style="padding:6px">${reqs.length ? reqs.map((r) => "☑ " + esc(r.file_name)).join("<br>") : "None uploaded yet"}</div>`)}
       ${box("For Office Use", `<div class="pgrid2">${cell("Issued By", c.issued_by_name)}${cell("Status", c.status.toUpperCase())}
@@ -756,11 +796,12 @@
       ["Full Address", c.address], ["Location", LOCATION[locOf(c)]],
       ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], ["Opening Balance", "₱ " + peso(c.opening_balance)],
       ["Business Name", c.business_name], ["Business Start Date", mdy(c.business_start_date)],
-      ["Facebook Name", c.facebook_name], ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
+      ["Facebook Name", c.facebook_name], ["Facebook Account Link", c.facebook_link, fbLinkHtml(c.facebook_link)],
+      ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
       ["Facebook Account", c.facebook_verified ? "✔ VERIFIED" : "✖ NOT VERIFIED"],
       ["Application Date", mdy(c.application_date)], ["Issued By", c.issued_by_name], ["Account Status", c.status.toUpperCase()], ["Status Note", c.status_note]
     ];
-    return `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
+    return `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v, html]) => `<tr><th scope="row">${esc(k)}</th><td>${html || esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
   }
 
   // The Director sets the location check: found, no need to check, or not found.
@@ -774,7 +815,7 @@
   function reviewPanel(c, signed) {
     return `<fieldset class="opt review"><legend>Director's Review — ${esc(c.application_no)}</legend>
       <ol class="steps">
-        <li><b>Check records:</b> look for the same name, phone, email or Facebook name already in the database.
+        <li><b>Check records:</b> look for the same name, Facebook name or Facebook link in other accounts. A person whose account was CLOSED, or whose Facebook link is already on another account, cannot open an account.
           <div class="btnrow"><button type="button" class="btn primary" id="rvCheck">Check &amp; Verify</button>
           <button type="button" class="btn" id="rvFb">${c.facebook_verified ? "Mark Facebook NOT verified" : "Mark Facebook verified"}</button>
           ${locSelect(c, "rvLoc")}</div><div id="rvResult">${c.status === "verified" ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
@@ -802,10 +843,13 @@
       if (!data.length) {
         out.innerHTML = `<div class="addr-msg ok">✔ VERIFICATION SUCCESSFUL — no matching record found.</div>`;
         await verify();
+      } else if (data.some((r) => r.blocked)) {
+        out.innerHTML = personCheckHtml(data);
+        E.bindGrid(out, data, (r) => window.open("#customer/" + r.id, "_blank"));
       } else {
-        out.innerHTML = `<div class="addr-msg bad">✖ ${data.length} similar record(s) found. Check before approving:</div>` +
+        out.innerHTML = `<div class="addr-msg warn">⚠ ${data.length} account(s) with the same name or Facebook name. Check that it is not the same person:</div>` +
           E.grid({ cols: [{ label: "Account No", get: (r) => r.account_no }, { label: "Name", get: fullName }, { label: "Phone", get: (r) => r.phone || "" }, { label: "Status", html: (r) => pill(r.status) }, { label: "Matched On", get: (r) => (r.matched_on || "").replace(/\b\w/g, (x) => x.toUpperCase()) }], rows: data, onRow: true })
-          + `<div class="btnrow"><button type="button" class="btn" id="rvAnyway">Not a duplicate — Verify anyway</button></div>`;
+          + `<div class="btnrow"><button type="button" class="btn" id="rvAnyway">Not the same person — Verify anyway</button></div>`;
         E.bindGrid(out, data, (r) => window.open("#customer/" + r.id, "_blank"));
         $("#rvAnyway").onclick = async () => { await verify(); out.insertAdjacentHTML("beforeend", `<div class="addr-msg ok">✔ Verified by the Director.</div>`); };
       }
@@ -907,7 +951,7 @@
     const rows = txns.map((x) => { bal += x.debit - x.credit; return { ...x, bal }; });
     const deb = txns.reduce((s, x) => s + x.debit, 0), cre = txns.reduce((s, x) => s + x.credit, 0);
     const closing = p.closing ?? (p.opening + deb - cre);
-    const head = `<div class="soa-logo">${E.logoHtml("soa-logo-img")}<div class="soa-co">${esc(C.company.name)}</div><div class="soa-addr">${esc(C.company.address.join(", "))} · ${esc(C.company.email)} · ${esc(C.company.phone)}</div></div>
+    const head = `<div class="soa-logo">${E.logoHtml("soa-logo-img")}<div class="soa-co">${esc(C.company.name)}</div><div class="soa-addr">${esc(C.company.address.join(", "))} · ${esc(C.company.email)} · ${esc(C.company.phone)}${E.siteText()}</div></div>
       <div class="ph-title">STATEMENT OF ACCOUNT</div>
       <div class="soa-top"><div class="soa-cust"><b>${esc(fullName(c).toUpperCase())}</b></div>
         <div class="soa-acct"><span>Statement No :</span><b>${esc(p.no || "—")}</b><span>Account No :</span><b>${esc(c.account_no)}</b>

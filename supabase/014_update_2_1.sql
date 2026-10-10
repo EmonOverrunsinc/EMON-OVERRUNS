@@ -15,6 +15,8 @@
 -- 7. A customer's LOCATION check takes the place of the address check: FOUND, NO NEED TO CHECK LOCATION or NOT FOUND.
 -- 8. A correction the Director approves changes the record and leaves no history: the request, its notices and the log
 --    line are not kept. The approved corrections kept before are removed once.
+-- 9. The customer check: the Facebook link of a customer, and the same person cannot open a second account (the same
+--    Facebook link as another account, or the same name or Facebook name as a CLOSED account).
 -- Run once in the Supabase SQL Editor after 013_update_2_0.sql. It is safe to run again.
 -- =====================================================================
 
@@ -158,6 +160,122 @@ revoke execute on function public.customers_location_before_insert() from public
 drop trigger if exists customers_location_bi on public.customers;
 create trigger customers_location_bi before insert on public.customers for each row execute function public.customers_location_before_insert();
 
+-- ---------- 4c. the customer check: the same person cannot open a second account ----------
+-- A customer can have the link of their Facebook account. The check looks only at the name, the Facebook name and the
+-- Facebook link (not the address, phone or email). BLOCKED: the same Facebook link as another account (one that was not
+-- rejected), or the same name or Facebook name as a CLOSED account. The same name as an open account is only a warning
+-- (two people can have the same name).
+alter table public.customers add column if not exists facebook_link text;
+
+-- A Facebook link made comparable, whatever way it was copied (https://, www., m., fb.com, a slash at the end, ?… after
+-- it): id:<number> for a numeric profile, u:<username>, p:<path> for a share link or page, x:<link> for any other site.
+-- Empty when there is no link.
+create or replace function public.facebook_key(p_link text) returns text
+language sql immutable set search_path = '' as $$
+  select case
+    when raw = '' then null
+    -- a link of another website: compared as it is
+    when not fb and raw ~ '[/:]' then 'x:' || regexp_replace(raw, '/+$', '')
+    when p ~ '^profile\.php$' then 'id:' || nullif(substring(q from '(?:^|&)id=([0-9]+)'), '')
+    when p ~ '^people/[^/]+/[0-9]+' then 'id:' || substring(p from '^people/[^/]+/([0-9]+)')
+    when split_part(p, '/', 1) ~ '^[0-9]+$' then 'id:' || split_part(p, '/', 1)
+    when split_part(p, '/', 1) in ('share', 'p', 'pages', 'groups', 'people', 'story.php', 'permalink.php', 'photo.php') then 'p:' || p
+    when p = '' then null
+    else 'u:' || split_part(p, '/', 1) end
+  from (select raw, fb, regexp_replace(split_part(k, '?', 1), '/+$', '') as p, coalesce(substring(k from '\?(.*)$'), '') as q
+        from (select raw, fb, case when fb then regexp_replace(raw, '^(https?://)?((www|m|web|mbasic|touch|mobile)\.)?(facebook\.com|fb\.com|fb\.me)(/|$)', '')
+                                   else ltrim(raw, '@') end as k
+              from (select raw, raw ~ '^(https?://)?((www|m|web|mbasic|touch|mobile)\.)?(facebook\.com|fb\.com|fb\.me)(/|$)' as fb
+                    from (select regexp_replace(lower(trim(coalesce(p_link, ''))), '#.*$', '') as raw) r0) r1) r2) r3;
+$$;
+
+-- Every account that may be the same person (internal: used by the checks below).
+create or replace function public.customer_matches(p_first text, p_last text, p_fb_name text, p_fb_extra text, p_fb_link text, p_except uuid default null)
+returns table (id uuid, account_no text, first_name text, last_name text, phone text, email text, facebook_name text, facebook_link text,
+  status text, matched_on text, blocked boolean)
+language sql stable security definer set search_path = '' as $$
+  with me as (
+    select lower(regexp_replace(trim(coalesce(p_first, '')), '\s+', ' ', 'g')) as f, lower(regexp_replace(trim(coalesce(p_last, '')), '\s+', ' ', 'g')) as l,
+      array_remove(array[nullif(lower(regexp_replace(trim(coalesce(p_fb_name, '')), '\s+', ' ', 'g')), ''),
+                         nullif(lower(regexp_replace(trim(coalesce(p_fb_extra, '')), '\s+', ' ', 'g')), '')], null) as fb,
+      public.facebook_key(p_fb_link) as k)
+  select o.id, o.account_no, o.first_name, o.last_name, o.phone, o.email, o.facebook_name, o.facebook_link, o.status,
+    concat_ws(', ', case when x.by_name then 'name' end, case when x.by_fb then 'Facebook name' end, case when x.by_link then 'Facebook link' end),
+    (x.by_link and o.status <> 'rejected') or ((x.by_name or x.by_fb) and o.status = 'closed')
+  from public.customers o cross join me
+  cross join lateral (select
+      me.f <> '' and me.l <> '' and lower(regexp_replace(trim(o.first_name), '\s+', ' ', 'g')) = me.f
+        and lower(regexp_replace(trim(o.last_name), '\s+', ' ', 'g')) = me.l as by_name,
+      cardinality(me.fb) > 0 and array_remove(array[nullif(lower(regexp_replace(trim(coalesce(o.facebook_name, '')), '\s+', ' ', 'g')), ''),
+        nullif(lower(regexp_replace(trim(coalesce(o.extra_facebook_name, '')), '\s+', ' ', 'g')), '')], null) && me.fb as by_fb,
+      me.k is not null and public.facebook_key(o.facebook_link) = me.k as by_link) x
+  where (p_except is null or o.id <> p_except) and (x.by_name or x.by_fb or x.by_link)
+  order by 11 desc, o.created_at;
+$$;
+revoke execute on function public.customer_matches(text, text, text, text, text, uuid) from public, anon, authenticated;
+
+-- Why this person cannot open an account (empty when they can).
+create or replace function public.customer_block_reason(p_first text, p_last text, p_fb_name text, p_fb_extra text, p_fb_link text, p_except uuid default null)
+returns text language sql stable security definer set search_path = '' as $$
+  select 'This person cannot open an account: ' || case
+      when m.matched_on like '%Facebook link%' then 'the same Facebook link is on account ' || coalesce(m.account_no, '') || ' (' || upper(m.status) || ')'
+      else 'account ' || coalesce(m.account_no, '') || ' with the same ' || m.matched_on || ' was CLOSED' end || '.'
+  from public.customer_matches(p_first, p_last, p_fb_name, p_fb_extra, p_fb_link, p_except) m
+  where m.blocked limit 1;
+$$;
+revoke execute on function public.customer_block_reason(text, text, text, text, text, uuid) from public, anon, authenticated;
+
+-- The check of a saved application (Check & Verify): the Director, or staff who add customers.
+drop function if exists public.customer_duplicates(uuid);
+create function public.customer_duplicates(p_id uuid)
+returns table (id uuid, account_no text, first_name text, last_name text, phone text, email text, facebook_name text, facebook_link text,
+  status text, matched_on text, blocked boolean)
+language sql stable security definer set search_path = '' as $$
+  select m.* from public.customers c
+  cross join lateral public.customer_matches(c.first_name, c.last_name, c.facebook_name, c.extra_facebook_name, c.facebook_link, c.id) m
+  where c.id = p_id and (public.is_admin() or public.can_write('customers'));
+$$;
+revoke execute on function public.customer_duplicates(uuid) from public, anon;
+grant execute on function public.customer_duplicates(uuid) to authenticated;
+
+-- The same check while a new application is typed (before it is saved).
+create or replace function public.customer_person_check(p_first text, p_last text, p_fb_name text, p_fb_extra text, p_fb_link text)
+returns table (id uuid, account_no text, first_name text, last_name text, phone text, email text, facebook_name text, facebook_link text,
+  status text, matched_on text, blocked boolean)
+language sql stable security definer set search_path = '' as $$
+  select m.* from public.customer_matches(p_first, p_last, p_fb_name, p_fb_extra, p_fb_link) m
+  where public.is_admin() or public.can_write('customers');
+$$;
+revoke execute on function public.customer_person_check(text, text, text, text, text) from public, anon;
+grant execute on function public.customer_person_check(text, text, text, text, text) to authenticated;
+
+-- A new application of a person who cannot open an account is refused.
+create or replace function public.customers_check_person() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare why text;
+begin
+  new.facebook_link := nullif(trim(new.facebook_link), '');
+  why := public.customer_block_reason(new.first_name, new.last_name, new.facebook_name, new.extra_facebook_name, new.facebook_link, new.id);
+  if why is not null then raise exception '%', why; end if;
+  return new;
+end;
+$$;
+revoke execute on function public.customers_check_person() from public, anon, authenticated;
+drop trigger if exists customers_check_person_bi on public.customers;
+create trigger customers_check_person_bi before insert on public.customers for each row execute function public.customers_check_person();
+
+-- (customer_action, in the block below, checks again before an application is verified or approved)
+create or replace function public.customer_raise_if_blocked(p_id uuid) returns void
+language plpgsql stable security definer set search_path = '' as $$
+declare why text;
+begin
+  select public.customer_block_reason(c.first_name, c.last_name, c.facebook_name, c.extra_facebook_name, c.facebook_link, c.id) into why
+  from public.customers c where c.id = p_id;
+  if why is not null then raise exception '%', why; end if;
+end;
+$$;
+revoke execute on function public.customer_raise_if_blocked(uuid) from public, anon, authenticated;
+
 -- ---------- 5. changed functions (in the block below) ----------
 -- order_letters_before_insert: a company memo's amount (PHP), exchange rate and BDT amount, and the e-bill it pays.
 -- update_pending_order: the e-bill of a memo can be changed while the memo waits for approval.
@@ -168,6 +286,8 @@ create trigger customers_location_bi before insert on public.customers for each 
 -- verify_record: an e-bill's secret code shows what is paid, the balance and the shipping company.
 -- customer_action: the Director sets a customer's location check (found, no need to check, not found).
 -- decide_change_request: an approved correction changes the record and leaves no history.
+-- customer_action (again): an application of a person who cannot open an account is not verified or approved.
+-- editable_columns: the Facebook link of a customer can be corrected.
 do $$
 declare
   -- function name, the exact old text, the new text
@@ -396,7 +516,18 @@ declare
     delete from public.notifications where title = ''Correction request '' || cr.request_no;
     delete from public.change_requests where id = p_id;
     cr.status := ''approved''; cr.previous := prev; cr.review_note := p_note; cr.reviewed_by_name := me; cr.reviewed_at := now();
-']
+'],
+    ['customer_action', '  if p_action = ''approve'' and c.status not in (''pending'',''verified'') then raise exception ''Only pending or verified applications can be approved''; end if;
+  perform public.allow_record_change();
+',
+     '  if p_action = ''approve'' and c.status not in (''pending'',''verified'') then raise exception ''Only pending or verified applications can be approved''; end if;
+  -- 2.1: the same person cannot open a second account (the same Facebook link as another account, or the same name or
+  -- Facebook name as a CLOSED account)
+  if p_action in (''verify'',''approve'') then perform public.customer_raise_if_blocked(c.id); end if;
+  perform public.allow_record_change();
+'],
+    ['editable_columns', '''facebook_name'',''has_extra_facebook'',''extra_facebook_name'',''facebook_verified'',''credit_limit'']',
+     '''facebook_name'',''facebook_link'',''has_extra_facebook'',''extra_facebook_name'',''facebook_verified'',''credit_limit'']']
   ];
   f record; def text; new_def text; i int;
 begin

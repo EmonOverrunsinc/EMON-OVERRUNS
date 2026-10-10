@@ -444,7 +444,7 @@
     const row4 = (cells) => `<tr>${cells.map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`;
     return `<div class="ja-head">
         <div class="ja-main">
-          <div class="ja-left">${E.logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</div></div></div>
+          <div class="ja-left">${E.logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}${E.siteText()}</div></div></div>
           <div class="ja-ids"><div><span>Application No</span><b>${esc(a.application_no)}</b></div><div><span>Name</span><b>${esc(a.full_name)}</b></div>
             <div><span>Phone</span><b>${esc(a.phone || "")}</b></div><div><span>Email</span><b>${esc(a.email || "")}</b></div>
             ${a.status === "approved" ? `<div class="ja-appr">( APPROVED ) ${esc(a.approval_no || "")} ${esc(E.mdy(a.approved_at))}</div>` : ""}</div></div>
@@ -462,7 +462,7 @@
       ${E.box("Position Applied For", `<div class="pgrid2">${E.cell("Position", a.position_title, "hl")}${E.cell("Company", a.company_name, "hl")}${E.cell("Monthly Salary (PHP)", a.apply_salary != null ? peso(a.apply_salary) : "")}${E.cell("Duty Hours", a.apply_duty_hours)}
         ${E.cell("Joining Date", E.mdy(a.apply_joining_date), "span2")}</div>`)}
       ${E.box("Declaration", `<p class="pdecl" style="padding:4px 6px;margin:0">I hereby declare that all the information given above is true and correct to the best of my knowledge. If any information is found to be false, my application or employment may be cancelled.</p>`)}
-      ${E.sigs("Applicant's Signature / Date", sign ? `Authorized Signature (${esc(C.company.name)})` : `Authorized Signature (${esc(C.company.name)}) / Date`, sign)}`;
+      ${E.sigs("Applicant's Signature / Date", sign ? "Authorized Signature" : `Authorized Signature (${esc(C.company.name)}) / Date`, sign)}`;
   }
   async function printJobApp(a) {
     const [photo] = await Promise.all([a.photo_path ? E.signedUrl(a.photo_path, 900) : "", E.loadSignatures()]);

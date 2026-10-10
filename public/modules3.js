@@ -49,7 +49,7 @@
   // Details that can be corrected — must match editable_columns() in the database. Amounts, transaction dates and
   // record numbers are never corrected: a wrong money record is deleted by the Director and recorded again.
   const FIELDS = {
-    customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool"), F("credit_limit", "Credit Limit (₱)", "money")],
+    customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("facebook_link", "Facebook Account Link"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool"), F("credit_limit", "Credit Limit (₱)", "money")],
     customer_invoices: [F("purchase_date", "Purchase Date", "date"), F("po_number", "PO Number"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int")],
     payments_received: [F("method", "Method", "select", METHODS), F("bank_name", "Bank Name"), F("bank_account", "Deposit Account"), F("reference_no", "Reference No"), F("notes", "Notes")],
     credit_memos: [F("payment_ref", "Payment Reference"), F("po_number", "Purchase Order"), F("article", "Article"), F("brand", "Brand"), F("style", "Style"), F("batch_no", "Batch No"), F("serial_no", "Serial No"), F("purchase_date", "Purchase Date", "date"),
@@ -985,9 +985,9 @@
 
   // The Authorized Representative: once the Director approves, the Director's signature over the name.
   const authBlock = (approved, o, sign) => `<div class="ol-auth${sign?.pic ? " has-sig" : ""}">${sign?.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="ol-auth-name">${approved ? esc(o.approved_by_name || "") : "&nbsp;"}</div><div class="line"></div>Authorized Representative</div>`;
-  // A printed paragraph: dates (OCT 14 2026, and 10-14-2026 in letters written before 2.1) and record numbers
+  // A printed paragraph: dates (OCTOBER 14 2026, and 10-14-2026 in letters written before 2.1) and record numbers
   // (EO-2026-10-0001, I-17) are not split over two lines.
-  const para = (s) => esc(s).replace(/\b((?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC) \d{2} \d{4}|\d{2}-\d{2}-\d{4}|[A-Z]{1,6}(?:-\d+)+)\b/g, '<span class="nw">$1</span>').replace(/\n/g, "<br>");
+  const para = (s) => esc(s).replace(/\b((?:JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER) \d{2} \d{4}|\d{2}-\d{2}-\d{4}|[A-Z]{1,6}(?:-\d+)+)\b/g, '<span class="nw">$1</span>').replace(/\n/g, "<br>");
   // The printed order, laid out like an official order: details of the order, the customer / employee /
   // company information, the order itself with what it is about (amount due, promise, installment schedule,
   // reason for closing) and the decision, then APPROVED / DISAPPROVED with the date signed and one line for

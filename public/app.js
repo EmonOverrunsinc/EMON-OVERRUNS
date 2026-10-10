@@ -7,6 +7,7 @@
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
   const VERSION = "2.1";
+  const BUILD = "2.1.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -18,10 +19,10 @@
   const pad = (n) => String(n).padStart(2, "0");
   const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const isoToday = () => isoDay(new Date());
-  // Every date shows as MON DD YYYY in capitals (AUG 01 2026, OCT 09 2026); with the time: OCT 09 2026 3:15 PM. The parts
-  // are joined with no-break spaces, so a date is never split over two lines.
+  // Every date shows as MONTH DD YYYY in capitals (AUGUST 01 2026, OCTOBER 09 2026); with the time: OCTOBER 09 2026
+  // 3:15 PM. The parts are joined with no-break spaces, so a date is never split over two lines.
   // A saved time (2026-10-05T17:30:00+00:00) shows the day it was where the user is, not the server's UTC day.
-  const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const MON = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
   const mdy = (iso) => {
     if (!iso) return "";
     let s = String(iso);
@@ -32,8 +33,13 @@
   const stamp = (d = new Date()) => `${mdy(isoDay(d))} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   const longDate = (iso) => `${new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(iso)}`;
   const dateTime = (iso) => { if (!iso) return ""; const d = new Date(iso), h = d.getHours(); return `${mdy(isoDay(d))} ${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "AM" : "PM"}`; };
-  // Dates the database writes as "20 Jun 2026" (record verification) show as JUN 20 2026 too.
-  const fixDates = (v) => String(v ?? "").replace(/\b(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})\b/g, (_, d, m, y) => `${m.toUpperCase()}\u00a0${pad(d)}\u00a0${y}`);
+  // Dates the database writes as "20 Jun 2026" (record verification) show as JUNE 20 2026 too.
+  const fixDates = (v) => String(v ?? "").replace(/\b(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})\b/g,
+    (_, d, m, y) => `${MON.find((x) => x.startsWith(m.toUpperCase()))}\u00a0${pad(d)}\u00a0${y}`);
+  // The website (config.js): its name for printed headers, and a link for the screens anyone can see.
+  const siteName = () => String(C.company.website || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const siteText = () => (siteName() ? ` · ${esc(siteName())}` : "");
+  const siteLink = () => (siteName() ? ` · <a class="co-site" href="${esc(C.company.website)}" target="_blank" rel="noopener">${esc(siteName())}</a>` : "");
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const isAdmin = () => S.profile?.role === "admin";
@@ -254,8 +260,34 @@
     return `<header class="co-head">${logoHtml()}<div class="co-text">
       <b>${esc(C.company.name)} <span class="co-tag">E-PORTAL</span></b>
       <span>${esc(C.company.address.join(", "))}</span>
-      <span>${esc(C.company.email)} · ${esc(C.company.phone)}</span></div></header>`;
+      <span>${esc(C.company.email)} · ${esc(C.company.phone)}${siteLink()}</span></div></header>`;
   }
+
+  // ---------- new versions ----------
+  // version.json (never kept in the browser) names the version on the server. When it is not the version of this page,
+  // a bar offers Update now, and the next page change loads the new version (nothing typed is lost that way).
+  let newBuild = "";
+  const reloadedFor = (v) => { try { if (v) sessionStorage.setItem("eo-build", v); return sessionStorage.getItem("eo-build"); } catch (_) { return ""; } };
+  async function checkVersion() {
+    try {
+      const r = await fetch("version.json?t=" + Date.now(), { cache: "no-store" });
+      if (!r.ok) return;
+      const v = String((await r.json()).version || "");
+      if (!v || v === BUILD || v === newBuild) return;
+      newBuild = v;
+      if ($(".update-bar")) return;
+      const bar = document.createElement("div");
+      bar.className = "update-bar"; bar.setAttribute("role", "status");
+      bar.innerHTML = `${ic("install")} A new version of the ${esc(APP)} is ready. <button type="button" class="btn small primary">Update now</button>`;
+      bar.querySelector("button").onclick = () => { reloadedFor(v); location.reload(); };
+      document.body.appendChild(bar);
+    } catch (_) { /* offline: checked again later */ }
+  }
+  setTimeout(checkVersion, 4000);
+  setInterval(checkVersion, 5 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checkVersion(); });
+  // the next page change loads the new version (once: if the server still sends this one, the bar stays)
+  window.addEventListener("hashchange", () => { if (newBuild && reloadedFor() !== newBuild) { reloadedFor(newBuild); location.reload(); } });
 
   // ---------- sign in, create account, email codes ----------
   // Sign out of this device only; the same account stays signed in on the user's other phones and computers.
@@ -927,7 +959,7 @@
     const now = stamp();
     const stampHtml = `<div class="rp-stamp">Date : ${now}<br>User ID : ${esc((S.profile?.full_name || "").toUpperCase())}</div>`;
     const top = logo
-      ? `<div class="rp-brand">${logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}</div></div>${stampHtml}</div>`
+      ? `<div class="rp-brand">${logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}${siteText()}</div></div>${stampHtml}</div>`
       : stampHtml;
     const chunks = [];
     for (let i = 0; i < rows.length; i += perPage) chunks.push(rows.slice(i, i + perPage));
@@ -1158,7 +1190,7 @@
   Object.assign(window.EO, {
     APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
-    shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages,
+    shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, siteLink,
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey,
     roleName, personTitle, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
     changePassword: () => renderSetPassword(false)
