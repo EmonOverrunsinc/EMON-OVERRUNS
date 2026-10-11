@@ -207,10 +207,15 @@ try {
   } else {
     Say 'STAGE:CONNECT'
     $dm = New-Object -ComObject WIA.DeviceManager
-    # the chosen scanner first, then the others (an HP printer can be listed twice: USB and Wi-Fi)
+    # the chosen scanner first, then its other entry (an HP printer can be listed twice: USB and Wi-Fi); never another
+    # scanner, which could scan someone else's page. When no scanner was chosen, every scanner in turn.
     $list = @()
     foreach ($d in $dm.DeviceInfos) { if ($d.Type -eq 1 -and $d.DeviceID -eq $env:EO_DEVICE) { $list += $d } }
-    foreach ($d in $dm.DeviceInfos) { if ($d.Type -eq 1 -and $d.DeviceID -ne $env:EO_DEVICE) { $list += $d } }
+    foreach ($d in $dm.DeviceInfos) {
+      if ($d.Type -ne 1 -or $d.DeviceID -eq $env:EO_DEVICE) { continue }
+      $same = $false; try { $same = $d.Properties.Item('Name').Value -eq $env:EO_DEVICE_NAME } catch {}
+      if (-not $env:EO_DEVICE -or $same) { $list += $d }
+    }
     if ($list.Count -eq 0) { Say 'ERROR:NO_SCANNER'; [Environment]::Exit(3) }
     $dev = $null; $last = $null
     foreach ($d in $list) {
@@ -291,44 +296,60 @@ function closeProcess(child) {
 function powershell(env, { timeout = 180000, onStage } = {}) {
   let finish;
   const out = new Promise((resolve) => {
-    let done = false, rest = "", timer = null;
-    const file = scriptFile();
-    const args = ["-NoProfile", "-NonInteractive", "-NoLogo", "-STA", "-InputFormat", "None", "-ExecutionPolicy", "Bypass"];
-    if (file) args.push("-File", file);
-    else args.push("-EncodedCommand", Buffer.from(SCAN_PS, "utf16le").toString("base64"));
-    const child = spawn("powershell.exe", args, { env: { ...process.env, ...env }, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
-    logScan(`start ${env.EO_MODE} PowerShell ${child.pid}`);
+    let done = false, rest = "", timer = null, heard = false, child = null;
     const arm = (ms) => { clearTimeout(timer); timer = setTimeout(() => finish("ERROR:TIMEOUT"), ms); };
-    arm(timeout);
     finish = (line) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       logScan(`answer ${line}`);
       resolve(line);
-      if (line.startsWith("OK") || line.startsWith("DEVICE:")) setTimeout(() => closeProcess(child), 3000);
-      else closeProcess(child);
+      const c = child;
+      if (line.startsWith("OK") || line.startsWith("DEVICE:")) setTimeout(() => closeProcess(c), 3000);
+      else closeProcess(c);
     };
     const take = (line) => {
       line = line.trim();
       if (!line || done) return;
+      heard = true;
       if (line.startsWith("STAGE:")) {
         logScan(line);
         const st = line.slice(6);
-        if (st === "DIALOG") arm(10 * 60000);
+        if (st === "DIALOG") arm(Math.max(timeout, 10 * 60000));
         if (st === "DIALOG_CLOSED") arm(timeout);
         if (onStage) onStage(st);
       } else if (line === "OK" || /^(DEVICE|ERROR):/.test(line)) finish(line);
     };
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      const lines = (rest + chunk).split("\n");
-      rest = lines.pop();
-      lines.forEach(take);
-    });
-    child.on("error", (err) => finish("ERROR:NO_START:" + err.message));
-    // a program PowerShell started can hold the output open after PowerShell has ended
-    child.on("exit", (code) => setTimeout(() => { take(rest); rest = ""; finish(`ERROR:STOPPED:exit ${code}`); }, 300));
+    // fromFile: the script file (the usual way); otherwise the script as an encoded command, for a computer whose
+    // company policy does not run script files (PowerShell then ends without a word)
+    const start = (fromFile) => {
+      const file = fromFile ? scriptFile() : null;
+      const args = ["-NoProfile", "-NonInteractive", "-NoLogo", "-STA", "-InputFormat", "None", "-ExecutionPolicy", "Bypass"];
+      if (file) args.push("-File", file);
+      else args.push("-EncodedCommand", Buffer.from(SCAN_PS, "utf16le").toString("base64"));
+      rest = "";
+      child = spawn("powershell.exe", args, { env: { ...process.env, ...env }, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+      logScan(`start ${env.EO_MODE} PowerShell ${child.pid}${file ? "" : " (encoded)"}`);
+      const me = child;
+      me.stdout.setEncoding("utf8");
+      me.stdout.on("data", (chunk) => {
+        if (me !== child) return;
+        const lines = (rest + chunk).split("\n");
+        rest = lines.pop();
+        lines.forEach(take);
+      });
+      me.on("error", (err) => { if (me === child) finish("ERROR:NO_START:" + err.message); });
+      // a program PowerShell started can hold the output open after PowerShell has ended
+      me.on("exit", (code) => setTimeout(() => {
+        if (me !== child || done) return;
+        take(rest); rest = "";
+        if (done) return;
+        if (!heard && file) { logScan(`no answer from the script file (exit ${code}); once more as an encoded command`); return start(false); }
+        finish(`ERROR:STOPPED:exit ${code}`);
+      }, 300));
+    };
+    arm(timeout);
+    start(true);
   });
   return { out, cancel: () => finish && finish("ERROR:80210064:cancelled") };
 }
@@ -381,7 +402,7 @@ let scan = null; // the scan (or the scanner choice) that is running: { cancel }
 ipcMain.handle("eo-scan", async (e, opts) => {
   if (!inApp(e.senderFrame ? e.senderFrame.url : "")) return { error: "Scanning is only for the E-Portal." };
   if (process.platform !== "win32") return { error: "Scanning works in the E-Portal app for Windows." };
-  if (scan) return { error: "A scan is already running. Wait for it to finish, or press Cancel on it.", code: "RUNNING", offerDialog: false };
+  if (scan) return { error: "Another scan is still running. Wait a moment until it has finished, then try again.", code: "RUNNING", offerDialog: false };
   const dialogMode = !!(opts && opts.dialog);
   const s = scanSettings();
   const key = `${s.dpi}-${s.intent}`;
@@ -396,7 +417,7 @@ ipcMain.handle("eo-scan", async (e, opts) => {
     e.sender.send("eo-scan-progress", { stage, text: STAGE_TEXT[stage] || "", pct: pct === null ? null : Math.round(pct) });
   };
   const ticker = setInterval(send, 250);
-  const run = powershell({ EO_MODE: dialogMode ? "dialog" : "scan", EO_OUT: file, EO_DPI: String(s.dpi), EO_INTENT: String(s.intent), EO_DEVICE: s.deviceId || "" }, {
+  const run = powershell({ EO_MODE: dialogMode ? "dialog" : "scan", EO_OUT: file, EO_DPI: String(s.dpi), EO_INTENT: String(s.intent), EO_DEVICE: s.deviceId || "", EO_DEVICE_NAME: s.deviceName || "" }, {
     timeout: dialogMode ? 15 * 60000 : 180000,
     onStage: (line) => {
       const st = line.split(":")[0];
@@ -409,9 +430,16 @@ ipcMain.handle("eo-scan", async (e, opts) => {
       stage = st; since = Date.now(); before = null; send();
     },
   });
-  // the page closed or reloaded: the scan stops
+  // the page closed, reloaded or went to another address (not a move inside the portal), or crashed: the scan stops
   const stop = () => run.cancel();
+  const away = (ev, url, inPlace, mainFrame) => {
+    const main = ev && ev.isMainFrame !== undefined ? ev.isMainFrame : mainFrame;
+    const same = ev && ev.isSameDocument !== undefined ? ev.isSameDocument : inPlace;
+    if (main && !same) stop();
+  };
   e.sender.once("destroyed", stop);
+  e.sender.on("did-start-navigation", away);
+  e.sender.on("render-process-gone", stop);
   scan = { cancel: run.cancel };
   send();
   try {
@@ -432,7 +460,11 @@ ipcMain.handle("eo-scan", async (e, opts) => {
     return { error: "The scan did not work: " + err.message, offerDialog: true };
   } finally {
     clearInterval(ticker);
-    if (!e.sender.isDestroyed()) e.sender.removeListener("destroyed", stop);
+    if (!e.sender.isDestroyed()) {
+      e.sender.removeListener("destroyed", stop);
+      e.sender.removeListener("did-start-navigation", away);
+      e.sender.removeListener("render-process-gone", stop);
+    }
     scan = null;
     fs.promises.unlink(file).catch(() => {});
   }

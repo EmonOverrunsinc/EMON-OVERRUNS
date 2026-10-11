@@ -965,6 +965,7 @@
       inp.replaceWith(wrap);
       wrap.prepend(inp);
       const ui = scanUi(inp, wrap);
+      inp._eoUi = ui;
       $(".scan-btn", wrap).onclick = () => scanInto(inp, ui);
       // the same upload on the screen drawn again after its scanned page was saved (and no error came meanwhile)
       if (justSaved && justSaved.el !== inp && inp.id && justSaved.id === inp.id && justSaved.hash === location.hash && Date.now() - justSaved.at < 60000) {
@@ -985,11 +986,16 @@
       inp.form?.addEventListener("reset", () => setTimeout(() => { ui.pages = []; ui.render(); }));
     }
   }
+  const SCAN_UIS = new Set(); // the scan uploads with pictures of scanned pages, freed when they leave the screen
+  function freeScanPictures() {
+    for (const ui of SCAN_UIS) if (!ui.wrap.isConnected) { ui.free(); SCAN_UIS.delete(ui); }
+  }
   function scanUi(inp, wrap) {
     const prog = $(".scan-prog", wrap), rf = $(".rf", wrap), rp = $(".rp", wrap), st = $(".st", wrap), ok = $(".scan-ok", wrap), list = $(".scan-pages", wrap);
     const urls = new Map();
     const ui = {
-      pages: [], busy: false, pct: 0,
+      pages: [], busy: false, pct: 0, wrap,
+      free() { for (const u of urls.values()) URL.revokeObjectURL(u); urls.clear(); },
       // pct null: the scanner window is open (the circle turns without a number)
       show(pct, text) {
         prog.hidden = false; prog.classList.remove("done"); ok.hidden = true;
@@ -1030,6 +1036,7 @@
       render() {
         for (const [f, u] of urls) if (!ui.pages.includes(f)) { URL.revokeObjectURL(u); urls.delete(f); }
         list.hidden = !ui.pages.length;
+        if (ui.pages.length) SCAN_UIS.add(ui);
         list.innerHTML = ui.pages.map((f, i) => {
           if (!urls.has(f)) urls.set(f, URL.createObjectURL(f));
           return `<span class="scan-page"><img src="${esc(urls.get(f))}" alt=""><span class="sp-name">${ui.pages.length > 1 ? `Page ${i + 1}` : "Scanned page"}<small>${esc(kb(f.size))}</small></span>
@@ -1071,6 +1078,7 @@
     if (ui.busy) return;
     ui.busy = true;
     const wrap = inp.parentNode, btn = $(".scan-btn", wrap), hash = location.hash;
+    delete wrap.dataset.abandoned;
     wrap.classList.add("scanning");
     btn.disabled = true;
     ui.pct = 0;
@@ -1093,7 +1101,38 @@
       if (!r?.ok) { ui.reset(); toast(r?.error || "The scan did not work.", true); return; }
       const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
       const file = new File([bytes], r.name || `Scan_${Date.now()}.jpg`, { type: r.type || "image/jpeg" });
+      if (wrap.dataset.abandoned) return toast("The scanned page was left out (the form was saved without it).", true);
+      if (!inp.isConnected && location.hash === hash && inp.id) {
+        // the same screen was drawn again during the scan (another upload was saved): the page goes to the new upload
+        const again = await redrawn(inp.id, hash);
+        if (again) { ui.busy = false; return await deliver(again, again._eoUi, file); }
+      }
       if (!inp.isConnected || location.hash !== hash) return toast("The page was scanned, but this screen was closed. Open it again and scan the page there.", true);
+      await deliver(inp, ui, file);
+    } catch (e) {
+      ui.reset();
+      toast("The scan did not work: " + (e?.message || e), true);
+    } finally {
+      clearInterval(guess);
+      ui.busy = false;
+      wrap.classList.remove("scanning");
+      if (btn.isConnected) btn.disabled = false;
+    }
+  }
+  // The upload with this id once the screen has been drawn again (at most 8 seconds).
+  const redrawn = (id, hash) => new Promise((resolve) => {
+    const t0 = Date.now(), t = setInterval(() => {
+      const el = document.getElementById(id);
+      if (el && el._eoUi && location.hash === hash) { clearInterval(t); resolve(el); }
+      else if (Date.now() - t0 > 8000 || location.hash !== hash) { clearInterval(t); resolve(null); }
+    }, 150);
+  });
+  // The scanned page into its upload: saved at once, a signature preview, or kept for the form.
+  async function deliver(inp, ui, file) {
+    const wrap = inp.parentNode, hash = location.hash, btn = $(".scan-btn", wrap);
+    ui.busy = true;
+    btn.disabled = true; // no second page into this upload while this one is saved
+    try {
       if (inp.dataset.saveNow === "preview") {
         // a signature: its preview opens, where it is saved
         ui.setFiles([file]); ui.done("✔ Scanned");
@@ -1113,24 +1152,34 @@
         ui.render();
         fireChange(inp);
       }
-    } catch (e) {
-      ui.reset();
-      toast("The scan did not work: " + (e?.message || e), true);
     } finally {
-      clearInterval(guess);
       ui.busy = false;
-      wrap.classList.remove("scanning");
       if (btn.isConnected) btn.disabled = false;
     }
   }
-  // A form is not sent while one of its pages is still being scanned (the page would be left out).
-  document.addEventListener("submit", (e) => {
-    if (!e.target.querySelector?.(".scan-wrap.scanning")) return;
+  // A form or a dialog is not saved while one of its pages is still being scanned (the page would be left out). With
+  // the app for Windows 1.4 (no Cancel) the person may save without that page.
+  async function scanGuard(e, area, again) {
+    const w = area?.querySelector?.(".scan-wrap.scanning");
+    if (!w) return;
     e.preventDefault(); e.stopImmediatePropagation();
-    toast("Wait until the scan has finished (or press Cancel on it), then save.", true);
+    if (window.EOApp?.cancelScan) return toast("Wait until the scan has finished (or press Cancel on it), then save.", true);
+    if (await confirmBox("A page is still being scanned. Save without that page?", { title: "Scan", ok: "Save Without It" })) {
+      w.dataset.abandoned = "1"; w.classList.remove("scanning");
+      again();
+    }
+  }
+  document.addEventListener("submit", (e) => scanGuard(e, e.target, () => e.target.requestSubmit()), true);
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest?.("[data-ok], button[type=submit]");
+    if (!b || (b.type === "submit" && b.form)) return; // a form's own Submit is checked when the form is sent
+    scanGuard(e, b.closest(".modal, form, .window"), () => b.click());
   }, true);
   if (window.EOApp?.scan) {
-    new MutationObserver((list) => { for (const m of list) for (const n of m.addedNodes) if (n.nodeType === 1) addScanButtons(n.matches('input[type="file"]') ? n.parentNode : n); })
+    new MutationObserver((list) => {
+      for (const m of list) for (const n of m.addedNodes) if (n.nodeType === 1) addScanButtons(n.matches('input[type="file"]') ? n.parentNode : n);
+      if (SCAN_UIS.size) freeScanPictures();
+    })
       .observe(document.body, { childList: true, subtree: true });
     addScanButtons(document.body);
   }
@@ -1358,6 +1407,7 @@
   // ---------- router ----------
   const BUILTIN = { forms: viewForms, logins: viewUsers };
   async function route() {
+    justSaved = null; // a page drawn by the router (Remove, a correction, another page) is not the save's redraw
     takeLinkError();
     closePreview();
     $$(".pop").forEach((p) => (p.hidden = true));
