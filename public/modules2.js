@@ -167,7 +167,7 @@
             approved: jaApproved(app) ? { name: app.approved_by_name, at: app.approved_at } : null })}</div>
             <p><a href="#jobapp/${app.id}">Open job application ${esc(app.application_no)}</a></p>` : ""}
           ${E.filesHtml(att, "No documents uploaded.")}
-          ${isAdmin() ? `<div class="fields wide" style="margin-top:8px">${E.fileField("emSig", "Upload Signature Form", 'accept="image/*,application/pdf"')}${E.fileField("emApp", "Upload Application Form", 'multiple accept="image/*,application/pdf"')}</div>` : ""}
+          ${isAdmin() ? `<div class="fields wide" style="margin-top:8px">${E.fileField("emSig", "Upload Signature Form", 'accept="image/*,application/pdf" data-save-now')}${E.fileField("emApp", "Upload Application Form", 'multiple accept="image/*,application/pdf" data-save-now')}</div>` : ""}
         </div>
         <div data-p="2" hidden><div id="emOrders">${E.ordersGrid(orders, "No orders for this employee.")}</div></div>
         ${isAdmin() ? `<div data-p="3" hidden><fieldset class="opt"><legend>Access &amp; Status</legend><div class="fields wide">${accessFields(em.role, em.modules || [])}
@@ -189,7 +189,7 @@
       if (error) return fail(error, "Could not save");
       toast("Access saved."); V.employee(id);
     };
-    const up = (inp, kind) => inp && (inp.onchange = async (e) => { const f = await E.uploadRecords("employee", id, kind, Array.from(e.target.files)); toast(f ? "Upload failed." : "Uploaded.", f > 0); V.employee(id); });
+    const up = (inp, kind) => inp && (inp.onchange = async (e) => { const here = E.stillHere(), f = await E.uploadRecords("employee", id, kind, Array.from(e.target.files)); toast(f ? `${f} file(s) failed to upload.` : "Uploaded.", f > 0); if (here()) V.employee(id); });
     up($("#emSig"), "signature"); up($("#emApp"), "application");
     if ($("#emTerm")) $("#emTerm").onclick = () => {
       const m = E.modal(`Terminate ${fullName(em)}`, `<div class="banner closed">The employee's login will be disabled immediately. Payslips and records are kept.</div>
@@ -616,6 +616,9 @@
       sb.from("project_payments").select("*").eq("project_id", id).order("pay_date"),
       E.attachmentsOf("project", id)]);
     const lines = items.data || [], payments = pays.data || [];
+    // the receipt of each payment (the newest one), to open it from the list
+    const rcpts = payments.length ? (await sb.from("attachments").select("*").eq("owner_type", "project_payment").in("owner_id", payments.map((r) => r.id)).order("created_at")).data || [] : [];
+    const rcptOf = Object.fromEntries(rcpts.map((f) => [f.owner_id, f]));
     const w = E.canWrite("projects");
     // approved by the Director: the project application is printed with the Director's signature
     const signed = ["approved", "completed"].includes(pr.status) && !!pr.approved_by_name;
@@ -652,6 +655,7 @@
             ${E.fileField("ppRcpt", "Receipt", 'accept="image/*,application/pdf"')}</div></div>
           <div class="btnrow"><button class="btn primary" type="submit">Save Payment</button>${isAdmin() ? `<button class="btn" type="button" data-pa="complete">Mark Project Completed</button>` : ""}</div></form>` : ""}
         <div><b>Payments</b>${E.grid({ cols: [{ label: "Payment No", get: (r) => r.payment_no }, { label: "Date", get: (r) => mdy(r.pay_date) }, { label: "Received By", get: (r) => r.received_by }, { label: "Method", get: (r) => r.method || "" }, { label: "Reference No", get: (r) => r.reference_no || "" }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }, { label: "Recorded By", get: (r) => r.created_by_name || "" },
+          { label: "Receipt", html: (r) => rcptOf[r.id] ? `<button type="button" class="btn small" data-open="${esc(rcptOf[r.id].storage_path)}" data-mime="${esc(rcptOf[r.id].mime || "")}" data-name="${esc(rcptOf[r.id].file_name)}">${ic("eye")} View</button>` : "—" },
           { label: "", html: (r) => tools("project_payments", r, `Project payment ${r.payment_no}`, { reload: () => V.project(id) }) }], rows: payments, foot: { amount: peso(pr.total_paid) }, empty: pr.status === "approved" ? "No payments yet." : "Payments can be recorded after the project is approved." })}</div>
         <div><b>Other Files</b>${E.filesHtml(att.filter((a) => a.kind !== "approval"), "No other files.")}</div>
         ${rhBox("projects", pr.id)}
@@ -670,10 +674,11 @@
       if (amt <= 0) return toast("Enter the amount.", true);
       if (!by) return toast("Enter who received the payment.", true);
       if (amt > num(pr.remaining)) toast(`Note: this is more than the remaining ₱${peso(pr.remaining)}.`, true);
+      E.setBusy(e.target, true, "Saving");
       const { data: p, error } = await sb.from("project_payments").insert({ project_id: id, pay_date: $("#ppDate").value || isoToday(), amount: amt, received_by: by, method: $("#ppMethod").value, reference_no: $("#ppRef").value.trim() || null }).select().single();
-      if (error) return fail(error, "Could not save the payment");
-      await E.uploadRecords("project_payment", p.id, "receipt", E.filesOf("ppRcpt"));
-      toast(`Payment ${p.payment_no} saved. Remaining: ₱${peso(num(pr.remaining) - amt)}`); V.project(id);
+      if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the payment"); }
+      const f = await E.uploadRecords("project_payment", p.id, "receipt", E.filesOf("ppRcpt"));
+      toast(`Payment ${p.payment_no} saved. Remaining: ₱${peso(num(pr.remaining) - amt)}${f ? ". The receipt failed to upload." : ""}`, f > 0); V.project(id);
     };
     $("#pjStmt").onclick = () => E.openPreview(`Project Payment Record ${pr.project_no}`, E.listingPages({
       title: "Project Payment Record", range: `${esc(pr.project_no)} — ${esc(pr.title)}`,
@@ -1008,13 +1013,13 @@
           ${v.amount_bdt != null ? `<div class="hl"><small>Amount (BDT)</small><b>${bdt(v.amount_bdt)}</b></div>` : ""}<small class="muted">${esc(amountWords(v))}</small></div></div>
       <div class="docgrid">${E.docCard({ key: "pv", title: `Payment Voucher ${v.voucher_no}`, sub: `${amountText(v)} · ${mdy(v.pay_date)}`, ownerType: "pay_voucher", ownerId: v.id, att, print, canUpload: E.canWrite("billing"), uploadLabel: "Upload Copy", copyName: "Copy" })}</div>
       <div><b>Receipt</b>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No receipt uploaded.")}
-        ${E.canWrite("billing") ? `<div class="fields wide" style="margin-top:6px">${E.fileField("vAddRcpt", "Add Receipt", 'accept="image/*,application/pdf"')}</div>` : ""}</div>
+        ${E.canWrite("billing") ? `<div class="fields wide" style="margin-top:6px">${E.fileField("vAddRcpt", "Add Receipt", 'accept="image/*,application/pdf" data-save-now')}</div>` : ""}</div>
       ${rhBox("pay_vouchers", v.id)}</div>
       <div class="wfoot">${tools("pay_vouchers", v, `Voucher ${v.voucher_no}`, { reload: () => V.voucher(id), afterDelete: () => (location.hash = "paycompany/" + v.company_id) })}<a class="btn" href="#paycompany/${v.company_id}">Close</a></div></div>`;
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), () => V.voucher(id));
     bindTools($("#main"));
-    if ($("#vAddRcpt")) $("#vAddRcpt").onchange = async (e) => { const f = await E.uploadRecords("pay_voucher", id, "receipt", Array.from(e.target.files)); toast(f ? "Upload failed." : "Receipt uploaded.", f > 0); V.voucher(id); };
+    if ($("#vAddRcpt")) $("#vAddRcpt").onchange = async (e) => { const here = E.stillHere(), f = await E.uploadRecords("pay_voucher", id, "receipt", Array.from(e.target.files)); toast(f ? "Upload failed." : "Receipt uploaded.", f > 0); if (here()) V.voucher(id); };
     E.setRecords(`Voucher: ${v.voucher_no}`);
   };
 

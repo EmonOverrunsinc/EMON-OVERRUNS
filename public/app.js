@@ -7,7 +7,7 @@
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
   const VERSION = "2.1";
-  const BUILD = "2.1.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "2.1.2"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -100,14 +100,24 @@
   };
   const ic = (name, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
+  // A new message takes the place of the one before, except an error: it stays for its time, and a later message
+  // shows below it, so "saved" can never hide that something failed.
+  let lastError = 0; // when the last error message showed
   function toast(msg, err) {
-    $$(".toast").forEach((t) => t.remove());
+    if (err) lastError = Date.now();
+    $$(".toast").forEach((t) => { if (!t.classList.contains("err") || t.textContent === msg) t.remove(); });
+    $$(".toast.err").slice(0, -2).forEach((t) => t.remove());
     const t = document.createElement("div");
     t.className = "toast" + (err ? " err" : "");
     t.setAttribute("role", err ? "alert" : "status");
     t.textContent = msg;
     document.body.appendChild(t);
-    setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 300); }, err ? 7000 : 3500);
+    stackToasts();
+    setTimeout(() => { t.classList.add("out"); setTimeout(() => { t.remove(); stackToasts(); }, 300); }, err ? 7000 : 3500);
+  }
+  function stackToasts() {
+    let y = 16;
+    $$(".toast").reverse().forEach((t) => { t.style.bottom = `calc(${y}px + env(safe-area-inset-bottom, 0px))`; y += t.offsetHeight + 8; });
   }
   function fail(error, what) {
     console.error(error);
@@ -917,6 +927,9 @@
     if (OPEN_TAB.i && b && !b.classList.contains("on")) b.click();
   }
   addEventListener("hashchange", () => { OPEN_TAB.key = ""; });
+  // For work that ends later (an upload): true while the person is still on the same page, so the page is drawn again
+  // only then (not over the page they went to).
+  const stillHere = () => { const h = location.hash; return () => location.hash === h; };
 
   // ---------- scanning (the E-Portal app for Windows) ----------
   // In the Windows app every document upload gets a Scan button: the page is scanned with the scanner of the computer
@@ -928,8 +941,10 @@
   const SCAN_SKIP = new Set(["scImg", "vfImg", "cvFile"]);
   const SCAN_IMAGES = new Set(["sgFile", "mpSig"]); // signatures on paper are scanned too
   const scanFits = (inp) => !SCAN_SKIP.has(inp.id) && (!inp.accept || /pdf/.test(inp.accept) || SCAN_IMAGES.has(inp.id));
-  // An upload whose own change handler saves the file at once; any other upload keeps the pages for its form.
-  const savesAtOnce = (inp) => typeof inp.onchange === "function";
+  // An upload marked data-save-now saves the file at once (data-save-now="preview": a preview opens first, as for a
+  // signature); any other upload keeps the pages for its form, which saves them with its Submit button.
+  const savesAtOnce = (inp) => inp.hasAttribute("data-save-now");
+  let justSaved = null; // { el, id, hash, at }: the screen drawn again after a scanned page was saved shows ✔ Saved
   const RING = 2 * Math.PI * 17;
   const pagesText = (n) => `✔ ${n > 1 ? `${n} pages scanned` : "Scanned"} · saved with the form`;
   const kb = (n) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
@@ -951,6 +966,12 @@
       wrap.prepend(inp);
       const ui = scanUi(inp, wrap);
       $(".scan-btn", wrap).onclick = () => scanInto(inp, ui);
+      // the same upload on the screen drawn again after its scanned page was saved (and no error came meanwhile)
+      if (justSaved && justSaved.el !== inp && inp.id && justSaved.id === inp.id && justSaved.hash === location.hash && Date.now() - justSaved.at < 60000) {
+        const ok = lastError < justSaved.at;
+        justSaved = null;
+        if (ok) ui.done("✔ Saved");
+      }
       const cancel = $(".scan-cancel", wrap);
       if (cancel) cancel.onclick = () => { cancel.disabled = true; $(".st", wrap).textContent = "Cancelling…"; window.EOApp.cancelScan().catch(() => {}); };
       // a file chosen the usual way is added to the scanned pages (a single upload takes the chosen file instead)
@@ -986,7 +1007,7 @@
       done(text) {
         prog.classList.remove("wait"); prog.classList.add("done");
         rf.style.strokeDashoffset = "0"; rp.textContent = "100%"; prog.setAttribute("aria-valuenow", 100);
-        st.textContent = "Scanned";
+        st.textContent = "";
         const cancel = $(".scan-cancel", wrap);
         if (cancel) cancel.hidden = true;
         ok.textContent = text; ok.hidden = false;
@@ -1032,7 +1053,7 @@
       if (!f || !await confirmBox("Delete this scanned page? It will not be saved.", { title: "Delete Scanned Page", ok: "Delete", danger: true })) return;
       ui.pages = ui.pages.filter((x) => x !== f);
       ui.setFiles([...inp.files].filter((x) => x !== f));
-      inp._eoScan = true; inp.dispatchEvent(new Event("change", { bubbles: true })); inp._eoScan = false;
+      fireChange(inp);
       ui.render();
       toast("Scanned page deleted.");
     }
@@ -1040,10 +1061,17 @@
   }
   // The circle follows the time when the app gives no progress (the app for Windows 1.4).
   const SCAN_GUESS_MS = 25000;
+  // Waits until the upload has been saved and its screen drawn again (the upload is then no longer on the page), at
+  // most `ms`.
+  const untilGone = (el, ms) => new Promise((resolve) => {
+    const t0 = Date.now(), t = setInterval(() => { if (!el.isConnected || Date.now() - t0 > ms) { clearInterval(t); resolve(!el.isConnected); } }, 150);
+  });
+  const fireChange = (inp) => { inp._eoScan = true; try { inp.dispatchEvent(new Event("change", { bubbles: true })); } finally { inp._eoScan = false; } };
   async function scanInto(inp, ui) {
     if (ui.busy) return;
     ui.busy = true;
-    const btn = $(".scan-btn", inp.parentNode);
+    const wrap = inp.parentNode, btn = $(".scan-btn", wrap), hash = location.hash;
+    wrap.classList.add("scanning");
     btn.disabled = true;
     ui.pct = 0;
     let heard = false;
@@ -1053,38 +1081,54 @@
     ui.show(0, "Starting the scanner");
     try {
       let r = await window.EOApp.scan({}, onProgress);
-      if (r?.error && !/already running/.test(r.error)) {
-        ui.reset();
+      if (r?.error && r.offerDialog !== false && !/already running/.test(r.error)) {
+        heard = true; ui.reset();
         if (await confirmBox(`${esc(r.error)}<br><br>Open the scanner window to choose the scanner and scan from there?`, { title: "Scan", ok: "Scanner Window" })) {
           ui.pct = 0; heard = true; ui.show(null, "Use the scanner window");
           r = await window.EOApp.scan({ dialog: true }, onProgress);
         } else r = { cancelled: true, quiet: true };
       }
+      clearInterval(guess);
       if (r?.cancelled) { ui.reset(); if (!r.quiet) toast("Scan cancelled."); return; }
       if (!r?.ok) { ui.reset(); toast(r?.error || "The scan did not work.", true); return; }
       const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
       const file = new File([bytes], r.name || `Scan_${Date.now()}.jpg`, { type: r.type || "image/jpeg" });
-      if (!inp.isConnected) return toast("The page was scanned, but this screen was closed. Scan it again here.", true);
-      if (savesAtOnce(inp)) {
-        // saved at once by the upload itself; the screen then shows the new file with its Preview and Remove
+      if (!inp.isConnected || location.hash !== hash) return toast("The page was scanned, but this screen was closed. Open it again and scan the page there.", true);
+      if (inp.dataset.saveNow === "preview") {
+        // a signature: its preview opens, where it is saved
+        ui.setFiles([file]); ui.done("✔ Scanned");
+        fireChange(inp);
+      } else if (savesAtOnce(inp)) {
+        // saved at once: the circle waits for the save; the screen drawn again shows the new file and ✔ Saved
         ui.setFiles([file]);
-        ui.done("✔ Scanned");
+        ui.show(97, "Saving the page");
+        $(".scan-cancel", wrap)?.setAttribute("hidden", "");
+        justSaved = { el: inp, id: inp.id, hash, at: Date.now() };
+        fireChange(inp);
+        if (!await untilGone(inp, 60000)) { if (justSaved?.el === inp) justSaved = null; ui.done("✔ Scanned"); }
       } else {
         ui.pages = inp.multiple ? [...ui.pages, file] : [file];
         ui.setFiles(inp.multiple ? [...inp.files, file] : [file]);
         ui.done(pagesText(ui.pages.length));
         ui.render();
+        fireChange(inp);
       }
-      inp._eoScan = true; inp.dispatchEvent(new Event("change", { bubbles: true })); inp._eoScan = false;
     } catch (e) {
       ui.reset();
       toast("The scan did not work: " + (e?.message || e), true);
     } finally {
       clearInterval(guess);
       ui.busy = false;
+      wrap.classList.remove("scanning");
       if (btn.isConnected) btn.disabled = false;
     }
   }
+  // A form is not sent while one of its pages is still being scanned (the page would be left out).
+  document.addEventListener("submit", (e) => {
+    if (!e.target.querySelector?.(".scan-wrap.scanning")) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    toast("Wait until the scan has finished (or press Cancel on it), then save.", true);
+  }, true);
   if (window.EOApp?.scan) {
     new MutationObserver((list) => { for (const m of list) for (const n of m.addedNodes) if (n.nodeType === 1) addScanButtons(n.matches('input[type="file"]') ? n.parentNode : n); })
       .observe(document.body, { childList: true, subtree: true });
@@ -1227,11 +1271,14 @@
       const file = $("#fmFile").files[0], title = $("#fmTitle").value.trim(), category = $("#fmCat").value.trim() || "General";
       if (!title || !file) return toast("Enter a title and choose a file.", true);
       const path = `${Date.now()}_${file.name.replace(/[^\w.\-]+/g, "_")}`;
-      const up = await sb.storage.from("forms").upload(path, file, { contentType: file.type || "application/octet-stream" });
-      if (up.error) return fail(up.error, "Upload failed");
-      const { error } = await sb.from("forms").insert({ title, category, storage_path: path, file_name: file.name });
-      if (error) return fail(error, "Could not save the form");
-      toast(`Uploaded ${title}.`); e.target.reset(); load();
+      setBusy(e.target, true, "Uploading");
+      try {
+        const up = await sb.storage.from("forms").upload(path, file, { contentType: file.type || "application/octet-stream" });
+        if (up.error) return fail(up.error, "Upload failed");
+        const { error } = await sb.from("forms").insert({ title, category, storage_path: path, file_name: file.name });
+        if (error) { sb.storage.from("forms").remove([path]).catch(() => {}); return fail(error, "Could not save the form"); }
+        toast(`Uploaded ${title}.`); e.target.reset(); load();
+      } finally { setBusy(e.target, false); }
     };
     load();
   }
@@ -1290,7 +1337,7 @@
       ${st === "rejected" && u.signature_note ? `<div class="hint err">Not approved: ${esc(u.signature_note)}</div>` : ""}
       ${st === "pending" ? `<label class="fl" for="sgNote">Note (needed to reject)</label><input type="text" id="sgNote" placeholder="e.g. Too light, sign again with dark ink">` : ""}`,
       `${st === "pending" ? `<button type="button" class="btn ok" data-a="approve">${ic("check")} Approve</button><button type="button" class="btn danger" data-a="reject">Reject</button>` : ""}
-       <label class="btn" for="sgFile">${ic("upload")} ${pic ? "Upload New" : "Upload Signature"}</label><input type="file" id="sgFile" accept="image/*" hidden>
+       <label class="btn" for="sgFile">${ic("upload")} ${pic ? "Upload New" : "Upload Signature"}</label><input type="file" id="sgFile" accept="image/*" hidden data-save-now="preview">
        ${u.signature_path ? `<button type="button" class="btn" data-form>${ic("print")} Form</button><button type="button" class="btn danger" data-a="remove">Remove</button>` : ""}
        <button type="button" class="btn" data-x>Close</button>`);
     $("[data-x]", m.el).onclick = m.close;
@@ -1378,7 +1425,7 @@
     APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, siteLink,
-    drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey, keepTab,
+    drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey, keepTab, stillHere,
     roleName, personTitle, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
     changePassword: () => renderSetPassword(false)
   });
