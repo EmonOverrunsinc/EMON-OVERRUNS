@@ -100,24 +100,24 @@
   };
   const ic = (name, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
-  // A new message takes the place of the one before, except an error: it stays for its time, and a later message
-  // shows below it, so "saved" can never hide that something failed.
+  // A new message takes the place of the one before, except that an error stays for its time when a message that is
+  // not an error comes after it (so "saved" can never hide that something failed); the newer message shows below it.
+  // A new error takes the place of every message before it.
   let lastError = 0; // when the last error message showed
   function toast(msg, err) {
     if (err) lastError = Date.now();
-    $$(".toast").forEach((t) => { if (!t.classList.contains("err") || t.textContent === msg) t.remove(); });
-    $$(".toast.err").slice(0, -2).forEach((t) => t.remove());
+    $$(".toast").forEach((t) => { if (err || !t.classList.contains("err")) t.remove(); });
     const t = document.createElement("div");
     t.className = "toast" + (err ? " err" : "");
     t.setAttribute("role", err ? "alert" : "status");
     t.textContent = msg;
-    document.body.appendChild(t);
+    document.body.insertBefore(t, $(".toast")); // the newest first (and lowest on the screen)
     stackToasts();
     setTimeout(() => { t.classList.add("out"); setTimeout(() => { t.remove(); stackToasts(); }, 300); }, err ? 7000 : 3500);
   }
   function stackToasts() {
     let y = 16;
-    $$(".toast").reverse().forEach((t) => { t.style.bottom = `calc(${y}px + env(safe-area-inset-bottom, 0px))`; y += t.offsetHeight + 8; });
+    $$(".toast").forEach((t) => { t.style.bottom = `calc(${y}px + env(safe-area-inset-bottom, 0px))`; y += t.offsetHeight + 8; });
   }
   function fail(error, what) {
     console.error(error);
