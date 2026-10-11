@@ -176,6 +176,7 @@
         <div data-p="${isAdmin() ? 4 : 3}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Address", em.address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""], ["Created By", em.created_by_name]].map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>${rhBox("employees", em.id)}</div>
       </div>`;
     $$("#emTabs button").forEach((t) => (t.onclick = () => { $$("#emTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#emPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
+    E.keepTab("#emTabs", "employee:" + id);
     E.bindGrid($("#emSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
     E.bindGrid($("#emOrders"), orders, (r) => (location.hash = "order/" + r.id));
     E.bindFiles($("#main"));
@@ -834,6 +835,7 @@
         <div data-p="3" hidden><div id="pcOrders">${E.ordersGrid(orders, "No orders for this company.")}</div></div>
       </div>${rhBox("pay_companies", c.id)}`;
     $$("#pcTabs button").forEach((t) => (t.onclick = () => { $$("#pcTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#pcPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
+    E.keepTab("#pcTabs", "paycompany:" + id);
     E.bindGrid($("#pcVouchers"), vouchers, (r) => (location.hash = "voucher/" + r.id));
     E.bindGrid($("#pcMonths"), months, (r) => printRecord(c, r.list, `For the month of ${monthLabel(r.month)}`));
     E.bindGrid($("#pcOrders"), orders, (r) => (location.hash = "order/" + r.id));

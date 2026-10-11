@@ -775,6 +775,7 @@
       $$("#pfTabs button").forEach((x) => x.classList.toggle("on", x === t));
       $$(".tabpanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t));
     }));
+    E.keepTab("#pfTabs", "customer:" + c.id);
     E.bindGrid($('[data-p="2"]'), invs.data || [], (r) => (location.hash = "invoice/" + r.id));
     E.bindGrid($('[data-p="3"]'), pays.data || [], (r) => (location.hash = "payment/" + r.id));
     E.bindGrid($('[data-p="4"]'), memos.data || [], (r) => (location.hash = "creditmemo/" + r.id));

@@ -904,13 +904,35 @@
     });
   }
 
+  // ---------- the open tab of a record page stays open when the page is drawn again ----------
+  // A record page (customer, employee, billing company, e-bill) is drawn again after an upload or a change: the tab
+  // that was open (Files, Documents …) opens again, so the new file is in view at once. Another record, or the same
+  // record opened again later, starts on its first tab.
+  const OPEN_TAB = { key: "", i: 0 };
+  function keepTab(sel, key) {
+    const btns = $$(sel + " button");
+    if (OPEN_TAB.key !== key) { OPEN_TAB.key = key; OPEN_TAB.i = 0; }
+    btns.forEach((b, i) => b.addEventListener("click", () => { if (OPEN_TAB.key === key) OPEN_TAB.i = i; }));
+    const b = btns[OPEN_TAB.i];
+    if (OPEN_TAB.i && b && !b.classList.contains("on")) b.click();
+  }
+  addEventListener("hashchange", () => { OPEN_TAB.key = ""; });
+
   // ---------- scanning (the E-Portal app for Windows) ----------
   // In the Windows app every document upload gets a Scan button: the page is scanned with the scanner of the computer
-  // (an HP printer and others), added to that upload, and saved at once where the upload saves at once (a signed
-  // copy, a requirement on a profile …). A green ✔ shows it. Photos, barcode pictures and chat files have no Scan.
+  // (an HP printer and others). A circle shows how far the scan is (in %), with Cancel; when the page is in, the circle
+  // turns green with ✔. Where the upload saves at once (a signed copy, Files, a requirement on a profile …) the page is
+  // saved at once and the screen shows it. In a form that is saved with its Submit button, the scanned pages are listed
+  // under the upload with Preview and Delete, and are saved with the form. Photos, barcode pictures and chat files have
+  // no Scan.
   const SCAN_SKIP = new Set(["scImg", "vfImg", "cvFile"]);
   const SCAN_IMAGES = new Set(["sgFile", "mpSig"]); // signatures on paper are scanned too
   const scanFits = (inp) => !SCAN_SKIP.has(inp.id) && (!inp.accept || /pdf/.test(inp.accept) || SCAN_IMAGES.has(inp.id));
+  // An upload whose own change handler saves the file at once; any other upload keeps the pages for its form.
+  const savesAtOnce = (inp) => typeof inp.onchange === "function";
+  const RING = 2 * Math.PI * 17;
+  const pagesText = (n) => `✔ ${n > 1 ? `${n} pages scanned` : "Scanned"} · saved with the form`;
+  const kb = (n) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
   function addScanButtons(root) {
     if (!window.EOApp?.scan || !root?.querySelectorAll) return;
     for (const inp of root.querySelectorAll('input[type="file"]:not([data-scan])')) {
@@ -918,37 +940,149 @@
       if (!scanFits(inp)) continue;
       const wrap = document.createElement("span");
       wrap.className = "scan-wrap" + (inp.hidden ? " for-hidden" : "");
-      const btn = document.createElement("button");
-      btn.type = "button"; btn.className = "btn scan-btn"; btn.title = "Scan the page with the scanner of this computer";
-      btn.innerHTML = `${ic("doc")} Scan`;
-      const ok = document.createElement("span");
-      ok.className = "scan-ok"; ok.hidden = true; ok.setAttribute("role", "status");
+      wrap.innerHTML = `<button type="button" class="btn scan-btn" title="Scan the page with the scanner of this computer">${ic("doc")} Scan</button>
+        <span class="scan-prog" role="progressbar" aria-label="Scan" aria-valuemin="0" aria-valuemax="100" hidden>
+          <span class="ring"><svg viewBox="0 0 40 40" aria-hidden="true"><circle class="rb" cx="20" cy="20" r="17"/><circle class="rf" cx="20" cy="20" r="17"
+            stroke-dasharray="${RING.toFixed(2)}" stroke-dashoffset="${RING.toFixed(2)}"/></svg><b class="rp">0%</b><span class="rc">${ic("check")}</span></span>
+          <span class="st"></span>${window.EOApp.cancelScan ? `<button type="button" class="btn small scan-cancel">${ic("x")} Cancel</button>` : ""}</span>
+        <span class="scan-ok" role="status" hidden></span>
+        <span class="scan-pages" hidden></span>`;
       inp.replaceWith(wrap);
-      wrap.append(inp, btn, ok);
-      btn.onclick = () => scanInto(inp, btn, ok);
+      wrap.prepend(inp);
+      const ui = scanUi(inp, wrap);
+      $(".scan-btn", wrap).onclick = () => scanInto(inp, ui);
+      const cancel = $(".scan-cancel", wrap);
+      if (cancel) cancel.onclick = () => { cancel.disabled = true; $(".st", wrap).textContent = "Cancelling…"; window.EOApp.cancelScan().catch(() => {}); };
+      // a file chosen the usual way is added to the scanned pages (a single upload takes the chosen file instead)
+      inp.addEventListener("change", () => {
+        if (inp._eoScan || savesAtOnce(inp)) return;
+        if (!inp.multiple) { ui.pages = ui.pages.filter((f) => [...inp.files].includes(f)); ui.render(); return; }
+        const picked = [...inp.files], keep = ui.pages.filter((f) => !picked.includes(f));
+        if (keep.length) ui.setFiles([...picked, ...keep]);
+        ui.render();
+      });
+      inp.form?.addEventListener("reset", () => setTimeout(() => { ui.pages = []; ui.render(); }));
     }
   }
-  async function scanInto(inp, btn, ok) {
-    const label = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = `<span class="spin sm"></span> Scanning…`;
+  function scanUi(inp, wrap) {
+    const prog = $(".scan-prog", wrap), rf = $(".rf", wrap), rp = $(".rp", wrap), st = $(".st", wrap), ok = $(".scan-ok", wrap), list = $(".scan-pages", wrap);
+    const urls = new Map();
+    const ui = {
+      pages: [], busy: false, pct: 0,
+      // pct null: the scanner window is open (the circle turns without a number)
+      show(pct, text) {
+        prog.hidden = false; prog.classList.remove("done"); ok.hidden = true;
+        const cancel = $(".scan-cancel", wrap);
+        if (cancel && !cancel.disabled) cancel.hidden = false;
+        if (pct === null || pct === undefined) { prog.classList.add("wait"); rp.textContent = ""; prog.removeAttribute("aria-valuenow"); }
+        else {
+          prog.classList.remove("wait");
+          ui.pct = Math.max(ui.pct, Math.min(99, Math.round(pct)));
+          rf.style.strokeDashoffset = (RING * (1 - ui.pct / 100)).toFixed(2);
+          rp.textContent = ui.pct + "%"; prog.setAttribute("aria-valuenow", ui.pct);
+        }
+        if (text) st.textContent = text;
+      },
+      done(text) {
+        prog.classList.remove("wait"); prog.classList.add("done");
+        rf.style.strokeDashoffset = "0"; rp.textContent = "100%"; prog.setAttribute("aria-valuenow", 100);
+        st.textContent = "Scanned";
+        const cancel = $(".scan-cancel", wrap);
+        if (cancel) cancel.hidden = true;
+        ok.textContent = text; ok.hidden = false;
+        clearTimeout(ui.fade);
+        ui.fade = setTimeout(() => { if (prog.classList.contains("done")) { prog.hidden = true; prog.classList.remove("done"); ui.pct = 0; } }, 2500);
+      },
+      reset() {
+        clearTimeout(ui.fade);
+        prog.hidden = true; prog.classList.remove("wait", "done"); ui.pct = 0;
+        rf.style.strokeDashoffset = RING.toFixed(2);
+        const cancel = $(".scan-cancel", wrap);
+        if (cancel) { cancel.disabled = false; cancel.hidden = false; }
+      },
+      setFiles(files) {
+        const dt = new DataTransfer();
+        files.forEach((f) => dt.items.add(f));
+        inp._eoScan = true; inp.files = dt.files; inp._eoScan = false;
+      },
+      // the scanned pages kept for the form, each with Preview and Delete
+      render() {
+        for (const [f, u] of urls) if (!ui.pages.includes(f)) { URL.revokeObjectURL(u); urls.delete(f); }
+        list.hidden = !ui.pages.length;
+        list.innerHTML = ui.pages.map((f, i) => {
+          if (!urls.has(f)) urls.set(f, URL.createObjectURL(f));
+          return `<span class="scan-page"><img src="${esc(urls.get(f))}" alt=""><span class="sp-name">${ui.pages.length > 1 ? `Page ${i + 1}` : "Scanned page"}<small>${esc(kb(f.size))}</small></span>
+            <button type="button" class="btn small" data-sp-view="${i}">${ic("eye")} Preview</button><button type="button" class="btn small danger" data-sp-del="${i}">${ic("trash")} Delete</button></span>`;
+        }).join("");
+        $$("[data-sp-view]", list).forEach((b) => (b.onclick = () => preview(ui.pages[Number(b.dataset.spView)])));
+        $$("[data-sp-del]", list).forEach((b) => (b.onclick = () => remove(ui.pages[Number(b.dataset.spDel)])));
+        if (!ui.pages.length) { if (!ui.busy) ui.reset(); ok.hidden = true; }
+        else if (!ui.busy) { ok.textContent = pagesText(ui.pages.length); ok.hidden = false; }
+      },
+    };
+    function preview(f) {
+      if (!f) return;
+      const n = ui.pages.indexOf(f) + 1;
+      const m = modal(ui.pages.length > 1 ? `Scanned Page ${n}` : "Scanned Page", `<div class="viewer-body"><img src="${esc(urls.get(f) || "")}" alt="Scanned page"></div>`,
+        `<button type="button" class="btn danger" data-del>${ic("trash")} Delete</button><button type="button" class="btn primary" data-x>Close</button>`, { wide: true, cls: "viewer" });
+      $("[data-x]", m.el).onclick = m.close;
+      $("[data-del]", m.el).onclick = async () => { m.close(); await remove(f); };
+    }
+    async function remove(f) {
+      if (!f || !await confirmBox("Delete this scanned page? It will not be saved.", { title: "Delete Scanned Page", ok: "Delete", danger: true })) return;
+      ui.pages = ui.pages.filter((x) => x !== f);
+      ui.setFiles([...inp.files].filter((x) => x !== f));
+      inp._eoScan = true; inp.dispatchEvent(new Event("change", { bubbles: true })); inp._eoScan = false;
+      ui.render();
+      toast("Scanned page deleted.");
+    }
+    return ui;
+  }
+  // The circle follows the time when the app gives no progress (the app for Windows 1.4).
+  const SCAN_GUESS_MS = 25000;
+  async function scanInto(inp, ui) {
+    if (ui.busy) return;
+    ui.busy = true;
+    const btn = $(".scan-btn", inp.parentNode);
+    btn.disabled = true;
+    ui.pct = 0;
+    let heard = false;
+    const t0 = Date.now();
+    const guess = setInterval(() => { if (!heard) ui.show(3 + 87 * (1 - Math.exp(-(Date.now() - t0) / (SCAN_GUESS_MS / 2.2))), "Scanning the page"); }, 250);
+    const onProgress = (p) => { heard = true; ui.show(p && typeof p.pct === "number" ? p.pct : null, p?.text); };
+    ui.show(0, "Starting the scanner");
     try {
-      let r = await window.EOApp.scan({});
-      if (r?.error && await confirmBox(`${esc(r.error)}<br><br>Open the scanner window to choose the scanner and scan from there?`, { title: "Scan", ok: "Scanner Window" }))
-        r = await window.EOApp.scan({ dialog: true });
-      if (!r?.ok) { if (r?.error) toast(r.error, true); return; }
+      let r = await window.EOApp.scan({}, onProgress);
+      if (r?.error && !/already running/.test(r.error)) {
+        ui.reset();
+        if (await confirmBox(`${esc(r.error)}<br><br>Open the scanner window to choose the scanner and scan from there?`, { title: "Scan", ok: "Scanner Window" })) {
+          ui.pct = 0; heard = true; ui.show(null, "Use the scanner window");
+          r = await window.EOApp.scan({ dialog: true }, onProgress);
+        } else r = { cancelled: true, quiet: true };
+      }
+      if (r?.cancelled) { ui.reset(); if (!r.quiet) toast("Scan cancelled."); return; }
+      if (!r?.ok) { ui.reset(); toast(r?.error || "The scan did not work.", true); return; }
       const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
       const file = new File([bytes], r.name || `Scan_${Date.now()}.jpg`, { type: r.type || "image/jpeg" });
-      const dt = new DataTransfer();
-      if (inp.multiple) for (const f of inp.files) dt.items.add(f);
-      dt.items.add(file);
-      inp.files = dt.files;
-      const n = inp.multiple ? (Number(ok.dataset.n) || 0) + 1 : 1;
-      ok.dataset.n = n; ok.textContent = n > 1 ? `✔ ${n} pages scanned` : "✔ Scanned"; ok.hidden = false;
-      inp.dispatchEvent(new Event("change", { bubbles: true }));
+      if (!inp.isConnected) return toast("The page was scanned, but this screen was closed. Scan it again here.", true);
+      if (savesAtOnce(inp)) {
+        // saved at once by the upload itself; the screen then shows the new file with its Preview and Remove
+        ui.setFiles([file]);
+        ui.done("✔ Scanned");
+      } else {
+        ui.pages = inp.multiple ? [...ui.pages, file] : [file];
+        ui.setFiles(inp.multiple ? [...inp.files, file] : [file]);
+        ui.done(pagesText(ui.pages.length));
+        ui.render();
+      }
+      inp._eoScan = true; inp.dispatchEvent(new Event("change", { bubbles: true })); inp._eoScan = false;
     } catch (e) {
+      ui.reset();
       toast("The scan did not work: " + (e?.message || e), true);
     } finally {
-      if (btn.isConnected) { btn.disabled = false; btn.innerHTML = label; }
+      clearInterval(guess);
+      ui.busy = false;
+      if (btn.isConnected) btn.disabled = false;
     }
   }
   if (window.EOApp?.scan) {
@@ -1244,7 +1378,7 @@
     APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, siteLink,
-    drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey,
+    drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey, keepTab,
     roleName, personTitle, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
     changePassword: () => renderSetPassword(false)
   });

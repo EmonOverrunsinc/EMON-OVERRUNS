@@ -1,12 +1,12 @@
 // EMON OVERRUNS E-Portal for Windows: the live E-Portal in its own window.
 // Records, prints and uploads all come from the live site, so the app does not need an update when the
 // E-Portal changes. This file only makes the window, the menu, the rules for links, files and the camera, and the
-// scanning with the scanner of the computer (1.4).
+// scanning with the scanner of the computer (1.4; 1.5: the scan ends as soon as the page is saved, with its progress).
 const { app, BrowserWindow, Menu, shell, dialog, session, clipboard, screen, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
-const { execFile } = require("child_process");
+const { execFile, spawn } = require("child_process");
 
 const HOME = process.env.EO_URL || "https://emon-overruns.vercel.app/#dashboard";
 const SITE = new URL(HOME).origin;
@@ -114,56 +114,109 @@ function saveScanSettings(change) {
 }
 
 // EO_MODE: scan (the chosen scanner, or the first one), dialog (the scanner window) or select (choose the scanner).
+// The script tells how far it is, one line at a time: STAGE:CONNECT, STAGE:SCAN, STAGE:WINDOW (the scanner window is
+// open), STAGE:CONVERT, STAGE:SAVE; then OK (the page is saved in EO_OUT), DEVICE:<id>|<name> or ERROR:<code>:<text>.
 const SCAN_PS = `
 $ErrorActionPreference = 'Stop'
 $jpeg = '{B96B3CAE-0728-11D3-9D7B-0000F81EF32E}'
+function Say($line) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
 function SetProp($props, $id, $value) { foreach ($p in $props) { if ($p.PropertyID -eq $id) { try { $p.Value = $value } catch {} } } }
+# The app starts PowerShell without a window, and Windows then hides the FIRST window this program shows: that would be
+# the scanner window, or the scanner driver's own window (an HP scanner can show one), and the scan would wait for a
+# window nobody can see. A tiny window that is never seen takes that first show, so every later window shows normally.
+try {
+  Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+  $w = New-Object System.Windows.Forms.Form
+  $w.FormBorderStyle = 'None'; $w.ShowInTaskbar = $false; $w.Opacity = 0; $w.StartPosition = 'Manual'
+  $w.Location = New-Object System.Drawing.Point(-32000, -32000); $w.Size = New-Object System.Drawing.Size(1, 1)
+  $w.Show(); $w.Hide(); $w.Dispose()
+} catch {}
 try {
   if ($env:EO_MODE -eq 'select') {
     $dev = (New-Object -ComObject WIA.CommonDialog).ShowSelectDevice(1, $true, $true)
-    Write-Output ('DEVICE:' + $dev.DeviceID + '|' + $dev.Properties.Item('Name').Value)
-    exit 0
+    Say ('DEVICE:' + $dev.DeviceID + '|' + $dev.Properties.Item('Name').Value)
+    [Environment]::Exit(0)
   }
   if ($env:EO_MODE -eq 'dialog') {
+    Say 'STAGE:WINDOW'
     $img = (New-Object -ComObject WIA.CommonDialog).ShowAcquireImage(1, [int]$env:EO_INTENT, 131072, $jpeg, $false, $true, $true)
   } else {
+    Say 'STAGE:CONNECT'
     $dm = New-Object -ComObject WIA.DeviceManager
     $info = $null
     foreach ($d in $dm.DeviceInfos) { if ($d.Type -eq 1 -and $d.DeviceID -eq $env:EO_DEVICE) { $info = $d } }
     if (-not $info) { foreach ($d in $dm.DeviceInfos) { if ($d.Type -eq 1 -and -not $info) { $info = $d } } }
-    if (-not $info) { Write-Output 'ERROR:NO_SCANNER'; exit 3 }
+    if (-not $info) { Say 'ERROR:NO_SCANNER'; [Environment]::Exit(3) }
     $item = $info.Connect().Items.Item(1)
     SetProp $item.Properties 6146 ([int]$env:EO_INTENT)
     SetProp $item.Properties 6147 ([int]$env:EO_DPI)
     SetProp $item.Properties 6148 ([int]$env:EO_DPI)
+    Say 'STAGE:SCAN'
     try { $img = $item.Transfer($jpeg) } catch { $img = $item.Transfer() }
   }
-  if (-not $img) { Write-Output 'ERROR:80210064'; exit 2 }
+  if (-not $img) { Say 'ERROR:80210064'; [Environment]::Exit(2) }
   if ($img.FormatID -ne $jpeg) {
+    Say 'STAGE:CONVERT'
     $ip = New-Object -ComObject WIA.ImageProcess
     $ip.Filters.Add($ip.FilterInfos.Item('Convert').FilterID)
     $ip.Filters.Item(1).Properties.Item('FormatID').Value = $jpeg
     $ip.Filters.Item(1).Properties.Item('Quality').Value = 85
     $img = $ip.Apply($img)
   }
+  Say 'STAGE:SAVE'
   if (Test-Path $env:EO_OUT) { Remove-Item $env:EO_OUT -Force }
   $img.SaveFile($env:EO_OUT)
-  Write-Output 'OK'
+  Say 'OK'
+  # end at once: a scanner driver can keep PowerShell open after the page is saved
+  [Environment]::Exit(0)
 } catch {
   # the scanner's own error code is inside the error PowerShell gives
   $ex = $_.Exception
   while ($ex.InnerException) { $ex = $ex.InnerException }
-  Write-Output ('ERROR:' + ('{0:X8}' -f $ex.HResult) + ':' + $ex.Message)
-  exit 2
+  Say ('ERROR:' + ('{0:X8}' -f $ex.HResult) + ':' + $ex.Message)
+  [Environment]::Exit(2)
 }
 `;
-function powershell(env, timeout = 180000) {
-  return new Promise((resolve) => {
+// Closes PowerShell and anything it started (a scanner driver can keep it open, or the scan is cancelled).
+function closeProcess(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  execFile("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true }, () => { try { child.kill(); } catch {} });
+}
+// Runs the scan script. The answer comes as soon as the script prints OK, DEVICE: or ERROR: (it does not wait for
+// PowerShell to close, which an HP driver can hold up), and PowerShell is closed if it is still open 3 seconds later.
+// onStage gets every STAGE line. Gives back { out, cancel } where out is a promise of the answer line.
+function powershell(env, { timeout = 180000, onStage } = {}) {
+  let finish;
+  const out = new Promise((resolve) => {
     const enc = Buffer.from(SCAN_PS, "utf16le").toString("base64");
-    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc],
-      { env: { ...process.env, ...env }, windowsHide: true, timeout, maxBuffer: 1 << 20 },
-      (err, stdout) => resolve(String(stdout || "").trim().split(/\r?\n/).pop() || (err && err.killed ? "ERROR:TIMEOUT" : "ERROR:" + (err ? err.message : "?"))));
+    let done = false, rest = "";
+    const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc],
+      { env: { ...process.env, ...env }, windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+    const timer = setTimeout(() => finish("ERROR:TIMEOUT"), timeout);
+    finish = (line) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(line);
+      if (line.startsWith("OK") || line.startsWith("DEVICE:")) setTimeout(() => closeProcess(child), 3000);
+      else closeProcess(child);
+    };
+    const take = (line) => {
+      line = line.trim();
+      if (!line) return;
+      if (line.startsWith("STAGE:")) { if (!done && onStage) onStage(line.slice(6)); }
+      else if (line === "OK" || /^(DEVICE|ERROR):/.test(line)) finish(line);
+    };
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      const lines = (rest + chunk).split("\n");
+      rest = lines.pop();
+      lines.forEach(take);
+    });
+    child.on("error", (err) => finish("ERROR:START:" + err.message));
+    child.on("close", () => { take(rest); rest = ""; finish("ERROR:STOPPED"); });
   });
+  return { out, cancel: () => finish && finish("ERROR:80210064") };
 }
 const NO_SCANNER = "No scanner was found. Turn on the HP printer and check that it is connected to this computer (USB cable, or the same Wi-Fi), then try again. Scanner › Choose Scanner shows the scanners Windows knows.";
 const SCAN_ERRORS = {
@@ -175,6 +228,7 @@ const SCAN_ERRORS = {
   "80210016": "The scanner lid is open. Close it, then try again.",
   "8021000A": "The computer could not reach the scanner. Check the USB cable or the Wi-Fi, then try again.",
   TIMEOUT: "The scan took too long. Check the scanner, then try again.",
+  STOPPED: "The scanner stopped before the page was saved. Check the scanner, then try again.",
 };
 function scanResult(out) {
   if (out === "OK") return { ok: true };
@@ -182,31 +236,86 @@ function scanResult(out) {
   if (code === "80210064" || code === "80210065") return { cancelled: true }; // the scan was cancelled
   return { error: SCAN_ERRORS[code] || `The scan did not work${code ? ` (code ${code})` : ""}. Try the scanner window, or choose your scanner in Scanner › Choose Scanner.` };
 }
-let scanning = false;
+
+// How far the scan is, for the circle on the E-Portal page. A scanner does not say how much of the page is done, so
+// the part while the scanner reads the page follows the time this scanner needed last time (kept per quality).
+const STAGE_TEXT = { START: "Starting the scanner", CONNECT: "Connecting to the scanner", SCAN: "Scanning the page",
+  WINDOW: "Use the scanner window", CONVERT: "Preparing the page", SAVE: "Saving the page", DONE: "Scanned" };
+function scanPercent(stage, ms, expected) {
+  const ease = (t, tau) => 1 - Math.exp(-t / tau);
+  switch (stage) {
+    case "START": return 1 + 5 * ease(ms, 1500);
+    case "CONNECT": return 7 + 7 * ease(ms, 2500);
+    case "SCAN": return 15 + 72 * ease(ms, expected / 2.2);
+    case "CONVERT": return 88 + 3 * ease(ms, 1500);
+    case "SAVE": return 92 + 3 * ease(ms, 1000);
+    case "DONE": return 96;
+    default: return null; // WINDOW: the person is choosing in the scanner window
+  }
+}
+
+let scan = null; // the scan that is running: { cancel }
 ipcMain.handle("eo-scan", async (e, opts) => {
   if (!inApp(e.senderFrame ? e.senderFrame.url : "")) return { error: "Scanning is only for the E-Portal." };
   if (process.platform !== "win32") return { error: "Scanning works in the E-Portal app for Windows." };
-  if (scanning) return { error: "A scan is already running. Wait for it to finish." };
-  scanning = true;
+  if (scan) return { error: "A scan is already running. Wait for it to finish, or press Cancel on it." };
+  const dialogMode = !!(opts && opts.dialog);
   const s = scanSettings();
+  const key = `${s.dpi}-${s.intent}`;
+  const expected = Math.min(120000, Math.max(5000, (s.times || {})[key] || (s.dpi >= 300 ? 40000 : s.intent === 2 ? 18000 : 25000)));
   const stampOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}_${String(d.getHours()).padStart(2, "0")}-${String(d.getMinutes()).padStart(2, "0")}-${String(d.getSeconds()).padStart(2, "0")}`;
   const name = `Scan_${stampOf(new Date())}.jpg`;
-  const out = path.join(os.tmpdir(), `EO-${process.pid}-${Date.now()}.jpg`);
+  const file = path.join(os.tmpdir(), `EO-${process.pid}-${Date.now()}.jpg`);
+  let stage = "START", since = Date.now(), scanFrom = 0, scanMs = 0;
+  const send = () => {
+    if (e.sender.isDestroyed()) return;
+    const pct = scanPercent(stage, Date.now() - since, expected);
+    e.sender.send("eo-scan-progress", { stage, text: STAGE_TEXT[stage] || "", pct: pct === null ? null : Math.round(pct) });
+  };
+  const ticker = setInterval(send, 250);
+  const run = powershell({ EO_MODE: dialogMode ? "dialog" : "scan", EO_OUT: file, EO_DPI: String(s.dpi), EO_INTENT: String(s.intent), EO_DEVICE: s.deviceId || "" }, {
+    timeout: dialogMode ? 15 * 60000 : 180000,
+    onStage: (st) => {
+      if (st === "SCAN") scanFrom = Date.now();
+      else if (scanFrom && !scanMs) scanMs = Date.now() - scanFrom;
+      stage = st; since = Date.now(); send();
+    },
+  });
+  scan = { cancel: run.cancel };
+  send();
   try {
-    const r = scanResult(await powershell({ EO_MODE: opts && opts.dialog ? "dialog" : "scan", EO_OUT: out, EO_DPI: String(s.dpi), EO_INTENT: String(s.intent), EO_DEVICE: s.deviceId || "" }));
+    const r = scanResult(await run.out);
     if (!r.ok) return r;
-    const data = await fs.promises.readFile(out);
+    if (scanFrom && !scanMs) scanMs = Date.now() - scanFrom;
+    // the time this scan needed, so the circle follows this scanner next time
+    if (scanMs && !dialogMode) {
+      const times = { ...(scanSettings().times || {}) };
+      times[key] = Math.round(times[key] ? times[key] * 0.5 + scanMs * 0.5 : scanMs);
+      saveScanSettings({ times });
+    }
+    const data = await fs.promises.readFile(file);
+    if (!data.length) return { error: SCAN_ERRORS.STOPPED };
+    stage = "DONE"; since = Date.now(); send();
     return { ok: true, name, type: "image/jpeg", data: data.toString("base64") };
   } catch (err) {
     return { error: "The scan did not work: " + err.message };
   } finally {
-    scanning = false;
-    fs.promises.unlink(out).catch(() => {});
+    clearInterval(ticker);
+    scan = null;
+    fs.promises.unlink(file).catch(() => {});
   }
+});
+// Cancel on the E-Portal page: PowerShell is closed and the scan answers "cancelled".
+ipcMain.handle("eo-scan-cancel", (e) => {
+  if (!inApp(e.senderFrame ? e.senderFrame.url : "")) return false;
+  if (!scan) return false;
+  scan.cancel();
+  return true;
 });
 async function chooseScanner() {
   if (process.platform !== "win32") return;
-  const out = await powershell({ EO_MODE: "select" }, 120000);
+  if (scan) return dialog.showMessageBox(current(), { type: "info", title: "Scanner", icon: ICON, message: "A scan is running. Choose the scanner when it has finished." });
+  const out = await powershell({ EO_MODE: "select" }, { timeout: 5 * 60000 }).out;
   const m = out.match(/^DEVICE:([^|]*)\|(.*)$/);
   if (m) {
     saveScanSettings({ deviceId: m[1], deviceName: m[2] });

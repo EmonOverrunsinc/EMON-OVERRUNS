@@ -342,6 +342,7 @@
         <div data-p="5" hidden>${E.grid({ cols: evCols, rows: events, empty: "No history yet." })}</div>
       </div>${rhBox("stock_bills", b.id)}`;
     $$("#sbTabs button").forEach((t) => (t.onclick = () => { $$("#sbTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#sbPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
+    E.keepTab("#sbTabs", "ebill:" + id);
     E.bindGrid($("#sbPays"), payRows, (r) => {
       if (r.oid && openMemo) location.hash = "order/" + r.oid;
       else if (r.vid && E.canOpen("voucher")) location.hash = "voucher/" + r.vid;
