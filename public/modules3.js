@@ -404,13 +404,13 @@
       <div class="docgrid">${E.docCard({ key: "myja", title: `Job Application Form ${a.application_no}`, sub: "Download, print and sign", ownerType: "job_application", ownerId: a.id, att, print: () => E.printJobApp(a), canUpload: false, printLabel: "Download / Print Form",
         approved: a.status === "approved" && a.approved_by_name ? { name: a.approved_by_name, at: a.approved_at } : null })}</div>
       <h3>My Requirements</h3>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No requirements uploaded yet.")}
-      ${a.status === "submitted" ? `<div class="fields wide" style="margin:8px 0">${E.fileField("asReq", "Add Requirements", 'multiple accept="image/*,application/pdf"')}${a.photo_path ? "" : E.fileField("asPhoto", "Add Your Photo", 'accept="image/*"')}</div>
+      ${a.status === "submitted" ? `<div class="fields wide" style="margin:8px 0">${E.fileField("asReq", "Add Requirements", 'multiple accept="image/*,application/pdf" data-save-now')}${a.photo_path ? "" : E.fileField("asPhoto", "Add Your Photo", 'accept="image/*"')}</div>
         <div class="btnrow"><button type="button" class="btn" id="asCheck">Check Status</button></div>` : ""}`;
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), () => applicantStatus(a));
     if ($("#asPhoto")) $("#asPhoto").onchange = async (e) => { const f = e.target.files[0]; if (!f) return; const ok = await addApplicationPhoto(a, f); toast(ok ? "Photo added." : "The photo could not be added.", !ok); applicantStatus(a); };
     if ($("#asCheck")) $("#asCheck").onclick = async () => { S.profile = null; E.route(); };
-    if ($("#asReq")) $("#asReq").onchange = async (e) => { const f = await E.uploadRecords("job_application", a.id, "requirement", Array.from(e.target.files)); toast(f ? "Upload failed." : "Uploaded.", f > 0); applicantStatus(a); };
+    if ($("#asReq")) $("#asReq").onchange = async (e) => { const here = E.stillHere(), f = await E.uploadRecords("job_application", a.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed to upload.` : "Uploaded.", f > 0); if (here()) applicantStatus(a); };
   }
 
   // ======================================================================

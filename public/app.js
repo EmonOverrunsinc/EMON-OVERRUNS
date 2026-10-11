@@ -7,7 +7,7 @@
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
   const VERSION = "2.1";
-  const BUILD = "2.1.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "2.1.2"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -100,14 +100,24 @@
   };
   const ic = (name, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
+  // A new message takes the place of the one before, except that an error stays for its time when a message that is
+  // not an error comes after it (so "saved" can never hide that something failed); the newer message shows below it.
+  // A new error takes the place of every message before it.
+  let lastError = 0; // when the last error message showed
   function toast(msg, err) {
-    $$(".toast").forEach((t) => t.remove());
+    if (err) lastError = Date.now();
+    $$(".toast").forEach((t) => { if (err || !t.classList.contains("err")) t.remove(); });
     const t = document.createElement("div");
     t.className = "toast" + (err ? " err" : "");
     t.setAttribute("role", err ? "alert" : "status");
     t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 300); }, err ? 7000 : 3500);
+    document.body.insertBefore(t, $(".toast")); // the newest first (and lowest on the screen)
+    stackToasts();
+    setTimeout(() => { t.classList.add("out"); setTimeout(() => { t.remove(); stackToasts(); }, 300); }, err ? 7000 : 3500);
+  }
+  function stackToasts() {
+    let y = 16;
+    $$(".toast").forEach((t) => { t.style.bottom = `calc(${y}px + env(safe-area-inset-bottom, 0px))`; y += t.offsetHeight + 8; });
   }
   function fail(error, what) {
     console.error(error);
@@ -904,13 +914,40 @@
     });
   }
 
+  // ---------- the open tab of a record page stays open when the page is drawn again ----------
+  // A record page (customer, employee, billing company, e-bill) is drawn again after an upload or a change: the tab
+  // that was open (Files, Documents …) opens again, so the new file is in view at once. Another record, or the same
+  // record opened again later, starts on its first tab.
+  const OPEN_TAB = { key: "", i: 0 };
+  function keepTab(sel, key) {
+    const btns = $$(sel + " button");
+    if (OPEN_TAB.key !== key) { OPEN_TAB.key = key; OPEN_TAB.i = 0; }
+    btns.forEach((b, i) => b.addEventListener("click", () => { if (OPEN_TAB.key === key) OPEN_TAB.i = i; }));
+    const b = btns[OPEN_TAB.i];
+    if (OPEN_TAB.i && b && !b.classList.contains("on")) b.click();
+  }
+  addEventListener("hashchange", () => { OPEN_TAB.key = ""; });
+  // For work that ends later (an upload): true while the person is still on the same page, so the page is drawn again
+  // only then (not over the page they went to).
+  const stillHere = () => { const h = location.hash; return () => location.hash === h; };
+
   // ---------- scanning (the E-Portal app for Windows) ----------
   // In the Windows app every document upload gets a Scan button: the page is scanned with the scanner of the computer
-  // (an HP printer and others), added to that upload, and saved at once where the upload saves at once (a signed
-  // copy, a requirement on a profile …). A green ✔ shows it. Photos, barcode pictures and chat files have no Scan.
+  // (an HP printer and others). A circle shows how far the scan is (in %), with Cancel; when the page is in, the circle
+  // turns green with ✔. Where the upload saves at once (a signed copy, Files, a requirement on a profile …) the page is
+  // saved at once and the screen shows it. In a form that is saved with its Submit button, the scanned pages are listed
+  // under the upload with Preview and Delete, and are saved with the form. Photos, barcode pictures and chat files have
+  // no Scan.
   const SCAN_SKIP = new Set(["scImg", "vfImg", "cvFile"]);
   const SCAN_IMAGES = new Set(["sgFile", "mpSig"]); // signatures on paper are scanned too
   const scanFits = (inp) => !SCAN_SKIP.has(inp.id) && (!inp.accept || /pdf/.test(inp.accept) || SCAN_IMAGES.has(inp.id));
+  // An upload marked data-save-now saves the file at once (data-save-now="preview": a preview opens first, as for a
+  // signature); any other upload keeps the pages for its form, which saves them with its Submit button.
+  const savesAtOnce = (inp) => inp.hasAttribute("data-save-now");
+  let justSaved = null; // { el, id, hash, at }: the screen drawn again after a scanned page was saved shows ✔ Saved
+  const RING = 2 * Math.PI * 17;
+  const pagesText = (n) => `✔ ${n > 1 ? `${n} pages scanned` : "Scanned"} · saved with the form`;
+  const kb = (n) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
   function addScanButtons(root) {
     if (!window.EOApp?.scan || !root?.querySelectorAll) return;
     for (const inp of root.querySelectorAll('input[type="file"]:not([data-scan])')) {
@@ -918,41 +955,231 @@
       if (!scanFits(inp)) continue;
       const wrap = document.createElement("span");
       wrap.className = "scan-wrap" + (inp.hidden ? " for-hidden" : "");
-      const btn = document.createElement("button");
-      btn.type = "button"; btn.className = "btn scan-btn"; btn.title = "Scan the page with the scanner of this computer";
-      btn.innerHTML = `${ic("doc")} Scan`;
-      const ok = document.createElement("span");
-      ok.className = "scan-ok"; ok.hidden = true; ok.setAttribute("role", "status");
+      wrap.innerHTML = `<button type="button" class="btn scan-btn" title="Scan the page with the scanner of this computer">${ic("doc")} Scan</button>
+        <span class="scan-prog" role="progressbar" aria-label="Scan" aria-valuemin="0" aria-valuemax="100" hidden>
+          <span class="ring"><svg viewBox="0 0 40 40" aria-hidden="true"><circle class="rb" cx="20" cy="20" r="17"/><circle class="rf" cx="20" cy="20" r="17"
+            stroke-dasharray="${RING.toFixed(2)}" stroke-dashoffset="${RING.toFixed(2)}"/></svg><b class="rp">0%</b><span class="rc">${ic("check")}</span></span>
+          <span class="st"></span>${window.EOApp.cancelScan ? `<button type="button" class="btn small scan-cancel">${ic("x")} Cancel</button>` : ""}</span>
+        <span class="scan-ok" role="status" hidden></span>
+        <span class="scan-pages" hidden></span>`;
       inp.replaceWith(wrap);
-      wrap.append(inp, btn, ok);
-      btn.onclick = () => scanInto(inp, btn, ok);
+      wrap.prepend(inp);
+      const ui = scanUi(inp, wrap);
+      inp._eoUi = ui;
+      $(".scan-btn", wrap).onclick = () => scanInto(inp, ui);
+      // the same upload on the screen drawn again after its scanned page was saved (and no error came meanwhile)
+      if (justSaved && justSaved.el !== inp && inp.id && justSaved.id === inp.id && justSaved.hash === location.hash && Date.now() - justSaved.at < 60000) {
+        const ok = lastError < justSaved.at;
+        justSaved = null;
+        if (ok) ui.done("✔ Saved");
+      }
+      const cancel = $(".scan-cancel", wrap);
+      if (cancel) cancel.onclick = () => { cancel.disabled = true; $(".st", wrap).textContent = "Cancelling…"; window.EOApp.cancelScan().catch(() => {}); };
+      // a file chosen the usual way is added to the scanned pages (a single upload takes the chosen file instead)
+      inp.addEventListener("change", () => {
+        if (inp._eoScan || savesAtOnce(inp)) return;
+        if (!inp.multiple) { ui.pages = ui.pages.filter((f) => [...inp.files].includes(f)); ui.render(); return; }
+        const picked = [...inp.files], keep = ui.pages.filter((f) => !picked.includes(f));
+        if (keep.length) ui.setFiles([...picked, ...keep]);
+        ui.render();
+      });
+      inp.form?.addEventListener("reset", () => setTimeout(() => { ui.pages = []; ui.render(); }));
     }
   }
-  async function scanInto(inp, btn, ok) {
-    const label = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = `<span class="spin sm"></span> Scanning…`;
+  const SCAN_UIS = new Set(); // the scan uploads with pictures of scanned pages, freed when they leave the screen
+  function freeScanPictures() {
+    for (const ui of SCAN_UIS) if (!ui.wrap.isConnected) { ui.free(); SCAN_UIS.delete(ui); }
+  }
+  function scanUi(inp, wrap) {
+    const prog = $(".scan-prog", wrap), rf = $(".rf", wrap), rp = $(".rp", wrap), st = $(".st", wrap), ok = $(".scan-ok", wrap), list = $(".scan-pages", wrap);
+    const urls = new Map();
+    const ui = {
+      pages: [], busy: false, pct: 0, wrap,
+      free() { for (const u of urls.values()) URL.revokeObjectURL(u); urls.clear(); },
+      // pct null: the scanner window is open (the circle turns without a number)
+      show(pct, text) {
+        prog.hidden = false; prog.classList.remove("done"); ok.hidden = true;
+        const cancel = $(".scan-cancel", wrap);
+        if (cancel && !cancel.disabled) cancel.hidden = false;
+        if (pct === null || pct === undefined) { prog.classList.add("wait"); rp.textContent = ""; prog.removeAttribute("aria-valuenow"); }
+        else {
+          prog.classList.remove("wait");
+          ui.pct = Math.max(ui.pct, Math.min(99, Math.round(pct)));
+          rf.style.strokeDashoffset = (RING * (1 - ui.pct / 100)).toFixed(2);
+          rp.textContent = ui.pct + "%"; prog.setAttribute("aria-valuenow", ui.pct);
+        }
+        if (text) st.textContent = text;
+      },
+      done(text) {
+        prog.classList.remove("wait"); prog.classList.add("done");
+        rf.style.strokeDashoffset = "0"; rp.textContent = "100%"; prog.setAttribute("aria-valuenow", 100);
+        st.textContent = "";
+        const cancel = $(".scan-cancel", wrap);
+        if (cancel) cancel.hidden = true;
+        ok.textContent = text; ok.hidden = false;
+        clearTimeout(ui.fade);
+        ui.fade = setTimeout(() => { if (prog.classList.contains("done")) { prog.hidden = true; prog.classList.remove("done"); ui.pct = 0; } }, 2500);
+      },
+      reset() {
+        clearTimeout(ui.fade);
+        prog.hidden = true; prog.classList.remove("wait", "done"); ui.pct = 0;
+        rf.style.strokeDashoffset = RING.toFixed(2);
+        const cancel = $(".scan-cancel", wrap);
+        if (cancel) { cancel.disabled = false; cancel.hidden = false; }
+      },
+      setFiles(files) {
+        const dt = new DataTransfer();
+        files.forEach((f) => dt.items.add(f));
+        inp._eoScan = true; inp.files = dt.files; inp._eoScan = false;
+      },
+      // the scanned pages kept for the form, each with Preview and Delete
+      render() {
+        for (const [f, u] of urls) if (!ui.pages.includes(f)) { URL.revokeObjectURL(u); urls.delete(f); }
+        list.hidden = !ui.pages.length;
+        if (ui.pages.length) SCAN_UIS.add(ui);
+        list.innerHTML = ui.pages.map((f, i) => {
+          if (!urls.has(f)) urls.set(f, URL.createObjectURL(f));
+          return `<span class="scan-page"><img src="${esc(urls.get(f))}" alt=""><span class="sp-name">${ui.pages.length > 1 ? `Page ${i + 1}` : "Scanned page"}<small>${esc(kb(f.size))}</small></span>
+            <button type="button" class="btn small" data-sp-view="${i}">${ic("eye")} Preview</button><button type="button" class="btn small danger" data-sp-del="${i}">${ic("trash")} Delete</button></span>`;
+        }).join("");
+        $$("[data-sp-view]", list).forEach((b) => (b.onclick = () => preview(ui.pages[Number(b.dataset.spView)])));
+        $$("[data-sp-del]", list).forEach((b) => (b.onclick = () => remove(ui.pages[Number(b.dataset.spDel)])));
+        if (!ui.pages.length) { if (!ui.busy) ui.reset(); ok.hidden = true; }
+        else if (!ui.busy) { ok.textContent = pagesText(ui.pages.length); ok.hidden = false; }
+      },
+    };
+    function preview(f) {
+      if (!f) return;
+      const n = ui.pages.indexOf(f) + 1;
+      const m = modal(ui.pages.length > 1 ? `Scanned Page ${n}` : "Scanned Page", `<div class="viewer-body"><img src="${esc(urls.get(f) || "")}" alt="Scanned page"></div>`,
+        `<button type="button" class="btn danger" data-del>${ic("trash")} Delete</button><button type="button" class="btn primary" data-x>Close</button>`, { wide: true, cls: "viewer" });
+      $("[data-x]", m.el).onclick = m.close;
+      $("[data-del]", m.el).onclick = async () => { m.close(); await remove(f); };
+    }
+    async function remove(f) {
+      if (!f || !await confirmBox("Delete this scanned page? It will not be saved.", { title: "Delete Scanned Page", ok: "Delete", danger: true })) return;
+      ui.pages = ui.pages.filter((x) => x !== f);
+      ui.setFiles([...inp.files].filter((x) => x !== f));
+      fireChange(inp);
+      ui.render();
+      toast("Scanned page deleted.");
+    }
+    return ui;
+  }
+  // The circle follows the time when the app gives no progress (the app for Windows 1.4).
+  const SCAN_GUESS_MS = 25000;
+  // Waits until the upload has been saved and its screen drawn again (the upload is then no longer on the page), at
+  // most `ms`.
+  const untilGone = (el, ms) => new Promise((resolve) => {
+    const t0 = Date.now(), t = setInterval(() => { if (!el.isConnected || Date.now() - t0 > ms) { clearInterval(t); resolve(!el.isConnected); } }, 150);
+  });
+  const fireChange = (inp) => { inp._eoScan = true; try { inp.dispatchEvent(new Event("change", { bubbles: true })); } finally { inp._eoScan = false; } };
+  async function scanInto(inp, ui) {
+    if (ui.busy) return;
+    ui.busy = true;
+    const wrap = inp.parentNode, btn = $(".scan-btn", wrap), hash = location.hash;
+    delete wrap.dataset.abandoned;
+    wrap.classList.add("scanning");
+    btn.disabled = true;
+    ui.pct = 0;
+    let heard = false;
+    const t0 = Date.now();
+    const guess = setInterval(() => { if (!heard) ui.show(3 + 87 * (1 - Math.exp(-(Date.now() - t0) / (SCAN_GUESS_MS / 2.2))), "Scanning the page"); }, 250);
+    const onProgress = (p) => { heard = true; ui.show(p && typeof p.pct === "number" ? p.pct : null, p?.text); };
+    ui.show(0, "Starting the scanner");
     try {
-      let r = await window.EOApp.scan({});
-      if (r?.error && await confirmBox(`${esc(r.error)}<br><br>Open the scanner window to choose the scanner and scan from there?`, { title: "Scan", ok: "Scanner Window" }))
-        r = await window.EOApp.scan({ dialog: true });
-      if (!r?.ok) { if (r?.error) toast(r.error, true); return; }
+      let r = await window.EOApp.scan({}, onProgress);
+      if (r?.error && r.offerDialog !== false && !/already running/.test(r.error)) {
+        heard = true; ui.reset();
+        if (await confirmBox(`${esc(r.error)}<br><br>Open the scanner window to choose the scanner and scan from there?`, { title: "Scan", ok: "Scanner Window" })) {
+          ui.pct = 0; heard = true; ui.show(null, "Use the scanner window");
+          r = await window.EOApp.scan({ dialog: true }, onProgress);
+        } else r = { cancelled: true, quiet: true };
+      }
+      clearInterval(guess);
+      if (r?.cancelled) { ui.reset(); if (!r.quiet) toast("Scan cancelled."); return; }
+      if (!r?.ok) { ui.reset(); toast(r?.error || "The scan did not work.", true); return; }
       const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
       const file = new File([bytes], r.name || `Scan_${Date.now()}.jpg`, { type: r.type || "image/jpeg" });
-      const dt = new DataTransfer();
-      if (inp.multiple) for (const f of inp.files) dt.items.add(f);
-      dt.items.add(file);
-      inp.files = dt.files;
-      const n = inp.multiple ? (Number(ok.dataset.n) || 0) + 1 : 1;
-      ok.dataset.n = n; ok.textContent = n > 1 ? `✔ ${n} pages scanned` : "✔ Scanned"; ok.hidden = false;
-      inp.dispatchEvent(new Event("change", { bubbles: true }));
+      if (wrap.dataset.abandoned) return toast("The scanned page was left out (the form was saved without it).", true);
+      if (!inp.isConnected && location.hash === hash && inp.id) {
+        // the same screen was drawn again during the scan (another upload was saved): the page goes to the new upload
+        const again = await redrawn(inp.id, hash);
+        if (again) { ui.busy = false; return await deliver(again, again._eoUi, file); }
+      }
+      if (!inp.isConnected || location.hash !== hash) return toast("The page was scanned, but this screen was closed. Open it again and scan the page there.", true);
+      await deliver(inp, ui, file);
     } catch (e) {
+      ui.reset();
       toast("The scan did not work: " + (e?.message || e), true);
     } finally {
-      if (btn.isConnected) { btn.disabled = false; btn.innerHTML = label; }
+      clearInterval(guess);
+      ui.busy = false;
+      wrap.classList.remove("scanning");
+      if (btn.isConnected) btn.disabled = false;
     }
   }
+  // The upload with this id once the screen has been drawn again (at most 8 seconds).
+  const redrawn = (id, hash) => new Promise((resolve) => {
+    const t0 = Date.now(), t = setInterval(() => {
+      const el = document.getElementById(id);
+      if (el && el._eoUi && location.hash === hash) { clearInterval(t); resolve(el); }
+      else if (Date.now() - t0 > 8000 || location.hash !== hash) { clearInterval(t); resolve(null); }
+    }, 150);
+  });
+  // The scanned page into its upload: saved at once, a signature preview, or kept for the form.
+  async function deliver(inp, ui, file) {
+    const wrap = inp.parentNode, hash = location.hash, btn = $(".scan-btn", wrap);
+    ui.busy = true;
+    btn.disabled = true; // no second page into this upload while this one is saved
+    try {
+      if (inp.dataset.saveNow === "preview") {
+        // a signature: its preview opens, where it is saved
+        ui.setFiles([file]); ui.done("✔ Scanned");
+        fireChange(inp);
+      } else if (savesAtOnce(inp)) {
+        // saved at once: the circle waits for the save; the screen drawn again shows the new file and ✔ Saved
+        ui.setFiles([file]);
+        ui.show(97, "Saving the page");
+        $(".scan-cancel", wrap)?.setAttribute("hidden", "");
+        justSaved = { el: inp, id: inp.id, hash, at: Date.now() };
+        fireChange(inp);
+        if (!await untilGone(inp, 60000)) { if (justSaved?.el === inp) justSaved = null; ui.done("✔ Scanned"); }
+      } else {
+        ui.pages = inp.multiple ? [...ui.pages, file] : [file];
+        ui.setFiles(inp.multiple ? [...inp.files, file] : [file]);
+        ui.done(pagesText(ui.pages.length));
+        ui.render();
+        fireChange(inp);
+      }
+    } finally {
+      ui.busy = false;
+      if (btn.isConnected) btn.disabled = false;
+    }
+  }
+  // A form or a dialog is not saved while one of its pages is still being scanned (the page would be left out). With
+  // the app for Windows 1.4 (no Cancel) the person may save without that page.
+  async function scanGuard(e, area, again) {
+    const w = area?.querySelector?.(".scan-wrap.scanning");
+    if (!w) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (window.EOApp?.cancelScan) return toast("Wait until the scan has finished (or press Cancel on it), then save.", true);
+    if (await confirmBox("A page is still being scanned. Save without that page?", { title: "Scan", ok: "Save Without It" })) {
+      w.dataset.abandoned = "1"; w.classList.remove("scanning");
+      again();
+    }
+  }
+  document.addEventListener("submit", (e) => scanGuard(e, e.target, () => e.target.requestSubmit()), true);
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest?.("[data-ok], button[type=submit]");
+    if (!b || (b.type === "submit" && b.form)) return; // a form's own Submit is checked when the form is sent
+    scanGuard(e, b.closest(".modal, form, .window"), () => b.click());
+  }, true);
   if (window.EOApp?.scan) {
-    new MutationObserver((list) => { for (const m of list) for (const n of m.addedNodes) if (n.nodeType === 1) addScanButtons(n.matches('input[type="file"]') ? n.parentNode : n); })
+    new MutationObserver((list) => {
+      for (const m of list) for (const n of m.addedNodes) if (n.nodeType === 1) addScanButtons(n.matches('input[type="file"]') ? n.parentNode : n);
+      if (SCAN_UIS.size) freeScanPictures();
+    })
       .observe(document.body, { childList: true, subtree: true });
     addScanButtons(document.body);
   }
@@ -1093,11 +1320,14 @@
       const file = $("#fmFile").files[0], title = $("#fmTitle").value.trim(), category = $("#fmCat").value.trim() || "General";
       if (!title || !file) return toast("Enter a title and choose a file.", true);
       const path = `${Date.now()}_${file.name.replace(/[^\w.\-]+/g, "_")}`;
-      const up = await sb.storage.from("forms").upload(path, file, { contentType: file.type || "application/octet-stream" });
-      if (up.error) return fail(up.error, "Upload failed");
-      const { error } = await sb.from("forms").insert({ title, category, storage_path: path, file_name: file.name });
-      if (error) return fail(error, "Could not save the form");
-      toast(`Uploaded ${title}.`); e.target.reset(); load();
+      setBusy(e.target, true, "Uploading");
+      try {
+        const up = await sb.storage.from("forms").upload(path, file, { contentType: file.type || "application/octet-stream" });
+        if (up.error) return fail(up.error, "Upload failed");
+        const { error } = await sb.from("forms").insert({ title, category, storage_path: path, file_name: file.name });
+        if (error) { sb.storage.from("forms").remove([path]).catch(() => {}); return fail(error, "Could not save the form"); }
+        toast(`Uploaded ${title}.`); e.target.reset(); load();
+      } finally { setBusy(e.target, false); }
     };
     load();
   }
@@ -1156,7 +1386,7 @@
       ${st === "rejected" && u.signature_note ? `<div class="hint err">Not approved: ${esc(u.signature_note)}</div>` : ""}
       ${st === "pending" ? `<label class="fl" for="sgNote">Note (needed to reject)</label><input type="text" id="sgNote" placeholder="e.g. Too light, sign again with dark ink">` : ""}`,
       `${st === "pending" ? `<button type="button" class="btn ok" data-a="approve">${ic("check")} Approve</button><button type="button" class="btn danger" data-a="reject">Reject</button>` : ""}
-       <label class="btn" for="sgFile">${ic("upload")} ${pic ? "Upload New" : "Upload Signature"}</label><input type="file" id="sgFile" accept="image/*" hidden>
+       <label class="btn" for="sgFile">${ic("upload")} ${pic ? "Upload New" : "Upload Signature"}</label><input type="file" id="sgFile" accept="image/*" hidden data-save-now="preview">
        ${u.signature_path ? `<button type="button" class="btn" data-form>${ic("print")} Form</button><button type="button" class="btn danger" data-a="remove">Remove</button>` : ""}
        <button type="button" class="btn" data-x>Close</button>`);
     $("[data-x]", m.el).onclick = m.close;
@@ -1177,6 +1407,7 @@
   // ---------- router ----------
   const BUILTIN = { forms: viewForms, logins: viewUsers };
   async function route() {
+    justSaved = null; // a page drawn by the router (Remove, a correction, another page) is not the save's redraw
     takeLinkError();
     closePreview();
     $$(".pop").forEach((p) => (p.hidden = true));
@@ -1244,7 +1475,7 @@
     APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, siteLink,
-    drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey,
+    drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey, keepTab, stillHere,
     roleName, personTitle, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
     changePassword: () => renderSetPassword(false)
   });

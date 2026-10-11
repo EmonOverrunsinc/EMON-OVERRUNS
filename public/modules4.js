@@ -295,7 +295,7 @@
       const f = entryFile(r);
       if (f) return `<button type="button" class="btn small" data-open="${esc(f.storage_path)}" data-mime="${esc(f.mime || "")}" data-name="${esc(f.file_name)}">${ic("eye")} View</button>`;
       if (r.entry_type !== "fee" && r.entry_type !== "penalty") return "—";
-      return `<span class="pill unpaid">MISSING</span>${w ? ` <label class="btn small" for="up_${r.id}">${ic("upload")} Upload</label><input type="file" id="up_${r.id}" hidden accept="image/*,application/pdf" data-entry="${r.id}">` : ""}`;
+      return `<span class="pill unpaid">MISSING</span>${w ? ` <label class="btn small" for="up_${r.id}">${ic("upload")} Upload</label><input type="file" id="up_${r.id}" hidden accept="image/*,application/pdf" data-save-now data-entry="${r.id}">` : ""}`;
     };
     const entryCols = [
       { label: "Date", get: (r) => mdy(r.entry_date) }, { label: "Type", html: (r) => `<span class="et ${r.entry_type}">${esc(ENTRY[r.entry_type] || r.entry_type)}</span>` },
@@ -338,10 +338,11 @@
           ${E.canWrite("billing") ? `<div class="btnrow"><a class="btn primary" href="#neworder/memo/${b.id}">${ic("plus")} Memo Payment</a></div>` : ""}</div>
         <div data-p="4" hidden>${E.filesHtml(files, "No files uploaded.")}
           ${w ? `<div class="sb-up"><label for="sbUpKind">Add File</label><select id="sbUpKind">${[["bill", "E-Bill Copy"], ["shipping_bill", "Shipping Fee Receipt"], ["sales_report", "Sales Report"], ["receipt", "Receipt"], ["other", "Other"]].map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>
-            <label class="btn" for="sbUpFile">${ic("upload")} Choose File</label><input type="file" id="sbUpFile" hidden multiple accept="image/*,application/pdf"></div>` : ""}</div>
+            <label class="btn" for="sbUpFile">${ic("upload")} Choose File</label><input type="file" id="sbUpFile" hidden multiple accept="image/*,application/pdf" data-save-now></div>` : ""}</div>
         <div data-p="5" hidden>${E.grid({ cols: evCols, rows: events, empty: "No history yet." })}</div>
       </div>${rhBox("stock_bills", b.id)}`;
     $$("#sbTabs button").forEach((t) => (t.onclick = () => { $$("#sbTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#sbPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
+    E.keepTab("#sbTabs", "ebill:" + id);
     E.bindGrid($("#sbPays"), payRows, (r) => {
       if (r.oid && openMemo) location.hash = "order/" + r.oid;
       else if (r.vid && E.canOpen("voucher")) location.hash = "voucher/" + r.vid;
@@ -356,15 +357,15 @@
     if ($("#sbFee")) $("#sbFee").onclick = () => feeDialog(b, reload);
     $$("[data-entry]").forEach((inp) => (inp.onchange = async (e) => {
       const fs = Array.from(e.target.files).slice(0, 1); if (!fs.length) return;
-      const f = await E.uploadRecords("stock_bill_entry", inp.dataset.entry, "receipt", fs);
+      const here = E.stillHere(), f = await E.uploadRecords("stock_bill_entry", inp.dataset.entry, "receipt", fs);
       toast(f ? "The receipt failed to upload." : "Receipt uploaded.", f > 0);
-      reload();
+      if (here()) reload();
     }));
     if ($("#sbUpFile")) $("#sbUpFile").onchange = async (e) => {
       const fs = Array.from(e.target.files); if (!fs.length) return;
-      const f = await E.uploadRecords("stock_bill", id, $("#sbUpKind").value, fs);
+      const here = E.stillHere(), f = await E.uploadRecords("stock_bill", id, $("#sbUpKind").value, fs);
       toast(f ? `${f} file(s) failed to upload.` : "File uploaded.", f > 0);
-      reload();
+      if (here()) reload();
     };
     E.setRecords(`E-Bill: ${b.bill_no}`);
   };

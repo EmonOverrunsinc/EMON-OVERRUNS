@@ -87,7 +87,7 @@
   }
   // A wrong upload can be removed and the right file uploaded again: the Director removes any file,
   // the person who uploaded it within 24 hours. The removal is written in the record's history.
-  const canRemove = (f) => !!f && (isAdmin() || (f.uploaded_by === S.profile?.id && Date.now() - new Date(f.created_at).getTime() < 864e5));
+  const canRemove = (f) => !!f && (isAdmin() || (S.profile?.status === "active" && f.uploaded_by === S.profile?.id && Date.now() - new Date(f.created_at).getTime() < 864e5));
   const rmBtn = (f) => canRemove(f) ? `<button type="button" class="btn danger" data-rm="${esc(f.id)}" data-path="${esc(f.storage_path)}" data-name="${esc(f.file_name)}">${ic("trash")} Remove</button>` : "";
   async function removeFile(b) {
     const ok = await E.confirmBox(`Remove <b>${esc(b.dataset.name)}</b>? You can upload the correct file again afterwards.`, { title: "Remove File", ok: "Remove", danger: true });
@@ -224,7 +224,7 @@
         ${signed ? `<button type="button" class="btn primary" data-dc-view="${esc(key)}">${ic("eye")} View</button>${rmBtn(signed)}`
           : `<button type="button" class="btn primary" data-dc-print="${esc(key)}">${ic("print")} ${esc(printLabel)}</button>`}
         ${mayUpload ? `<label class="btn" for="${upId}">${ic("upload")} ${signed ? "Replace" : esc(uploadLabel)}</label>
-          <input type="file" id="${upId}" hidden accept="image/*,application/pdf" data-dc-up="${esc(key)}" data-owner="${esc(ownerType)}" data-id="${esc(ownerId)}">` : ""}
+          <input type="file" id="${upId}" hidden accept="image/*,application/pdf" data-save-now data-dc-up="${esc(key)}" data-owner="${esc(ownerType)}" data-id="${esc(ownerId)}">` : ""}
       </div></div>`;
   }
   function bindDocCards(root, reload) {
@@ -234,13 +234,14 @@
     $$("[data-dc-up]", root).forEach((inp) => (inp.onchange = async (e) => {
       const files = Array.from(e.target.files).slice(0, 1);
       if (!files.length) return;
+      const here = E.stillHere();
       const card = inp.closest(".doccard");
       card.classList.add("uploading");
       $(".dc-main small", card).innerHTML = `<span class="spin sm"></span> Uploading…`;
       const d = DC.get(inp.dataset.dcUp);
       const f = await uploadRecords(inp.dataset.owner, inp.dataset.id, d?.kind || "signed_form", files);
       toast(f ? "Upload failed." : `${d?.copyName || "Signed copy"} uploaded. It now replaces the system copy.`, f > 0);
-      reload();
+      if (here()) reload();
     }));
     $$("[data-rm]", root).forEach((b) => (b.onclick = () => removeFile(b)));
   }
@@ -740,7 +741,7 @@
         <div data-p="3" hidden>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
         <div data-p="4" hidden>${E.grid({ cols: MEMO_COLS.filter((x) => x.label !== "Customer"), rows: memos.data || [], onRow: true, empty: "No credit memos." })}</div>
         <div data-p="5" hidden>${E.grid({ cols: [{ label: "Order No", get: (r) => r.order_no }, { label: "Date", get: (r) => mdy(r.order_date) }, { label: "Subject", get: (r) => r.subject }, { label: "Type", get: (r) => r.subject_type.replace(/_/g, " ").toUpperCase() }, { label: "Status", html: (r) => pill(r.status) }, { label: "Result", get: (r) => r.applied_result || "" }], rows: orders, onRow: true, empty: "No orders for this account." })}</div>
-        <div data-p="6" hidden>${filesHtml(att)}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple")}</div>` : ""}</div>
+        <div data-p="6" hidden>${filesHtml(att)}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple data-save-now")}</div>` : ""}</div>
         <div data-p="7" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
@@ -775,6 +776,7 @@
       $$("#pfTabs button").forEach((x) => x.classList.toggle("on", x === t));
       $$(".tabpanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t));
     }));
+    E.keepTab("#pfTabs", "customer:" + c.id);
     E.bindGrid($('[data-p="2"]'), invs.data || [], (r) => (location.hash = "invoice/" + r.id));
     E.bindGrid($('[data-p="3"]'), pays.data || [], (r) => (location.hash = "payment/" + r.id));
     E.bindGrid($('[data-p="4"]'), memos.data || [], (r) => (location.hash = "creditmemo/" + r.id));
@@ -785,7 +787,7 @@
     bindDocCards($("#main"), () => V.customer(c.id));
     bindTools($("#main"));
     if ($("#pvShow")) $("#pvShow").onclick = () => { const el = $("#pvCode"); const hidden = el.textContent.startsWith("•"); el.textContent = hidden ? el.dataset.code || "(none)" : "••••••••"; $("#pvShow").textContent = hidden ? "Hide" : "Show"; };
-    if ($("#pfAdd")) $("#pfAdd").onchange = async (e) => { const f = await uploadRecords("customer", c.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed to upload.` : "Uploaded.", f > 0); V.customer(c.id); };
+    if ($("#pfAdd")) $("#pfAdd").onchange = async (e) => { const here = E.stillHere(), f = await uploadRecords("customer", c.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed to upload.` : "Uploaded.", f > 0); if (here()) V.customer(c.id); };
     if (isAdmin() && ["pending", "verified"].includes(c.status)) bindReview(c);
     E.setRecords(`Account: ${c.account_no}`);
   };
@@ -1646,7 +1648,7 @@
         ${sp.signature_status === "rejected" && sp.signature_note ? `<div class="hint err">Not approved: ${esc(sp.signature_note)}. Upload a clearer signature.</div>` : ""}
         <p class="muted">${isAdmin() ? "Your signature is printed by itself on every document you approve (order letters, applications, credit memos, projects and signature forms)."
           : "Upload your signature; the Director approves it, then your Signature Verification Form is ready."} Sign on white paper with dark ink, take a clear photo and upload it: the white paper is taken away for you.</p>
-        <div class="btnrow"><label class="btn primary" for="mpSig">${ic("upload")} ${myPic ? "Change Signature" : "Upload Signature"}</label><input type="file" id="mpSig" accept="image/*" hidden>
+        <div class="btnrow"><label class="btn primary" for="mpSig">${ic("upload")} ${myPic ? "Change Signature" : "Upload Signature"}</label><input type="file" id="mpSig" accept="image/*" hidden data-save-now="preview">
           ${sp.signature_path ? `<button type="button" class="btn" id="mpSigForm">${ic("print")} Signature Verification Form</button><button type="button" class="btn danger" id="mpSigRm">${ic("trash")} Remove</button>`
             : `<button type="button" class="btn" id="mpSigBlank">${ic("print")} Blank Signature Verification Form</button>`}</div>
       </fieldset>
