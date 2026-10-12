@@ -1201,15 +1201,15 @@
     { label: "Status", html: (r) => pill(r.pay_status) }
   ];
   // 2.4: Active invoices still have a balance (UNPAID or PARTIAL PAYMENT); Closed invoices are PAID in full. What is
-  // paid comes from the database (invoice_balances): a payment recorded for an invoice pays it, and the rest of what
-  // the customer paid pays the oldest invoices first.
+  // paid comes from the database (invoice_balances): everything paid to the customer's account pays the oldest
+  // invoices first (payments are never for one invoice).
   const INV_TABS = [["open", "Active"], ["unpaid", "Unpaid"], ["partial", "Partial Payment"], ["paid", "Closed (Paid)"], ["", "All"]];
   const invPick = (all, f) => (f === "open" ? all.filter((r) => r.pay_status !== "paid") : f ? all.filter((r) => r.pay_status === f) : all);
   V.invoices = async () => {
     E.shell("invoices", "Invoice", `
       <div class="tabs" id="ivTabs">${INV_TABS.map(([f, l], i) => `<button type="button" class="${i ? "" : "on"}" data-f="${f}">${l} <span data-n="${f}"></span></button>`).join("")}</div>
       <div class="btnrow">${E.canWrite("invoices") ? `<a class="btn primary" href="#newinvoice">+ Record Invoice</a>` : ""}</div>
-      <div id="ivRes">${busy()}</div>`, "<b>Active</b> invoices still have a balance: <b>UNPAID</b> (nothing paid yet) or <b>PARTIAL PAYMENT</b>. <b>Closed</b> invoices are <b>PAID</b> in full. A payment recorded for an invoice pays that invoice; everything else the customer paid pays the oldest invoices first. Press <b>Record Invoice</b> to add a sale for an ACTIVE customer.");
+      <div id="ivRes">${busy()}</div>`, "<b>Active</b> invoices still have a balance: <b>UNPAID</b> (nothing paid yet) or <b>PARTIAL PAYMENT</b>. <b>Closed</b> invoices are <b>PAID</b> in full. Payments, credit memos, discounts and settlement adjustments are for the customer's account: they pay the oldest invoices first. Press <b>Record Invoice</b> to add a sale for an ACTIVE customer.");
     const { data, error } = await sb.from("invoice_balances").select("*").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(5000);
     if (error) return fail(error, "Could not load invoices");
     const all = data || [];
@@ -1276,16 +1276,23 @@
       const t = terms();
       if (!t) return toast($("#niTerms").value === "OTHER" ? "Type the terms of payment." : "Choose the terms of payment.", true);
       E.setBusy(e.target, true, "Saving");
-      const { data: inv, error } = await sb.from("customer_invoices").insert({
+      const row = {
         customer_id: cust.id, invoice_date: $("#niDate").value || isoToday(), purchase_date: $("#niDate").value || isoToday(),
         total_boxes: Math.max(0, Math.floor(num($("#niBox").value))),
         total_pcs: Math.max(0, Math.floor(num($("#niPcs").value))), total_amount: amt, payment_terms: t
-      }).select().single();
+      };
+      let { data: inv, error } = await sb.from("customer_invoices").insert(row).select().single();
+      // before database update 2.4 (017_play_store.sql) the server has no terms of payment: the invoice is saved without them
+      let noTerms = false;
+      if (error && error.code === "PGRST204" && /payment_terms/.test(error.message || "")) {
+        delete row.payment_terms; noTerms = true;
+        ({ data: inv, error } = await sb.from("customer_invoices").insert(row).select().single());
+      }
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not record the invoice"); }
       let failed = 0;
       failed += await uploadRecords("invoice", inv.id, "signed_form", filesOf("niInvF"));
       failed += await uploadRecords("invoice", inv.id, "delivery_receipt", filesOf("niDr"));
-      toast(`Invoice ${inv.invoice_no} recorded for ${fullName(cust)}.${failed ? ` ${failed} file(s) failed to upload.` : ""}`, failed > 0);
+      toast(`Invoice ${inv.invoice_no} recorded for ${fullName(cust)}.${noTerms ? " The Terms of Payment were not saved: the server needs database update 2.4 first (017_play_store.sql); after it, add them with Add Correction." : ""}${failed ? ` ${failed} file(s) failed to upload.` : ""}`, failed > 0 || noTerms);
       location.hash = "invoice/" + inv.id;
     };
   };
