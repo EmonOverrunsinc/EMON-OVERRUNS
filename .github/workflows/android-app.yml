@@ -1,7 +1,9 @@
 # Builds the Android app (apps/android) as an unsigned APK (to install directly) and an unsigned App Bundle (.aab,
 # for the Google Play Store), and keeps them, with the build log, as a download on the run
 # (Actions › Android app › the newest run › Artifacts). The release key is kept by EMON OVERRUNS, not in
-# this public repository: both are signed after download (see apps/README.md).
+# this public repository: both are signed after download (see apps/README.md), or here when EMON OVERRUNS has put the
+# key in the repository's secrets (Settings › Secrets and variables › Actions): ANDROID_KEYSTORE_BASE64,
+# ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD. Then the run also keeps E-Portal-Android-signed.
 name: Android app
 
 on:
@@ -14,6 +16,8 @@ jobs:
   android:
     name: Android APK
     runs-on: ubuntu-24.04
+    env:
+      KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     steps:
       - uses: actions/checkout@v7
 
@@ -36,4 +40,35 @@ jobs:
             apps/android/app/build/outputs/apk/release/app-release-unsigned.apk
             apps/android/app/build/outputs/bundle/release/app-release.aab
             apps/android/build.log
+          retention-days: 90
+
+      - name: Sign the App Bundle and the APK (only when the key is in the secrets)
+        if: env.KS_B64 != ''
+        working-directory: apps/android/app/build/outputs
+        env:
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          VERSION=$(grep -oP 'versionName "\K[^"]+' ../../build.gradle)
+          KS="$RUNNER_TEMP/release.jks"
+          echo "$KS_B64" | base64 -d > "$KS"
+          mkdir -p signed
+          jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$KS" -storepass "$KS_PASS" -keypass "${KEY_PASS:-$KS_PASS}" \
+            -signedjar "signed/EMON-OVERRUNS-E-Portal-$VERSION.aab" bundle/release/app-release.aab "$KEY_ALIAS"
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          "$BT/zipalign" -p -f 4 apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          if [ -n "${KEY_PASS:-}" ]; then KP=env:KEY_PASS; else KP=env:KS_PASS; fi
+          "$BT/apksigner" sign --ks "$KS" --ks-pass env:KS_PASS --ks-key-alias "$KEY_ALIAS" --key-pass "$KP" \
+            --out "signed/EMON-OVERRUNS-E-Portal-$VERSION.apk" "$RUNNER_TEMP/aligned.apk"
+          rm -f "$KS"
+          "$BT/apksigner" verify --print-certs "signed/EMON-OVERRUNS-E-Portal-$VERSION.apk" | grep -i "SHA-256"
+          ls -l signed
+
+      - uses: actions/upload-artifact@v7
+        if: env.KS_B64 != ''
+        with:
+          name: E-Portal-Android-signed
+          path: apps/android/app/build/outputs/signed/
           retention-days: 90
