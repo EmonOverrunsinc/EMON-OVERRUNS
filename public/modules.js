@@ -638,7 +638,7 @@
       const { data } = await sb.rpc("preview_customer_numbers", { p_first: $("#ncFirst").value.trim(), p_last: $("#ncLast").value.trim() });
       if (my !== pvSeq || !data || !$("#ncAcctNo")) return;
       $("#ncAppNo").textContent = `${data.application_no} (preview)`;
-      $("#ncAcctNo").textContent = $("#ncFirst").value.trim() || $("#ncLast").value.trim() ? `${data.account_no} (preview)` : "Type the name to see it";
+      $("#ncAcctNo").textContent = $("#ncFirst").value.trim() || $("#ncLast").value.trim() ? `${data.account_no} (given when approved)` : "Type the name to see it";
     };
     ["ncFirst", "ncLast"].forEach((k) => ($("#" + k).oninput = () => { clearTimeout(pvTimer); pvTimer = setTimeout(preview, 300); }));
     preview();
@@ -964,7 +964,7 @@
     const act = async (a) => {
       const r = await sb.rpc("customer_action", { p_id: c.id, p_action: a, p_note: $("#rvNote").value.trim() || null });
       if (r.error) return fail(r.error, "Could not update the account");
-      toast(a === "approve" ? `Approved. ${c.account_no} is now ACTIVE.` : "Application rejected.");
+      toast(a === "approve" ? `Approved. ${r.data?.account_no || c.account_no || "The account"} is now ACTIVE.` : "Application rejected.");
       V.customer(c.id);
     };
     $("#rvApprove").onclick = () => act("approve");
