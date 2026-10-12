@@ -50,7 +50,7 @@
   // record numbers are never corrected: a wrong money record is deleted by the Director and recorded again.
   const FIELDS = {
     customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("facebook_link", "Facebook Account Link"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool"), F("credit_limit", "Credit Limit (₱)", "money")],
-    customer_invoices: [F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int")], // 2.2: one date (the invoice date), no PO
+    customer_invoices: [F("payment_terms", "Terms of Payment", "terms"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int")], // 2.2: one date (the invoice date), no PO; 2.4: the terms
     payments_received: [F("method", "Method", "select", METHODS), F("bank_name", "Bank Name"), F("bank_account", "Deposit Account"), F("reference_no", "Reference No"), F("notes", "Notes")],
     credit_memos: [F("payment_ref", "Payment Reference"), F("po_number", "Purchase Order"), F("article", "Article"), F("brand", "Brand"), F("style", "Style"), F("batch_no", "Batch No"), F("serial_no", "Serial No"), F("purchase_date", "Purchase Date", "date"),
       F("defect_category", "Defect Category", "select", [["fabric_damage", "Fabric Damage"], ["color_issue", "Color Issue"], ["wrong_box", "Wrong Box Delivered"], ["wrong_bundle", "Wrong Bundle"], ["other", "Other"]]), F("defect_detail", "Defect Details"),
@@ -92,6 +92,13 @@
     const lab = `<label for="${id}">${esc(f.label)}</label>`;
     if (f.type === "textarea") return `${lab}<textarea id="${id}" rows="3">${esc(v ?? "")}</textarea>`;
     if (f.type === "select") return `${lab}<select id="${id}">${f.opts.map(([k, l]) => `<option value="${k}" ${k === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+    // 2.4: the Terms of Payment of an invoice: the usual terms, or other terms typed in
+    if (f.type === "terms") {
+      const other = !!v && !E.TERMS.includes(v);
+      return `${lab}<select id="${id}" onchange="this.parentNode.querySelector('#${id}_x').hidden = this.parentNode.querySelector('[for=${id}_x]').hidden = this.value !== 'OTHER'">
+          <option value="">—</option>${E.TERMS.map((t) => `<option ${t === v ? "selected" : ""}>${t}</option>`).join("")}<option value="OTHER" ${other ? "selected" : ""}>OTHER (type the terms)</option></select>
+        <label for="${id}_x" ${other ? "" : "hidden"}>Other Terms</label><input type="text" id="${id}_x" maxlength="60" value="${esc(other ? v : "")}" ${other ? "" : "hidden"}>`;
+    }
     const t = { date: "date", money: "number", rate: "number", int: "number", email: "email" }[f.type] || "text";
     const step = { money: "0.01", rate: "0.0001", int: "1" }[f.type];
     const val = f.type === "date" ? String(v || "").slice(0, 10) : v ?? "";
@@ -100,6 +107,10 @@
   function readField(f, root) {
     const el = $("#ed_" + f.k, root);
     if (f.type === "bool") return el.checked;
+    if (f.type === "terms") {
+      const t = el.value === "OTHER" ? $("#ed_" + f.k + "_x", root).value.trim().replace(/\s+/g, " ").toUpperCase() : el.value;
+      return t || null;
+    }
     const s = el.value.trim();
     if (f.type === "money" || f.type === "rate") return s === "" ? null : Number(s);
     if (f.type === "int") return s === "" ? null : Math.floor(Number(s));

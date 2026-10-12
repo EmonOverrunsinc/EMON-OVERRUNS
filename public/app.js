@@ -44,6 +44,15 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const isAdmin = () => S.profile?.role === "admin";
   const isStaff = () => ["admin", "staff"].includes(S.profile?.role);
+  // 2.4: the Terms of Payment of an invoice, and its due date (none for other terms)
+  const TERMS = ["CASH ON DELIVERY", "7 DAYS", "15 DAYS", "30 DAYS", "45 DAYS", "60 DAYS", "90 DAYS"];
+  const termsDue = (iso, terms) => {
+    if (!iso || !terms) return "";
+    if (terms === "CASH ON DELIVERY") return iso;
+    const m = /^(\d{1,3}) DAYS$/.exec(terms);
+    if (!m) return "";
+    const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + Number(m[1])); return isoDay(d);
+  };
   // 2.4: an invoice that is partly paid shows PARTIAL PAYMENT
   const PILL_LABEL = { partial: "PARTIAL PAYMENT" };
   const pill = (s, label) => `<span class="pill ${esc(s)}">${esc(label || PILL_LABEL[s] || String(s || "").replace(/_/g, " ").toUpperCase())}</span>`;
@@ -1573,6 +1582,6 @@
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, siteLink,
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, slimFile, scanDialog, openScanned, isCustKey, keepTab, stillHere,
     roleName, personTitle, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
-    requestDeletion, changePassword: () => renderSetPassword(false)
+    requestDeletion, TERMS, termsDue, changePassword: () => renderSetPassword(false)
   });
 })();
