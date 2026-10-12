@@ -452,7 +452,7 @@
     const today = `${new Date().toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(isoToday())}`;
     E.shell("dashboard", "Dashboard", `
       <section class="hero">${E.logoHtml("hero-logo")}<div>
-        <h2>${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span></h2><p>${esc(C.company.address.join(", "))}<br>${esc(C.company.email)}${E.siteLink()}</p>
+        <h2>${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span></h2>
         <p class="welcome">Welcome, <b>${esc(myName())}</b> (${esc(E.personTitle(S.profile.role, S.position).toUpperCase())}) · ${esc(today)}</p></div></section>
       ${isAdmin() ? `<div class="todo" id="dTodo"></div>` : ""}
       ${H("customers") ? `<div class="tiles" id="dTiles">${["Active Customers", "Applications to Review", "Balance Due (₱)", "Payments This Month (₱)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>` : ""}
@@ -462,7 +462,9 @@
         <div class="box"><h3>Community <a href="#community" class="box-link">Open</a></h3><div class="in" id="dComm">${busy()}</div></div>
       </div>
       ${H("invoices") || H("payments") ? `<div class="cols" style="margin-top:10px">
-        ${H("invoices") ? `<div class="box"><h3>Unpaid Invoices</h3><div class="in" id="dInv">${busy()}</div></div>` : ""}
+        ${H("invoices") ? `<div class="box"><h3>Invoices <a href="#invoices" class="box-link">Open</a></h3><div class="in">
+          <div class="seg dinv-seg" id="dInvSeg"><button type="button" class="on" data-f="open">Active</button><button type="button" data-f="paid">Closed (Paid)</button></div>
+          <div id="dInv">${busy()}</div></div></div>` : ""}
         ${H("payments") ? `<div class="box"><h3>Recent Payments</h3><div class="in" id="dPay">${busy()}</div></div>` : ""}
       </div>` : ""}`);
     const ym = isoToday().slice(0, 7);
@@ -474,7 +476,7 @@
     const [cust, bal, inv, pay] = await Promise.all([
       sb.from("customers").select("id,first_name,last_name,account_no,application_no,status,application_date,business_name").order("created_at", { ascending: false }).limit(1000),
       sb.from("customer_balances").select("balance_due"),
-      sb.from("invoice_balances").select("*").in("pay_status", ["unpaid", "partial"]).order("invoice_date", { ascending: false }).limit(8),
+      sb.from("invoice_balances").select("id,invoice_no,invoice_date,first_name,last_name,account_no,total_amount,amount_paid,balance,pay_status").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(5000),
       sb.from("payments_received").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).limit(200)
     ]);
     if (cust.error) {
@@ -496,12 +498,24 @@
       E.bindGrid($("#dApps"), waiting.slice(0, 8), (r) => (location.hash = "customer/" + r.id));
     }
     if ($("#dInv")) {
-      const invs = inv.data || [];
-      $("#dInv").innerHTML = E.grid({ cols: [
-        { label: "Invoice", get: (r) => r.invoice_no }, { label: "Customer", get: fullName },
-        { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) }, { label: "Status", html: (r) => pill(r.pay_status) }],
-        rows: invs, onRow: true, empty: "No unpaid invoices." });
-      E.bindGrid($("#dInv"), invs, (r) => (location.hash = "invoice/" + r.id));
+      // 2.4: Active invoices (UNPAID or PARTIAL PAYMENT, with what is still due) and Closed invoices (PAID)
+      const all = inv.data || [], open = invPick(all, "open"), closed = invPick(all, "paid");
+      const due = open.reduce((s, r) => s + num(r.balance), 0);
+      const [bOpen, bPaid] = $$("#dInvSeg button");
+      bOpen.textContent = `Active (${open.length}) · ₱ ${peso(due)}`; bPaid.textContent = `Closed (Paid) (${closed.length})`;
+      const show = (f) => {
+        const rows = (f === "paid" ? closed : open).slice(0, 8);
+        // three columns, so the status shows on a phone too: the invoice (with the customer under it), what is still
+        // due (the amount for a paid invoice), and PAID / PARTIAL PAYMENT / UNPAID
+        $("#dInv").innerHTML = E.grid({ cols: [
+          { label: "Invoice / Customer", html: (r) => `<b>${esc(r.invoice_no)}</b><br><small>${esc(fullName(r))}</small>` },
+          f === "paid" ? { label: "Amount (₱)", num: true, get: (r) => peso(r.total_amount) } : { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) },
+          { label: "Status", html: (r) => pill(r.pay_status) }],
+          rows, onRow: true, empty: f === "paid" ? "No paid invoices yet." : "No active invoices: everything is paid." });
+        E.bindGrid($("#dInv"), rows, (r) => (location.hash = "invoice/" + r.id));
+      };
+      $$("#dInvSeg button").forEach((b) => (b.onclick = () => { $$("#dInvSeg button").forEach((x) => x.classList.toggle("on", x === b)); show(b.dataset.f); }));
+      show("open");
     }
     if ($("#dPay")) {
       const rp = pays.slice(0, 8);
@@ -1094,6 +1108,7 @@
   async function renderSoaTab(c, invs, pays, memos, orders) {
     const box = $("#pfSoa"); if (!box) return;
     const { data } = await sb.from("statements").select("*").eq("customer_id", c.id).order("period_start");
+    if (!box.isConnected) return; // another page was opened while the statements loaded
     const txns = txnsOf(invs, pays, memos, orders, c);
     const cm = monthStart(isoToday()), open = openMonth(c);
     const saved = new Map((data || []).filter((s) => s.period_start >= open).map((s) => [s.period_start, s]));
@@ -1115,7 +1130,7 @@
         { label: "", html: () => `<span class="btn">Print SOA</span>` }], rows, onRow: true })}
       <small>One statement a month, made automatically on the 1st for the month just ended. The first is the month the account was opened (with any earlier entries); each month's closing balance is the next month's opening balance.</small>`;
     E.bindGrid(box, rows, (r) => printSoa(c, r, txns, invs));
-    $("#soaAll").onclick = () => {
+    $("#soaAll", box).onclick = () => {
       const start = txns.length ? monthStart(txns[0].date) : monthStart(c.application_date);
       E.openPreview(`All Transactions ${c.account_no}`, soaPages(c, { start, end: isoToday(), opening: 0, no: soaNo(isoToday(), c, true) }, within(txns, start, isoToday()), []));
     };
@@ -1184,18 +1199,23 @@
     { label: "Balance (₱)", key: "balance", num: true, get: (r) => peso(r.balance) },
     { label: "Status", html: (r) => pill(r.pay_status) }
   ];
+  // 2.4: Active invoices still have a balance (UNPAID or PARTIAL PAYMENT); Closed invoices are PAID in full. What is
+  // paid comes from the database (invoice_balances): a payment recorded for an invoice pays it, and the rest of what
+  // the customer paid pays the oldest invoices first.
+  const INV_TABS = [["open", "Active"], ["unpaid", "Unpaid"], ["partial", "Partial Payment"], ["paid", "Closed (Paid)"], ["", "All"]];
+  const invPick = (all, f) => (f === "open" ? all.filter((r) => r.pay_status !== "paid") : f ? all.filter((r) => r.pay_status === f) : all);
   V.invoices = async () => {
     E.shell("invoices", "Invoice", `
-      <div class="tabs" id="ivTabs"><button type="button" class="on" data-f="open">Active (Unpaid)</button><button type="button" data-f="paid">Paid</button><button type="button" data-f="">All</button></div>
+      <div class="tabs" id="ivTabs">${INV_TABS.map(([f, l], i) => `<button type="button" class="${i ? "" : "on"}" data-f="${f}">${l} <span data-n="${f}"></span></button>`).join("")}</div>
       <div class="btnrow">${E.canWrite("invoices") ? `<a class="btn primary" href="#newinvoice">+ Record Invoice</a>` : ""}</div>
-      <div id="ivRes">${busy()}</div>`, "Active invoices still have a balance. Press <b>Record Invoice</b> to add a sale for an ACTIVE customer.");
-    const run = async (f) => {
-      $("#ivRes").innerHTML = busy();
-      let q = sb.from("invoice_balances").select("*").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(2000);
-      if (f === "open") q = q.in("pay_status", ["unpaid", "partial"]); else if (f) q = q.eq("pay_status", f);
-      const { data, error } = await q;
-      if (error) return fail(error, "Could not load invoices");
-      const rows = data || [];
+      <div id="ivRes">${busy()}</div>`, "<b>Active</b> invoices still have a balance: <b>UNPAID</b> (nothing paid yet) or <b>PARTIAL PAYMENT</b>. <b>Closed</b> invoices are <b>PAID</b> in full. A payment recorded for an invoice pays that invoice; everything else the customer paid pays the oldest invoices first. Press <b>Record Invoice</b> to add a sale for an ACTIVE customer.");
+    const { data, error } = await sb.from("invoice_balances").select("*").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(5000);
+    if (error) return fail(error, "Could not load invoices");
+    const all = data || [];
+    if (!$("#ivTabs")) return; // another page was opened while the invoices loaded
+    $$("#ivTabs [data-n]").forEach((x) => (x.textContent = `(${invPick(all, x.dataset.n).length})`));
+    const run = (f) => {
+      const rows = invPick(all, f);
       const sum = (k) => peso(rows.reduce((s, r) => s + num(r[k]), 0));
       $("#ivRes").innerHTML = E.grid({ cols: INV_COLS, rows, onRow: true, foot: { total_amount: sum("total_amount"), amount_paid: sum("amount_paid"), balance: sum("balance") }, empty: "No invoices here." });
       E.bindGrid($("#ivRes"), rows, (r) => (location.hash = "invoice/" + r.id));
@@ -1297,7 +1317,9 @@
         <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>${inv.po_number ? `<span>PO Number</span><span>${esc(inv.po_number)}</span>` : ""}
         <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
-        <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b><span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b><span>Balance</span><b>₱ ${peso(inv.balance)}</b></div></div>
+        <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b><span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b><span>Balance</span><b>₱ ${peso(inv.balance)}</b>
+        <span>Payment Status</span><span>${pill(inv.pay_status)}</span></div></div>
+      <small class="muted">A payment recorded for this invoice pays it; everything else the customer paid pays the oldest invoices first.</small>
       <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, sub: `₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, pays.data || [])]) })}</div>
       <div><b>Payments</b>${E.grid({ cols: PAY_COLS.filter((x) => !["Customer", "Account No", "Invoice"].includes(x.label)), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
       <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
@@ -1317,8 +1339,9 @@
       ${box("Invoice", `<div class="prow3">${cell("Invoice No", inv.invoice_no)}${cell("Invoice Date", mdy(inv.invoice_date))}${cell("Total Boxes", inv.total_boxes)}</div>
         <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Total Amount (₱)", peso(inv.total_amount))}${cell("Balance (₱)", peso(inv.balance))}</div>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
-      ${box("Payments Received", pays.length ? `<table class="rp"><thead><tr><th>Receipt No</th><th>Date</th><th>Method</th><th>Reference</th><th class="num">Amount</th></tr></thead><tbody>
-        ${pays.map((p) => `<tr><td>${esc(p.receipt_no)}</td><td>${mdy(p.paid_date)}</td><td>${esc(METHOD[p.method])}</td><td>${esc(p.reference_no || "")}</td><td class="num">${peso(p.amount)}</td></tr>`).join("")}</tbody></table>` : `<div class="pv" style="padding:6px">UNPAID</div>`)}
+      ${box("Payment", `<div class="prow3">${cell("Payment Status", { paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase())}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(inv.balance))}</div>
+        ${pays.length ? `<table class="rp"><thead><tr><th>Receipt No</th><th>Date</th><th>Method</th><th>Reference</th><th class="num">Amount</th></tr></thead><tbody>
+        ${pays.map((p) => `<tr><td>${esc(p.receipt_no)}</td><td>${mdy(p.paid_date)}</td><td>${esc(METHOD[p.method])}</td><td>${esc(p.reference_no || "")}</td><td class="num">${peso(p.amount)}</td></tr>`).join("")}</tbody></table>` : ""}`)}
       ${sigs("Received by (Customer Signature) / Date", `Prepared by: ${esc(inv.created_by_name || "")}`)}`;
   }
 
@@ -1754,6 +1777,12 @@
           ${sp.signature_path ? `<button type="button" class="btn" id="mpSigForm">${ic("print")} Signature Verification Form</button><button type="button" class="btn danger" id="mpSigRm">${ic("trash")} Remove</button>`
             : `<button type="button" class="btn" id="mpSigBlank">${ic("print")} Blank Signature Verification Form</button>`}</div>
       </fieldset>
+      ${isAdmin() ? "" : `<fieldset class="opt" id="mpDelBox"><legend>Delete My Account</legend>
+        <p>Ask the Director to delete your E-Portal account. Your login, name, photo, signature and messages are deleted.
+          Business records the law requires us to keep (such as invoices, receipts and payslips) stay, shown as <b>Deleted User</b>.
+          <a href="/delete-account" target="_blank" rel="noopener">More about deleting an account</a> · <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></p>
+        <div class="btnrow"><button type="button" class="btn danger" id="mpDel">${ic("trash")} Request Account Deletion</button></div>
+        <div id="mpDelDone"></div></fieldset>`}
       ${emp ? `<h3>My Payslip History</h3>
         <div class="tiles"><div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div><div class="tile ok"><div class="k">Total Received (₱)</div><div class="v">₱ ${peso(netTotal)}</div></div></div>
         <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}
@@ -1761,6 +1790,13 @@
     if (emp) E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
     if (myOrders.length) E.bindGrid($("#mpOrders"), myOrders, (r) => E.printOrder(r.id));
     $("#mpPw").onclick = () => E.changePassword();
+    // 2.4: the request goes to the Director's Contact Messages, who then deletes the account on Login Accounts
+    if ($("#mpDel")) $("#mpDel").onclick = async () => {
+      $("#mpDel").disabled = true;
+      const ref = await E.requestDeletion(emp?.position);
+      if (!ref) { $("#mpDel").disabled = false; return; }
+      $("#mpDelDone").innerHTML = `<div class="hint ok">Request sent. Reference No <b class="mono">${esc(ref)}</b>. The Director will reply to ${esc(S.session.user.email)} and delete your account within 30 days.</div>`;
+    };
     pickSignature($("#mpSig"), sp.id, "My Signature", async (path) => {
       const r = await sb.rpc("set_my_signature", { p_path: path });
       if (r.error) { fail(r.error, "Could not save the signature"); return false; }

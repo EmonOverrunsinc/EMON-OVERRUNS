@@ -6,8 +6,8 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "2.3";
-  const BUILD = "2.3.0"; // the same in index.html (?v=) and in version.json
+  const VERSION = "2.4";
+  const BUILD = "2.4.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -44,7 +44,9 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const isAdmin = () => S.profile?.role === "admin";
   const isStaff = () => ["admin", "staff"].includes(S.profile?.role);
-  const pill = (s, label) => `<span class="pill ${esc(s)}">${esc(label || String(s || "").replace(/_/g, " ").toUpperCase())}</span>`;
+  // 2.4: an invoice that is partly paid shows PARTIAL PAYMENT
+  const PILL_LABEL = { partial: "PARTIAL PAYMENT" };
+  const pill = (s, label) => `<span class="pill ${esc(s)}">${esc(label || PILL_LABEL[s] || String(s || "").replace(/_/g, " ").toUpperCase())}</span>`;
   // The steps of an e-bill: 1 SHIP, 2 RELEASED, 3 SALES, 4 PAID (saved as shipped, released, sold, paid; an e-bill
   // marked "arrived" before Update 2.0 is still at SHIP).
   const EBILL_STEP = { shipped: "SHIP", arrived: "SHIP", released: "RELEASED", sold: "SALES", paid: "PAID" };
@@ -301,6 +303,7 @@
   const logoHtml = (cls = "co-logo") => S.logoUrl
     ? `<img class="${cls}" src="${esc(S.logoUrl)}" alt="${esc(C.company.name)} logo">`
     : `<span class="${cls} co-logo-fallback" aria-hidden="true">EO</span>`;
+  // 2.4: not shown on the screens any more (the printed documents keep the company name, address and email)
   function companyHeader() {
     return `<header class="co-head">${logoHtml()}<div class="co-text">
       <b>${esc(C.company.name)} <span class="co-tag">E-PORTAL</span></b>
@@ -353,13 +356,13 @@
   function authFrame(title, inner) {
     closePreview();
     $$(".chat-panel, .modal").forEach((x) => x.remove());
-    app.innerHTML = `${companyHeader()}
+    app.innerHTML = `
       <div class="login">
         <div class="login-card window">
           <div class="wtitle">${esc(APP)} — ${esc(title)}</div>
           ${inner}
         </div>
-        <div class="login-below"><a href="#contact" class="verify-link contact-link">${ic("mail")} Contact Us — send us a message</a><a href="#verify" class="verify-link">${ic("shield")} Verify a record — no sign-in needed</a><small>${esc(APP)} · Version ${VERSION}</small></div>
+        <div class="login-below"><a href="#contact" class="verify-link contact-link">${ic("mail")} Contact Us — send us a message</a><a href="#verify" class="verify-link">${ic("shield")} Verify a record — no sign-in needed</a><small class="legal-links"><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> · <a href="/delete-account" target="_blank" rel="noopener">Delete Account</a></small><small>${esc(APP)} · Version ${VERSION}</small></div>
       </div>`;
   }
   const brandBlock = () => `<div class="brand">${logoHtml("login-logo")}<div><b>${esc(C.company.name)}</b><small>E-PORTAL</small></div></div>`;
@@ -643,15 +646,58 @@
   function miniShell(title, body, { home } = {}) {
     const signed = !!S.session;
     closePreview();
-    app.innerHTML = `${companyHeader()}
+    app.innerHTML = `
       <div class="topbar mini">
         ${home ? `<a class="mini-brand" href="${esc(home)}">${ic("shield")} ${esc(APP)}</a>` : `<span class="mini-brand">${ic("shield")} ${esc(APP)}</span>`}
         <div class="tb-right">${signed
           ? `<span class="mini-user">${esc(S.profile?.full_name || S.session.user.email)}</span><button type="button" class="btn light" id="msOut">${ic("out")} Sign Out</button>`
           : `<a class="btn light" href="#dashboard">${ic("user")} Sign In</a>`}</div>
       </div>
-      <div class="content mini-content"><div class="band"><h1>${esc(title)}</h1></div><main id="main">${body}</main></div>`;
+      <div class="content mini-content"><div class="band">${home ? backBtn() : ""}<h1>${esc(title)}</h1></div><main id="main">${body}</main>
+        ${signed ? `<div class="mini-legal" id="msLegal"><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> · <button type="button" class="linkbtn" id="msDel">Request Account Deletion</button></div>` : ""}</div>`;
     if ($("#msOut")) $("#msOut").onclick = signOut;
+    bindBack("#dashboard"); // with no page before: the sign-in page (the Verify page's own link is the Verify page)
+    if ($("#msDel")) $("#msDel").onclick = async () => {
+      const ref = await requestDeletion();
+      if (ref) $("#msLegal").innerHTML = `Account deletion requested. Reference No <b class="mono">${esc(ref)}</b> · <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>`;
+    };
+  }
+  // 2.4: a Back button on the green band. It goes to the page before, and never leaves the portal: Chrome, Edge and the
+  // Android and Windows apps know whether the page before is a page of this site (the Navigation API); other browsers
+  // use the pages opened in this visit. With no page before, it goes home.
+  const visited = [location.hash];
+  let goingBack = false;
+  window.addEventListener("hashchange", () => {
+    if (goingBack) { goingBack = false; return; }
+    visited.push(location.hash);
+    if (visited.length > 60) visited.shift();
+  });
+  const backBtn = () => `<button type="button" class="band-back" id="bandBack" aria-label="Back" title="Back">${ic("back")}</button>`;
+  function goBack(home) {
+    const nav = window.navigation;
+    if (nav && "canGoBack" in nav) { if (nav.canGoBack) { history.back(); return; } }
+    else {
+      visited.pop(); // this page
+      while (visited.length && visited[visited.length - 1] === location.hash) visited.pop();
+      const before = visited[visited.length - 1];
+      if (before) { goingBack = true; location.hash = before; return; }
+    }
+    location.hash = home || "#dashboard";
+  }
+  function bindBack(home) {
+    const b = $("#bandBack");
+    if (b) b.onclick = () => goBack(home);
+  }
+  // 2.4: a signed-in person asks the Director to delete their account. The request arrives in Contact Messages; the
+  // Director then deletes the account on Login Accounts. Gives the reference number, or null.
+  async function requestDeletion(position) {
+    if (!(await confirmBox("Ask the Director to <b>delete your E-Portal account</b>? When it is deleted you cannot sign in any more, and this cannot be undone.", { title: "Delete My Account", ok: "Send Request", danger: true }))) return null;
+    const email = S.session.user.email;
+    const msg = `ACCOUNT DELETION REQUEST (signed in)\nAccount email: ${email}${S.profile?.username ? `\nUsername: @${S.profile.username}` : ""}\nPosition: ${personTitle(S.profile?.role, position)}`;
+    const { data, error } = await sb.rpc("submit_contact_message", { p_name: S.profile?.full_name || email, p_reply_via: "email", p_reply_to: email, p_message: msg });
+    if (error) { fail(error, "Could not send the request"); return null; }
+    toast("Account deletion request sent.");
+    return data;
   }
 
   // ---------- shell: company header, top bar, slide-out menu ----------
@@ -763,7 +809,6 @@
     const av = avatarUrl();
     const who = S.profile.full_name || S.session.user.email;
     app.innerHTML = `
-      ${companyHeader()}
       <div class="topbar" id="topbar">
         <button type="button" class="iconbtn burger" id="tbMenu" aria-label="Menu" aria-controls="drawer" aria-expanded="false"><span></span><span></span><span></span></button>
         <form class="tb-search" id="tbSearch" role="search">
@@ -799,7 +844,7 @@
         </nav>
         <div class="scrim" id="scrim"></div>
         <div class="content">
-          <div class="band"><h1>${esc(title)}</h1><span class="help" title="${esc(hint ? hint.replace(/<[^>]+>/g, "") : title)}">?</span></div>
+          <div class="band">${key === "dashboard" ? "" : backBtn()}<h1>${esc(title)}</h1><span class="help" title="${esc(hint ? hint.replace(/<[^>]+>/g, "") : title)}">?</span></div>
           <main id="main">${hint ? `<div class="hint"><b>Hint:</b> ${hint}</div>` : ""}${body}</main>
         </div>
       </div>
@@ -809,6 +854,7 @@
     drawerOpen(isPhone() ? false : saved !== "0");
     requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("no-anim")));
     bindSwipe();
+    bindBack("#dashboard");
     $("#tbMenu").onclick = () => drawerOpen(!document.body.classList.contains("drawer-open"));
     $("#scrim").onclick = () => drawerOpen(false);
     $$("#drawer a").forEach((a) => (a.onclick = () => { if (isPhone()) drawerOpen(false); }));
@@ -1368,7 +1414,7 @@
         <label for="uStatus">Status</label><select id="uStatus"><option value="">All</option><option value="pending">Pending (applicants)</option><option value="active">Active</option><option value="disabled">Disabled</option></select>
       </div></fieldset></div>
       <div id="uList">${busy()}</div>`,
-      "Everyone who signed up. New sign-ups are <b>Pending</b> applicants. When you approve their job application under <b>Employee → Job Applications</b>, they can use the portal. You can also change an access level or status here.");
+      "Everyone who signed up. New sign-ups are <b>Pending</b> applicants. When you approve their job application under <b>Employee → Job Applications</b>, they can use the portal. You can also change an access level or status here, or <b>Delete</b> an account when the person asks for it (their request arrives in <b>Contact Messages</b>).");
     const load = async () => {
       let q = sb.from("profiles").select("*").order("created_at", { ascending: false });
       if ($("#uStatus").value) q = q.eq("status", $("#uStatus").value);
@@ -1378,6 +1424,7 @@
       if (error) return fail(error, "Could not load users");
       const rows = data || [];
       const me = S.profile.id;
+      const gone = (r) => r.full_name === "Deleted User" && !r.email; // an account deleted in 2.4 that kept records still name
       const sel = (id, field, val, opts, label = (o) => o) => `<select data-u="${id}" data-f="${field}" ${id === me ? "disabled" : ""} style="width:auto">${opts.map((o) => `<option value="${o}" ${o === val ? "selected" : ""}>${esc(label(o))}</option>`).join("")}</select>`;
       const cols = [
         { label: "Name", get: (r) => r.full_name || "" }, { label: "Username", get: (r) => r.username ? "@" + r.username : "" }, { label: "Email", get: (r) => r.email || "" },
@@ -1387,7 +1434,8 @@
         { label: "Last Seen", html: (r) => r.status === "active" && online(r.last_seen_at) ? `<span class="dot-on"></span> Active now` : esc(r.last_seen_at ? timeAgo(r.last_seen_at) : "—") },
         { label: "Joined", get: (r) => mdy(r.created_at) },
         { label: "Signature", html: (r) => `<button type="button" class="btn small" data-sig="${r.id}">${ic("edit")} ${r.signature_path ? "Signature" : "Add"}</button> ${r.signature_path ? window.EO.sigPill(r.signature_status) : ""}` },
-        { label: "", html: (r) => r.id === me ? "<small>You</small>" : `<button type="button" class="btn primary" data-save="${r.id}">Save</button>` }
+        { label: "", html: (r) => r.id === me ? "<small>You</small>" : gone(r) ? "<small>Deleted</small>"
+          : `<button type="button" class="btn primary" data-save="${r.id}">Save</button> <button type="button" class="btn danger" data-del="${r.id}" title="Delete this account">${ic("trash")} Delete</button>` }
       ];
       const waiting = rows.filter((r) => r.signature_status === "pending");
       $("#uList").innerHTML = `${waiting.length ? `<div class="banner warn">${waiting.length} signature(s) waiting for your approval: ${waiting.map((r) => esc(r.full_name || r.email)).join(", ")}. Press <b>Signature</b> to approve.</div>` : ""}${grid({ cols, rows })}`;
@@ -1398,6 +1446,24 @@
         const { error: e2 } = await sb.from("profiles").update(patch).eq("id", id);
         if (e2) return fail(e2, "Could not save the user");
         toast("User saved."); load();
+      }));
+      // 2.4: delete an account (when the person asks for it: Request Account Deletion arrives in Contact Messages)
+      $$("[data-del]").forEach((b) => (b.onclick = async () => {
+        const u = rows.find((r) => r.id === b.dataset.del);
+        if (!(await confirmBox(`Delete the account of <b>${esc(u.full_name || u.email)}</b>?<br><br>Their login, name, photo, signature, chat messages, community posts and a job application that was not approved are deleted. Records the business keeps (invoices, receipts, payslips, order letters) stay and show <b>Deleted User</b>. This cannot be undone.`, { title: "Delete Account", ok: "Delete Account", danger: true }))) return;
+        b.disabled = true;
+        const { data, error: e3 } = await sb.rpc("delete_user_account", { p_id: u.id });
+        if (e3) {
+          b.disabled = false;
+          // the database update 2.4 (017_play_store.sql) is not on the server yet
+          if (e3.code === "PGRST202") return toast("Deleting accounts needs database update 2.4 first (017_play_store.sql in the Supabase SQL Editor).", true);
+          return fail(e3, "Could not delete the account");
+        }
+        // the stored files of the account
+        if (data?.avatars?.length) await sb.storage.from("avatars").remove(data.avatars);
+        if (data?.records?.length) await sb.storage.from("records").remove(data.records);
+        toast(data?.result === "deleted" ? "Account deleted." : "Account deleted. The records the business keeps now show Deleted User.");
+        load();
       }));
       setRecords(`Users: ${rows.length} · Pending: ${rows.filter((r) => r.status === "pending").length}`);
     };
@@ -1507,6 +1573,6 @@
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, siteLink,
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, slimFile, scanDialog, openScanned, isCustKey, keepTab, stillHere,
     roleName, personTitle, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
-    changePassword: () => renderSetPassword(false)
+    requestDeletion, changePassword: () => renderSetPassword(false)
   });
 })();

@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="appName">EMON OVERRUNS E-Portal</string>
-    <string name="launcherName">E-Portal</string>
-    <string name="launchUrl">https://emon-overruns.vercel.app/#dashboard</string>
-    <string name="webManifestUrl">https://emon-overruns.vercel.app/manifest.webmanifest</string>
+    <string name="appName">EMON OVERRUNS</string>
+    <string name="launcherName">EMON OVERRUNS</string>
+    <string name="launchUrl">https://www.emonoverruns.online/#dashboard</string>
+    <string name="webManifestUrl">https://www.emonoverruns.online/manifest.webmanifest</string>
     <string name="providerAuthority">com.emonoverruns.eportal.fileprovider</string>
-    <!-- The E-Portal site confirms this app in /.well-known/assetlinks.json, so it opens full screen. -->
+    <!-- 1.4: the E-Portal opens at www.emonoverruns.online. Both sites confirm this app in /.well-known/assetlinks.json, so it opens full screen. -->
     <string name="assetStatements" translatable="false">
         [{ \"relation\": [\"delegate_permission/common.handle_all_urls\"],
+           \"target\": { \"namespace\": \"web\", \"site\": \"https://www.emonoverruns.online\" } },
+         { \"relation\": [\"delegate_permission/common.handle_all_urls\"],
            \"target\": { \"namespace\": \"web\", \"site\": \"https://emon-overruns.vercel.app\" } }]
     </string>
 </resources>

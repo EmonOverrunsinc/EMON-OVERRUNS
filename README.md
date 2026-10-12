@@ -51,6 +51,28 @@ after it by itself. The lines are short, in capitals: **INVOICE** (with the invo
 **CREDIT MEMO** or **DISCOUNT**, **ADDITIONAL CHARGE**, **SETTLEMENT ADJUSTMENT** and **OPENING BALANCE**. A payment
 shows **PAYMENT RECEIVED** on its page and receipt (and the invoice it is for, if any; no longer "General payment").
 
+**Invoice payment status (2.4):** every invoice shows **PAID**, **PARTIAL PAYMENT** or **UNPAID**, worked out from
+everything the customer paid: a payment recorded for an invoice pays that invoice; all other payments, approved credit
+memos and discounts, and settlement adjustments that take off pay what is owed **oldest first** (the opening balance,
+then each invoice, additional charge and settlement adjustment that adds, by date). So the invoices' balances always
+add up to the customer's balance. **Invoices** has the tabs **Active** (still a balance), **Unpaid**, **Partial
+Payment**, **Closed (Paid)** and **All**; the **Dashboard** has an **Invoices** box with **Active** (with what is still
+due) and **Closed (Paid)**; the invoice page, its print and **Verify a record** show the status, what is paid and the
+balance (`invoice_balances` in `supabase/017_play_store.sql`).
+
+**Cleaner screens (2.4):** the screens no longer show the company header (logo, Pasay City, email and website) at the
+top; the printed documents and PDFs keep it. Every page except the Dashboard has a **Back** button on the green band
+(it goes to the page before, and never leaves the portal). The browser tab and an installed app are named
+**EMON OVERRUNS**.
+
+**Privacy and account deletion (2.4, for the Google Play Store):** the **Privacy Policy** is at
+`/privacy` (www.emonoverruns.online/privacy) and **Delete Account** at `/delete-account`, both linked on the sign-in page.
+A person asks for deletion on that page (no sign-in), in **My Profile › Request Account Deletion**, or on the applicant
+page; the request arrives in **Contact Messages** with a reference number. The Director then presses **Delete** on
+**Login Accounts**: the login, name, photo, signature, chat messages, community posts and a job application that was not
+approved go (with their files). Records the business must keep stay, and their account shows **Deleted User**
+(`supabase/017_play_store.sql`, `delete_user_account`).
+
 **Smaller uploads (2.2.2):** every uploaded or scanned picture is made smaller before it is saved, so storage lasts
 longer and files open faster, while a printed page stays clear: a document or scan keeps about 4.2 million pixels (an A4
 page at about 200 dpi; a 300 dpi scan of 2.6 MB is saved as about 0.6 MB), a customer's or employee's photo about 1.2

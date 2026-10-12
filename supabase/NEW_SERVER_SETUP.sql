@@ -7112,6 +7112,332 @@ end;
 $$;
 revoke execute on function public.contact_message_action(uuid, text) from public, anon;
 grant execute on function public.contact_message_action(uuid, text) to authenticated;
+
+-- ======== 016_update_2_3.sql ========
+-- =====================================================================
+-- EMON OVERRUNS E-PORTAL - Update 2.3: customer account numbers and application numbers
+-- 1. Account number = the first letters of the first and last name + the year and month of the account's opening date +
+--    a serial for all customers (001, 002, 003 ... never started again), for example MV-202606001. It is made when the
+--    application is APPROVED (a pending application has none, and a rejected one never takes a serial, so the next
+--    approved customer gets it). From then on it is locked for good: nobody can change it (not even the main Director,
+--    and a new opening date does not change it). A serial is used once only: a deleted customer's number is never
+--    given again.
+-- 2. Application number = EO-<year>-<5 random digits>, for example EO-2026-48213: easy to remember and to search, and
+--    different for every customer. It is also locked, and never given again.
+-- 3. The customers saved so far get the new numbers once (serials in the Director's order: MV 001, PR 002, RR 003,
+--    KC 004, NW 005, SA 006), with their monthly statement numbers.
+-- Run once in the Supabase SQL Editor after 015_update_2_2.sql. It is safe to run again.
+-- =====================================================================
+
+-- ---------- every number ever given (never deleted, so never given twice) ----------
+create table if not exists public.issued_numbers (
+  number text primary key,
+  kind text not null check (kind in ('account', 'application')),
+  issued_at timestamptz not null default now()
+);
+alter table public.issued_numbers enable row level security;
+revoke all on public.issued_numbers from anon, authenticated;
+
+-- ---------- 3. the customers saved so far (once, before the numbers are locked) ----------
+do $$
+declare r record; n int := 0; app text; acct text;
+begin
+  if exists (select 1 from public.issued_numbers) then return; end if; -- done before
+  perform public.allow_record_change();
+  for r in
+    select c.* from public.customers c
+    order by case left(c.account_no, 2) when 'MV' then 1 when 'PR' then 2 when 'RR' then 3 when 'KC' then 4 when 'NW' then 5 when 'SA' then 6 else 7 end,
+             c.application_date, c.created_at
+  loop
+    n := n + 1;
+    acct := left(r.account_no, 2) || '-' || to_char(r.application_date, 'YYYYMM') || lpad(n::text, 3, '0');
+    loop
+      app := 'EO-' || to_char(r.application_date, 'YYYY') || '-' || lpad((10000 + floor(random() * 90000))::int::text, 5, '0');
+      exit when not exists (select 1 from public.issued_numbers where number = app) and not exists (select 1 from public.customers where application_no = app);
+    end loop;
+    update public.statements set statement_no = replace(statement_no, r.account_no, acct) where customer_id = r.id;
+    update public.notifications set body = replace(body, r.account_no, acct) where body like '%' || r.account_no || '%';
+    update public.notifications set title = replace(title, r.application_no, app) where title like '%' || r.application_no || '%';
+    update public.order_letters set applied_result = replace(applied_result, r.account_no, acct) where customer_id = r.id and applied_result like '%' || r.account_no || '%';
+    update public.customers set account_no = acct, application_no = app where id = r.id;
+    insert into public.issued_numbers (number, kind) values (acct, 'account'), (app, 'application');
+  end loop;
+  insert into public.doc_counters (prefix, last_no) values ('ACCOUNT', n)
+    on conflict (prefix) do update set last_no = greatest(public.doc_counters.last_no, excluded.last_no);
+end $$;
+
+-- ---------- 1 and 2. the numbers of a new customer ----------
+create or replace function public.customers_before_insert() returns trigger
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare
+  d date := coalesce(new.application_date, current_date);
+  app text;
+begin
+  -- the account number is made when the application is approved (customers_account_number)
+  new.account_no := null;
+  loop
+    app := 'EO-' || to_char(d, 'YYYY') || '-' || lpad((10000 + floor(random() * 90000))::int::text, 5, '0');
+    exit when not exists (select 1 from public.issued_numbers where number = app);
+  end loop;
+  new.application_no := app;
+  insert into public.issued_numbers (number, kind) values (app, 'application');
+  new.status := 'pending';
+  new.issued_by := auth.uid();
+  new.issued_by_name := (select full_name from public.profiles where id = auth.uid());
+  new.reviewed_by := null;
+  new.reviewed_at := null;
+  new.facebook_verified := coalesce(new.facebook_verified, false);
+  new.public_id := public.customer_public_id(to_jsonb(new) - 'public_id');
+  return new;
+end;
+$$;
+revoke execute on function public.customers_before_insert() from public, anon, authenticated;
+
+-- ---------- the account number, made when the application is approved ----------
+create or replace function public.customers_account_number() returns trigger
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare initials text;
+begin
+  if new.status = 'active' and old.status in ('pending', 'verified') and new.account_no is null then
+    initials := upper(left(regexp_replace(new.first_name, '[^A-Za-z]', '', 'g'), 1) || left(regexp_replace(new.last_name, '[^A-Za-z]', '', 'g'), 1));
+    if initials = '' or initials is null then initials := 'XX'; end if;
+    new.account_no := initials || '-' || to_char(coalesce(new.application_date, current_date), 'YYYYMM')
+                      || lpad(public.next_counter('ACCOUNT')::text, 3, '0');
+    insert into public.issued_numbers (number, kind) values (new.account_no, 'account');
+  end if;
+  return new;
+end;
+$$;
+revoke execute on function public.customers_account_number() from public, anon, authenticated;
+drop trigger if exists customers_account_number on public.customers;
+create trigger customers_account_number before update of status on public.customers
+  for each row execute function public.customers_account_number();
+
+-- the notice of a new application names its application number (the account number comes on approval)
+create or replace function public.customers_after_insert() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.customer_secrets (customer_id, private_code)
+  values (new.id, public.customer_private_id(to_jsonb(new)));
+  insert into public.customer_events (customer_id, action, actor, actor_name)
+  values (new.id, 'application submitted', auth.uid(), new.issued_by_name);
+  insert into public.notifications (user_id, title, body, link)
+  select p.id, 'New customer application ' || new.application_no,
+         new.first_name || ' ' || new.last_name || ' is waiting for review.',
+         'customer/' || new.id
+  from public.profiles p where p.role = 'admin' and p.status = 'active';
+  return new;
+end;
+$$;
+revoke execute on function public.customers_after_insert() from public, anon, authenticated;
+
+-- ---------- the numbers are locked ----------
+create or replace function public.customers_numbers_locked() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if old.account_no is not null and new.account_no is distinct from old.account_no then
+    raise exception 'The account number % is locked and cannot be changed', old.account_no;
+  end if;
+  if new.application_no is distinct from old.application_no then
+    raise exception 'The application number % is locked and cannot be changed', old.application_no;
+  end if;
+  return new;
+end;
+$$;
+revoke execute on function public.customers_numbers_locked() from public, anon, authenticated;
+drop trigger if exists customers_numbers_locked on public.customers;
+create trigger customers_numbers_locked before update of account_no, application_no on public.customers
+  for each row execute function public.customers_numbers_locked();
+
+-- ---------- the numbers shown on the New Customer form before it is saved ----------
+create or replace function public.preview_customer_numbers(p_first text, p_last text) returns jsonb
+language sql stable security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+  select jsonb_build_object(
+    'account_no', coalesce(nullif(upper(left(regexp_replace(coalesce(p_first, ''), '[^A-Za-z]', '', 'g'), 1) || left(regexp_replace(coalesce(p_last, ''), '[^A-Za-z]', '', 'g'), 1)), ''), 'XX')
+                  || '-' || to_char(current_date, 'YYYYMM')
+                  || lpad((coalesce((select d.last_no from public.doc_counters d where d.prefix = 'ACCOUNT'), 0) + 1)::text, 3, '0'),
+    'application_no', 'EO-' || to_char(current_date, 'YYYY') || '-(random)')
+  where public.can_write('customers');
+$$;
+revoke execute on function public.preview_customer_numbers(text, text) from public, anon;
+grant execute on function public.preview_customer_numbers(text, text) to authenticated;
+
+select 'UPDATE 2.3 READY - ' || (select count(*) from public.customers) || ' customers, next serial '
+       || lpad((coalesce((select last_no from public.doc_counters where prefix = 'ACCOUNT'), 0) + 1)::text, 3, '0') as result;
+
+-- ======== 017_play_store.sql ========
+-- =====================================================================
+-- EMON OVERRUNS E-PORTAL - Update 2.4: deleting a login account (needed for the Google Play Store)
+-- A person asks for it in My Profile (Request Account Deletion) or on www.emonoverruns.online/delete-account.
+-- The Director then presses Delete on Login Accounts:
+--   * the login and the person's details go: name, email, username, photo, signature, chat messages, community
+--     posts, notices, and a job application that was not approved (with its files);
+--   * a person named in records the business must keep (invoices, receipts, payslips, order letters, the record
+--     history ...) keeps those records: the login is removed and the profile becomes "Deleted User".
+-- Also: invoices show PAID, PARTIAL PAYMENT or UNPAID from everything the customer has paid (oldest first);
+-- Verify a record shows the same for an invoice, and a customer still waiting for approval by the application number
+-- (since 2.3 the account number is given only on approval).
+-- Run once in the Supabase SQL Editor after 016_update_2_3.sql. It is safe to run again.
+-- =====================================================================
+
+-- the Director may remove profile photos (the files of a deleted account)
+drop policy if exists "storage avatars: admin read" on storage.objects;
+create policy "storage avatars: admin read" on storage.objects for select to authenticated
+  using (bucket_id = 'avatars' and (select public.is_admin()));
+drop policy if exists "storage avatars: admin delete" on storage.objects;
+create policy "storage avatars: admin delete" on storage.objects for delete to authenticated
+  using (bucket_id = 'avatars' and (select public.is_admin()));
+
+-- Returns how the account went ('deleted', or 'anonymized' when kept records name it) and the stored files of the
+-- account, which the portal then removes from storage.
+create or replace function public.delete_user_account(p_id uuid) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare
+  p public.profiles;
+  avs text[] := '{}';
+  recs text[] := '{}';
+  how text;
+begin
+  if not public.is_admin() then raise exception 'Only the Director can delete an account'; end if;
+  if p_id = auth.uid() then raise exception 'You cannot delete your own account'; end if;
+  if exists (select 1 from public.main_director where profile_id = p_id) then
+    raise exception 'The main Director''s account cannot be deleted';
+  end if;
+  select * into p from public.profiles where id = p_id;
+  if p.id is null then raise exception 'Account not found'; end if;
+  perform public.allow_record_change();
+
+  -- the stored files of the account
+  if p.avatar_path is not null then avs := avs || p.avatar_path; end if;
+  if p.signature_path is not null then recs := recs || p.signature_path; end if;
+  recs := recs || coalesce((select array_agg(m.file_path) from public.messages m
+                            where (m.sender_id = p_id or m.recipient_id = p_id) and m.file_path is not null), '{}');
+  recs := recs || coalesce((select array_agg(x) from public.community_posts c, unnest(c.photos) x where c.author_id = p_id), '{}');
+  recs := recs || coalesce((select array_agg(j.photo_path) from public.job_applications j
+                            where j.profile_id = p_id and j.status <> 'approved' and j.photo_path is not null), '{}');
+  recs := recs || coalesce((select array_agg(a.storage_path) from public.attachments a
+                            join public.job_applications j on a.owner_type = 'job_application' and a.owner_id = j.id
+                            where j.profile_id = p_id and j.status <> 'approved'), '{}');
+
+  -- the person's own things (a job application that was approved belongs to the employee record and stays)
+  delete from public.attachments a using public.job_applications j
+    where a.owner_type = 'job_application' and a.owner_id = j.id and j.profile_id = p_id and j.status <> 'approved';
+  delete from public.job_applications where profile_id = p_id and status <> 'approved';
+  delete from public.messages where sender_id = p_id or recipient_id = p_id;
+  delete from public.community_posts where author_id = p_id;
+  delete from public.notifications where user_id = p_id;
+
+  begin
+    delete from auth.users where id = p_id; -- the profile goes with it
+    how := 'deleted';
+  exception when foreign_key_violation then
+    -- kept records still point to this profile: the login and the personal details are removed instead
+    update public.profiles set full_name = 'Deleted User', email = null, username = null, avatar_path = null,
+      signature_path = null, signature_status = null, signature_at = null, signature_note = null,
+      status = 'disabled', last_seen_at = null
+    where id = p_id;
+    update auth.users set email = 'deleted-' || p_id || '@deleted.invalid', phone = null, encrypted_password = '',
+      raw_user_meta_data = '{}'::jsonb, banned_until = 'infinity'
+    where id = p_id;
+    delete from auth.identities where user_id = p_id;
+    delete from auth.sessions where user_id = p_id;
+    how := 'anonymized';
+  end;
+  return jsonb_build_object('result', how, 'avatars', to_jsonb(avs), 'records', to_jsonb(recs));
+end;
+$$;
+revoke execute on function public.delete_user_account(uuid) from public, anon;
+grant execute on function public.delete_user_account(uuid) to authenticated;
+
+-- ---------- invoices: PAID, PARTIAL PAYMENT or UNPAID, from everything the customer has paid ----------
+-- Most payments are made for the account, not for one invoice. A payment recorded for an invoice pays that invoice
+-- first; everything else the customer paid or was credited (other payments, approved credit memos and discounts,
+-- settlement adjustments that take off) pays what is owed oldest first: the opening balance, then each invoice,
+-- additional charge and settlement adjustment that adds, in date order. An invoice is PAID when it is paid in full,
+-- PARTIAL PAYMENT when part of it is paid, and UNPAID when nothing of it is paid. The same columns as before, so
+-- every screen (Invoices, the dashboard, a customer, search, Record Payment) shows it at once.
+create or replace view public.invoice_balances with (security_invoker = true) as
+with linked as (
+  select i.id, i.customer_id, i.total_amount,
+    least(i.total_amount, coalesce((select sum(p.amount) from public.payments_received p where p.invoice_id = i.id), 0)) as direct
+  from public.customer_invoices i
+),
+pool as (
+  select c.id as customer_id,
+    coalesce((select sum(p.amount) from public.payments_received p where p.customer_id = c.id), 0)
+    - coalesce((select sum(l.direct) from linked l where l.customer_id = c.id), 0)
+    + coalesce((select sum(m.request_amount) from public.credit_memos m
+                where m.customer_id = c.id and m.status in ('approved','paid') and m.requested_action in ('credit','discount')), 0)
+    + coalesce((select sum(o.amount) from public.order_letters o
+                where o.customer_id = c.id and o.status = 'applied' and o.subject_type = 'settlement' and o.adjust_type = 'reduce'), 0) as amount
+  from public.customers c
+),
+owed as (
+  select c.id as customer_id, null::uuid as invoice_id, c.application_date as d, 0 as k, c.created_at as t, c.opening_balance::numeric as amount
+    from public.customers c where c.opening_balance > 0
+  union all
+  select l.customer_id, l.id, i.invoice_date, 1, i.created_at, (l.total_amount - l.direct)::numeric
+    from linked l join public.customer_invoices i on i.id = l.id
+  union all
+  select o.customer_id, null::uuid, (coalesce(o.applied_at, o.created_at) at time zone 'Asia/Manila')::date, 2, o.created_at, o.amount::numeric
+    from public.order_letters o
+    where o.customer_id is not null and o.status = 'applied'
+      and (o.subject_type = 'charge' or (o.subject_type = 'settlement' and o.adjust_type = 'add'))
+),
+fifo as (
+  select w.invoice_id, w.customer_id, w.amount,
+    coalesce(sum(w.amount) over (partition by w.customer_id order by w.d, w.k, w.t, w.invoice_id
+                                 rows between unbounded preceding and 1 preceding), 0) as before
+  from owed w
+),
+paid as (
+  select l.id, (l.direct + greatest(0, least(f.amount, coalesce(pl.amount, 0) - f.before)))::numeric(14,2) as amount
+  from linked l join fifo f on f.invoice_id = l.id left join pool pl on pl.customer_id = l.customer_id
+)
+select i.*, c.first_name, c.last_name, c.account_no, c.business_name, c.status as customer_status,
+  pd.amount as amount_paid,
+  (i.total_amount - pd.amount)::numeric(14,2) as balance,
+  case when pd.amount >= i.total_amount then 'paid' when pd.amount > 0 then 'partial' else 'unpaid' end as pay_status
+from public.customer_invoices i
+join public.customers c on c.id = i.customer_id
+join paid pd on pd.id = i.id;
+
+-- ---------- Verify a record: a customer waiting for approval has no account number yet (2.3) ----------
+-- The function is changed in place (like the earlier updates), so everything added to it since stays.
+do $$
+declare
+  fixes text[][] := array[
+    ['verify_record', '''type'', ''Customer Account'', ''number'', r.account_no,',
+     '''type'', ''Customer Account'', ''number'', coalesce(r.account_no, r.application_no),'],
+    ['verify_record', 'jsonb_build_array(''Customer ID'', r.account_no), jsonb_build_array(''Account Name''',
+     'case when r.account_no is not null then jsonb_build_array(''Customer ID'', r.account_no) end, jsonb_build_array(''Account Name'''],
+    ['verify_record', 'coalesce((select sum(p.amount) from public.payments_received p where p.invoice_id = i.id), 0) as paid',
+     'coalesce((select b.amount_paid from public.invoice_balances b where b.id = i.id), 0) as paid'],
+    ['verify_record', 'jsonb_build_array(''Paid (PHP)'', to_char(r.paid, ''FM999,999,999,990.00''))));',
+     'jsonb_build_array(''Paid (PHP)'', to_char(r.paid, ''FM999,999,999,990.00'')),
+          jsonb_build_array(''Balance (PHP)'', to_char(greatest(r.total_amount - r.paid, 0), ''FM999,999,999,990.00''))));']
+  ];
+  f record; def text; new_def text; i int;
+begin
+  for f in select p.oid, p.proname from pg_proc p
+           where p.pronamespace = 'public'::regnamespace and p.prokind = 'f' and p.proname = 'verify_record'
+  loop
+    def := pg_get_functiondef(f.oid);
+    new_def := def;
+    for i in 1 .. array_length(fixes, 1) loop
+      -- changed once: when the new text is already there (the script was run before), nothing is changed
+      if position(fixes[i][3] in new_def) = 0 then
+        if position(fixes[i][2] in new_def) = 0 then
+          raise exception 'Update 2.4: verify_record has changed; text not found: %', left(fixes[i][2], 60);
+        end if;
+        new_def := replace(new_def, fixes[i][2], fixes[i][3]);
+      end if;
+    end loop;
+    if new_def <> def then execute new_def; end if;
+  end loop;
+end $$;
+
+select 'UPDATE 2.4 READY - account deletion, invoice payment status' as result;
 $sql$;
 begin
   s := replace(s, chr(13), '');  -- Windows line breaks
