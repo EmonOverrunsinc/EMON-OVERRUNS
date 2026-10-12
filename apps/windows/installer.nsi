@@ -10,7 +10,7 @@ Target amd64-unicode
 !define EXE "E-Portal.exe"
 !define COMPANY "EMON OVERRUNS"
 !ifndef VERSION
-  !define VERSION "1.3.0"
+  !define VERSION "1.6.0"
 !endif
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\EMONOVERRUNS.EPortal"
 
@@ -48,12 +48,21 @@ VIAddVersionKey "LegalCopyright" "© ${COMPANY}"
 
 Section "Install"
   ; An open E-Portal keeps its files locked: ask to close it first.
+  ; The automatic update (/S) waits up to 60 seconds for the app to close by itself.
+  StrCpy $R9 0
   close_check:
     ClearErrors
     IfFileExists "$INSTDIR\${EXE}" 0 install_files
     Delete "$INSTDIR\${EXE}"
     IfErrors 0 install_files
+    IfSilent 0 ask_close
+    IntOp $R9 $R9 + 1
+    IntCmp $R9 60 stop_install 0 stop_install
+    Sleep 1000
+    Goto close_check
+  ask_close:
     MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "The E-Portal is open. Please close it, then click Retry." /SD IDCANCEL IDRETRY close_check
+  stop_install:
     Abort "Setup was stopped because the E-Portal is still open."
   install_files:
   ; the old version goes first, so no old file stays behind
@@ -77,6 +86,13 @@ Section "Install"
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKCU "${UNINSTKEY}" "EstimatedSize" "$0"
+
+  ; the automatic update opens the E-Portal again when the user chose "Restart now"
+  ${GetParameters} $R0
+  ClearErrors
+  ${GetOptions} $R0 "/RELAUNCH" $R1
+  IfErrors +2 0
+  Exec '"$INSTDIR\${EXE}"'
 SectionEnd
 
 Section "Uninstall"

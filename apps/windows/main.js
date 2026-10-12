@@ -7,6 +7,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const { execFile, spawn } = require("child_process");
+const updater = require("./updater");
 
 const HOME = process.env.EO_URL || "https://emon-overruns.vercel.app/#dashboard";
 const SITE = new URL(HOME).origin;
@@ -543,7 +544,11 @@ function buildMenu() {
       // what the scans did, to send when a scan has a problem
       { label: "Open Scan Log", click: () => { logScan("log opened"); shell.openPath(scanLog()).catch(() => {}); } },
     ] },
-    { label: "Help", submenu: [{ label: "About E-Portal", click: about }] },
+    { label: "Help", submenu: [
+      { label: "Check for Updates…", click: () => updater.check() },
+      { type: "separator" },
+      { label: "About E-Portal", click: about },
+    ] },
   ]));
 }
 
@@ -562,6 +567,8 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionCheckHandler((wc, permission, origin) => inApp(origin));
     buildMenu();
     createWindow();
+    // a new version of the app is downloaded and installed by itself (1.6.0)
+    updater.start({ window: current, icon: ICON, log: logScan });
   });
   app.on("window-all-closed", () => app.quit());
 }
