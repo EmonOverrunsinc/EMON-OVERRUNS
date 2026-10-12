@@ -44,7 +44,9 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const isAdmin = () => S.profile?.role === "admin";
   const isStaff = () => ["admin", "staff"].includes(S.profile?.role);
-  const pill = (s, label) => `<span class="pill ${esc(s)}">${esc(label || String(s || "").replace(/_/g, " ").toUpperCase())}</span>`;
+  // 2.4: an invoice that is partly paid shows PARTIAL PAYMENT
+  const PILL_LABEL = { partial: "PARTIAL PAYMENT" };
+  const pill = (s, label) => `<span class="pill ${esc(s)}">${esc(label || PILL_LABEL[s] || String(s || "").replace(/_/g, " ").toUpperCase())}</span>`;
   // The steps of an e-bill: 1 SHIP, 2 RELEASED, 3 SALES, 4 PAID (saved as shipped, released, sold, paid; an e-bill
   // marked "arrived" before Update 2.0 is still at SHIP).
   const EBILL_STEP = { shipped: "SHIP", arrived: "SHIP", released: "RELEASED", sold: "SALES", paid: "PAID" };
