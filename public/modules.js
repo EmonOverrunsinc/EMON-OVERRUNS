@@ -505,9 +505,11 @@
       bOpen.textContent = `Active (${open.length}) · ₱ ${peso(due)}`; bPaid.textContent = `Closed (Paid) (${closed.length})`;
       const show = (f) => {
         const rows = (f === "paid" ? closed : open).slice(0, 8);
+        // three columns, so the status shows on a phone too: the invoice (with the customer under it), what is still
+        // due (the amount for a paid invoice), and PAID / PARTIAL PAYMENT / UNPAID
         $("#dInv").innerHTML = E.grid({ cols: [
-          { label: "Invoice", get: (r) => r.invoice_no }, { label: "Customer", get: fullName },
-          { label: "Amount (₱)", num: true, get: (r) => peso(r.total_amount) }, { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) },
+          { label: "Invoice / Customer", html: (r) => `<b>${esc(r.invoice_no)}</b><br><small>${esc(fullName(r))}</small>` },
+          f === "paid" ? { label: "Amount (₱)", num: true, get: (r) => peso(r.total_amount) } : { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) },
           { label: "Status", html: (r) => pill(r.pay_status) }],
           rows, onRow: true, empty: f === "paid" ? "No paid invoices yet." : "No active invoices: everything is paid." });
         E.bindGrid($("#dInv"), rows, (r) => (location.hash = "invoice/" + r.id));

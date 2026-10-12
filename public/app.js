@@ -656,7 +656,7 @@
       <div class="content mini-content"><div class="band">${home ? backBtn() : ""}<h1>${esc(title)}</h1></div><main id="main">${body}</main>
         ${signed ? `<div class="mini-legal" id="msLegal"><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> · <button type="button" class="linkbtn" id="msDel">Request Account Deletion</button></div>` : ""}</div>`;
     if ($("#msOut")) $("#msOut").onclick = signOut;
-    bindBack(home);
+    bindBack("#dashboard"); // with no page before: the sign-in page (the Verify page's own link is the Verify page)
     if ($("#msDel")) $("#msDel").onclick = async () => {
       const ref = await requestDeletion();
       if (ref) $("#msLegal").innerHTML = `Account deletion requested. Reference No <b class="mono">${esc(ref)}</b> · <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>`;
