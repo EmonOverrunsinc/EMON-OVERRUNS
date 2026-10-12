@@ -7,7 +7,7 @@
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
   const VERSION = "2.2";
-  const BUILD = "2.2.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "2.2.2"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -237,6 +237,41 @@
         try { return decodeCanvas(c); } catch (_) { /* try next orientation */ }
       }
       throw new Error("No QR code or barcode found in that image. Try a sharper photo, taken from the front.");
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  // ---------- smaller uploads (2.2.2) ----------
+  // Every uploaded or scanned picture is made smaller before it is saved: storage is used less and files open faster,
+  // while a printed page stays clear. A document keeps about 4.2 million pixels (an A4 page at about 200 dpi, sharp on
+  // paper); a person's photo about 1.2 million, a profile picture about 0.5 million. The picture is saved as JPEG on
+  // white, or, for a clean PNG scan that JPEG would not make smaller, as a smaller PNG. PDFs and other files are kept as
+  // they are, and so is a picture that is already small or would not get smaller.
+  const SLIM = { doc: 4.2e6, photo: 1.2e6, avatar: 0.5e6 };
+  async function slimFile(file, kind = "doc") {
+    if (!file || !/^image\/(jpeg|png|webp|bmp)$/i.test(file.type || "") || file.size < 300 * 1024) return file;
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+      const w = img.naturalWidth, h = img.naturalHeight;
+      if (!w || !h) return file;
+      const k = Math.min(1, Math.sqrt((SLIM[kind] || SLIM.doc) / (w * h)));
+      if (k === 1 && /jpeg/i.test(file.type) && file.size <= 1.5 * 1048576) return file; // small enough already
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+      const g = c.getContext("2d");
+      g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+      g.imageSmoothingQuality = "high";
+      g.drawImage(img, 0, 0, c.width, c.height);
+      const encode = (type, q) => new Promise((res) => c.toBlob(res, type, q));
+      let best = await encode("image/jpeg", 0.82);
+      if (k < 1 && /png/i.test(file.type)) { const png = await encode("image/png"); if (png && (!best || png.size < best.size)) best = png; }
+      if (!best || best.size >= file.size) return file;
+      const ext = best.type === "image/png" ? ".png" : ".jpg";
+      return new File([best], (file.name || "Picture").replace(/\.[^.]*$/, "") + ext, { type: best.type, lastModified: Date.now() });
+    } catch (_) {
+      return file; // a picture the browser cannot read is saved as it is
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -1309,8 +1344,9 @@
     };
     if ($("#fmForm")) $("#fmForm").onsubmit = async (e) => {
       e.preventDefault();
-      const file = $("#fmFile").files[0], title = $("#fmTitle").value.trim(), category = $("#fmCat").value.trim() || "General";
-      if (!title || !file) return toast("Enter a title and choose a file.", true);
+      const title = $("#fmTitle").value.trim(), category = $("#fmCat").value.trim() || "General";
+      if (!title || !$("#fmFile").files[0]) return toast("Enter a title and choose a file.", true);
+      const file = await slimFile($("#fmFile").files[0]);
       const path = `${Date.now()}_${file.name.replace(/[^\w.\-]+/g, "_")}`;
       setBusy(e.target, true, "Uploading");
       try {
@@ -1469,7 +1505,7 @@
     APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, siteLink,
-    drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, scanDialog, openScanned, isCustKey, keepTab, stillHere,
+    drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, slimFile, scanDialog, openScanned, isCustKey, keepTab, stillHere,
     roleName, personTitle, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
     changePassword: () => renderSetPassword(false)
   });

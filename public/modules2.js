@@ -18,8 +18,9 @@
     const list = (mods || []).map((m) => (MODULES.find((x) => x[0] === m) || [m, m])[1]).join(", ") || "Dashboard and Community";
     return role === "viewer" ? `View only — ${list}` : list;
   };
-  async function uploadPhoto(folder, id, file) {
-    if (!file) return null;
+  async function uploadPhoto(folder, id, raw) {
+    if (!raw) return null;
+    const file = await E.slimFile(raw, "photo");
     const path = `${folder}/${id}/Photo_${Date.now()}.${E.extOf(file)}`;
     const up = await sb.storage.from("records").upload(path, file, { contentType: file.type });
     if (up.error) { toast("The photo could not be uploaded.", true); return null; }

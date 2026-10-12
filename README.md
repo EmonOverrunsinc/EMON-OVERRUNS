@@ -51,6 +51,12 @@ after it by itself. The lines are short, in capitals: **INVOICE** (with the invo
 **CREDIT MEMO** or **DISCOUNT**, **ADDITIONAL CHARGE**, **SETTLEMENT ADJUSTMENT** and **OPENING BALANCE**. A payment
 shows **PAYMENT RECEIVED** on its page and receipt (and the invoice it is for, if any; no longer "General payment").
 
+**Smaller uploads (2.2.2):** every uploaded or scanned picture is made smaller before it is saved, so storage lasts
+longer and files open faster, while a printed page stays clear: a document or scan keeps about 4.2 million pixels (an A4
+page at about 200 dpi; a 300 dpi scan of 2.6 MB is saved as about 0.6 MB), a customer's or employee's photo about 1.2
+million and a profile picture about 0.5 million, as JPEG. PDFs, small pictures and pictures that would not get smaller
+are saved as they are (`slimFile` in `public/app.js`).
+
 **Company details on every page (2.2):** headers, prints and PDFs show **Pasay City, Metro Manila**, the email
 **emonoverruns@gmail.com** and the website **emonoverruns.online**; no phone number is shown anywhere. They are set in
 `public/config.js` (`company`). Report listings end with **REPORT** (what the report shows) instead of "Report
@@ -131,8 +137,8 @@ Switches to turn on in the Supabase dashboard (they cannot be set from the porta
   own address, for example emonoverruns@gmail.com with a Google App Password. Supabase's own email service sends only a
   few emails an hour, and only to the members of the organization.
 
-Not used, because they cost extra: Point-in-Time Recovery, image resizing (the portal already makes photos small
-before upload) and a custom domain for the database address.
+Not used, because they cost extra: Point-in-Time Recovery, image resizing (the portal already makes every picture
+smaller before upload, 2.2.2) and a custom domain for the database address.
 
 ## Daily use
 - New staff click **Create Account**. They wait as *Pending* until an admin opens **Users**, sets the role and status to *Active*, and presses Save.
