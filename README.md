@@ -153,6 +153,10 @@ smaller before upload, 2.2.2) and a custom domain for the database address.
   every document upload, the scanned page is uploaded, and a green ✔ shows it. From E-Portal 2.2, **Scan** always opens
   the Windows scanner window: choose the scanner (colour and size too), press **Scan** there, and the page is saved by
   itself (no new app is needed).
+  From version 1.6 the app **updates itself**: at start and every 4 hours it looks for a newer version (the release
+  `windows-v<version>` that GitHub Actions publishes when `apps/windows/package.json` gets a new version on main),
+  downloads it, checks its SHA-256, and asks **Restart now** or **Later** (Later installs it when the app is closed).
+  **Help › Check for Updates…** looks at once. Download: https://github.com/EmonOverrunsinc/EMON-OVERRUNS/releases/latest
 - **Android**: `EMON-OVERRUNS-E-Portal-<version>.apk` opens the E-Portal full screen in Chrome.
 - How they are built and signed: [apps/README.md](apps/README.md).
 
