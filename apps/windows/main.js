@@ -10,11 +10,20 @@ const { execFile, spawn } = require("child_process");
 
 const HOME = process.env.EO_URL || "https://emon-overruns.vercel.app/#dashboard";
 const SITE = new URL(HOME).origin;
-const FILES = "https://mgwqjjkwonhzrfndkray.supabase.co"; // uploaded files open from signed links
+// Uploaded files open from signed links of the E-Portal's Supabase server. Its address is read from the E-Portal page
+// itself (window.EMON_CONFIG.supabaseUrl) each time a page of the E-Portal loads, so a new server needs no new app (1.5.2).
+let FILES = "";
 const ICON = path.join(__dirname, "icon.png");
 
 const originOf = (u) => { try { return new URL(u).origin; } catch { return ""; } };
-const inApp = (u) => [SITE, FILES].includes(originOf(u));
+const inApp = (u) => { const o = originOf(u); return !!o && (o === SITE || o === FILES); };
+// The files server named by an E-Portal page (only an https://<project>.supabase.co address is taken).
+function learnFiles(wc) {
+  if (originOf(wc.getURL()) !== SITE) return;
+  wc.executeJavaScript("(window.EMON_CONFIG && window.EMON_CONFIG.supabaseUrl) || ''", false)
+    .then((u) => { const o = originOf(String(u || "")); if (/^https:\/\/[a-z0-9]{10,40}\.supabase\.co$/.test(o)) FILES = o; })
+    .catch(() => {});
+}
 
 // Links to other sites, e-mail and phone numbers open outside the app.
 function openOutside(u) {
@@ -47,6 +56,7 @@ function wire(win) {
     return { action: "deny" };
   });
   wc.on("did-create-window", (child) => wire(child));
+  wc.on("did-finish-load", () => learnFiles(wc));
   wc.on("will-navigate", (e, url) => {
     if (inApp(url)) return;
     e.preventDefault();
