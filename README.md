@@ -42,6 +42,15 @@ number, the Public ID, the status and the photo do not change here (the photo ha
 account, including the second Director account, sends **Request Correction** instead, and only the main Director
 approves or rejects it.
 
+**Statement of account (2.2):** one SOA a month, made automatically on the 1st for the month just ended (no button
+to press). The first SOA is the month the account was opened (its application date): old receipts and purchases
+recorded later with their own earlier dates are in that first SOA, which starts from zero, so there is no SOA for the
+months before the account was opened. An old paper recorded after a month's SOA was made updates that SOA and the ones
+after it by itself. The lines are short, in capitals: **PURCHASE ORDER** (with its PO number; the invoice number only
+when there is no PO number), **PAYMENT RECEIVED**, **CREDIT MEMO** or **DISCOUNT**, **ADDITIONAL CHARGE**,
+**SETTLEMENT ADJUSTMENT** and **OPENING BALANCE**. A payment that is not for one purchase order shows **PAYMENT
+RECEIVED** on its page and receipt (no longer "General payment").
+
 **One person, one account (2.1):** the customer check looks only at the name, the Facebook name and the Facebook account
 link (not the address, phone or email), while the application is typed and again at Check & Verify and Approve. It is
 **BLOCKED** when the same Facebook link is already on another account, or the same name or Facebook name is on a CLOSED
@@ -75,7 +84,7 @@ run it again after any later update that replaces a function, so the replaced fu
 `012_update_1_9.sql` (Inventory, now E-Bill: stock-bills, release order, e-bills in Billing, sales report, PAID with the profit or loss and the secret code).
 `013_update_2_0.sql` (Update 2.0: E-Bill numbers by company letters, the steps SHIP → RELEASED → SALES → PAID with no ARRIVED step, the Released Notice with price per box, exchange rate and shipping fee in BDT, order letters numbered EO-YYYY-MM-####, an order waiting for approval can be changed, and signatures: uploaded in My Profile, approved by the Director, printed on approved documents).
 `014_update_2_1.sql` (Update 2.1: a memo to a company in PESOS × the exchange rate = BDT, paid on the e-bill it names once approved; the shipping company of an e-bill; Sales Report lines after PAID; what the Director deletes leaves no line in any history, and the old "deleted" lines are removed; a project budget line is its amount, with the qty optional; a customer's LOCATION check — FOUND, NO NEED TO CHECK LOCATION or NOT FOUND — takes the place of the address check; an approved correction changes the record and leaves no history, and the approved corrections kept before are removed; the Facebook account link and the one-person-one-account check).
-`015_update_2_2.sql` (Update 2.2: the main Director — the first Director account — edits every detail of a customer with Edit Customer, with no history, and the monthly statements follow a new opening balance or application date; a customer correction from anyone else waits for the main Director; a rejected correction is removed like an approved one, so a decided correction leaves no record, and the decided corrections kept before are removed).
+`015_update_2_2.sql` (Update 2.2: the first SOA of an account is the month it was opened, with any earlier entries, and the SOAs made before for months before it are removed; an old paper recorded later updates the SOAs by itself; the main Director — the first Director account — edits every detail of a customer with Edit Customer, with no history, and the monthly statements follow a new opening balance or application date; a customer correction from anyone else waits for the main Director; a rejected correction is removed like an approved one, so a decided correction leaves no record, and the decided corrections kept before are removed).
 
 ## Setup (one time)
 1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.
@@ -115,7 +124,9 @@ before upload) and a custom domain for the database address.
 ## Apps for Windows and Android
 - **Windows 11**: `EMON-OVERRUNS-E-Portal-Setup-<version>.exe` installs the E-Portal as an app, with a desktop shortcut.
   From version 1.4 it scans with the computer's scanner (HP Smart printers and others): a **Scan** button stands beside
-  every document upload, the scanned page is uploaded, and a green ✔ shows it.
+  every document upload, the scanned page is uploaded, and a green ✔ shows it. From E-Portal 2.2, **Scan** always opens
+  the Windows scanner window: choose the scanner (colour and size too), press **Scan** there, and the page is saved by
+  itself (no new app is needed).
 - **Android**: `EMON-OVERRUNS-E-Portal-<version>.apk` opens the E-Portal full screen in Chrome.
 - How they are built and signed: [apps/README.md](apps/README.md).
 

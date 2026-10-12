@@ -998,28 +998,35 @@
   const monthName = (iso) => new Date(monthStart(iso) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
   // Same rules as the database: invoices, approved Additional Charge orders and Settlement Adjustments that add
   // (on the day they were carried out) debit; payments, approved credit/discount memos (on approval date) and
-  // Settlement Adjustments that take money off credit.
+  // Settlement Adjustments that take money off credit. Each line is named in short business words in capitals (2.2):
+  // a sale is its PURCHASE ORDER (its PO number; the invoice number only when there is no PO number), a payment is
+  // PAYMENT RECEIVED, a memo is CREDIT MEMO or DISCOUNT.
+  const poRef = (i) => (i?.po_number ? String(i.po_number) : i?.invoice_no || "");
   function txnsOf(invs, pays, memos, orders = [], cust = null) {
     const t = [];
-    if (num(cust?.opening_balance) > 0) t.push({ date: cust.application_date, ref: cust.account_no, desc: "Opening Balance", debit: num(cust.opening_balance), credit: 0 });
-    invs.forEach((i) => t.push({ date: i.invoice_date, ref: i.invoice_no, desc: `Invoice${i.po_number ? " — PO " + i.po_number : ""}`, debit: num(i.total_amount), credit: 0, inv: i }));
+    if (num(cust?.opening_balance) > 0) t.push({ date: cust.application_date, ref: cust.account_no, desc: "OPENING BALANCE", debit: num(cust.opening_balance), credit: 0 });
+    invs.forEach((i) => t.push({ date: i.invoice_date, ref: poRef(i), desc: "PURCHASE ORDER", debit: num(i.total_amount), credit: 0, inv: i }));
     orders.filter((o) => ["charge", "settlement"].includes(o.subject_type) && o.status === "applied" && o.applied_at).forEach((o) => {
       const off = o.subject_type === "settlement" && o.adjust_type === "reduce";
-      const what = o.subject_type === "charge" ? "Additional Charge" : "Settlement Adjustment";
-      t.push({ date: isoDay(new Date(o.applied_at)), ref: o.order_no, desc: o.subject && o.subject !== what ? `${what} — ${o.subject}` : what, debit: off ? 0 : num(o.amount), credit: off ? num(o.amount) : 0 });
+      t.push({ date: isoDay(new Date(o.applied_at)), ref: o.order_no, desc: o.subject_type === "charge" ? "ADDITIONAL CHARGE" : "SETTLEMENT ADJUSTMENT", debit: off ? 0 : num(o.amount), credit: off ? num(o.amount) : 0 });
     });
-    pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: `Payment — ${METHOD[p.method] || p.method}${p.bank_name ? " " + p.bank_name : ""}${p.reference_no ? " Ref " + p.reference_no : ""}`, debit: 0, credit: num(p.amount), pay: p }));
+    pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: "PAYMENT RECEIVED", debit: 0, credit: num(p.amount), pay: p }));
     memos.filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action) && m.approved_at)
-      .forEach((m) => t.push({ date: isoDay(new Date(m.approved_at)), ref: m.memo_no, desc: `Credit Memo — ${ACTION[m.requested_action]}${m.article ? " (" + m.article + ")" : ""}`, debit: 0, credit: num(m.request_amount) }));
+      .forEach((m) => t.push({ date: isoDay(new Date(m.approved_at)), ref: m.memo_no, desc: m.requested_action === "discount" ? "DISCOUNT" : "CREDIT MEMO", debit: 0, credit: num(m.request_amount) }));
     return t.sort((a, b) => a.date.localeCompare(b.date) || (b.debit - a.debit));
   }
+  // The first SOA of an account is the month the account was opened (its application date): entries dated before it
+  // (old receipts and purchases recorded later) are in that first SOA, which starts from zero. No SOA is made for the
+  // months before (2.2).
+  const openMonth = (c) => monthStart(c?.application_date || isoToday());
+  const coveredFrom = (c, start, txns) => (monthStart(start) === openMonth(c) ? [start, ...txns.map((x) => x.date)].sort()[0] : start);
   const before = (txns, d) => txns.filter((x) => x.date < d).reduce((s, x) => s + x.debit - x.credit, 0);
   const within = (txns, a, b) => txns.filter((x) => x.date >= a && x.date <= b);
 
   // Copies attached to the SOA: each invoice's uploaded copy and each payment's receipt for the month.
   async function monthCopies(invoices, payments) {
     const out = [];
-    const pick = async (ownerType, rows, kinds, label, noKey, amtKey) => {
+    const pick = async (ownerType, rows, kinds, label, noOf, amtKey) => {
       if (!rows.length) return;
       const { data } = await sb.from("attachments").select("*").eq("owner_type", ownerType).in("kind", kinds).in("owner_id", rows.map((r) => r.id)).order("created_at", { ascending: false });
       for (const r of rows) {
@@ -1027,17 +1034,14 @@
         const a = kinds.map((k) => list.find((x) => x.kind === k)).find(Boolean);
         if (!a) continue;
         const img = isImage(a);
-        out.push({ label, no: r[noKey], amount: r[amtKey], date: r.invoice_date || r.paid_date, url: img ? await signedUrl(a.storage_path, 1800) : "", pdf: !img });
+        out.push({ label, no: noOf(r), amount: r[amtKey], date: r.invoice_date || r.paid_date, url: img ? await signedUrl(a.storage_path, 1800) : "", pdf: !img });
       }
     };
-    await pick("invoice", invoices, ["signed_form"], "Invoice", "invoice_no", "total_amount");
-    await pick("payment", payments, ["signed_form", "receipt"], "Payment Receipt", "receipt_no", "amount");
+    await pick("invoice", invoices, ["signed_form"], "PURCHASE ORDER", poRef, "total_amount");
+    await pick("payment", payments, ["signed_form", "receipt"], "RECEIPT", (r) => r.receipt_no, "amount");
     return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
   }
-  const copiesSummary = (copies) => {
-    const n = (l) => copies.filter((x) => x.label === l).length;
-    return [n("Invoice") ? `${n("Invoice")} Invoice(s) Attached` : "", n("Payment Receipt") ? `${n("Payment Receipt")} Payment Receipt(s) Attached` : ""].filter(Boolean).join(" · ");
-  };
+  const copiesSummary = (copies) => (copies.length ? `${copies.length} DOCUMENT${copies.length === 1 ? "" : "S"} ATTACHED` : "");
 
   // Statement numbers are made by the system: SOA-YYYYMM-<account no> for a month (the same number the monthly
   // statement gets on the 1st), SOA-YYYYMMDD-<account no> for a print of all transactions up to that day.
@@ -1053,60 +1057,61 @@
       <div class="ph-title">STATEMENT OF ACCOUNT</div>
       <div class="soa-top"><div class="soa-cust"><b>${esc(fullName(c).toUpperCase())}</b></div>
         <div class="soa-acct"><span>Statement No :</span><b>${esc(p.no || "—")}</b><span>Account No :</span><b>${esc(c.account_no)}</b>
-          <span>Period Covered :</span><b>${mdy(p.start)} - ${mdy(p.end)}</b><span>Date Printed :</span><b>${mdy(isoToday())}</b></div></div>`;
+          <span>Period Covered :</span><b>${mdy(p.from || p.start)} - ${mdy(p.end)}</b><span>Date Printed :</span><b>${mdy(isoToday())}</b></div></div>`;
     const page1 = `${head}
       <table class="soa-table"><thead><tr><th>DATE</th><th>REFERENCE NO.</th><th>TRANSACTION DESCRIPTION</th><th class="num">DEBIT</th><th class="num">CREDIT</th><th class="num">BALANCE</th></tr></thead>
-      <tbody><tr><td>${mdy(p.start)}</td><td></td><td>BEGINNING BALANCE</td><td></td><td></td><td class="num">${peso(p.opening)}</td></tr>
+      <tbody><tr><td>${mdy(p.from || p.start)}</td><td></td><td>BEGINNING BALANCE</td><td></td><td></td><td class="num">${peso(p.opening)}</td></tr>
         ${rows.map((x) => `<tr><td>${mdy(x.date)}</td><td>${esc(x.ref)}</td><td>${esc(x.desc)}</td><td class="num">${x.debit ? peso(x.debit) : ""}</td><td class="num">${x.credit ? peso(x.credit) : ""}</td><td class="num">${peso(x.bal)}</td></tr>`).join("")}
         <tr class="soa-end"><td>${mdy(p.end)}</td><td></td><td>ENDING BALANCE</td><td></td><td></td><td class="num">${peso(closing)}</td></tr>
-        <tr class="soa-total"><td><b>TOTAL</b></td><td>${rows.length} transaction(s)</td><td>${esc(copiesSummary(images))}</td><td class="num">${peso(deb)}</td><td class="num">${peso(cre)}</td><td></td></tr></tbody></table>
+        <tr class="soa-total"><td><b>TOTAL</b></td><td>${rows.length} TRANSACTION${rows.length === 1 ? "" : "S"}</td><td>${esc(copiesSummary(images))}</td><td class="num">${peso(deb)}</td><td class="num">${peso(cre)}</td><td></td></tr></tbody></table>
       <div class="soa-due"><span>AMOUNT DUE</span><b>₱ ${peso(closing)}</b><small>${esc(words(Math.max(0, closing)))}</small></div>
-      <div class="soa-note">Please examine this statement. Any discrepancy must be reported to ${esc(C.company.name)} within 10 days; otherwise, this statement is considered correct.<br>Payments: ${esc(C.company.phone)} · ${esc(C.company.email)}</div>
-      <div class="soa-sys">This is a system-generated statement. No signature is required.</div>
-      <div class="soa-thanks">Thank you for your business!</div>`;
+      <div class="soa-note">PLEASE EXAMINE THIS STATEMENT. REPORT ANY DISCREPANCY TO ${esc(C.company.name.toUpperCase())} WITHIN 10 DAYS; OTHERWISE, IT IS CONSIDERED CORRECT.<br>PAYMENTS: ${esc(C.company.phone)} · ${esc(C.company.email)}</div>
+      <div class="soa-sys">SYSTEM-GENERATED STATEMENT. NO SIGNATURE REQUIRED.</div>
+      <div class="soa-thanks">THANK YOU FOR YOUR BUSINESS.</div>`;
     const pages = [page1];
     for (let i = 0; i < images.length; i += 4) {
       const chunk = images.slice(i, i + 4);
       pages.push(`<div class="soa-pg">Page ${pages.length + 1}</div><div class="ph-title" style="text-align:left">ATTACHED DOCUMENTS — ${esc(monthName(p.start).toUpperCase())}</div>
-        <div class="soa-imgs">${chunk.map((im) => `<figure>${im.url ? `<img src="${esc(im.url)}" alt="${esc(im.label)} ${esc(im.no)}">` : `<div class="soa-pdf">${esc(im.label)} ${esc(im.no)} — copy on file (PDF)</div>`}
-          <figcaption>Acct. No.: ${esc(c.account_no)} &nbsp; ${esc(im.label)} No.: ${esc(im.no)} &nbsp; Amt.: ${peso(im.amount)}</figcaption></figure>`).join("")}</div>`);
+        <div class="soa-imgs">${chunk.map((im) => `<figure>${im.url ? `<img src="${esc(im.url)}" alt="${esc(im.label)} ${esc(im.no)}">` : `<div class="soa-pdf">${esc(im.label)} ${esc(im.no)} — COPY ON FILE (PDF)</div>`}
+          <figcaption>ACCOUNT NO. ${esc(c.account_no)} &nbsp;·&nbsp; ${esc(im.label)} ${esc(im.no)} &nbsp;·&nbsp; ₱ ${peso(im.amount)}</figcaption></figure>`).join("")}</div>`);
     }
     return pages;
   }
 
   async function printSoa(c, p, allTxns, allInvs) {
-    const txns = within(allTxns, p.start, p.end);
-    const invs = allInvs.filter((i) => i.invoice_date >= p.start && i.invoice_date <= p.end);
+    const from = p.from || coveredFrom(c, p.start, allTxns);
+    const txns = within(allTxns, from, p.end);
+    const invs = allInvs.filter((i) => i.invoice_date >= from && i.invoice_date <= p.end);
     const pays = txns.filter((x) => x.pay).map((x) => x.pay);
     const images = await monthCopies(invs, pays);
-    E.openPreview(`SOA ${p.no || monthName(p.start)}`, soaPages(c, p, txns, images));
+    E.openPreview(`SOA ${p.no || monthName(p.start)}`, soaPages(c, { ...p, from }, txns, images));
   }
 
-  // One SOA for every month, from the month the account opened (or its first record) to this month.
-  // A month's saved statement is used when there is one; this month runs to date.
+  // One SOA a month, from the month the account was opened to this month (the first one also has the entries dated
+  // before it). A month's saved statement is used when there is one; this month runs to date.
   async function renderSoaTab(c, invs, pays, memos, orders) {
     const box = $("#pfSoa"); if (!box) return;
     const { data } = await sb.from("statements").select("*").eq("customer_id", c.id).order("period_start");
     const txns = txnsOf(invs, pays, memos, orders, c);
-    const cm = monthStart(isoToday());
-    const saved = new Map((data || []).map((s) => [s.period_start, s]));
+    const cm = monthStart(isoToday()), open = openMonth(c);
+    const saved = new Map((data || []).filter((s) => s.period_start >= open).map((s) => [s.period_start, s]));
     const rows = [];
-    for (let m = [monthStart(c.application_date || cm), txns.length ? monthStart(txns[0].date) : cm, ...saved.keys()].sort()[0]; m <= cm; m = nextMonth(m)) {
-      const s = saved.get(m);
-      if (s) { rows.push({ start: s.period_start, end: s.period_end, opening: num(s.opening_balance), closing: num(s.closing_balance), no: s.statement_no, debit: num(s.total_debit), credit: num(s.total_credit) }); continue; }
+    for (let m = open; m <= cm; m = nextMonth(m)) {
+      const s = saved.get(m), from = coveredFrom(c, m, txns);
+      if (s) { rows.push({ start: s.period_start, from, end: s.period_end, opening: num(s.opening_balance), closing: num(s.closing_balance), no: s.statement_no, debit: num(s.total_debit), credit: num(s.total_credit) }); continue; }
       const end = m === cm ? isoToday() : dayBefore(nextMonth(m));
-      const t = within(txns, m, end), opening = before(txns, m);
+      const t = within(txns, from, end), opening = m === open ? 0 : before(txns, m);
       const debit = t.reduce((x, y) => x + y.debit, 0), credit = t.reduce((x, y) => x + y.credit, 0);
-      rows.push({ start: m, end, opening, debit, credit, closing: opening + debit - credit, no: soaNo(m, c), live: m === cm });
+      rows.push({ start: m, from, end, opening, debit, credit, closing: opening + debit - credit, no: soaNo(m, c), live: m === cm });
     }
     rows.reverse();
     box.innerHTML = `<div class="btnrow"><button type="button" class="btn" id="soaAll">${ic("print")} Print All Transactions</button>${isAdmin() ? `<a class="btn" href="#statements">All Statements (SOA)</a>` : ""}</div>
       ${E.grid({ cols: [
-        { label: "Period", get: (r) => r.live ? `${monthName(r.start)} (to date)` : monthName(r.start) }, { label: "Statement No", get: (r) => r.no },
+        { label: "Period", get: (r) => (r.live ? `${monthName(r.start)} (to date)` : monthName(r.start)).toUpperCase() }, { label: "Statement No", get: (r) => r.no },
         { label: "Opening (₱)", num: true, get: (r) => peso(r.opening) }, { label: "Debit (₱)", num: true, get: (r) => peso(r.debit) },
         { label: "Credit (₱)", num: true, get: (r) => peso(r.credit) }, { label: "Closing (₱)", num: true, get: (r) => peso(r.closing) },
         { label: "", html: () => `<span class="btn">Print SOA</span>` }], rows, onRow: true })}
-      <small>A new statement is created automatically on the 1st of every month. Each month's closing balance is the next month's opening balance.</small>`;
+      <small>One statement a month, made automatically on the 1st for the month just ended. The first is the month the account was opened (with any earlier entries); each month's closing balance is the next month's opening balance.</small>`;
     E.bindGrid(box, rows, (r) => printSoa(c, r, txns, invs));
     $("#soaAll").onclick = () => {
       const start = txns.length ? monthStart(txns[0].date) : monthStart(c.application_date);
@@ -1120,7 +1125,7 @@
     const last = monthStart(new Date(new Date().setDate(0)).toISOString().slice(0, 10));
     E.shell("statements", "All Statements of Account", `
       <div class="options"><fieldset class="opt"><legend>Month</legend><div class="fields"><label for="stMonth">Statement Month</label><input type="month" id="stMonth" value="${last.slice(0, 7)}"></div></fieldset></div>
-      <div class="btnrow"><button type="button" class="btn primary" id="stGo">Show</button><button type="button" class="btn" id="stGen">Create Missing Statements Now</button><button type="button" class="btn" id="stPrintAll">${ic("print")} Print All for Month</button><a class="btn" href="#customers">Close</a></div>
+      <div class="btnrow"><button type="button" class="btn primary" id="stGo">Show</button><button type="button" class="btn" id="stPrintAll">${ic("print")} Print All for Month</button><a class="btn" href="#customers">Close</a></div>
       <div id="stRes">${busy()}</div>`, "Statements are created automatically on the 1st of each month for the month just ended. Click a row to print it or upload a copy.");
     let rows = [];
     const load = async () => {
@@ -1156,11 +1161,10 @@
       bindDocCards(m.el, () => { m.close(); statementDialog(r); });
     }
     $("#stGo").onclick = load; $("#stMonth").onchange = load;
-    $("#stGen").onclick = async () => { const { data, error } = await sb.rpc("generate_statements", {}); if (error) return fail(error, "Could not create statements"); toast(`${data || 0} new statement(s) created.`); load(); };
     $("#stPrintAll").onclick = async () => {
       if (!rows.length) return toast("No statements for this month.", true);
       const pages = [];
-      for (const r of rows) { const x = await dataFor(r.customer_id); const p = asPeriod(r); pages.push(...soaPages(r.customers, p, within(x.txns, p.start, p.end), [])); }
+      for (const r of rows) { const x = await dataFor(r.customer_id); const p = asPeriod(r); p.from = coveredFrom(r.customers, p.start, x.txns); pages.push(...soaPages(r.customers, p, within(x.txns, p.from, p.end), [])); }
       E.openPreview(`All SOA ${monthName(rows[0].period_start)}`, pages);
     };
     load();
@@ -1351,7 +1355,7 @@
               <label for="npAmt">Amount (₱) *</label><input type="number" id="npAmt" min="0.01" step="0.01" required>
               <label for="npMethod">Payment Method</label><select id="npMethod">${Object.entries(METHOD).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
               <label for="npDate">Date Paid</label><input type="date" id="npDate" value="${isoToday()}">
-              <label for="npInv">Apply to Invoice</label><select id="npInv"><option value="">— General payment (no specific invoice) —</option></select>
+              <label for="npInv">Apply to Purchase Order</label><select id="npInv"><option value="">— PAYMENT RECEIVED (no specific purchase order) —</option></select>
             </div>
             <div class="fields wide">
               <label for="npBank" class="npb">Bank Name</label><input type="text" id="npBank" class="npb" placeholder="e.g. BDO, BPI, GCash">
@@ -1369,10 +1373,10 @@
       </form>`);
     let cust = null;
     const loadInv = async () => {
-      const sel = $("#npInv"); sel.innerHTML = `<option value="">— General payment (no specific invoice) —</option>`;
+      const sel = $("#npInv"); sel.innerHTML = `<option value="">— PAYMENT RECEIVED (no specific purchase order) —</option>`;
       if (!cust) return;
-      const { data } = await sb.from("invoice_balances").select("id,invoice_no,balance,invoice_date").eq("customer_id", cust.id).in("pay_status", ["unpaid", "partial"]).order("invoice_date");
-      (data || []).forEach((i) => sel.insertAdjacentHTML("beforeend", `<option value="${i.id}" data-bal="${i.balance}">${esc(i.invoice_no)} — balance ₱${peso(i.balance)}</option>`));
+      const { data } = await sb.from("invoice_balances").select("id,invoice_no,po_number,balance,invoice_date").eq("customer_id", cust.id).in("pay_status", ["unpaid", "partial"]).order("invoice_date");
+      (data || []).forEach((i) => sel.insertAdjacentHTML("beforeend", `<option value="${i.id}" data-bal="${i.balance}">${i.po_number ? `PURCHASE ORDER ${esc(i.po_number)}` : esc(i.invoice_no)} · ${mdy(i.invoice_date)} — balance ₱${peso(i.balance)}</option>`));
       if (invId) { sel.value = invId; const o = sel.selectedOptions[0]; if (o?.dataset.bal && !$("#npAmt").value) { $("#npAmt").value = o.dataset.bal; $("#npWords").textContent = words(o.dataset.bal); } }
     };
     customerPicker($("#npCust"), { statuses: ["active", "suspended", "closed"], onPick: (c) => { cust = c; loadInv(); }, preset: (await getCustomer(custId)) || undefined });
@@ -1404,7 +1408,7 @@
 
   V.payment = async (id, extra) => {
     E.shell("payment", "Payment", busy());
-    const { data: p } = await sb.from("payments_received").select("*, customers(*), invoices:customer_invoices(invoice_no,total_amount)").eq("id", id).maybeSingle();
+    const { data: p } = await sb.from("payments_received").select("*, customers(*), invoices:customer_invoices(invoice_no,po_number,total_amount)").eq("id", id).maybeSingle();
     if (!p) { $("#main").innerHTML = `<div class="empty">Payment not found. <a href="#payments">Back to Payments</a></div>`; return; }
     const att = await attachmentsOf("payment", id);
     $(".band h1").textContent = `Payment — ${p.receipt_no}`;
@@ -1417,7 +1421,7 @@
         <span>Date Paid</span><span>${mdy(p.paid_date)}</span></div>
       <div class="fields wide"><span>Method</span><span>${esc(METHOD[p.method])}</span><span>Bank</span><span>${esc(p.bank_name || "—")}</span>
         <span>Deposit Account</span><span>${esc(p.bank_account || "—")}</span><span>Reference No</span><span>${esc(p.reference_no || "—")}</span>
-        <span>Invoice</span><span>${p.invoice_id ? `<a href="#invoice/${p.invoice_id}">${esc(p.invoices?.invoice_no || "")}</a>` : "General payment"}</span>
+        <span>Description</span><span>PAYMENT RECEIVED${p.invoice_id ? ` · <a href="#invoice/${p.invoice_id}">${esc(payFor(p))}</a>` : ""}</span>
         <span>Verified By</span><span>${esc(p.created_by_name || "")}</span></div></div>
       <div class="docgrid">${docCard({ key: "ack", title: `Acknowledgment Receipt ${p.receipt_no}`, sub: `₱ ${peso(p.amount)} · ${mdy(p.paid_date)}`, ownerType: "payment", ownerId: p.id, att, print: () => E.openPreview(`Acknowledgment ${p.receipt_no}`, [ackPage(p)]), uploadLabel: "Upload Copy", copyName: "Copy" })}</div>
       <div><b>Uploaded Receipts &amp; Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No receipts uploaded.")}</div>
@@ -1428,13 +1432,15 @@
     bindTools($("#main"));
     E.setRecords(`Receipt: ${p.receipt_no}`);
   };
+  // What a payment is for: the purchase order (its PO number; the invoice number when it has none).
+  const payFor = (p) => (p.invoices?.po_number ? `PURCHASE ORDER ${p.invoices.po_number}` : p.invoices?.invoice_no || "");
   // System-generated: no signature lines.
   function ackPage(p) {
     const c = p.customers;
     return `${printHead("ACKNOWLEDGMENT RECEIPT", `<img src="${E.pdf417DataUrl("EMONPAY|" + p.receipt_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.receipt_no)}</div>`)}
       ${box("Received From", `<div class="pgrid2">${cell("Customer Name", fullName(c))}${cell("Account No", c.account_no)}${cell("Date Paid", mdy(p.paid_date))}${cell("Received & Verified By", p.created_by_name)}</div>`)}
       ${box("Payment Details", `<div class="prow3">${cell("Amount (₱)", peso(p.amount))}${cell("Method", METHOD[p.method])}${cell("Reference No", p.reference_no)}</div>
-        <div class="prow3">${cell("Bank", p.bank_name)}${cell("Deposit Account", p.bank_account)}${cell("Applied to Invoice", p.invoices?.invoice_no || "General payment")}</div>
+        <div class="prow3">${cell("Bank", p.bank_name)}${cell("Deposit Account", p.bank_account)}${cell("Description", `PAYMENT RECEIVED${p.invoice_id ? " · " + payFor(p) : ""}`)}</div>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(p.amount))}</div></div>`)}
       <p class="pdecl">This acknowledges that ${esc(C.company.name)} has received the payment above. Receipt No ${esc(p.receipt_no)}.</p>
       <div class="soa-sys">This is a system-generated receipt. No signature is required.</div>`;

@@ -935,9 +935,9 @@
   const stillHere = () => { const h = location.hash; return () => location.hash === h; };
 
   // ---------- scanning (the E-Portal app for Windows) ----------
-  // In the Windows app every document upload gets a Scan button: the page is scanned with the scanner of the computer
-  // (an HP printer and others). A circle shows how far the scan is (in %), with Cancel; when the page is in, the circle
-  // turns green with ✔. Where the upload saves at once (a signed copy, Files, a requirement on a profile …) the page is
+  // In the Windows app every document upload gets a Scan button: it opens the Windows scanner window, where the scanner
+  // of the computer (an HP printer and others) is chosen and Scan is pressed (2.2). A circle shows the scan, with
+  // Cancel; when the page is in, the circle turns green with ✔. Where the upload saves at once (a signed copy, Files, a requirement on a profile …) the page is
   // saved at once and the screen shows it. In a form that is saved with its Submit button, the scanned pages are listed
   // under the upload with Preview and Delete, and are saved with the form. Photos, barcode pictures and chat files have
   // no Scan.
@@ -958,7 +958,7 @@
       if (!scanFits(inp)) continue;
       const wrap = document.createElement("span");
       wrap.className = "scan-wrap" + (inp.hidden ? " for-hidden" : "");
-      wrap.innerHTML = `<button type="button" class="btn scan-btn" title="Scan the page with the scanner of this computer">${ic("doc")} Scan</button>
+      wrap.innerHTML = `<button type="button" class="btn scan-btn" title="Opens the Windows scanner window: choose the scanner, then press Scan there">${ic("doc")} Scan</button>
         <span class="scan-prog" role="progressbar" aria-label="Scan" aria-valuemin="0" aria-valuemax="100" hidden>
           <span class="ring"><svg viewBox="0 0 40 40" aria-hidden="true"><circle class="rb" cx="20" cy="20" r="17"/><circle class="rf" cx="20" cy="20" r="17"
             stroke-dasharray="${RING.toFixed(2)}" stroke-dashoffset="${RING.toFixed(2)}"/></svg><b class="rp">0%</b><span class="rc">${ic("check")}</span></span>
@@ -1069,8 +1069,6 @@
     }
     return ui;
   }
-  // The circle follows the time when the app gives no progress (the app for Windows 1.4).
-  const SCAN_GUESS_MS = 25000;
   // Waits until the upload has been saved and its screen drawn again (the upload is then no longer on the page), at
   // most `ms`.
   const untilGone = (el, ms) => new Promise((resolve) => {
@@ -1085,21 +1083,12 @@
     wrap.classList.add("scanning");
     btn.disabled = true;
     ui.pct = 0;
-    let heard = false;
-    const t0 = Date.now();
-    const guess = setInterval(() => { if (!heard) ui.show(3 + 87 * (1 - Math.exp(-(Date.now() - t0) / (SCAN_GUESS_MS / 2.2))), "Scanning the page"); }, 250);
-    const onProgress = (p) => { heard = true; ui.show(p && typeof p.pct === "number" ? p.pct : null, p?.text); };
-    ui.show(0, "Starting the scanner");
+    // 2.2: Scan always opens the Windows scanner window (the scanner is chosen there and its Scan button is pressed);
+    // the circle turns while the window is open, and the page is saved by itself when it comes back.
+    const onProgress = (p) => ui.show(p && typeof p.pct === "number" && p.stage !== "START" ? p.pct : null, p?.stage === "START" ? "Opening the scanner window" : p?.text);
+    ui.show(null, "Opening the scanner window");
     try {
-      let r = await window.EOApp.scan({}, onProgress);
-      if (r?.error && r.offerDialog !== false && !/already running/.test(r.error)) {
-        heard = true; ui.reset();
-        if (await confirmBox(`${esc(r.error)}<br><br>Open the scanner window to choose the scanner and scan from there?`, { title: "Scan", ok: "Scanner Window" })) {
-          ui.pct = 0; heard = true; ui.show(null, "Use the scanner window");
-          r = await window.EOApp.scan({ dialog: true }, onProgress);
-        } else r = { cancelled: true, quiet: true };
-      }
-      clearInterval(guess);
+      const r = await window.EOApp.scan({ dialog: true }, onProgress);
       if (r?.cancelled) { ui.reset(); if (!r.quiet) toast("Scan cancelled."); return; }
       if (!r?.ok) { ui.reset(); toast(r?.error || "The scan did not work.", true); return; }
       const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
@@ -1116,7 +1105,6 @@
       ui.reset();
       toast("The scan did not work: " + (e?.message || e), true);
     } finally {
-      clearInterval(guess);
       ui.busy = false;
       wrap.classList.remove("scanning");
       if (btn.isConnected) btn.disabled = false;
