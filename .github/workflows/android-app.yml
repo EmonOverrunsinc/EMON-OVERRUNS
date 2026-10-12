@@ -1,6 +1,7 @@
-# Builds the Android app (apps/android) as an unsigned APK and keeps it, with the build log, as a download on
-# the run (Actions › Android app › the newest run › Artifacts). The release key is kept by EMON OVERRUNS, not in
-# this public repository: the APK is signed after download (see apps/README.md).
+# Builds the Android app (apps/android) as an unsigned APK (to install directly) and an unsigned App Bundle (.aab,
+# for the Google Play Store), and keeps them, with the build log, as a download on the run
+# (Actions › Android app › the newest run › Artifacts). The release key is kept by EMON OVERRUNS, not in
+# this public repository: both are signed after download (see apps/README.md).
 name: Android app
 
 on:
@@ -21,11 +22,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Build the unsigned release APK
+      - name: Build the unsigned release APK and App Bundle
         working-directory: apps/android
         run: |
           set -o pipefail
-          ./gradlew --no-daemon assembleRelease 2>&1 | tee build.log
+          ./gradlew --no-daemon assembleRelease bundleRelease 2>&1 | tee build.log
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -33,5 +34,6 @@ jobs:
           name: E-Portal-Android-unsigned
           path: |
             apps/android/app/build/outputs/apk/release/app-release-unsigned.apk
+            apps/android/app/build/outputs/bundle/release/app-release.aab
             apps/android/build.log
           retention-days: 90

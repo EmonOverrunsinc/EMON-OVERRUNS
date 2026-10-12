@@ -47,6 +47,18 @@ OVERRUNS keeps it (`eportal-release.jks`, alias `eportal`). Sign the downloaded 
     zipalign -p -f 4 E-Portal-unsigned.apk E-Portal-aligned.apk
     apksigner sign --ks eportal-release.jks --ks-key-alias eportal --out EMON-OVERRUNS-E-Portal.apk E-Portal-aligned.apk
 
+For the **Google Play Store** (from 1.4) the same run also makes `app-release.aab`, an unsigned App Bundle. Sign it
+with the same key (Java's `jarsigner`) and upload the signed `.aab` in Play Console:
+
+    jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore eportal-release.jks \
+      -signedjar EMON-OVERRUNS-E-Portal-1.4.aab app-release.aab eportal
+
+Google signs the app for the phones with its own key (Play App Signing). Its fingerprint (Play Console › Test and
+release › App integrity › App signing key certificate › SHA-256) goes into `assetlinks.json` next to ours, so the
+Play Store app opens full screen too. All steps: [docs/PLAY_STORE.md](../docs/PLAY_STORE.md).
+
+From 1.4 the app opens **https://www.emonoverruns.online** (Android 16, API 36, as Google Play needs).
+
 Raise `versionCode` in `android/app/build.gradle` for each new APK, so phones accept it as an update. Always sign
 with the same key: a different key cannot update the installed app, and it would also need a new fingerprint in
 `assetlinks.json`.
