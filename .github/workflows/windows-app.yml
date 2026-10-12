@@ -1,5 +1,7 @@
 # Builds the Windows Setup program (apps/windows) and keeps the .exe as a download on the run:
 # Actions › Windows app › the newest run › Artifacts (sign in to GitHub to download it).
+# A new version (apps/windows/package.json) on main is also published as the release windows-v<version>, with
+# windows-update.json: the installed apps (1.6.0 and newer) find it there and update themselves.
 name: Windows app
 
 on:
@@ -7,6 +9,9 @@ on:
     branches: [main]
     paths: ["apps/windows/**", ".github/workflows/windows-app.yml"]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   windows:
@@ -35,3 +40,31 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 90
+
+      - name: Publish the new version for the automatic update
+        if: github.ref == 'refs/heads/main'
+        working-directory: apps/windows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="windows-v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG is already published: change the version in package.json to publish an update."
+            exit 0
+          fi
+          FILE="EMON-OVERRUNS-E-Portal-Setup-$VERSION.exe"
+          node -e '
+            const fs = require("fs"), crypto = require("crypto");
+            const [v, f] = process.argv.slice(1), b = fs.readFileSync("dist/" + f);
+            fs.writeFileSync("dist/windows-update.json", JSON.stringify({
+              version: v, file: f, size: b.length,
+              sha256: crypto.createHash("sha256").update(b).digest("hex"),
+              url: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/windows-v${v}/${f}`,
+            }, null, 2) + "\n");
+          ' "$VERSION" "$FILE"
+          cat dist/windows-update.json
+          gh release create "$TAG" "dist/$FILE" dist/windows-update.json \
+            --target "$GITHUB_SHA" --latest \
+            --title "E-Portal for Windows $VERSION" \
+            --notes "EMON OVERRUNS E-Portal for Windows $VERSION. Download $FILE and open it to install. Installed apps (1.6.0 and newer) update themselves."
