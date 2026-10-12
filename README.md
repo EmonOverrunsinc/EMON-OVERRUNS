@@ -68,8 +68,10 @@ top; the printed documents and PDFs keep it. Every page except the Dashboard has
 (it goes to the page before, and never leaves the portal). The browser tab and an installed app are named
 **EMON OVERRUNS**.
 
-**Watermark (2.4.1):** on printed A4 documents the company seal now starts just below the letterhead, behind the
-document's details (before, it stood in the middle of the page, below a short document's details).
+**Watermark (2.4.2):** on printed A4 documents the company seal stands in the middle of the filled part of each page
+(from under the letterhead down to the last line, box or signature) and is as big as fits there: a short document has
+it behind its details, a full page in the middle of the page. The preview measures every page, on the screen and as on
+A4 paper (a phone shows a narrower page than the A4 it prints), so the printout and the PDF have it in the same place.
 
 **Privacy and account deletion (2.4, for the Google Play Store):** the **Privacy Policy** is at
 `/privacy` (www.emonoverruns.online/privacy) and **Delete Account** at `/delete-account`, both linked on the sign-in page.

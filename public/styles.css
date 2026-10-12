@@ -550,14 +550,17 @@ main h3 { margin: 14px 0 6px; color: var(--title-2); }
 .cm-rep b { background: #fff4b8; border: 1px solid #c9a400; padding: 2px 10px; font-size: 13px; }
 .cm-rep img { display: block; height: 46px; margin-top: 4px; margin-left: auto; image-rendering: pixelated; }
 
-/* Company seal as a watermark on printed documents only: on an A4 page it starts just below the letterhead, behind
-   the document's details (2.4.1); on A5 and landscape pages it stands in the middle */
+/* Company seal as a watermark on printed documents only. On an A4 page it stands in the middle of the filled part of
+   the page and is as big as fits there (2.4.2): the preview measures each page and sets --wm-top / --wm-w for the
+   screen and --wm-ptop / --wm-pw for the paper; until then it starts just below the letterhead. On A5 and landscape
+   pages it stands in the middle. */
 .page { position: relative; overflow: hidden; }
 .page > .wm {
-  position: absolute; left: 50%; top: 42mm; width: 62%; max-width: 520px; transform: translateX(-50%);
+  position: absolute; left: 50%; top: var(--wm-top, 42mm); width: var(--wm-w, 62%); max-width: 520px; transform: translateX(-50%);
   opacity: .09; mix-blend-mode: multiply; pointer-events: none; user-select: none; z-index: 0;
 }
 .page.a5l > .wm, .page.landscape > .wm { top: 50%; transform: translate(-50%, -50%); }
+@media print { .page > .wm { top: var(--wm-ptop, 42mm); width: var(--wm-pw, 62%); } }
 .page > :not(.wm) { position: relative; z-index: 1; }
 .page > .rp-stamp { position: relative; }
 /* The date the page was printed, small in the top right corner */
