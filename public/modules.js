@@ -65,8 +65,9 @@
   }
   async function uploadRecords(ownerType, ownerId, kind, files) {
     let failed = 0;
-    for (const f of files) {
-      if (f.size > 50 * 1024 * 1024) { failed++; toast("A file larger than 50 MB was skipped.", true); continue; }
+    for (const raw of files) {
+      if (raw.size > 50 * 1024 * 1024) { failed++; toast("A file larger than 50 MB was skipped.", true); continue; }
+      const f = await E.slimFile(raw); // 2.2.2: a smaller picture, still clear in print
       const name = await autoName(ownerType, ownerId, kind);
       const path = `${ownerType}/${ownerId}/${slug(name)}_${Date.now()}.${extOf(f)}`;
       const up = await sb.storage.from("records").upload(path, f, { contentType: f.type || "application/octet-stream" });
@@ -679,7 +680,7 @@
       E.setBusy(e.target, true, "Submitting");
       const id = uuid();
       let photo_path = null;
-      const photo = $("#ncPhoto").files[0];
+      const photo = await E.slimFile($("#ncPhoto").files[0], "photo");
       if (photo) {
         photo_path = `customer/${id}/Profile_Photo_${Date.now()}.${extOf(photo)}`;
         const up = await sb.storage.from("records").upload(photo_path, photo, { contentType: photo.type });
@@ -848,8 +849,9 @@
     // Director, is deleted from storage too).
     const dropOld = (old) => { if (old && isAdmin()) sb.storage.from("records").remove([old]).catch(() => {}); };
     if ($("#pfPhotoFile")) $("#pfPhotoFile").onchange = async (e) => {
-      const f = e.target.files[0]; if (!f) return;
-      if (!/^image\//.test(f.type)) return toast("Choose a photo (an image file).", true);
+      if (!e.target.files[0]) return;
+      if (!/^image\//.test(e.target.files[0].type)) return toast("Choose a photo (an image file).", true);
+      const f = await E.slimFile(e.target.files[0], "photo");
       const path = `customer/${c.id}/Profile_Photo_${Date.now()}.${extOf(f)}`;
       const up = await sb.storage.from("records").upload(path, f, { contentType: f.type });
       if (up.error) return fail(up.error, "The photo could not be uploaded");
@@ -1776,7 +1778,8 @@
       toast("Signature removed."); V.profile();
     };
     $("#mpFile").onchange = async (e) => {
-      const f = e.target.files[0]; if (!f) return;
+      if (!e.target.files[0]) return;
+      const f = await E.slimFile(e.target.files[0], "avatar"); // 2.2.2: a large phone photo is made small first
       if (f.size > 5 * 1024 * 1024) return toast("Choose a photo under 5 MB.", true);
       const path = `${S.session.user.id}/Photo_${Date.now()}.${extOf(f)}`;
       const up = await sb.storage.from("avatars").upload(path, f, { contentType: f.type });
