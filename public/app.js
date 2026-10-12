@@ -7,7 +7,7 @@
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
   const VERSION = "2.4";
-  const BUILD = "2.4.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "2.4.2"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -1266,6 +1266,91 @@
     addScanButtons(document.body);
   }
 
+  // ---------- the seal watermark on printed pages (2.4.2) ----------
+  // The company seal stands in the middle of the filled part of each A4 page (from under the letterhead down to the
+  // last line, box or signature of the document) and is as big as fits there: a short document has it behind its
+  // details, a full page in the middle of the page. The screen and the paper are measured apart: a phone shows a
+  // narrower page than the A4 it prints, so there the pages are laid out once more at the width of A4 (hidden).
+  const MM = 96 / 25.4; // CSS pixels in a millimetre
+  const SEAL_HEAD = ".ph, .rp-brand, .cm-head, .soa-logo, .ja-head, .sb-cont, .rp-stamp"; // letterheads
+  const SEAL_SKIP = ".wm, .pg-date, .pg-web, .rp-foot, .vp-sys"; // the seal, and what every page has at its edges
+  // The filled part of a page in CSS pixels from the top of the page ({ top, bottom, width }; null when empty): the
+  // words, pictures, lines and shaded boxes under the letterhead (a box around other things counts by what is in it).
+  function filledPart(pg) {
+    const doc = pg.ownerDocument, win = doc.defaultView, F = win.NodeFilter;
+    const at = pg.getBoundingClientRect(), k = at.width / pg.offsetWidth || 1; // k: the preview's zoom
+    const head = pg.querySelector(SEAL_HEAD);
+    let top = Infinity, bottom = -Infinity;
+    const take = (r) => { if (r.width > 0.5 && r.height > 0.5) { top = Math.min(top, r.top); bottom = Math.max(bottom, r.bottom); } };
+    const walk = doc.createTreeWalker(pg, F.SHOW_ELEMENT | F.SHOW_TEXT, {
+      acceptNode: (n) => (n.nodeType === 1 && (n === head || n.matches(SEAL_SKIP)) ? F.FILTER_REJECT : F.FILTER_ACCEPT)
+    });
+    const range = doc.createRange();
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (n.nodeType === 3) { if (n.data.trim()) { range.selectNodeContents(n); take(range.getBoundingClientRect()); } continue; }
+      if (/^(img|svg|canvas|input|textarea)$/i.test(n.tagName)) { take(n.getBoundingClientRect()); continue; }
+      if (n.firstElementChild || n.closest("svg")) continue;
+      const s = win.getComputedStyle(n);
+      const line = ["Top", "Right", "Bottom", "Left"].some((e) => parseFloat(s[`border${e}Width`]) > 0 && s[`border${e}Style`] !== "none");
+      if (line || !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(s.backgroundColor)) take(n.getBoundingClientRect());
+    }
+    if (head) top = head.getBoundingClientRect().bottom;
+    if (!(bottom > top)) return null;
+    const cs = win.getComputedStyle(pg);
+    return { top: (top - at.top) / k, bottom: (bottom - at.top) / k, width: pg.offsetWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) };
+  }
+  // The seal over that part: 94% of its height (at least 50 mm, at most 130 mm wide, never wider than the page's text).
+  function setSeal(pg, part, paper) {
+    const im = pg.querySelector(".wm"), ratio = im && im.naturalHeight ? im.naturalWidth / im.naturalHeight : 1063 / 992;
+    const h = Math.max(50 * MM, Math.min(0.94 * (part.bottom - part.top), (130 * MM) / ratio, part.width / ratio));
+    const u = (v) => (paper ? `${(v / MM).toFixed(2)}mm` : `${v.toFixed(1)}px`);
+    pg.style.setProperty(paper ? "--wm-ptop" : "--wm-top", u((part.top + part.bottom - h) / 2));
+    pg.style.setProperty(paper ? "--wm-pw" : "--wm-w", u(h * ratio));
+  }
+  // The pages laid out at the width of A4 paper, hidden; gives the filled part of each (after its pictures load).
+  function a4Parts(pages) {
+    return new Promise((resolve) => {
+      const f = document.createElement("iframe");
+      f.setAttribute("aria-hidden", "true"); f.tabIndex = -1;
+      f.style.cssText = "position:fixed;left:-12000px;top:0;width:794px;height:1123px;border:0;visibility:hidden;pointer-events:none";
+      const css = $$('link[rel="stylesheet"]').map((l) => `<link rel="stylesheet" href="${esc(l.href)}">`).join("");
+      f.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><base href="${esc(document.baseURI)}">${css}
+        <style>html,body{margin:0;background:#fff}.preview{position:static;display:block;padding:0}.pv-desk{padding:0;overflow:visible}.page{max-width:none;margin:0;box-shadow:none}</style>
+        </head><body><div class="preview"><div class="pv-desk">${pages.map((p) => p.outerHTML).join("")}</div></div></body></html>`;
+      let done = false;
+      const finish = () => {
+        if (done) return; done = true;
+        let parts = [];
+        try { parts = $$(".page", f.contentDocument).map(filledPart); } catch { /* the screen's places stay */ }
+        f.remove(); resolve(parts);
+      };
+      f.onload = finish; // after the style sheet and the pictures
+      setTimeout(finish, 6000);
+      document.body.appendChild(f);
+    });
+  }
+  function placeSeals(pv) {
+    const pages = $$(".pv-desk > .page", pv).filter((p) => !p.classList.contains("a5l") && !p.classList.contains("landscape"));
+    if (!pages.length) return;
+    let a4 = true;
+    const onScreen = () => {
+      if (!pv.isConnected) return;
+      const parts = pages.map(filledPart);
+      pages.forEach((p, i) => parts[i] && setSeal(p, parts[i], false));
+      // a page as wide as A4 (a computer) prints as it shows
+      a4 = pages.every((p) => Math.abs(p.offsetWidth - 210 * MM) < 2);
+      if (a4) pages.forEach((p, i) => parts[i] && setSeal(p, parts[i], true));
+    };
+    onScreen();
+    if (!a4) a4Parts(pages).then((parts) => pages.forEach((p, i) => parts[i] && setSeal(p, parts[i], true)));
+    // pictures that arrive later (photos, signatures) and a turned phone move things: measured again
+    let t = 0;
+    const again = () => { clearTimeout(t); t = setTimeout(onScreen, 150); };
+    $$("img", pv).forEach((im) => { if (!im.complete) im.addEventListener("load", again, { once: true }); });
+    const turn = () => { if (pv.isConnected) again(); else window.removeEventListener("resize", turn); };
+    window.addEventListener("resize", turn);
+  }
+
   // ---------- report preview window ----------
   // size: "" (A4 portrait), "landscape" (A4 landscape) or "a5l" (A5 landscape slip).
   function openPreview(title, pages, { landscape = false, size = "", undated = false } = {}) {
@@ -1293,6 +1378,7 @@
       <div class="pv-desk" id="pvDesk">${pages.map((p) => `<div class="page${cls}"><img class="wm" src="${SEAL}" alt="">${dated(p)}${p}${web}</div>`).join("")}</div>
       <div class="statusbar"><span id="pvCur">Current Page No: 1</span><span>Total Page No: ${pages.length}</span><span id="pvZf">Zoom Factor: 100%</span></div>`;
     document.body.appendChild(pv);
+    placeSeals(pv);
     document.body.classList.toggle("print-a5l", size === "a5l");
     const desk = $("#pvDesk", pv);
     $("#pvPrint", pv).onclick = () => window.print();
