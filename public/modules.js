@@ -452,7 +452,7 @@
     const today = `${new Date().toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(isoToday())}`;
     E.shell("dashboard", "Dashboard", `
       <section class="hero">${E.logoHtml("hero-logo")}<div>
-        <h2>${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span></h2><p>${esc(C.company.address.join(", "))}<br>${esc(C.company.email)}${E.siteLink()}</p>
+        <h2>${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span></h2>
         <p class="welcome">Welcome, <b>${esc(myName())}</b> (${esc(E.personTitle(S.profile.role, S.position).toUpperCase())}) · ${esc(today)}</p></div></section>
       ${isAdmin() ? `<div class="todo" id="dTodo"></div>` : ""}
       ${H("customers") ? `<div class="tiles" id="dTiles">${["Active Customers", "Applications to Review", "Balance Due (₱)", "Payments This Month (₱)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>` : ""}

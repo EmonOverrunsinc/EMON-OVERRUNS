@@ -301,6 +301,7 @@
   const logoHtml = (cls = "co-logo") => S.logoUrl
     ? `<img class="${cls}" src="${esc(S.logoUrl)}" alt="${esc(C.company.name)} logo">`
     : `<span class="${cls} co-logo-fallback" aria-hidden="true">EO</span>`;
+  // 2.4: not shown on the screens any more (the printed documents keep the company name, address and email)
   function companyHeader() {
     return `<header class="co-head">${logoHtml()}<div class="co-text">
       <b>${esc(C.company.name)} <span class="co-tag">E-PORTAL</span></b>
@@ -353,7 +354,7 @@
   function authFrame(title, inner) {
     closePreview();
     $$(".chat-panel, .modal").forEach((x) => x.remove());
-    app.innerHTML = `${companyHeader()}
+    app.innerHTML = `
       <div class="login">
         <div class="login-card window">
           <div class="wtitle">${esc(APP)} — ${esc(title)}</div>
@@ -643,20 +644,30 @@
   function miniShell(title, body, { home } = {}) {
     const signed = !!S.session;
     closePreview();
-    app.innerHTML = `${companyHeader()}
+    app.innerHTML = `
       <div class="topbar mini">
         ${home ? `<a class="mini-brand" href="${esc(home)}">${ic("shield")} ${esc(APP)}</a>` : `<span class="mini-brand">${ic("shield")} ${esc(APP)}</span>`}
         <div class="tb-right">${signed
           ? `<span class="mini-user">${esc(S.profile?.full_name || S.session.user.email)}</span><button type="button" class="btn light" id="msOut">${ic("out")} Sign Out</button>`
           : `<a class="btn light" href="#dashboard">${ic("user")} Sign In</a>`}</div>
       </div>
-      <div class="content mini-content"><div class="band"><h1>${esc(title)}</h1></div><main id="main">${body}</main>
+      <div class="content mini-content"><div class="band">${home ? backBtn() : ""}<h1>${esc(title)}</h1></div><main id="main">${body}</main>
         ${signed ? `<div class="mini-legal" id="msLegal"><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> · <button type="button" class="linkbtn" id="msDel">Request Account Deletion</button></div>` : ""}</div>`;
     if ($("#msOut")) $("#msOut").onclick = signOut;
+    bindBack(home);
     if ($("#msDel")) $("#msDel").onclick = async () => {
       const ref = await requestDeletion();
       if (ref) $("#msLegal").innerHTML = `Account deletion requested. Reference No <b class="mono">${esc(ref)}</b> · <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>`;
     };
+  }
+  // 2.4: a Back button on the green band. It goes to the page before when there is one in this app, otherwise home
+  // (so it never leaves the app).
+  let pagesSeen = 0;
+  window.addEventListener("hashchange", () => pagesSeen++);
+  const backBtn = () => `<button type="button" class="band-back" id="bandBack" aria-label="Back" title="Back">${ic("back")}</button>`;
+  function bindBack(home) {
+    const b = $("#bandBack");
+    if (b) b.onclick = () => { if (pagesSeen > 0) { pagesSeen -= 2; history.back(); } else location.hash = home || "#dashboard"; };
   }
   // 2.4: a signed-in person asks the Director to delete their account. The request arrives in Contact Messages; the
   // Director then deletes the account on Login Accounts. Gives the reference number, or null.
@@ -779,7 +790,6 @@
     const av = avatarUrl();
     const who = S.profile.full_name || S.session.user.email;
     app.innerHTML = `
-      ${companyHeader()}
       <div class="topbar" id="topbar">
         <button type="button" class="iconbtn burger" id="tbMenu" aria-label="Menu" aria-controls="drawer" aria-expanded="false"><span></span><span></span><span></span></button>
         <form class="tb-search" id="tbSearch" role="search">
@@ -815,7 +825,7 @@
         </nav>
         <div class="scrim" id="scrim"></div>
         <div class="content">
-          <div class="band"><h1>${esc(title)}</h1><span class="help" title="${esc(hint ? hint.replace(/<[^>]+>/g, "") : title)}">?</span></div>
+          <div class="band">${key === "dashboard" ? "" : backBtn()}<h1>${esc(title)}</h1><span class="help" title="${esc(hint ? hint.replace(/<[^>]+>/g, "") : title)}">?</span></div>
           <main id="main">${hint ? `<div class="hint"><b>Hint:</b> ${hint}</div>` : ""}${body}</main>
         </div>
       </div>
@@ -825,6 +835,7 @@
     drawerOpen(isPhone() ? false : saved !== "0");
     requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove("no-anim")));
     bindSwipe();
+    bindBack("#dashboard");
     $("#tbMenu").onclick = () => drawerOpen(!document.body.classList.contains("drawer-open"));
     $("#scrim").onclick = () => drawerOpen(false);
     $$("#drawer a").forEach((a) => (a.onclick = () => { if (isPhone()) drawerOpen(false); }));
@@ -1423,7 +1434,12 @@
         if (!(await confirmBox(`Delete the account of <b>${esc(u.full_name || u.email)}</b>?<br><br>Their login, name, photo, signature, chat messages, community posts and a job application that was not approved are deleted. Records the business keeps (invoices, receipts, payslips, order letters) stay and show <b>Deleted User</b>. This cannot be undone.`, { title: "Delete Account", ok: "Delete Account", danger: true }))) return;
         b.disabled = true;
         const { data, error: e3 } = await sb.rpc("delete_user_account", { p_id: u.id });
-        if (e3) { b.disabled = false; return fail(e3, "Could not delete the account"); }
+        if (e3) {
+          b.disabled = false;
+          // the database update 2.4 (017_play_store.sql) is not on the server yet
+          if (e3.code === "PGRST202") return toast("Deleting accounts needs database update 2.4 first (017_play_store.sql in the Supabase SQL Editor).", true);
+          return fail(e3, "Could not delete the account");
+        }
         // the stored files of the account
         if (data?.avatars?.length) await sb.storage.from("avatars").remove(data.avatars);
         if (data?.records?.length) await sb.storage.from("records").remove(data.records);

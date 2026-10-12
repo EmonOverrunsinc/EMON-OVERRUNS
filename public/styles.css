@@ -76,7 +76,12 @@ a { color: var(--title-2); }
   color: var(--band-ink);
   text-shadow: 0 1px 1px rgba(0,0,0,.35);
 }
-.band h1 { margin: 0; font-size: 24px; font-weight: bold; }
+.band h1 { margin: 0; font-size: 24px; font-weight: bold; flex: 1; min-width: 0; }
+.band-back { flex: none; width: 38px; height: 38px; display: grid; place-items: center; padding: 0; border-radius: 50%; cursor: pointer;
+  background: rgba(255,255,255,.22); border: 2px solid rgba(255,255,255,.85); color: #fff; }
+.band-back .ic { width: 22px; height: 22px; stroke-width: 2.6; }
+.band-back:hover { background: rgba(255,255,255,.35); }
+.band-back:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 .band .help {
   width: 30px; height: 30px; border-radius: 50%; flex: none;
   display: grid; place-items: center;

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="appName">EMON OVERRUNS E-Portal</string>
-    <string name="launcherName">E-Portal</string>
+    <string name="appName">EMON OVERRUNS</string>
+    <string name="launcherName">EMON OVERRUNS</string>
     <string name="launchUrl">https://www.emonoverruns.online/#dashboard</string>
     <string name="webManifestUrl">https://www.emonoverruns.online/manifest.webmanifest</string>
     <string name="providerAuthority">com.emonoverruns.eportal.fileprovider</string>

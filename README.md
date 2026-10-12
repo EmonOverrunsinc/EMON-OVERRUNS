@@ -51,6 +51,11 @@ after it by itself. The lines are short, in capitals: **INVOICE** (with the invo
 **CREDIT MEMO** or **DISCOUNT**, **ADDITIONAL CHARGE**, **SETTLEMENT ADJUSTMENT** and **OPENING BALANCE**. A payment
 shows **PAYMENT RECEIVED** on its page and receipt (and the invoice it is for, if any; no longer "General payment").
 
+**Cleaner screens (2.4):** the screens no longer show the company header (logo, Pasay City, email and website) at the
+top; the printed documents and PDFs keep it. Every page except the Dashboard has a **Back** button on the green band
+(it goes to the page before, and never leaves the portal). The browser tab and an installed app are named
+**EMON OVERRUNS**.
+
 **Privacy and account deletion (2.4, for the Google Play Store):** the **Privacy Policy** is at
 `/privacy` (www.emonoverruns.online/privacy) and **Delete Account** at `/delete-account`, both linked on the sign-in page.
 A person asks for deletion on that page (no sign-in), in **My Profile › Request Account Deletion**, or on the applicant
