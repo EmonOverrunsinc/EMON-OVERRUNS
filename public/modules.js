@@ -1754,6 +1754,12 @@
           ${sp.signature_path ? `<button type="button" class="btn" id="mpSigForm">${ic("print")} Signature Verification Form</button><button type="button" class="btn danger" id="mpSigRm">${ic("trash")} Remove</button>`
             : `<button type="button" class="btn" id="mpSigBlank">${ic("print")} Blank Signature Verification Form</button>`}</div>
       </fieldset>
+      ${isAdmin() ? "" : `<fieldset class="opt" id="mpDelBox"><legend>Delete My Account</legend>
+        <p>Ask the Director to delete your E-Portal account. Your login, name, photo, signature and messages are deleted.
+          Business records the law requires us to keep (such as invoices, receipts and payslips) stay, shown as <b>Deleted User</b>.
+          <a href="/delete-account" target="_blank" rel="noopener">More about deleting an account</a> · <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></p>
+        <div class="btnrow"><button type="button" class="btn danger" id="mpDel">${ic("trash")} Request Account Deletion</button></div>
+        <div id="mpDelDone"></div></fieldset>`}
       ${emp ? `<h3>My Payslip History</h3>
         <div class="tiles"><div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div><div class="tile ok"><div class="k">Total Received (₱)</div><div class="v">₱ ${peso(netTotal)}</div></div></div>
         <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}
@@ -1761,6 +1767,13 @@
     if (emp) E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
     if (myOrders.length) E.bindGrid($("#mpOrders"), myOrders, (r) => E.printOrder(r.id));
     $("#mpPw").onclick = () => E.changePassword();
+    // 2.4: the request goes to the Director's Contact Messages, who then deletes the account on Login Accounts
+    if ($("#mpDel")) $("#mpDel").onclick = async () => {
+      $("#mpDel").disabled = true;
+      const ref = await E.requestDeletion(emp?.position);
+      if (!ref) { $("#mpDel").disabled = false; return; }
+      $("#mpDelDone").innerHTML = `<div class="hint ok">Request sent. Reference No <b class="mono">${esc(ref)}</b>. The Director will reply to ${esc(S.session.user.email)} and delete your account within 30 days.</div>`;
+    };
     pickSignature($("#mpSig"), sp.id, "My Signature", async (path) => {
       const r = await sb.rpc("set_my_signature", { p_path: path });
       if (r.error) { fail(r.error, "Could not save the signature"); return false; }

@@ -438,6 +438,7 @@ body { padding-bottom: 28px; }
 a.btn { display: inline-block; text-decoration: none; color: var(--ink); text-align: center; }
 .btn.ok { color: var(--ok); font-weight: bold; }
 .hint.err { background: #fdecea; border-color: var(--bad); }
+.hint.ok { background: #e8f5e9; border-color: var(--ok); }
 
 /* status pills for business records */
 .pill.verified, .pill.active, .pill.paid, .pill.approved { color: var(--ok); border-color: var(--ok); background: #eaf6ea; }
@@ -709,6 +710,10 @@ table.grid tbody tr { transition: background-color .15s; }
 .verify-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 15px; border-radius: 20px; background: #fff; border: 1px solid var(--panel-line); text-decoration: none; font-weight: bold; color: var(--ok); box-shadow: 0 2px 8px rgba(0,0,0,.08); transition: transform .15s, box-shadow .15s; }
 .verify-link:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(0,0,0,.12); }
 .login-below small { color: var(--ink-soft); }
+.legal-links a { color: var(--ink-soft); }
+.mini-legal { text-align: center; font-size: 12px; color: var(--ink-soft); padding: 14px 10px 22px; }
+.mini-legal a, .linkbtn { color: var(--ink-soft); }
+.linkbtn { background: none; border: 0; padding: 0; font: inherit; text-decoration: underline; cursor: pointer; }
 
 /* Applicant / public pages */
 .topbar.mini { justify-content: space-between; }

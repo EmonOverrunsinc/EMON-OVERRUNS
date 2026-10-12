@@ -51,6 +51,14 @@ after it by itself. The lines are short, in capitals: **INVOICE** (with the invo
 **CREDIT MEMO** or **DISCOUNT**, **ADDITIONAL CHARGE**, **SETTLEMENT ADJUSTMENT** and **OPENING BALANCE**. A payment
 shows **PAYMENT RECEIVED** on its page and receipt (and the invoice it is for, if any; no longer "General payment").
 
+**Privacy and account deletion (2.4, for the Google Play Store):** the **Privacy Policy** is at
+`/privacy` (www.emonoverruns.online/privacy) and **Delete Account** at `/delete-account`, both linked on the sign-in page.
+A person asks for deletion on that page (no sign-in), in **My Profile › Request Account Deletion**, or on the applicant
+page; the request arrives in **Contact Messages** with a reference number. The Director then presses **Delete** on
+**Login Accounts**: the login, name, photo, signature, chat messages, community posts and a job application that was not
+approved go (with their files). Records the business must keep stay, and their account shows **Deleted User**
+(`supabase/017_play_store.sql`, `delete_user_account`).
+
 **Smaller uploads (2.2.2):** every uploaded or scanned picture is made smaller before it is saved, so storage lasts
 longer and files open faster, while a printed page stays clear: a document or scan keeps about 4.2 million pixels (an A4
 page at about 200 dpi; a 300 dpi scan of 2.6 MB is saved as about 0.6 MB), a customer's or employee's photo about 1.2

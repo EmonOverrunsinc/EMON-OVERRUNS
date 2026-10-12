@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delete Account</title>
+<meta name="description" content="Ask EMON OVERRUNS to delete your E-PORTAL account and its personal information.">
+<link rel="icon" type="image/png" href="brand/favicon.png">
+<link rel="stylesheet" href="legal.css?v=2.4.0">
+</head>
+<body>
+<header class="top"><a href="/"><img src="brand/icon-192.png" alt="">EMON OVERRUNS E-PORTAL</a></header>
+<main><article class="paper">
+<h1>Delete Your E-Portal Account</h1>
+<p class="date">EMON OVERRUNS E-PORTAL (website and apps for Android and Windows)</p>
+
+<h2>How to ask</h2>
+<ul>
+<li><b>In the app:</b> sign in, open <b>My Profile</b> and press <b>Request Account Deletion</b>.</li>
+<li><b>On this page:</b> fill in the form below. You do not need to sign in.</li>
+<li><b>By email:</b> write to <a href="mailto:emonoverruns@gmail.com?subject=Account%20deletion%20request">emonoverruns@gmail.com</a> from the email address of your account.</li>
+</ul>
+<p>We may reply to your email to make sure the request comes from you. Your account is deleted within <b>30 days</b>.</p>
+
+<h2>What is deleted</h2>
+<ul>
+<li>your login (email address, username and password);</li>
+<li>your name, profile photo and signature;</li>
+<li>your chat messages, community posts and notices;</li>
+<li>your job application and its files, if it was not approved.</li>
+</ul>
+
+<h2>What is kept</h2>
+<p class="note">Business records that Philippine tax, business and labour laws require us to keep, such as invoices, receipts, statements,
+payslips, employee records and order letters, are kept for as long as the law requires, then deleted. In those records your account
+is shown as <b>Deleted User</b>, and nobody can sign in with it.</p>
+
+<h2>Request form</h2>
+<form id="dlForm" novalidate>
+  <label for="dlName">Your Name *</label>
+  <input type="text" id="dlName" maxlength="120" autocomplete="name" required>
+  <label for="dlEmail">Email Address of Your Account *</label>
+  <input type="email" id="dlEmail" maxlength="200" autocomplete="email" required>
+  <label for="dlUser">Username (if you have one)</label>
+  <input type="text" id="dlUser" maxlength="40" autocapitalize="none" spellcheck="false">
+  <label for="dlWhy">Reason (optional)</label>
+  <textarea id="dlWhy" rows="3" maxlength="800"></textarea>
+  <label class="check"><input type="checkbox" id="dlSure"> I understand that my account and its personal information will be deleted, and that this cannot be undone.</label>
+  <input type="text" id="dlWeb" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+  <button type="submit" id="dlSend">Request Account Deletion</button>
+</form>
+<div id="dlMsg" class="msg" role="status" hidden></div>
+
+<div class="links"><a href="/">Open the E-Portal</a><a href="privacy">Privacy Policy</a><a href="mailto:emonoverruns@gmail.com">emonoverruns@gmail.com</a></div>
+</article>
+<footer>© EMON OVERRUNS · Pasay City, Metro Manila</footer>
+</main>
+<script src="vendor/supabase.js"></script>
+<script src="config.js?v=2.4.0"></script>
+<script>
+(function () {
+  var C = window.EMON_CONFIG, $ = function (id) { return document.getElementById(id); };
+  var sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey, { auth: { persistSession: false } });
+  function show(text, ok) { var m = $("dlMsg"); m.hidden = false; m.className = "msg " + (ok ? "ok" : "err"); m.textContent = text; }
+  $("dlForm").onsubmit = async function (e) {
+    e.preventDefault();
+    var name = $("dlName").value.trim(), email = $("dlEmail").value.trim(), user = $("dlUser").value.trim(), why = $("dlWhy").value.trim();
+    if (name.length < 2) return show("Enter your name.");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return show("Enter the email address of your account.");
+    if (!$("dlSure").checked) return show("Tick the box to confirm.");
+    if ($("dlWeb").value) return; // a robot filled the hidden box
+    $("dlSend").disabled = true;
+    var msg = "ACCOUNT DELETION REQUEST (Delete Account page)\nAccount email: " + email + (user ? "\nUsername: " + user : "") + (why ? "\nReason: " + why : "");
+    var r = await sb.rpc("submit_contact_message", { p_name: name, p_reply_via: "email", p_reply_to: email, p_message: msg });
+    $("dlSend").disabled = false;
+    if (r.error) return show("The request could not be sent: " + r.error.message + ". You can also email emonoverruns@gmail.com.");
+    $("dlForm").hidden = true;
+    var m = $("dlMsg"); m.hidden = false; m.className = "msg ok";
+    m.innerHTML = "<b>Request sent.</b> Your reference number is <div class=\"ref\"></div>Keep this number. We will reply to <b class=\"to\"></b> and delete your account within 30 days.";
+    m.querySelector(".ref").textContent = r.data;
+    m.querySelector(".to").textContent = email;
+  };
+})();
+</script>
+</body>
+</html>
