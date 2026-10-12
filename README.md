@@ -128,7 +128,8 @@ before upload) and a custom domain for the database address.
 
 ## Apps for Windows and Android
 - **Windows 11**: `EMON-OVERRUNS-E-Portal-Setup-<version>.exe` installs the E-Portal as an app, with a desktop shortcut.
-  From version 1.4 it scans with the computer's scanner (HP Smart printers and others): a **Scan** button stands beside
+  From version 1.4 it scans with the computer's scanner (any scanner Windows knows, the same one the Windows Scan app
+  uses; no HP Smart app is needed): a **Scan** button stands beside
   every document upload, the scanned page is uploaded, and a green ✔ shows it. From E-Portal 2.2, **Scan** always opens
   the Windows scanner window: choose the scanner (colour and size too), press **Scan** there, and the page is saved by
   itself (no new app is needed).

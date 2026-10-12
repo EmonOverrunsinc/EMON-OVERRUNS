@@ -319,7 +319,8 @@
   // ---------- Edit Customer (the main Director, 2.2) ----------
   // Every detail of a customer in one form, saved at once; like an approved correction it leaves no history. Not here:
   // the account number, application number and Public ID (on printed papers and QR codes), the status (its own steps)
-  // and the photo (Change Photo). A new opening balance or application date also updates the monthly statements.
+  // and the photo (Change Photo). A new opening balance or opening date (the application date) also updates the
+  // monthly statements: after Save everything is updated at once.
   function editCustomer(c, reload) {
     if (!S.mainDirector) return toast("Only the main Director can edit a customer's details.", true);
     const v = (x) => esc(x ?? "");
@@ -340,10 +341,10 @@
         <span>Location *</span><div class="checks loc-checks">${Object.entries(LOCATION).map(([k, l]) => `<label><input type="radio" name="ecLoc" value="${k}" ${locOf(c) === k ? "checked" : ""}> ${esc(l)}</label>`).join("")}</div>
       </div></fieldset>
       <fieldset class="opt"><legend>Account</legend><div class="fields wide">
-        <label for="ecDate">Application Date *</label><input type="date" id="ecDate" value="${day(c.application_date)}" max="${isoToday()}">
+        <label for="ecDate">Opening Date *</label><input type="date" id="ecDate" value="${day(c.application_date)}" max="${isoToday()}">
         <label for="ecCredit">Credit Limit (₱)</label><input type="number" id="ecCredit" min="0" step="0.01" inputmode="decimal" value="${c.credit_limit ?? ""}" placeholder="None">
         <label for="ecOpen">Opening Balance (₱)</label><input type="number" id="ecOpen" min="0" step="0.01" inputmode="decimal" value="${Number(c.opening_balance) ? c.opening_balance : ""}" placeholder="None">
-      </div><small>A new opening balance or application date also updates the customer's monthly statements.</small></fieldset>
+      </div><small>The first SOA is the month of the opening date. After <b>Save</b>, the account, the SOA and the balance are all updated.</small></fieldset>
       <fieldset class="opt"><legend>Business</legend><div class="fields wide">
         <label for="ecStart">Business Start Date</label><input type="date" id="ecStart" value="${day(c.business_start_date)}">
         <label for="ecBiz">Business Name</label><input type="text" id="ecBiz" value="${v(c.business_name)}">
@@ -386,8 +387,8 @@
       if (!now.first_name || !now.last_name) return toast("Enter the first name and the last name.", true);
       if (!now.address) return toast("Enter the address.", true);
       if (!now.location_check) return toast("Choose the location check.", true);
-      if (!now.application_date) return toast("Enter the application date.", true);
-      if (now.application_date > isoToday()) return toast("The application date cannot be after today.", true);
+      if (!now.application_date) return toast("Enter the opening date.", true);
+      if (now.application_date > isoToday()) return toast("The opening date cannot be after today.", true);
       if ((now.credit_limit ?? 0) < 0 || now.opening_balance < 0 || Number.isNaN(now.credit_limit) || Number.isNaN(now.opening_balance)) return toast("Enter amounts of zero or more.", true);
       if (now.facebook_link && !FB_LINK.test(now.facebook_link)) return toast("Enter the Facebook account link, for example https://www.facebook.com/name — or leave it empty.", true);
       // only what changed is sent
@@ -407,7 +408,7 @@
       if (error) return fail(error, "Could not save");
       m.close();
       const n = (data?.changed || []).length, st = data?.statements || 0;
-      toast(`Saved: ${n} detail${n === 1 ? "" : "s"} changed.${st ? ` ${st} monthly statement${st === 1 ? "" : "s"} updated.` : ""}`);
+      toast(`✔ Saved — all updated: ${n} detail${n === 1 ? "" : "s"} changed${st ? `, ${st} SOA${st === 1 ? "" : "s"} updated` : ""}.`);
       if (reload) reload();
     };
   }
@@ -898,7 +899,7 @@
       ["Facebook Name", c.facebook_name], ["Facebook Account Link", c.facebook_link, fbLinkHtml(c.facebook_link)],
       ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
       ["Facebook Account", c.facebook_verified ? "✔ VERIFIED" : "✖ NOT VERIFIED"],
-      ["Application Date", mdy(c.application_date)], ["Issued By", c.issued_by_name], ["Account Status", c.status.toUpperCase()], ["Status Note", c.status_note]
+      [["pending", "verified", "rejected"].includes(c.status) ? "Application Date" : "Opening Date", mdy(c.application_date)], ["Issued By", c.issued_by_name], ["Account Status", c.status.toUpperCase()], ["Status Note", c.status_note]
     ];
     return `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v, html]) => `<tr><th scope="row">${esc(k)}</th><td>${html || esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
   }

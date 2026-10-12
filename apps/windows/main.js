@@ -364,7 +364,7 @@ const SCAN_ERRORS = {
   "80210016": "The scanner lid is open. Close it, then try again.",
   "8021000A": "The computer could not reach the scanner. Check the USB cable or the Wi-Fi, then try again.",
   "8021000D": "The scanner is locked. Check the lock switch of the scanner, then try again.",
-  "80070021": "Another program is using the scanner (for example HP Smart or HP Scan). Close it, then try again.",
+  "80070021": "Another program is using the scanner (for example the Windows Scan app). Close it, then try again.",
   TIMEOUT: "The scan took too long. Check the scanner, then try again.",
   STOPPED: "The scanner stopped before the page was saved. Check the scanner, then try again.",
   NO_START: "The scan could not start on this computer (Windows PowerShell did not open). Restart the computer, then try again.",

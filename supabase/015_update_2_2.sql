@@ -107,8 +107,8 @@ begin
   if n.credit_limit is not null and n.credit_limit < 0 then raise exception 'The credit limit cannot be below zero'; end if;
   n.opening_balance := coalesce(n.opening_balance, 0);
   if n.opening_balance < 0 then raise exception 'The opening balance cannot be below zero'; end if;
-  if n.application_date is null then raise exception 'Enter the application date'; end if;
-  if n.application_date > current_date then raise exception 'The application date cannot be after today'; end if;
+  if n.application_date is null then raise exception 'Enter the opening date'; end if;
+  if n.application_date > current_date then raise exception 'The opening date cannot be after today'; end if;
   -- One person, one account: the edit may not make this account the same person as another account. A match that
   -- was there before the edit does not stop it.
   why := public.customer_block_reason(n.first_name, n.last_name, n.facebook_name, n.extra_facebook_name, n.facebook_link, n.id);
