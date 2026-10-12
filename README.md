@@ -51,14 +51,17 @@ after it by itself. The lines are short, in capitals: **INVOICE** (with the invo
 **CREDIT MEMO** or **DISCOUNT**, **ADDITIONAL CHARGE**, **SETTLEMENT ADJUSTMENT** and **OPENING BALANCE**. A payment
 shows **PAYMENT RECEIVED** on its page and receipt (and the invoice it is for, if any; no longer "General payment").
 
-**Invoice payment status (2.4):** every invoice shows **PAID**, **PARTIAL PAYMENT** or **UNPAID**, worked out from
-everything the customer paid: a payment recorded for an invoice pays that invoice; all other payments, approved credit
-memos and discounts, and settlement adjustments that take off pay what is owed **oldest first** (the opening balance,
-then each invoice, additional charge and settlement adjustment that adds, by date). So the invoices' balances always
-add up to the customer's balance. **Invoices** has the tabs **Active** (still a balance), **Unpaid**, **Partial
-Payment**, **Closed (Paid)** and **All**; the **Dashboard** has an **Invoices** box with **Active** (with what is still
-due) and **Closed (Paid)**; the invoice page, its print and **Verify a record** show the status, what is paid and the
-balance (`invoice_balances` in `supabase/017_play_store.sql`).
+**Invoice payment status and terms (2.4):** payments, credit memos (discounts) and official orders are for the
+customer's **account**, never for one invoice (Record Payment has no "Apply to Invoice"; the one payment linked to an
+invoice before is now for the account). Everything paid or credited pays what is owed **oldest first** (the opening
+balance, then each invoice, additional charge and settlement adjustment that adds, by date), so every invoice shows
+**PAID**, **PARTIAL PAYMENT** or **UNPAID**, and the invoices' balances add up to the account's balance. **Invoices**
+has the tabs **Active** (still a balance), **Unpaid**, **Partial Payment**, **Closed (Paid)** and **All**; the
+**Dashboard** has an **Invoices** box with **Active** (with what is still due) and **Closed (Paid)**. **Record Invoice**
+asks for the **Terms of Payment** (CASH ON DELIVERY, 7 / 15 / 30 / 45 / 60 / 90 DAYS, or other terms typed in) and
+shows the **Due Date**; an invoice recorded before gets its terms with **Add Correction**. The invoice page, its print
+and **Verify a record** show the terms, the status, what is paid and the balance (`invoice_balances` in
+`supabase/017_play_store.sql`).
 
 **Cleaner screens (2.4):** the screens no longer show the company header (logo, Pasay City, email and website) at the
 top; the printed documents and PDFs keep it. Every page except the Dashboard has a **Back** button on the green band

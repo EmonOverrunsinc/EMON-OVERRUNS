@@ -1192,6 +1192,7 @@
   // ======================================================================
   const INV_COLS = [
     { label: "Invoice No", get: (r) => r.invoice_no }, { label: "Date", get: (r) => mdy(r.invoice_date) },
+    { label: "Terms", get: (r) => r.payment_terms || "" }, { label: "Due Date", get: (r) => mdy(r.due_date) },
     { label: "Account No", get: (r) => r.account_no }, { label: "Customer", get: fullName },
     { label: "Boxes", num: true, get: (r) => r.total_boxes }, { label: "Pcs", num: true, get: (r) => r.total_pcs },
     { label: "Amount (₱)", key: "total_amount", num: true, get: (r) => peso(r.total_amount) },
@@ -1243,61 +1244,45 @@
               <label for="niAmt">Total Amount (₱) *</label><input type="number" id="niAmt" min="0" step="0.01" required>
             </div></div>
             <div class="summary-box" style="margin-top:6px"><span id="niWords">PESOS ZERO ONLY</span></div></fieldset>
-          <fieldset class="opt"><legend>Payment</legend>
-            <div class="checks"><label><input type="radio" name="niPaid" value="unpaid" checked> Unpaid</label><label><input type="radio" name="niPaid" value="paid"> Paid</label></div>
-            <div id="niPayBox" hidden><div class="formgrid" style="margin-top:6px">
-              <div class="fields wide">
-                <span>Paid By</span><div class="checks"><label><input type="radio" name="niMethod" value="cash" checked> Cash</label><label><input type="radio" name="niMethod" value="bank_transfer"> Bank</label></div>
-                <label for="niBank" class="nibank" hidden>Bank Name</label><input type="text" id="niBank" class="nibank" hidden>
-                <label for="niRef" class="nibank" hidden>Reference No</label><input type="text" id="niRef" class="nibank" hidden>
-              </div>
-              <div class="fields wide">
-                <label for="niPAmt">Amount Paid (₱)</label><input type="number" id="niPAmt" min="0" step="0.01">
-                <label for="niPDt">Date Paid</label><input type="date" id="niPDt" value="${isoToday()}">
-                ${fileField("niRcpt", "Payment Receipt", 'accept="image/*,application/pdf"')}
-                <span></span><small>Optional — leave empty to skip.</small>
-              </div></div></div></fieldset>
+          <fieldset class="opt"><legend>Terms of Payment</legend><div class="fields wide">
+            <label for="niTerms">Terms of Payment *</label><select id="niTerms" required><option value="">— Choose the terms —</option>${E.TERMS.map((t) => `<option>${t}</option>`).join("")}<option value="OTHER">OTHER (type the terms)</option></select>
+            <label for="niTermsX" class="nitx" hidden>Other Terms *</label><input type="text" id="niTermsX" class="nitx" maxlength="60" placeholder="e.g. 2 POST-DATED CHECKS" hidden>
+            <span>Due Date</span><b id="niDue">—</b></div>
+            <small class="muted">Payments are recorded with <b>Record Payment</b> for the customer's account: they pay the oldest invoices first.</small></fieldset>
           <fieldset class="opt"><legend>Documents</legend><div class="fields wide">
             ${fileField("niInvF", "Invoice Copy", 'accept="image/*,application/pdf"')}
             ${fileField("niDr", "Delivery Receipt", 'multiple accept="image/*,application/pdf"')}</div></fieldset>
         </div>
         <div class="wfoot"><button type="button" class="btn" id="niCancel">Cancel</button><button type="submit" class="btn primary">Submit Invoice</button></div>
-      </form>`, "The invoice is saved to the customer's account and added to their balance due.");
+      </form>`, "The invoice is saved to the customer's account and added to their balance due. Choose its <b>Terms of Payment</b>: the due date follows from it.");
     let cust = null;
     customerPicker($("#niCust"), { statuses: ["active"], onPick: (c) => (cust = c), preset: (await getCustomer(custId)) || undefined });
     if (cust && cust.status !== "active") { toast(`${fullName(cust)}'s account is ${cust.status.toUpperCase()} — invoices are blocked.`, true); cust = null; $("#niCust .pk-chosen").innerHTML = ""; }
-    $("#niAmt").oninput = () => { $("#niWords").textContent = words($("#niAmt").value); if (!$("#niPAmt").dataset.touched) $("#niPAmt").value = $("#niAmt").value; };
-    $("#niPAmt").oninput = () => ($("#niPAmt").dataset.touched = "1");
-    $$("input[name=niPaid]").forEach((r) => (r.onchange = () => ($("#niPayBox").hidden = $("input[name=niPaid]:checked").value !== "paid")));
-    $$("input[name=niMethod]").forEach((r) => (r.onchange = () => $$(".nibank").forEach((x) => (x.hidden = $("input[name=niMethod]:checked").value !== "bank_transfer"))));
+    $("#niAmt").oninput = () => ($("#niWords").textContent = words($("#niAmt").value));
+    // the terms chosen (OTHER: the terms typed, in capitals) and the due date that follows
+    const terms = () => ($("#niTerms").value === "OTHER" ? $("#niTermsX").value.trim().replace(/\s+/g, " ").toUpperCase() : $("#niTerms").value);
+    const showDue = () => {
+      $$(".nitx").forEach((x) => (x.hidden = $("#niTerms").value !== "OTHER"));
+      const due = E.termsDue($("#niDate").value || isoToday(), terms());
+      $("#niDue").textContent = due ? mdy(due) : $("#niTerms").value ? "— (see the terms)" : "—";
+    };
+    $("#niTerms").onchange = showDue; $("#niTermsX").oninput = showDue; $("#niDate").addEventListener("change", showDue);
     $("#niCancel").onclick = () => history.back();
     $("#niForm").onsubmit = async (e) => {
       e.preventDefault();
       if (!cust) return toast("Choose an ACTIVE customer first.", true);
       const amt = num($("#niAmt").value);
       if (!$("#niAmt").value || amt < 0) return toast("Enter the total amount.", true);
-      const paid = $("input[name=niPaid]:checked").value === "paid";
-      const method = $("input[name=niMethod]:checked").value;
-      const pAmt = num($("#niPAmt").value || amt);
-      if (paid && pAmt <= 0) return toast("Enter the amount paid.", true);
-      if (paid && method === "bank_transfer" && !$("#niRef").value.trim()) return toast("Enter the bank reference number.", true);
+      const t = terms();
+      if (!t) return toast($("#niTerms").value === "OTHER" ? "Type the terms of payment." : "Choose the terms of payment.", true);
       E.setBusy(e.target, true, "Saving");
       const { data: inv, error } = await sb.from("customer_invoices").insert({
         customer_id: cust.id, invoice_date: $("#niDate").value || isoToday(), purchase_date: $("#niDate").value || isoToday(),
         total_boxes: Math.max(0, Math.floor(num($("#niBox").value))),
-        total_pcs: Math.max(0, Math.floor(num($("#niPcs").value))), total_amount: amt
+        total_pcs: Math.max(0, Math.floor(num($("#niPcs").value))), total_amount: amt, payment_terms: t
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not record the invoice"); }
       let failed = 0;
-      if (paid) {
-        const { data: p, error: pe } = await sb.from("payments_received").insert({
-          customer_id: cust.id, invoice_id: inv.id, amount: pAmt, method, paid_date: $("#niPDt").value || isoToday(),
-          bank_name: method === "bank_transfer" ? $("#niBank").value.trim() || null : null,
-          reference_no: method === "bank_transfer" ? $("#niRef").value.trim() : null
-        }).select().single();
-        if (pe) fail(pe, "Invoice saved, but the payment could not be recorded");
-        else failed += await uploadRecords("payment", p.id, "receipt", filesOf("niRcpt"));
-      }
       failed += await uploadRecords("invoice", inv.id, "signed_form", filesOf("niInvF"));
       failed += await uploadRecords("invoice", inv.id, "delivery_receipt", filesOf("niDr"));
       toast(`Invoice ${inv.invoice_no} recorded for ${fullName(cust)}.${failed ? ` ${failed} file(s) failed to upload.` : ""}`, failed > 0);
@@ -1309,39 +1294,36 @@
     E.shell("invoice", "Invoice", busy());
     const { data: inv } = await sb.from("invoice_balances").select("*").eq("id", id).maybeSingle();
     if (!inv) { $("#main").innerHTML = `<div class="empty">Invoice not found. <a href="#invoices">Back to Invoices</a></div>`; return; }
-    const [pays, att] = await Promise.all([sb.from("payments_received").select("*").eq("invoice_id", id).order("paid_date"), attachmentsOf("invoice", id)]);
+    const att = await attachmentsOf("invoice", id);
     $(".band h1").textContent = `Invoice — ${inv.invoice_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${pill(inv.pay_status)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>${inv.po_number ? `<span>PO Number</span><span>${esc(inv.po_number)}</span>` : ""}
+        <span>Terms of Payment</span><span>${esc(inv.payment_terms || "—")}</span><span>Due Date</span><span>${mdy(inv.due_date) || "—"}</span>
         <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
         <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b><span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b><span>Balance</span><b>₱ ${peso(inv.balance)}</b>
         <span>Payment Status</span><span>${pill(inv.pay_status)}</span></div></div>
-      <small class="muted">A payment recorded for this invoice pays it; everything else the customer paid pays the oldest invoices first.</small>
-      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, sub: `₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, pays.data || [])]) })}</div>
-      <div><b>Payments</b>${E.grid({ cols: PAY_COLS.filter((x) => !["Customer", "Account No", "Invoice"].includes(x.label)), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
+      <small class="muted">Payments, discounts and orders are for the customer's account: they pay the oldest invoices first.</small>
+      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, sub: `₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv)]) })}</div>
       <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
       ${rhBox("customer_invoices", inv.id)}</div>
       <div class="wfoot">${tools("customer_invoices", inv, `Invoice ${inv.invoice_no}`, { reload: () => V.invoice(id), afterDelete: () => (location.hash = "invoices") })}
-        ${(E.canWrite("payments") || E.canWrite("invoices")) && ["unpaid", "partial"].includes(inv.pay_status) && !["rejected", "pending", "verified"].includes(inv.customer_status) ? `<a class="btn" href="#newpayment/${inv.customer_id}/${inv.id}">Record Payment</a>` : ""}
+        ${(E.canWrite("payments") || E.canWrite("invoices")) && ["unpaid", "partial"].includes(inv.pay_status) && !["rejected", "pending", "verified"].includes(inv.customer_status) ? `<a class="btn" href="#newpayment/${inv.customer_id}">Record Payment</a>` : ""}
         <a class="btn" href="#invoices">Close</a></div></div>`;
-    E.bindGrid($("#main"), pays.data || [], (r) => (location.hash = "payment/" + r.id));
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.invoice(id));
     bindTools($("#main"));
     E.setRecords(`Invoice: ${inv.invoice_no}`);
   };
-  function invoicePage(inv, pays) {
+  function invoicePage(inv) {
     return `${printHead("INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
       ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}</div>`)}
       ${box("Invoice", `<div class="prow3">${cell("Invoice No", inv.invoice_no)}${cell("Invoice Date", mdy(inv.invoice_date))}${cell("Total Boxes", inv.total_boxes)}</div>
-        <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Total Amount (₱)", peso(inv.total_amount))}${cell("Balance (₱)", peso(inv.balance))}</div>
+        <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Terms of Payment", inv.payment_terms || "—")}${cell("Due Date", mdy(inv.due_date) || "—")}</div>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
-      ${box("Payment", `<div class="prow3">${cell("Payment Status", { paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase())}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(inv.balance))}</div>
-        ${pays.length ? `<table class="rp"><thead><tr><th>Receipt No</th><th>Date</th><th>Method</th><th>Reference</th><th class="num">Amount</th></tr></thead><tbody>
-        ${pays.map((p) => `<tr><td>${esc(p.receipt_no)}</td><td>${mdy(p.paid_date)}</td><td>${esc(METHOD[p.method])}</td><td>${esc(p.reference_no || "")}</td><td class="num">${peso(p.amount)}</td></tr>`).join("")}</tbody></table>` : ""}`)}
+      ${box("Payment", `<div class="pgrid2">${cell("Payment Status", { paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase())}${cell("Total Amount (₱)", peso(inv.total_amount))}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(inv.balance))}</div>`)}
       ${sigs("Received by (Customer Signature) / Date", `Prepared by: ${esc(inv.created_by_name || "")}`)}`;
   }
 
@@ -1352,14 +1334,13 @@
     { label: "Receipt No", get: (r) => r.receipt_no }, { label: "Date Paid", get: (r) => mdy(r.paid_date) },
     { label: "Account No", get: (r) => r.customers?.account_no || "" }, { label: "Customer", get: (r) => fullName(r.customers || {}) },
     { label: "Method", get: (r) => METHOD[r.method] || r.method }, { label: "Reference", get: (r) => r.reference_no || "" },
-    { label: "Invoice", get: (r) => r.invoices?.invoice_no || "" },
     { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }, { label: "Verified By", get: (r) => r.created_by_name || "" }
   ];
   V.payments = async () => {
     E.shell("payments", "Payment", `
       <div class="btnrow">${E.canWrite("payments") || E.canWrite("invoices") ? `<a class="btn primary" href="#newpayment">+ Record Payment</a>` : ""}</div><div id="pyRes">${busy()}</div>`,
       "All payments received. Each payment gets a receipt number like <b>A-2026-1003-001</b> and a printable acknowledgment.");
-    const { data, error } = await sb.from("payments_received").select("*, customers(first_name,last_name,account_no), invoices:customer_invoices(invoice_no)").order("created_at", { ascending: false }).limit(2000);
+    const { data, error } = await sb.from("payments_received").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).limit(2000);
     if (error) return fail(error, "Could not load payments");
     const rows = data || [];
     $("#pyRes").innerHTML = E.grid({ cols: PAY_COLS, rows, onRow: true, foot: { amount: peso(rows.reduce((s, r) => s + num(r.amount), 0)) }, empty: "No payments yet." });
@@ -1367,7 +1348,7 @@
     E.setRecords(`Payments: ${rows.length}`);
   };
 
-  V.newpayment = async (custId, invId) => {
+  V.newpayment = async (custId) => {
     if (!(E.canWrite("payments") || E.canWrite("invoices"))) { toast("Only the Director and employees with Payment access can record payments.", true); location.hash = "payments"; return; }
     E.shell("newpayment", "Record Payment", `
       <form class="window" id="npForm" novalidate>
@@ -1379,7 +1360,7 @@
               <label for="npAmt">Amount (₱) *</label><input type="number" id="npAmt" min="0.01" step="0.01" required>
               <label for="npMethod">Payment Method</label><select id="npMethod">${Object.entries(METHOD).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
               <label for="npDate">Date Paid</label><input type="date" id="npDate" value="${isoToday()}">
-              <label for="npInv">Apply to Invoice</label><select id="npInv"><option value="">— PAYMENT RECEIVED (no specific invoice) —</option></select>
+              <span>For</span><span>The customer's account (pays the oldest invoices first)</span>
             </div>
             <div class="fields wide">
               <label for="npBank" class="npb">Bank Name</label><input type="text" id="npBank" class="npb" placeholder="e.g. BDO, BPI, GCash">
@@ -1396,18 +1377,10 @@
         <div class="wfoot"><button type="button" class="btn" id="npCancel">Cancel</button><button type="submit" class="btn primary">Submit Payment</button></div>
       </form>`);
     let cust = null;
-    const loadInv = async () => {
-      const sel = $("#npInv"); sel.innerHTML = `<option value="">— PAYMENT RECEIVED (no specific invoice) —</option>`;
-      if (!cust) return;
-      const { data } = await sb.from("invoice_balances").select("id,invoice_no,balance,invoice_date").eq("customer_id", cust.id).in("pay_status", ["unpaid", "partial"]).order("invoice_date");
-      (data || []).forEach((i) => sel.insertAdjacentHTML("beforeend", `<option value="${i.id}" data-bal="${i.balance}">INVOICE ${esc(i.invoice_no)} · ${mdy(i.invoice_date)} — balance ₱${peso(i.balance)}</option>`));
-      if (invId) { sel.value = invId; const o = sel.selectedOptions[0]; if (o?.dataset.bal && !$("#npAmt").value) { $("#npAmt").value = o.dataset.bal; $("#npWords").textContent = words(o.dataset.bal); } }
-    };
-    customerPicker($("#npCust"), { statuses: ["active", "suspended", "closed"], onPick: (c) => { cust = c; loadInv(); }, preset: (await getCustomer(custId)) || undefined });
+    customerPicker($("#npCust"), { statuses: ["active", "suspended", "closed"], onPick: (c) => (cust = c), preset: (await getCustomer(custId)) || undefined });
     const methodUi = () => { const m = $("#npMethod").value; $$(".npb").forEach((x) => (x.hidden = m === "cash")); };
     $("#npMethod").onchange = methodUi; methodUi();
     $("#npAmt").oninput = () => ($("#npWords").textContent = words($("#npAmt").value));
-    $("#npInv").onchange = () => { const o = $("#npInv").selectedOptions[0]; if (o?.dataset.bal && !$("#npAmt").value) { $("#npAmt").value = o.dataset.bal; $("#npWords").textContent = words(o.dataset.bal); } };
     $("#npCancel").onclick = () => history.back();
     $("#npForm").onsubmit = async (e) => {
       e.preventDefault();
@@ -1418,7 +1391,7 @@
       if (m !== "cash" && !$("#npRef").value.trim()) return toast("Enter the reference number.", true);
       E.setBusy(e.target, true, "Saving");
       const { data: p, error } = await sb.from("payments_received").insert({
-        customer_id: cust.id, invoice_id: $("#npInv").value || null, amount: amt, method: m, paid_date: $("#npDate").value || isoToday(),
+        customer_id: cust.id, amount: amt, method: m, paid_date: $("#npDate").value || isoToday(),
         bank_name: m === "cash" ? null : $("#npBank").value.trim() || null, bank_account: m === "cash" ? null : $("#npAcct").value.trim() || null,
         reference_no: m === "cash" ? null : $("#npRef").value.trim(), notes: $("#npNotes").value.trim() || null
       }).select().single();
@@ -1431,7 +1404,7 @@
 
   V.payment = async (id, extra) => {
     E.shell("payment", "Payment", busy());
-    const { data: p } = await sb.from("payments_received").select("*, customers(*), invoices:customer_invoices(invoice_no,total_amount)").eq("id", id).maybeSingle();
+    const { data: p } = await sb.from("payments_received").select("*, customers(*)").eq("id", id).maybeSingle();
     if (!p) { $("#main").innerHTML = `<div class="empty">Payment not found. <a href="#payments">Back to Payments</a></div>`; return; }
     const att = await attachmentsOf("payment", id);
     $(".band h1").textContent = `Payment — ${p.receipt_no}`;
@@ -1444,7 +1417,7 @@
         <span>Date Paid</span><span>${mdy(p.paid_date)}</span></div>
       <div class="fields wide"><span>Method</span><span>${esc(METHOD[p.method])}</span><span>Bank</span><span>${esc(p.bank_name || "—")}</span>
         <span>Deposit Account</span><span>${esc(p.bank_account || "—")}</span><span>Reference No</span><span>${esc(p.reference_no || "—")}</span>
-        <span>Description</span><span>PAYMENT RECEIVED${p.invoice_id ? ` · <a href="#invoice/${p.invoice_id}">${esc(payFor(p))}</a>` : ""}</span>
+        <span>Description</span><span>PAYMENT RECEIVED</span>
         <span>Verified By</span><span>${esc(p.created_by_name || "")}</span></div></div>
       <div class="docgrid">${docCard({ key: "ack", title: `Acknowledgment Receipt ${p.receipt_no}`, sub: `₱ ${peso(p.amount)} · ${mdy(p.paid_date)}`, ownerType: "payment", ownerId: p.id, att, print: () => E.openPreview(`Acknowledgment ${p.receipt_no}`, [ackPage(p)]), uploadLabel: "Upload Copy", copyName: "Copy" })}</div>
       <div><b>Uploaded Receipts &amp; Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No receipts uploaded.")}</div>
@@ -1455,15 +1428,13 @@
     bindTools($("#main"));
     E.setRecords(`Receipt: ${p.receipt_no}`);
   };
-  // What a payment is for: the invoice.
-  const payFor = (p) => (p.invoices?.invoice_no ? `INVOICE ${p.invoices.invoice_no}` : "");
   // System-generated: no signature lines.
   function ackPage(p) {
     const c = p.customers;
     return `${printHead("ACKNOWLEDGMENT RECEIPT", `<img src="${E.pdf417DataUrl("EMONPAY|" + p.receipt_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.receipt_no)}</div>`)}
       ${box("Received From", `<div class="pgrid2">${cell("Customer Name", fullName(c))}${cell("Account No", c.account_no)}${cell("Date Paid", mdy(p.paid_date))}${cell("Received & Verified By", p.created_by_name)}</div>`)}
       ${box("Payment Details", `<div class="prow3">${cell("Amount (₱)", peso(p.amount))}${cell("Method", METHOD[p.method])}${cell("Reference No", p.reference_no)}</div>
-        <div class="prow3">${cell("Bank", p.bank_name)}${cell("Deposit Account", p.bank_account)}${cell("Description", `PAYMENT RECEIVED${p.invoice_id ? " · " + payFor(p) : ""}`)}</div>
+        <div class="prow3">${cell("Bank", p.bank_name)}${cell("Deposit Account", p.bank_account)}${cell("Description", "PAYMENT RECEIVED")}</div>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(p.amount))}</div></div>`)}
       <p class="pdecl">This acknowledges that ${esc(C.company.name)} has received the payment above. Receipt No ${esc(p.receipt_no)}.</p>
       <div class="soa-sys">This is a system-generated receipt. No signature is required.</div>`;
