@@ -94,6 +94,12 @@ run it again after any later update that replaces a function, so the replaced fu
 Moving the database to Singapore (ap-southeast-1, nearer to Manila): see [docs/MOVE_TO_SINGAPORE.md](docs/MOVE_TO_SINGAPORE.md).
 
 ## Setup (one time)
+**A new, empty Supabase project in one step:** open its **SQL Editor**, paste all of `supabase/NEW_SERVER_SETUP.sql`
+and press Run, once. It holds every file below, in order, up to update 2.2 (made by
+`python3 supabase/build_new_server_setup.py`) and ends with **E-PORTAL SERVER READY**. Then point `public/config.js` to
+the new project (Project URL and publishable key), set the Auth links (step 3), and sign up: the first account becomes
+the Director.
+
 1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.
    This creates the tables, security rules, document numbering, audit trail and the `documents` and `forms` storage buckets.
    The existing account (mdemon9559@gmail.com) becomes an active Admin, and so will emonoverruns@gmail.com when it signs up.
