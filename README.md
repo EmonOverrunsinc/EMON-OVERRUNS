@@ -91,29 +91,34 @@ run it again after any later update that replaces a function, so the replaced fu
 `014_update_2_1.sql` (Update 2.1: a memo to a company in PESOS × the exchange rate = BDT, paid on the e-bill it names once approved; the shipping company of an e-bill; Sales Report lines after PAID; what the Director deletes leaves no line in any history, and the old "deleted" lines are removed; a project budget line is its amount, with the qty optional; a customer's LOCATION check — FOUND, NO NEED TO CHECK LOCATION or NOT FOUND — takes the place of the address check; an approved correction changes the record and leaves no history, and the approved corrections kept before are removed; the Facebook account link and the one-person-one-account check).
 `015_update_2_2.sql` (Update 2.2: Contact Us with MS- reference numbers and the Director's Contact Messages; the first SOA of an account is the month it was opened, with any earlier entries, and the SOAs made before for months before it are removed; an old paper recorded later updates the SOAs by itself; the main Director — the first Director account — edits every detail of a customer with Edit Customer, with no history, and the monthly statements follow a new opening balance or application date; a customer correction from anyone else waits for the main Director; a rejected correction is removed like an approved one, so a decided correction leaves no record, and the decided corrections kept before are removed).
 
-Moving the database to Singapore (ap-southeast-1, nearer to Manila): see [docs/MOVE_TO_SINGAPORE.md](docs/MOVE_TO_SINGAPORE.md).
+**The server** (since 2.2.1, OCTOBER 2026): the Supabase project EMON OVERRUNS (`cvmqjerbbejvmzypbawi`) in Singapore
+(ap-southeast-1), organization EMON HASAN, set up with `supabase/NEW_SERVER_SETUP.sql`. The first project (California)
+was deleted by mistake with its records, files and logins; the records are entered again from the papers. Settings,
+email texts and the first sign-up: [docs/SINGAPORE_SERVER.md](docs/SINGAPORE_SERVER.md).
 
 ## Setup (one time)
-**A new, empty Supabase project in one step:** open its **SQL Editor**, paste all of `supabase/NEW_SERVER_SETUP.sql`
-and press Run, once. It holds every file below, in order, up to update 2.2 (made by
-`python3 supabase/build_new_server_setup.py`) and ends with **E-PORTAL SERVER READY**. Then point `public/config.js` to
-the new project (Project URL and publishable key), set the Auth links (step 3), and sign up: the first account becomes
-the Director.
-
-1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.
-   This creates the tables, security rules, document numbering, audit trail and the `documents` and `forms` storage buckets.
-   The existing account (mdemon9559@gmail.com) becomes an active Admin, and so will emonoverruns@gmail.com when it signs up.
+1. **Database**: in a new, empty Supabase project open **SQL Editor**, paste all of `supabase/NEW_SERVER_SETUP.sql`
+   and press Run, once. It holds every database file above, in order, up to update 2.2 (made by
+   `python3 supabase/build_new_server_setup.py`), and ends with **E-PORTAL SERVER READY**: the tables, security rules,
+   numbering, audit trail, storage buckets and monthly schedules. Then point `public/config.js` to the project (Project
+   URL and publishable key) and raise the version (`version.json`, `BUILD` in `app.js`, `?v=` in `index.html`).
 2. **Host the site**: upload the `public/` folder to any static host, such as Vercel, Netlify or Cloudflare Pages. There is no build step.
    - Vercel: New Project, Import, choose this folder, Framework "Other", Output directory `public`.
    - Netlify: drag the `public` folder onto app.netlify.com/drop.
 3. **Auth links**: in Supabase, open **Authentication › URL Configuration** and set **Site URL** to your site address
    (https://emonoverruns.online), and add `https://emonoverruns.online/**` and `https://emon-overruns.vercel.app/**` under
-   **Redirect URLs**. Otherwise sign-up confirmation emails point to the wrong place.
+   **Redirect URLs**. Otherwise sign-up confirmation emails point to the wrong place. Also in **Authentication**: custom
+   **SMTP Settings** (Supabase's own sender only reaches the organization's members), the 6-digit code `{{ .Token }}` in
+   the **Confirm signup** and **Reset password** emails, and **Confirm email** kept ON; see
+   [docs/SINGAPORE_SERVER.md](docs/SINGAPORE_SERVER.md).
 4. **Website address**: in Vercel, open the project › **Settings › Domains**, add `emonoverruns.online` (and
    `www.emonoverruns.online`), and set the DNS records Vercel shows at the place where the domain was bought.
+5. **First sign-up**: the Director signs up first. The first account becomes an active Director and the main Director;
+   emonoverruns@gmail.com also becomes a Director when it signs up. Everyone else waits as *Pending* (see Daily use).
 
 ## Supabase Pro plan
-The project is on the **Pro** plan (organization EMON HASAN). Already on, with nothing to set:
+The organization EMON HASAN is on the **Free** plan (OCTOBER 2026): no daily backups to restore, and the project is
+paused after 7 days of little use. Changing it to **Pro** (Organization › Billing) turns on, with nothing to set:
 - the project is never paused;
 - a backup of the database every day, the last 7 days kept (**Database › Backups**: restore or download). Files
   (photos, receipts) are not inside these backups;
@@ -122,8 +127,9 @@ The project is on the **Pro** plan (organization EMON HASAN). Already on, with n
 Switches to turn on in the Supabase dashboard (they cannot be set from the portal):
 - **Authentication › Sign In / Providers › Email › Prevent use of leaked passwords** (Pro only): a password known from
   a data leak is refused.
-- **Authentication › Emails › SMTP Settings** (optional): send the sign-in code emails from your own address, for
-  example no-reply@emonoverruns.online. Supabase's own email service sends only a few emails an hour.
+- **Authentication › Emails › SMTP Settings** (needed on the Singapore project): send the sign-in code emails from your
+  own address, for example emonoverruns@gmail.com with a Google App Password. Supabase's own email service sends only a
+  few emails an hour, and only to the members of the organization.
 
 Not used, because they cost extra: Point-in-Time Recovery, image resizing (the portal already makes photos small
 before upload) and a custom domain for the database address.
