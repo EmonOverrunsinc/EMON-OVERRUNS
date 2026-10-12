@@ -660,14 +660,31 @@
       if (ref) $("#msLegal").innerHTML = `Account deletion requested. Reference No <b class="mono">${esc(ref)}</b> · <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>`;
     };
   }
-  // 2.4: a Back button on the green band. It goes to the page before when there is one in this app, otherwise home
-  // (so it never leaves the app).
-  let pagesSeen = 0;
-  window.addEventListener("hashchange", () => pagesSeen++);
+  // 2.4: a Back button on the green band. It goes to the page before, and never leaves the portal: Chrome, Edge and the
+  // Android and Windows apps know whether the page before is a page of this site (the Navigation API); other browsers
+  // use the pages opened in this visit. With no page before, it goes home.
+  const visited = [location.hash];
+  let goingBack = false;
+  window.addEventListener("hashchange", () => {
+    if (goingBack) { goingBack = false; return; }
+    visited.push(location.hash);
+    if (visited.length > 60) visited.shift();
+  });
   const backBtn = () => `<button type="button" class="band-back" id="bandBack" aria-label="Back" title="Back">${ic("back")}</button>`;
+  function goBack(home) {
+    const nav = window.navigation;
+    if (nav && "canGoBack" in nav) { if (nav.canGoBack) { history.back(); return; } }
+    else {
+      visited.pop(); // this page
+      while (visited.length && visited[visited.length - 1] === location.hash) visited.pop();
+      const before = visited[visited.length - 1];
+      if (before) { goingBack = true; location.hash = before; return; }
+    }
+    location.hash = home || "#dashboard";
+  }
   function bindBack(home) {
     const b = $("#bandBack");
-    if (b) b.onclick = () => { if (pagesSeen > 0) { pagesSeen -= 2; history.back(); } else location.hash = home || "#dashboard"; };
+    if (b) b.onclick = () => goBack(home);
   }
   // 2.4: a signed-in person asks the Director to delete their account. The request arrives in Contact Messages; the
   // Director then deletes the account on Login Accounts. Gives the reference number, or null.
