@@ -316,6 +316,102 @@
       { label: "Check", html: (r) => (r.blocked ? `<b class="bad-txt">BLOCKED</b>` : "Similar") }], rows });
   }
 
+  // ---------- Edit Customer (the main Director, 2.2) ----------
+  // Every detail of a customer in one form, saved at once; like an approved correction it leaves no history. Not here:
+  // the account number, application number and Public ID (on printed papers and QR codes), the status (its own steps)
+  // and the photo (Change Photo). A new opening balance or application date also updates the monthly statements.
+  function editCustomer(c, reload) {
+    if (!S.mainDirector) return toast("Only the main Director can edit a customer's details.", true);
+    const v = (x) => esc(x ?? "");
+    const day = (x) => String(x || "").slice(0, 10);
+    const yes = (on, name, a, b) => `<div class="checks"><label><input type="radio" name="${name}" value="no" ${on ? "" : "checked"}> ${a}</label><label><input type="radio" name="${name}" value="yes" ${on ? "checked" : ""}> ${b}</label></div>`;
+    const m = E.modal(`Edit Customer — ${fullName(c)}`, `
+      <div class="hint">Change any detail, then press <b>Save</b>. The customer shows the new details at once, and the edit leaves no history.
+        Account No <b>${esc(c.account_no || "")}</b>, the application number and the Public ID stay the same.</div>
+      <fieldset class="opt"><legend>Personal Details</legend><div class="fields wide">
+        <label for="ecFirst">First Name *</label><input type="text" id="ecFirst" value="${v(c.first_name)}" autocomplete="off">
+        <label for="ecLast">Last Name *</label><input type="text" id="ecLast" value="${v(c.last_name)}" autocomplete="off">
+        <label for="ecPhone">Phone Number</label><input type="tel" id="ecPhone" value="${v(c.phone)}">
+        <label for="ecEmail">Email Address</label><input type="email" id="ecEmail" value="${v(c.email)}">
+      </div></fieldset>
+      <div id="ecCheck" class="person-check" aria-live="polite"></div>
+      <fieldset class="opt"><legend>Full Address</legend><div class="fields wide">
+        <label for="ecAddr">Address *</label><input type="text" id="ecAddr" value="${v(c.address)}">
+        <span>Location *</span><div class="checks loc-checks">${Object.entries(LOCATION).map(([k, l]) => `<label><input type="radio" name="ecLoc" value="${k}" ${locOf(c) === k ? "checked" : ""}> ${esc(l)}</label>`).join("")}</div>
+      </div></fieldset>
+      <fieldset class="opt"><legend>Account</legend><div class="fields wide">
+        <label for="ecDate">Application Date *</label><input type="date" id="ecDate" value="${day(c.application_date)}" max="${isoToday()}">
+        <label for="ecCredit">Credit Limit (₱)</label><input type="number" id="ecCredit" min="0" step="0.01" inputmode="decimal" value="${c.credit_limit ?? ""}" placeholder="None">
+        <label for="ecOpen">Opening Balance (₱)</label><input type="number" id="ecOpen" min="0" step="0.01" inputmode="decimal" value="${Number(c.opening_balance) ? c.opening_balance : ""}" placeholder="None">
+      </div><small>A new opening balance or application date also updates the customer's monthly statements.</small></fieldset>
+      <fieldset class="opt"><legend>Business</legend><div class="fields wide">
+        <label for="ecStart">Business Start Date</label><input type="date" id="ecStart" value="${day(c.business_start_date)}">
+        <label for="ecBiz">Business Name</label><input type="text" id="ecBiz" value="${v(c.business_name)}">
+      </div></fieldset>
+      <fieldset class="opt"><legend>Facebook</legend><div class="fields wide">
+        <label for="ecFb">Facebook Name</label><input type="text" id="ecFb" value="${v(c.facebook_name)}">
+        <label for="ecFbLink">Facebook Account Link</label><input type="url" id="ecFbLink" inputmode="url" autocomplete="off" value="${v(c.facebook_link)}" placeholder="https://www.facebook.com/…">
+        <span>Additional Facebook Account?</span>${yes(c.has_extra_facebook, "ecFbx", "No", "Yes")}
+        <label for="ecFb2" class="ec-fb2">Additional Facebook Name</label><input type="text" id="ecFb2" class="ec-fb2" value="${v(c.extra_facebook_name)}">
+        <span>Facebook Account</span>${yes(c.facebook_verified, "ecFbv", "Not Verified", "Verified")}
+      </div></fieldset>`,
+      `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${ic("check")} Save</button>`, { wide: true, cls: "edit-customer" });
+    const el = m.el, val = (id) => $("#" + id, el).value.trim();
+    const radio = (name) => $(`input[name=${name}]:checked`, el)?.value;
+    const extra = () => { const on = radio("ecFbx") === "yes"; $$(".ec-fb2", el).forEach((x) => (x.hidden = !on)); };
+    extra();
+    $$("input[name=ecFbx]", el).forEach((r) => (r.onchange = () => { extra(); check(); }));
+    // the same person check as a new application (this account itself left out)
+    let timer = null, seq = 0;
+    const check = async () => {
+      const my = ++seq;
+      const first = val("ecFirst"), last = val("ecLast"), fb = val("ecFb"), link = val("ecFbLink"), fb2 = radio("ecFbx") === "yes" ? val("ecFb2") : "";
+      if (!(first && last) && !fb && !fb2 && !link) return ($("#ecCheck", el).innerHTML = "");
+      const { data, error } = await sb.rpc("customer_person_check", { p_first: first, p_last: last, p_fb_name: fb || null, p_fb_extra: fb2 || null, p_fb_link: link || null });
+      if (my !== seq || !el.isConnected) return;
+      $("#ecCheck", el).innerHTML = personCheckHtml(error ? [] : (data || []).filter((r) => r.id !== c.id));
+    };
+    ["ecFirst", "ecLast", "ecFb", "ecFb2", "ecFbLink"].forEach((k) => $("#" + k, el).addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(check, 400); }));
+    check();
+    $("[data-x]", el).onclick = m.close;
+    $("[data-ok]", el).onclick = async () => {
+      const num = (id) => (val(id) === "" ? null : Number(val(id)));
+      const now = {
+        first_name: val("ecFirst"), last_name: val("ecLast"), phone: val("ecPhone") || null, email: val("ecEmail") || null,
+        address: val("ecAddr"), location_check: radio("ecLoc") || null, application_date: val("ecDate") || null,
+        credit_limit: num("ecCredit"), opening_balance: num("ecOpen") ?? 0, business_start_date: val("ecStart") || null,
+        business_name: val("ecBiz") || null, facebook_name: val("ecFb") || null, facebook_link: val("ecFbLink") || null,
+        has_extra_facebook: radio("ecFbx") === "yes", extra_facebook_name: radio("ecFbx") === "yes" ? val("ecFb2") || null : null,
+        facebook_verified: radio("ecFbv") === "yes" };
+      if (!now.first_name || !now.last_name) return toast("Enter the first name and the last name.", true);
+      if (!now.address) return toast("Enter the address.", true);
+      if (!now.location_check) return toast("Choose the location check.", true);
+      if (!now.application_date) return toast("Enter the application date.", true);
+      if (now.application_date > isoToday()) return toast("The application date cannot be after today.", true);
+      if ((now.credit_limit ?? 0) < 0 || now.opening_balance < 0 || Number.isNaN(now.credit_limit) || Number.isNaN(now.opening_balance)) return toast("Enter amounts of zero or more.", true);
+      if (now.facebook_link && !FB_LINK.test(now.facebook_link)) return toast("Enter the Facebook account link, for example https://www.facebook.com/name — or leave it empty.", true);
+      // only what changed is sent
+      const same = (k) => {
+        const a = c[k], b = now[k];
+        if (["credit_limit", "opening_balance"].includes(k)) return (a == null || a === "" ? null : Number(a)) === (b == null ? null : Number(b)) || (k === "opening_balance" && !Number(a) && !Number(b));
+        if (["application_date", "business_start_date"].includes(k)) return String(a || "").slice(0, 10) === String(b || "");
+        if (typeof b === "boolean") return !!a === b;
+        if (k === "location_check") return locOf(c) === b;
+        return String(a ?? "") === String(b ?? "");
+      };
+      const changes = Object.fromEntries(Object.keys(now).filter((k) => !same(k)).map((k) => [k, now[k]]));
+      if (!Object.keys(changes).length) return toast("Nothing was changed.", true);
+      const btn = $("[data-ok]", el); btn.disabled = true;
+      const { data, error } = await sb.rpc("director_edit_customer", { p_id: c.id, p_changes: changes });
+      btn.disabled = false;
+      if (error) return fail(error, "Could not save");
+      m.close();
+      const n = (data?.changed || []).length, st = data?.statements || 0;
+      toast(`Saved: ${n} detail${n === 1 ? "" : "s"} changed.${st ? ` ${st} monthly statement${st === 1 ? "" : "s"} updated.` : ""}`);
+      if (reload) reload();
+    };
+  }
+
   // ---------- print helpers ----------
   function printHead(title, rightHtml = "") {
     return `<div class="ph">
@@ -1714,6 +1810,6 @@
   Object.assign(E, {
     extOf, viewFile, latestSigned, uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, isImage,
     docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, stampHtml, uuid, cleanQ, idBox, METHOD,
-    loadSignatures, approvedBy, signaturePic, uploadSignature, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm
+    loadSignatures, approvedBy, signaturePic, uploadSignature, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm, editCustomer
   });
 })();

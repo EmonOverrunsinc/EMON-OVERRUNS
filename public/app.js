@@ -6,8 +6,8 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "2.1";
-  const BUILD = "2.1.2"; // the same in index.html (?v=) and in version.json
+  const VERSION = "2.2";
+  const BUILD = "2.2.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -307,6 +307,9 @@
     const { data, error } = await sb.from("profiles").select("*").eq("id", S.session.user.id).maybeSingle();
     if (error) fail(error, "Could not load your profile");
     S.profile = data;
+    // 2.2: the main Director (one account only) edits a customer's details; asked once (false when it cannot be told)
+    S.mainDirector = false;
+    if (data && data.role === "admin" && data.status === "active") S.mainDirector = (await sb.rpc("is_main_director").then((r) => r.data, () => false)) === true;
     // the job position shown with the user's name (the Director is shown as Director)
     S.position = "";
     if (data && data.role !== "admin") S.position = (await sb.from("employees").select("position").eq("profile_id", data.id).maybeSingle()).data?.position || "";

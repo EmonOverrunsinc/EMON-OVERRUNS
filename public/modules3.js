@@ -113,14 +113,16 @@
   };
 
   // The saved record is not edited: a correction record is added with the new details and keeps the original ones.
+  // A customer's correction is added at once only by the main Director (2.2); another Director account asks for it.
+  const correctsAtOnce = (table) => (table === "customers" ? !!S.mainDirector : isAdmin());
   function correctRecord(table, row, label, reload) {
     const fields = FIELDS[table];
     if (!fields) return toast("This record cannot be corrected.", true);
-    const admin = isAdmin();
+    const admin = correctsAtOnce(table);
     const m = E.modal(`${admin ? "Add Correction" : "Request Correction"} — ${label}`, `
-      <div class="hint">${admin ? "The record takes the new details at once" : "When the Director approves, the record takes the new details"}. The correction itself is not kept: it leaves no history.</div>
+      <div class="hint">${admin ? "The record takes the new details at once" : `When the ${table === "customers" ? "main Director" : "Director"} approves, the record takes the new details`}. The correction itself is not kept: it leaves no history.</div>
       <div class="fields wide edit-grid">${fields.map((f) => fieldInput(f, row[f.k])).join("")}</div>
-      ${MONEY.includes(table) ? `<small class="muted">Amounts and transaction dates cannot be corrected. If they are wrong, ${admin ? "delete this record" : "ask the Director to delete this record"} and record it again.</small>` : ""}
+      ${MONEY.includes(table) ? `<small class="muted">Amounts and transaction dates cannot be corrected. If they are wrong, ${isAdmin() ? "delete this record" : "ask the Director to delete this record"} and record it again.</small>` : ""}
       <label class="fl" for="edReason">Reason for the correction *</label><textarea id="edReason" rows="2" placeholder="e.g. The wrong phone number was typed"></textarea>`,
       `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn primary" data-ok>${admin ? "Add Correction" : "Send for Approval"}</button>`, { wide: true });
     $("[data-x]", m.el).onclick = m.close;
@@ -135,7 +137,7 @@
       btn.disabled = false;
       if (error) return fail(error, admin ? "Could not add the correction" : "Could not send the correction");
       m.close();
-      toast(admin ? "Correction saved: the record shows the new details." : `Correction ${data.request_no} sent to the Director for approval.`);
+      toast(admin ? "Correction saved: the record shows the new details." : `Correction ${data.request_no} sent to the ${table === "customers" ? "main Director" : "Director"} for approval.`);
       if (reload) reload();
     };
   }
@@ -166,19 +168,24 @@
     if (RT.size > 300) RT.clear();
     const id = "rt" + Math.random().toString(36).slice(2, 9);
     RT.set(id, { table, row, label, ...opts });
-    return `<span class="rtools" data-rt="${id}">${fix ? `<button type="button" class="btn" data-rt-fix>${ic("edit")} ${admin ? "Add Correction" : "Request Correction"}</button>` : ""}${del ? `<button type="button" class="btn danger" data-rt-del>${ic("trash")} Delete</button>` : ""}</span>`;
+    const fixLabel = table === "customers" && S.mainDirector ? "Edit Customer" : correctsAtOnce(table) ? "Add Correction" : "Request Correction";
+    return `<span class="rtools" data-rt="${id}">${fix ? `<button type="button" class="btn" data-rt-fix>${ic("edit")} ${fixLabel}</button>` : ""}${del ? `<button type="button" class="btn danger" data-rt-del>${ic("trash")} Delete</button>` : ""}</span>`;
   }
   function bindRecordTools(root = document) {
     $$("[data-rt]", root).forEach((w) => {
       const o = RT.get(w.dataset.rt); if (!o) return;
       const fx = $("[data-rt-fix]", w), dl = $("[data-rt-del]", w);
-      if (fx) fx.onclick = (e) => { e.stopPropagation(); correctRecord(o.table, o.row, o.label, o.reload); };
+      if (fx) fx.onclick = (e) => {
+        e.stopPropagation();
+        if (o.table === "customers" && S.mainDirector && E.editCustomer) E.editCustomer(o.row, o.reload);
+        else correctRecord(o.table, o.row, o.label, o.reload);
+      };
       if (dl) dl.onclick = (e) => { e.stopPropagation(); deleteRecord(o.table, o.row, o.label, o.afterDelete || o.reload); };
     });
     $$("[data-rh]", root).forEach((el) => { const [t, id] = el.dataset.rh.split(":"); recordHistory(el, t, id); });
   }
   // Changes to one record (corrections still waiting, files removed, an order changed before approval), newest first.
-  // An approved correction leaves no line here (2.1). Director only.
+  // A decided correction leaves no line here (2.2). Director only.
   const rhBox = (table, id) => isAdmin() ? `<div class="rhist" data-rh="${esc(table)}:${esc(id)}" hidden></div>` : "";
   async function recordHistory(el, table, id) {
     const [done, reqs] = await Promise.all([
@@ -212,9 +219,9 @@
   V.changes = async () => {
     if (!isAdmin()) { location.hash = "dashboard"; return; }
     E.shell("changes", "Corrections", `
-      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button><button type="button" data-f="log">Change Log</button></div>
+      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="log">Change Log</button></div>
       <div id="crRes">${busy()}</div>`,
-      "Employees send <b>corrections</b> (wrong details) here. <b>Approve</b> puts the new details on the record, and the correction is then removed: it leaves no history. Your own corrections change the record straight away. Only you can see corrections.");
+      "Employees send <b>corrections</b> (wrong details) here. <b>Approve</b> puts the new details on the record; <b>Reject</b> leaves the record as it is. Either way the correction is then removed: it leaves no record (the person who asked is told when it is rejected). Your own corrections change the record straight away. A customer's details are changed by the main Director only (<b>Edit Customer</b> on the customer).");
     const run = async (f) => {
       $("#crRes").innerHTML = busy();
       if (f === "log") {
@@ -227,8 +234,8 @@
           { label: "By", get: (r) => r.actor_name || "" }, { label: "Correction No", get: (r) => r.request_no || "" }], rows, empty: "No changes yet." });
         return E.setRecords(`Changes: ${rows.length}`);
       }
-      let q = sb.from("change_requests").select("*").order("created_at", { ascending: false }).limit(300);
-      if (f) q = q.eq("status", f);
+      // a decided correction is removed (2.2): only the ones waiting are here
+      const q = sb.from("change_requests").select("*").eq("status", "pending").order("created_at", { ascending: false }).limit(300);
       const { data, error } = await q;
       if (error) return fail(error, "Could not load corrections");
       const rows = data || [];
@@ -238,6 +245,7 @@
           <table class="grid cr-diff"><thead><tr><th>Field</th><th>Original</th><th>Corrected</th></tr></thead><tbody>
             ${Object.keys(r.changes || {}).map((k) => `<tr><td>${esc(fieldLabel(r.target_table, k))}</td><td class="old">${esc(showVal(r.previous?.[k]))}</td><td class="new">${esc(showVal(r.changes[k]))}</td></tr>`).join("")}</tbody></table>
           ${r.status !== "pending" ? `<div class="cr-done">${r.status === "approved" ? "Approved" : "Rejected"} by ${esc(r.reviewed_by_name || "")} · ${esc(E.dateTime(r.reviewed_at))}${r.review_note ? " — " + esc(r.review_note) : ""}</div>`
+            : r.target_table === "customers" && !S.mainDirector ? `<div class="cr-done">Waiting for the main Director: a customer's details are changed by the main Director only.</div>`
             : `<div class="cr-act"><input type="text" placeholder="Note (optional)" data-note="${r.id}"><button type="button" class="btn ok" data-cr="${r.id}" data-a="approve">${ic("check")} Approve</button><button type="button" class="btn danger" data-cr="${r.id}" data-a="reject">Reject</button></div>`}
         </article>`).join("") : `<div class="empty">${f === "pending" ? "Nothing waiting for approval." : "Nothing here."}</div>`;
       $$("[data-cr]").forEach((b) => (b.onclick = async () => {
@@ -245,7 +253,7 @@
         b.disabled = true;
         const { error: e2 } = await sb.rpc("review_change_request", { p_id: b.dataset.cr, p_action: b.dataset.a, p_note: note });
         if (e2) { b.disabled = false; return fail(e2, "Could not update the request"); }
-        toast(b.dataset.a === "reject" ? "Request rejected." : "Approved — the record shows the new details, and the correction is removed."); run(f); E.refreshBadge();
+        toast(b.dataset.a === "reject" ? "Rejected — the record stays as it is, and the correction is removed. The person who asked is told." : "Approved — the record shows the new details, and the correction is removed."); run(f); E.refreshBadge();
       }));
       E.setRecords(`Requests: ${rows.length}`);
     };

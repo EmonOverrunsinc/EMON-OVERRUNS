@@ -1,4 +1,4 @@
-# Emon Overruns Portal (E-Portal v2.1)
+# Emon Overruns Portal (E-Portal v2.2)
 
 **Live:** https://emon-overruns.vercel.app
 
@@ -20,7 +20,7 @@ It is laid out like AutoCount: option panel, then Inquiry, Preview and Print, th
 | 9. Director Portal | Order letters for customers, employees, billing companies and e-bills (closure, reactivation, additional charge, settlement adjustment, balance certificate, Released Notice, memo and more). A memo to a company can have an amount in PESOS with the exchange rate of the day (the BDT amount is counted for you) and can name one e-bill of the company: once approved, the BDT amount is paid on that e-bill and its balance goes down. Every order waits for approval first and can be changed until then (Edit Order, by the person who sent it or the Director); once the Director approves it, it is carried out at once. The letter shows only the customer's name and account no (all details for a closed, reactivated or reopened account), or the company's name and authorized person |
 | 10. E-Bill | E-bills in BDT with their own item columns and rows and the uploaded bill (batch no and total boxes needed; shipping company name and code); Released Notice: an order letter found by the batch no, price per box (PHP) × boxes = total (PHP), × the exchange rate of the day = released charge (BDT), plus the shipping fee, all shown in BDT and added to the e-bill's total cost once approved; Sales Report (net sales, EOO fees, other fees and penalties with their receipts; more can be added after PAID); payments by memo with the paid amount and the balance; steps 1 SHIP → 2 RELEASED → 3 SALES → 4 PAID (no payment is needed to mark it PAID); the profit or loss shows after the Director marks it PAID. One document, **E-BILL** with its batch no (for example E-BILL I-17), shows every record like a statement of account: the account summary, items, statement with the running balance, Sales Report, Released Notice, payments, history and files; after PAID also the profit or loss and the secret code |
 | Verification | Anyone can check a record by its number or by scanning its QR / PDF417 code, without signing in. An e-bill is shown only for the secret code printed on its E-Bill once it is PAID |
-| Corrections | Records are only added; corrections and cancellations are approved by the Director. An approved correction puts the new details on the record and leaves no history (2.1). What the Director deletes is gone for good, with its files, history lines and notices |
+| Corrections | Records are only added; corrections and cancellations are approved by the Director. Approve puts the new details on the record, Reject leaves the record as it is, and either way the correction is then removed: it leaves no record (2.2; the person who asked is told when it is rejected). A customer's details are corrected by the main Director only (see Edit Customer below). What the Director deletes is gone for good, with its files, history lines and notices |
 | User | Logins, access levels, which modules each person can open, and everyone's signature: approve, reject, remove or upload it (Director) |
 | Download Forms | Blank company forms, and the built-in **SIGNATURE VERIFICATION FORM** (A4 PDF with boxes for three specimen signatures, the initials and the Director's approval) |
 | My Profile | Photo, username, password, payslips, and **My Signature**: upload a photo of your signature (the white paper is taken away) and print your Signature Verification Form |
@@ -31,6 +31,16 @@ signature. Every document the Director approves (order letters and certificates,
 job applications, projects) prints the Director's signature, name and date by itself, so no signed copy is uploaded
 after approval. A customer's or applicant's own signed form can still be uploaded before approval. The signature stands
 above its line and never covers the name, the date or any other words (2.1).
+
+**Edit Customer (2.2):** only the **main Director** (the first Director account, EMON HASAN) has **Edit Customer** on a
+customer. It changes every detail at once: name, phone, email, address and LOCATION, application date, credit limit,
+opening balance, business start date and name, Facebook name and link, the additional Facebook account and the
+Facebook check. The customer shows the new details straight away and the edit leaves no history. A new opening balance
+or application date also updates the customer's monthly statements (signed copies stay). The one-person-one-account
+check runs on the form, so a Facebook link that is on another account is refused. The account no, the application
+number, the Public ID, the status and the photo do not change here (the photo has its own Change / Remove). Any other
+account, including the second Director account, sends **Request Correction** instead, and only the main Director
+approves or rejects it.
 
 **One person, one account (2.1):** the customer check looks only at the name, the Facebook name and the Facebook account
 link (not the address, phone or email), while the application is typed and again at Check & Verify and Approve. It is
@@ -65,6 +75,7 @@ run it again after any later update that replaces a function, so the replaced fu
 `012_update_1_9.sql` (Inventory, now E-Bill: stock-bills, release order, e-bills in Billing, sales report, PAID with the profit or loss and the secret code).
 `013_update_2_0.sql` (Update 2.0: E-Bill numbers by company letters, the steps SHIP → RELEASED → SALES → PAID with no ARRIVED step, the Released Notice with price per box, exchange rate and shipping fee in BDT, order letters numbered EO-YYYY-MM-####, an order waiting for approval can be changed, and signatures: uploaded in My Profile, approved by the Director, printed on approved documents).
 `014_update_2_1.sql` (Update 2.1: a memo to a company in PESOS × the exchange rate = BDT, paid on the e-bill it names once approved; the shipping company of an e-bill; Sales Report lines after PAID; what the Director deletes leaves no line in any history, and the old "deleted" lines are removed; a project budget line is its amount, with the qty optional; a customer's LOCATION check — FOUND, NO NEED TO CHECK LOCATION or NOT FOUND — takes the place of the address check; an approved correction changes the record and leaves no history, and the approved corrections kept before are removed; the Facebook account link and the one-person-one-account check).
+`015_update_2_2.sql` (Update 2.2: the main Director — the first Director account — edits every detail of a customer with Edit Customer, with no history, and the monthly statements follow a new opening balance or application date; a customer correction from anyone else waits for the main Director; a rejected correction is removed like an approved one, so a decided correction leaves no record, and the decided corrections kept before are removed).
 
 ## Setup (one time)
 1. **Database**: in Supabase (project *EMONOVERRUNS*), open **SQL Editor**, paste `supabase/portal_init.sql` and run it.
