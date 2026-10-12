@@ -1094,6 +1094,7 @@
   async function renderSoaTab(c, invs, pays, memos, orders) {
     const box = $("#pfSoa"); if (!box) return;
     const { data } = await sb.from("statements").select("*").eq("customer_id", c.id).order("period_start");
+    if (!box.isConnected) return; // another page was opened while the statements loaded
     const txns = txnsOf(invs, pays, memos, orders, c);
     const cm = monthStart(isoToday()), open = openMonth(c);
     const saved = new Map((data || []).filter((s) => s.period_start >= open).map((s) => [s.period_start, s]));
@@ -1115,7 +1116,7 @@
         { label: "", html: () => `<span class="btn">Print SOA</span>` }], rows, onRow: true })}
       <small>One statement a month, made automatically on the 1st for the month just ended. The first is the month the account was opened (with any earlier entries); each month's closing balance is the next month's opening balance.</small>`;
     E.bindGrid(box, rows, (r) => printSoa(c, r, txns, invs));
-    $("#soaAll").onclick = () => {
+    $("#soaAll", box).onclick = () => {
       const start = txns.length ? monthStart(txns[0].date) : monthStart(c.application_date);
       E.openPreview(`All Transactions ${c.account_no}`, soaPages(c, { start, end: isoToday(), opening: 0, no: soaNo(isoToday(), c, true) }, within(txns, start, isoToday()), []));
     };
