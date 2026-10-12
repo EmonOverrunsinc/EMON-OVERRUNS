@@ -18,6 +18,9 @@
 --    from zero; no SOA is made for the months before, and the ones made before are removed once (a SOA with a signed
 --    copy is kept). One SOA a month after that, made automatically on the 1st. An entry recorded later with a date in
 --    a month that already has its SOA works the SOAs out again from that month, so they always match the entries.
+-- 5. Contact Us on the sign-in page: anyone sends a message with their name and how to reply (email, call, SMS,
+--    WhatsApp, Viber or Facebook) and gets a reference number like MS-202609010001 (MS-, the date, then 0001, 0002 ...
+--    that day). The Director reads them in Contact Messages and marks them replied.
 -- Run once in the Supabase SQL Editor after 014_update_2_1.sql. No other records are changed. It is safe to run again.
 -- =====================================================================
 
@@ -355,3 +358,80 @@ begin
     perform public.restate_statements(c.customer_id, '1900-01-01');
   end loop;
 end $$;
+
+-- ---------- 7. Contact Us ----------
+create table if not exists public.contact_messages (
+  id uuid primary key default gen_random_uuid(),
+  ref_no text not null unique,
+  name text not null,
+  reply_via text not null check (reply_via in ('email', 'call', 'sms', 'whatsapp', 'viber', 'facebook')),
+  reply_to text not null,
+  message text not null,
+  status text not null default 'new' check (status in ('new', 'replied')),
+  replied_by_name text,
+  replied_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists contact_messages_created_idx on public.contact_messages (created_at desc);
+alter table public.contact_messages enable row level security;
+revoke all on public.contact_messages from anon, authenticated;
+grant select on public.contact_messages to authenticated;
+drop policy if exists "contact: director reads" on public.contact_messages;
+create policy "contact: director reads" on public.contact_messages for select to authenticated using ((select public.is_admin()));
+
+-- A message from the Contact Us form (no sign-in needed). Gives back its reference number, MS-YYYYMMDD#### (Manila date).
+create or replace function public.submit_contact_message(p_name text, p_reply_via text, p_reply_to text, p_message text) returns text
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare
+  n text := btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'));
+  via text := lower(btrim(coalesce(p_reply_via, '')));
+  rt text := btrim(coalesce(p_reply_to, ''));
+  msg text := btrim(coalesce(p_message, ''));
+  ref text;
+begin
+  if char_length(n) < 2 or char_length(n) > 120 then raise exception 'Enter your name'; end if;
+  if via not in ('email', 'call', 'sms', 'whatsapp', 'viber', 'facebook') then raise exception 'Choose how we should reply'; end if;
+  if via = 'email' and rt !~* '^[^@\s]+@[^@\s]+\.[^@\s]+$' then raise exception 'Enter your email address'; end if;
+  if via in ('call', 'sms', 'whatsapp', 'viber') and regexp_replace(rt, '[^0-9]', '', 'g') !~ '^[0-9]{7,15}$' then
+    raise exception 'Enter your mobile number';
+  end if;
+  if char_length(rt) < 3 or char_length(rt) > 200 then raise exception 'Enter where we should reply'; end if;
+  if char_length(msg) < 2 then raise exception 'Write your message'; end if;
+  if char_length(msg) > 2000 then raise exception 'The message is too long (2,000 letters at most)'; end if;
+  -- a flood of messages is stopped: 5 an hour from the same contact, 60 an hour from everyone together
+  if (select count(*) from public.contact_messages m where lower(m.reply_to) = lower(rt) and m.created_at > now() - interval '1 hour') >= 5
+     or (select count(*) from public.contact_messages m where m.created_at > now() - interval '1 hour') >= 60 then
+    raise exception 'Too many messages were sent. Please try again later.';
+  end if;
+  ref := 'MS-' || to_char(current_date, 'YYYYMMDD') || lpad(public.next_counter('MS' || to_char(current_date, 'YYYYMMDD'))::text, 4, '0');
+  insert into public.contact_messages (ref_no, name, reply_via, reply_to, message) values (ref, n, via, rt, msg);
+  perform public.notify_admins('Contact message ' || ref, n || ' - ' || left(msg, 120), 'contacts');
+  return ref;
+end;
+$$;
+revoke execute on function public.submit_contact_message(text, text, text, text) from public;
+grant execute on function public.submit_contact_message(text, text, text, text) to anon, authenticated;
+
+-- The Director marks a message replied (or new again), or deletes it (gone for good, with its notice).
+create or replace function public.contact_message_action(p_id uuid, p_action text) returns void
+language plpgsql security definer set search_path = '' as $$
+declare m public.contact_messages;
+begin
+  if not public.is_admin() then raise exception 'Only the Director can do this'; end if;
+  select * into m from public.contact_messages where id = p_id;
+  if m.id is null then raise exception 'Message not found'; end if;
+  if p_action = 'replied' then
+    update public.contact_messages set status = 'replied', replied_at = now(),
+      replied_by_name = (select full_name from public.profiles where id = auth.uid()) where id = p_id;
+  elsif p_action = 'new' then
+    update public.contact_messages set status = 'new', replied_at = null, replied_by_name = null where id = p_id;
+  elsif p_action = 'delete' then
+    delete from public.contact_messages where id = p_id;
+  else
+    raise exception 'Unknown action %', p_action;
+  end if;
+  if p_action in ('replied', 'delete') then delete from public.notifications where title = 'Contact message ' || m.ref_no; end if;
+end;
+$$;
+revoke execute on function public.contact_message_action(uuid, text) from public, anon;
+grant execute on function public.contact_message_action(uuid, text) to authenticated;

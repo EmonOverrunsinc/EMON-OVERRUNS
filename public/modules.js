@@ -416,7 +416,7 @@
   function printHead(title, rightHtml = "") {
     return `<div class="ph">
       <div class="ph-left">${E.logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div>
-        <div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}${E.siteText()}</div></div></div>
+        <div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)}${E.siteText()}</div></div></div>
       <div class="ph-right">${rightHtml}</div></div>
       <div class="ph-title">${esc(title)}</div>`;
   }
@@ -450,7 +450,7 @@
     const today = `${new Date().toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(isoToday())}`;
     E.shell("dashboard", "Dashboard", `
       <section class="hero">${E.logoHtml("hero-logo")}<div>
-        <h2>${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span></h2><p>${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}${E.siteLink()}</p>
+        <h2>${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span></h2><p>${esc(C.company.address.join(", "))}<br>${esc(C.company.email)}${E.siteLink()}</p>
         <p class="welcome">Welcome, <b>${esc(myName())}</b> (${esc(E.personTitle(S.profile.role, S.position).toUpperCase())}) · ${esc(today)}</p></div></section>
       ${isAdmin() ? `<div class="todo" id="dTodo"></div>` : ""}
       ${H("customers") ? `<div class="tiles" id="dTiles">${["Active Customers", "Applications to Review", "Balance Due (₱)", "Payments This Month (₱)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>` : ""}
@@ -527,15 +527,16 @@
   async function loadTodo() {
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
-    const [apps, jobs, orders, changes, memos] = await Promise.all([
+    const [apps, jobs, orders, changes, memos, contacts] = await Promise.all([
       cnt(sb.from("customers").select("id", head).in("status", ["pending", "verified"])),
       cnt(sb.from("job_applications").select("id", head).eq("status", "submitted")),
       cnt(sb.from("order_letters").select("id", head).eq("status", "pending")),
       cnt(sb.from("change_requests").select("id", head).eq("status", "pending")),
-      cnt(sb.from("credit_memos").select("id", head).eq("status", "pending"))
+      cnt(sb.from("credit_memos").select("id", head).eq("status", "pending")),
+      cnt(sb.from("contact_messages").select("id", head).eq("status", "new"))
     ]);
     const el = $("#dTodo"); if (!el) return;
-    const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [orders, "Orders to approve", "#orders"], [changes, "Corrections", "#changes"], [memos, "Credit memos", "#creditmemos"]];
+    const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [orders, "Orders to approve", "#orders"], [changes, "Corrections", "#changes"], [memos, "Credit memos", "#creditmemos"], [contacts, "Contact messages", "#contacts"]];
     el.innerHTML = `<span class="todo-h">Waiting for you:</span>` + items.map(([n, label, href]) => `<a class="todo-chip ${n ? "hot" : ""}" href="${href}"><b>${n}</b> ${esc(label)}</a>`).join("");
   }
 
@@ -999,13 +1000,11 @@
   // Same rules as the database: invoices, approved Additional Charge orders and Settlement Adjustments that add
   // (on the day they were carried out) debit; payments, approved credit/discount memos (on approval date) and
   // Settlement Adjustments that take money off credit. Each line is named in short business words in capitals (2.2):
-  // a sale is its PURCHASE ORDER (its PO number; the invoice number only when there is no PO number), a payment is
-  // PAYMENT RECEIVED, a memo is CREDIT MEMO or DISCOUNT.
-  const poRef = (i) => (i?.po_number ? String(i.po_number) : i?.invoice_no || "");
+  // a sale is its INVOICE (the invoice number), a payment is PAYMENT RECEIVED, a memo is CREDIT MEMO or DISCOUNT.
   function txnsOf(invs, pays, memos, orders = [], cust = null) {
     const t = [];
     if (num(cust?.opening_balance) > 0) t.push({ date: cust.application_date, ref: cust.account_no, desc: "OPENING BALANCE", debit: num(cust.opening_balance), credit: 0 });
-    invs.forEach((i) => t.push({ date: i.invoice_date, ref: poRef(i), desc: "PURCHASE ORDER", debit: num(i.total_amount), credit: 0, inv: i }));
+    invs.forEach((i) => t.push({ date: i.invoice_date, ref: i.invoice_no, desc: "INVOICE", debit: num(i.total_amount), credit: 0, inv: i }));
     orders.filter((o) => ["charge", "settlement"].includes(o.subject_type) && o.status === "applied" && o.applied_at).forEach((o) => {
       const off = o.subject_type === "settlement" && o.adjust_type === "reduce";
       t.push({ date: isoDay(new Date(o.applied_at)), ref: o.order_no, desc: o.subject_type === "charge" ? "ADDITIONAL CHARGE" : "SETTLEMENT ADJUSTMENT", debit: off ? 0 : num(o.amount), credit: off ? num(o.amount) : 0 });
@@ -1037,7 +1036,7 @@
         out.push({ label, no: noOf(r), amount: r[amtKey], date: r.invoice_date || r.paid_date, url: img ? await signedUrl(a.storage_path, 1800) : "", pdf: !img });
       }
     };
-    await pick("invoice", invoices, ["signed_form"], "PURCHASE ORDER", poRef, "total_amount");
+    await pick("invoice", invoices, ["signed_form"], "INVOICE", (r) => r.invoice_no, "total_amount");
     await pick("payment", payments, ["signed_form", "receipt"], "RECEIPT", (r) => r.receipt_no, "amount");
     return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
   }
@@ -1053,7 +1052,7 @@
     const rows = txns.map((x) => { bal += x.debit - x.credit; return { ...x, bal }; });
     const deb = txns.reduce((s, x) => s + x.debit, 0), cre = txns.reduce((s, x) => s + x.credit, 0);
     const closing = p.closing ?? (p.opening + deb - cre);
-    const head = `<div class="soa-logo">${E.logoHtml("soa-logo-img")}<div class="soa-co">${esc(C.company.name)}</div><div class="soa-addr">${esc(C.company.address.join(", "))} · ${esc(C.company.email)} · ${esc(C.company.phone)}${E.siteText()}</div></div>
+    const head = `<div class="soa-logo">${E.logoHtml("soa-logo-img")}<div class="soa-co">${esc(C.company.name)}</div><div class="soa-addr">${esc(C.company.address.join(", "))} · ${esc(C.company.email)}${E.siteText()}</div></div>
       <div class="ph-title">STATEMENT OF ACCOUNT</div>
       <div class="soa-top"><div class="soa-cust"><b>${esc(fullName(c).toUpperCase())}</b></div>
         <div class="soa-acct"><span>Statement No :</span><b>${esc(p.no || "—")}</b><span>Account No :</span><b>${esc(c.account_no)}</b>
@@ -1065,7 +1064,7 @@
         <tr class="soa-end"><td>${mdy(p.end)}</td><td></td><td>ENDING BALANCE</td><td></td><td></td><td class="num">${peso(closing)}</td></tr>
         <tr class="soa-total"><td><b>TOTAL</b></td><td>${rows.length} TRANSACTION${rows.length === 1 ? "" : "S"}</td><td>${esc(copiesSummary(images))}</td><td class="num">${peso(deb)}</td><td class="num">${peso(cre)}</td><td></td></tr></tbody></table>
       <div class="soa-due"><span>AMOUNT DUE</span><b>₱ ${peso(closing)}</b><small>${esc(words(Math.max(0, closing)))}</small></div>
-      <div class="soa-note">PLEASE EXAMINE THIS STATEMENT. REPORT ANY DISCREPANCY TO ${esc(C.company.name.toUpperCase())} WITHIN 10 DAYS; OTHERWISE, IT IS CONSIDERED CORRECT.<br>PAYMENTS: ${esc(C.company.phone)} · ${esc(C.company.email)}</div>
+      <div class="soa-note">PLEASE EXAMINE THIS STATEMENT. REPORT ANY DISCREPANCY TO ${esc(C.company.name.toUpperCase())} WITHIN 10 DAYS; OTHERWISE, IT IS CONSIDERED CORRECT.<br>PAYMENTS: ${esc(C.company.email)}</div>
       <div class="soa-sys">SYSTEM-GENERATED STATEMENT. NO SIGNATURE REQUIRED.</div>
       <div class="soa-thanks">THANK YOU FOR YOUR BUSINESS.</div>`;
     const pages = [page1];
@@ -1176,7 +1175,7 @@
   const INV_COLS = [
     { label: "Invoice No", get: (r) => r.invoice_no }, { label: "Date", get: (r) => mdy(r.invoice_date) },
     { label: "Account No", get: (r) => r.account_no }, { label: "Customer", get: fullName },
-    { label: "PO No", get: (r) => r.po_number || "" }, { label: "Boxes", num: true, get: (r) => r.total_boxes }, { label: "Pcs", num: true, get: (r) => r.total_pcs },
+    { label: "Boxes", num: true, get: (r) => r.total_boxes }, { label: "Pcs", num: true, get: (r) => r.total_pcs },
     { label: "Amount (₱)", key: "total_amount", num: true, get: (r) => peso(r.total_amount) },
     { label: "Paid (₱)", key: "amount_paid", num: true, get: (r) => peso(r.amount_paid) },
     { label: "Balance (₱)", key: "balance", num: true, get: (r) => peso(r.balance) },
@@ -1212,9 +1211,8 @@
           <fieldset class="opt"><legend>Customer (ACTIVE accounts only)</legend><div id="niCust"></div></fieldset>
           <fieldset class="opt"><legend>Invoice</legend><div class="formgrid">
             <div class="fields wide">
-              <label for="niDate">Invoice Date</label><input type="date" id="niDate" value="${isoToday()}">
-              <label for="niPDate">Purchase Date</label><input type="date" id="niPDate" value="${isoToday()}">
-              <label for="niPo">PO Number</label><input type="text" id="niPo">
+              <label for="niDate">Invoice Date</label><input type="date" id="niDate" value="${isoToday()}" max="${isoToday()}">
+              <span>Invoice No</span><small>Given by the system when you submit (INV-YYYYMM-####).</small>
             </div>
             <div class="fields wide">
               <label for="niBox">Total Boxes</label><input type="number" id="niBox" min="0" step="1" value="0">
@@ -1237,8 +1235,8 @@
                 <span></span><small>Optional — leave empty to skip.</small>
               </div></div></div></fieldset>
           <fieldset class="opt"><legend>Documents</legend><div class="fields wide">
-            ${fileField("niDr", "Delivery Receipt", 'multiple accept="image/*,application/pdf"')}
-            ${fileField("niPoF", "Purchase Order", 'multiple accept="image/*,application/pdf"')}</div></fieldset>
+            ${fileField("niInvF", "Invoice Copy", 'accept="image/*,application/pdf"')}
+            ${fileField("niDr", "Delivery Receipt", 'multiple accept="image/*,application/pdf"')}</div></fieldset>
         </div>
         <div class="wfoot"><button type="button" class="btn" id="niCancel">Cancel</button><button type="submit" class="btn primary">Submit Invoice</button></div>
       </form>`, "The invoice is saved to the customer's account and added to their balance due.");
@@ -1262,8 +1260,8 @@
       if (paid && method === "bank_transfer" && !$("#niRef").value.trim()) return toast("Enter the bank reference number.", true);
       E.setBusy(e.target, true, "Saving");
       const { data: inv, error } = await sb.from("customer_invoices").insert({
-        customer_id: cust.id, invoice_date: $("#niDate").value || isoToday(), purchase_date: $("#niPDate").value || null,
-        po_number: $("#niPo").value.trim() || null, total_boxes: Math.max(0, Math.floor(num($("#niBox").value))),
+        customer_id: cust.id, invoice_date: $("#niDate").value || isoToday(), purchase_date: $("#niDate").value || isoToday(),
+        total_boxes: Math.max(0, Math.floor(num($("#niBox").value))),
         total_pcs: Math.max(0, Math.floor(num($("#niPcs").value))), total_amount: amt
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not record the invoice"); }
@@ -1277,8 +1275,8 @@
         if (pe) fail(pe, "Invoice saved, but the payment could not be recorded");
         else failed += await uploadRecords("payment", p.id, "receipt", filesOf("niRcpt"));
       }
+      failed += await uploadRecords("invoice", inv.id, "signed_form", filesOf("niInvF"));
       failed += await uploadRecords("invoice", inv.id, "delivery_receipt", filesOf("niDr"));
-      failed += await uploadRecords("invoice", inv.id, "purchase_order", filesOf("niPoF"));
       toast(`Invoice ${inv.invoice_no} recorded for ${fullName(cust)}.${failed ? ` ${failed} file(s) failed to upload.` : ""}`, failed > 0);
       location.hash = "invoice/" + inv.id;
     };
@@ -1293,8 +1291,8 @@
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${pill(inv.pay_status)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
-        <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span><span>Purchase Date</span><span>${mdy(inv.purchase_date) || "—"}</span>
-        <span>PO Number</span><span>${esc(inv.po_number || "—")}</span><span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
+        <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>${inv.po_number ? `<span>PO Number</span><span>${esc(inv.po_number)}</span>` : ""}
+        <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
         <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b><span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b><span>Balance</span><b>₱ ${peso(inv.balance)}</b></div></div>
       <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, sub: `₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, pays.data || [])]) })}</div>
@@ -1312,8 +1310,8 @@
   };
   function invoicePage(inv, pays) {
     return `${printHead("INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
-      ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}${cell("PO Number", inv.po_number, "span2")}</div>`)}
-      ${box("Order", `<div class="prow3">${cell("Invoice Date", mdy(inv.invoice_date))}${cell("Purchase Date", mdy(inv.purchase_date))}${cell("Total Boxes", inv.total_boxes)}</div>
+      ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}</div>`)}
+      ${box("Invoice", `<div class="prow3">${cell("Invoice No", inv.invoice_no)}${cell("Invoice Date", mdy(inv.invoice_date))}${cell("Total Boxes", inv.total_boxes)}</div>
         <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Total Amount (₱)", peso(inv.total_amount))}${cell("Balance (₱)", peso(inv.balance))}</div>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
       ${box("Payments Received", pays.length ? `<table class="rp"><thead><tr><th>Receipt No</th><th>Date</th><th>Method</th><th>Reference</th><th class="num">Amount</th></tr></thead><tbody>
@@ -1355,7 +1353,7 @@
               <label for="npAmt">Amount (₱) *</label><input type="number" id="npAmt" min="0.01" step="0.01" required>
               <label for="npMethod">Payment Method</label><select id="npMethod">${Object.entries(METHOD).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
               <label for="npDate">Date Paid</label><input type="date" id="npDate" value="${isoToday()}">
-              <label for="npInv">Apply to Purchase Order</label><select id="npInv"><option value="">— PAYMENT RECEIVED (no specific purchase order) —</option></select>
+              <label for="npInv">Apply to Invoice</label><select id="npInv"><option value="">— PAYMENT RECEIVED (no specific invoice) —</option></select>
             </div>
             <div class="fields wide">
               <label for="npBank" class="npb">Bank Name</label><input type="text" id="npBank" class="npb" placeholder="e.g. BDO, BPI, GCash">
@@ -1366,17 +1364,17 @@
             <div class="summary-box" style="margin-top:6px"><span id="npWords">PESOS ZERO ONLY</span></div></fieldset>
           <fieldset class="opt"><legend>Documents</legend><div class="fields wide">
             ${fileField("npRcpt", "Receipt / Deposit Slip", 'multiple accept="image/*,application/pdf"')}
-            ${fileField("npPo", "Purchase Order (if any)", 'multiple accept="image/*,application/pdf"')}</div></fieldset>
+</div></fieldset>
           <fieldset class="opt"><legend>Notes</legend><input type="text" id="npNotes" placeholder="Optional"></fieldset>
         </div>
         <div class="wfoot"><button type="button" class="btn" id="npCancel">Cancel</button><button type="submit" class="btn primary">Submit Payment</button></div>
       </form>`);
     let cust = null;
     const loadInv = async () => {
-      const sel = $("#npInv"); sel.innerHTML = `<option value="">— PAYMENT RECEIVED (no specific purchase order) —</option>`;
+      const sel = $("#npInv"); sel.innerHTML = `<option value="">— PAYMENT RECEIVED (no specific invoice) —</option>`;
       if (!cust) return;
-      const { data } = await sb.from("invoice_balances").select("id,invoice_no,po_number,balance,invoice_date").eq("customer_id", cust.id).in("pay_status", ["unpaid", "partial"]).order("invoice_date");
-      (data || []).forEach((i) => sel.insertAdjacentHTML("beforeend", `<option value="${i.id}" data-bal="${i.balance}">${i.po_number ? `PURCHASE ORDER ${esc(i.po_number)}` : esc(i.invoice_no)} · ${mdy(i.invoice_date)} — balance ₱${peso(i.balance)}</option>`));
+      const { data } = await sb.from("invoice_balances").select("id,invoice_no,balance,invoice_date").eq("customer_id", cust.id).in("pay_status", ["unpaid", "partial"]).order("invoice_date");
+      (data || []).forEach((i) => sel.insertAdjacentHTML("beforeend", `<option value="${i.id}" data-bal="${i.balance}">INVOICE ${esc(i.invoice_no)} · ${mdy(i.invoice_date)} — balance ₱${peso(i.balance)}</option>`));
       if (invId) { sel.value = invId; const o = sel.selectedOptions[0]; if (o?.dataset.bal && !$("#npAmt").value) { $("#npAmt").value = o.dataset.bal; $("#npWords").textContent = words(o.dataset.bal); } }
     };
     customerPicker($("#npCust"), { statuses: ["active", "suspended", "closed"], onPick: (c) => { cust = c; loadInv(); }, preset: (await getCustomer(custId)) || undefined });
@@ -1400,7 +1398,6 @@
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not record the payment"); }
       let failed = await uploadRecords("payment", p.id, "receipt", filesOf("npRcpt"));
-      failed += await uploadRecords("payment", p.id, "purchase_order", filesOf("npPo"));
       if (failed) toast(`${failed} file(s) failed to upload.`, true);
       location.hash = `payment/${p.id}/done`;
     };
@@ -1408,7 +1405,7 @@
 
   V.payment = async (id, extra) => {
     E.shell("payment", "Payment", busy());
-    const { data: p } = await sb.from("payments_received").select("*, customers(*), invoices:customer_invoices(invoice_no,po_number,total_amount)").eq("id", id).maybeSingle();
+    const { data: p } = await sb.from("payments_received").select("*, customers(*), invoices:customer_invoices(invoice_no,total_amount)").eq("id", id).maybeSingle();
     if (!p) { $("#main").innerHTML = `<div class="empty">Payment not found. <a href="#payments">Back to Payments</a></div>`; return; }
     const att = await attachmentsOf("payment", id);
     $(".band h1").textContent = `Payment — ${p.receipt_no}`;
@@ -1432,8 +1429,8 @@
     bindTools($("#main"));
     E.setRecords(`Receipt: ${p.receipt_no}`);
   };
-  // What a payment is for: the purchase order (its PO number; the invoice number when it has none).
-  const payFor = (p) => (p.invoices?.po_number ? `PURCHASE ORDER ${p.invoices.po_number}` : p.invoices?.invoice_no || "");
+  // What a payment is for: the invoice.
+  const payFor = (p) => (p.invoices?.invoice_no ? `INVOICE ${p.invoices.invoice_no}` : "");
   // System-generated: no signature lines.
   function ackPage(p) {
     const c = p.customers;

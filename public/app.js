@@ -270,7 +270,7 @@
     return `<header class="co-head">${logoHtml()}<div class="co-text">
       <b>${esc(C.company.name)} <span class="co-tag">E-PORTAL</span></b>
       <span>${esc(C.company.address.join(", "))}</span>
-      <span>${esc(C.company.email)} · ${esc(C.company.phone)}${siteLink()}</span></div></header>`;
+      <span>${esc(C.company.email)}${siteLink()}</span></div></header>`;
   }
 
   // ---------- new versions ----------
@@ -324,7 +324,7 @@
           <div class="wtitle">${esc(APP)} — ${esc(title)}</div>
           ${inner}
         </div>
-        <div class="login-below"><a href="#verify" class="verify-link">${ic("shield")} Verify a record — no sign-in needed</a><small>${esc(APP)} · Version ${VERSION}</small></div>
+        <div class="login-below"><a href="#contact" class="verify-link contact-link">${ic("mail")} Contact Us — send us a message</a><a href="#verify" class="verify-link">${ic("shield")} Verify a record — no sign-in needed</a><small>${esc(APP)} · Version ${VERSION}</small></div>
       </div>`;
   }
   const brandBlock = () => `<div class="brand">${logoHtml("login-logo")}<div><b>${esc(C.company.name)}</b><small>E-PORTAL</small></div></div>`;
@@ -654,6 +654,7 @@
   const OTHER = [
     ["verify", "Verification", () => true],
     ["changes", "Corrections", () => isAdmin()],
+    ["contacts", "Contact Messages", () => isAdmin()],
     ["logins", "User", () => isAdmin()],
     ["forms", "Download Forms", () => true]
   ];
@@ -1230,7 +1231,7 @@
     const now = stamp();
     const stampHtml = `<div class="rp-stamp">Date : ${now}<br>User ID : ${esc((S.profile?.full_name || "").toUpperCase())}</div>`;
     const top = logo
-      ? `<div class="rp-brand">${logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}${siteText()}</div></div>${stampHtml}</div>`
+      ? `<div class="rp-brand">${logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)}${siteText()}</div></div>${stampHtml}</div>`
       : stampHtml;
     const chunks = [];
     for (let i = 0; i < rows.length; i += perPage) chunks.push(rows.slice(i, i + perPage));
@@ -1256,7 +1257,7 @@
           <tbody>${summary.rows.map((r) => `<tr>${r.map((v, i) => `<td class="${i ? "num" : ""}">${esc(v)}</td>`).join("")}</tr>`).join("")}
           <tr class="sub">${summary.total.map((v, i) => `<td class="${i ? "num" : ""}">${esc(v)}</td>`).join("")}</tr></tbody></table>` : ""}
           <div class="rp-end">End of Report</div>
-          ${criteria ? `<div class="rp-crit"><b>Report Criteria</b>\n${esc(criteria)}</div>` : ""}` : ""}
+          ${criteria ? `<div class="rp-crit"><b>REPORT</b>\n${esc(criteria)}</div>` : ""}` : ""}
         <div class="rp-foot"><span>${esc(APP)}</span><span>Printed ${now}</span></div>`;
     });
   }
@@ -1411,6 +1412,7 @@
       stopTimers();
       $$(".chat-panel").forEach((x) => x.remove());
       if (key === "verify" && V.verify) return V.verify(arg);
+      if (key === "contact" && V.contact) return V.contact();
       return renderLogin();
     }
     if (recovering) { recovering = false; return renderSetPassword(true); }
@@ -1425,6 +1427,7 @@
     if (S.profile.status === "disabled") return renderDisabled();
     if (S.profile.status !== "active") {
       if (key === "verify" && V.verify) return V.verify(arg);
+      if (key === "contact" && V.contact) return V.contact();
       return V.applicant ? V.applicant(key, arg) : renderPending();
     }
     startTimers();

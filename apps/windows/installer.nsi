@@ -19,7 +19,7 @@ OutFile "dist/EMON-OVERRUNS-E-Portal-Setup-${VERSION}.exe"
 InstallDir "$LOCALAPPDATA\Programs\${APPNAME}"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
-BrandingText "${COMPANY} · Ignacio Street, Pasay City"
+BrandingText "${COMPANY} · Pasay City, Metro Manila"
 
 VIProductVersion "${VERSION}.0"
 VIAddVersionKey "ProductName" "${APPNAME}"

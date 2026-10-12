@@ -502,7 +502,7 @@ function buildMenu() {
   const about = () => dialog.showMessageBox(current(), {
     type: "info", title: "About", icon: ICON, buttons: ["OK"],
     message: "EMON OVERRUNS E-Portal",
-    detail: `Version ${app.getVersion()}\nIgnacio Street, Pasay City, Metro Manila 1300\n\n${SITE}`,
+    detail: `Version ${app.getVersion()}\nPasay City, Metro Manila\nemonoverruns@gmail.com\n\n${SITE}`,
   });
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: "E-Portal", submenu: [
