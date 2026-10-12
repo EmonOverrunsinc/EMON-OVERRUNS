@@ -1,9 +1,11 @@
 -- =====================================================================
 -- EMON OVERRUNS E-PORTAL - Update 2.3: customer account numbers and application numbers
 -- 1. Account number = the first letters of the first and last name + the year and month of the account's opening date +
---    a serial for all customers (001, 002, 003 ... never started again), for example MV-202606001. It is made once,
---    when the customer is saved, and is locked for good: nobody can change it (not even the main Director, and a new
---    opening date does not change it). A serial is used once only: a deleted customer's number is never given again.
+--    a serial for all customers (001, 002, 003 ... never started again), for example MV-202606001. It is made when the
+--    application is APPROVED (a pending application has none, and a rejected one never takes a serial, so the next
+--    approved customer gets it). From then on it is locked for good: nobody can change it (not even the main Director,
+--    and a new opening date does not change it). A serial is used once only: a deleted customer's number is never
+--    given again.
 -- 2. Application number = EO-<year>-<5 random digits>, for example EO-2026-48213: easy to remember and to search, and
 --    different for every customer. It is also locked, and never given again.
 -- 3. The customers saved so far get the new numbers once (serials in the Director's order: MV 001, PR 002, RR 003,
@@ -53,18 +55,16 @@ create or replace function public.customers_before_insert() returns trigger
 language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
 declare
   d date := coalesce(new.application_date, current_date);
-  initials text := upper(left(regexp_replace(new.first_name, '[^A-Za-z]', '', 'g'), 1) || left(regexp_replace(new.last_name, '[^A-Za-z]', '', 'g'), 1));
   app text;
 begin
-  if initials = '' or initials is null then initials := 'XX'; end if;
-  -- the serial for all customers: never started again and never given twice
-  new.account_no := initials || '-' || to_char(d, 'YYYYMM') || lpad(public.next_counter('ACCOUNT')::text, 3, '0');
+  -- the account number is made when the application is approved (customers_account_number)
+  new.account_no := null;
   loop
     app := 'EO-' || to_char(d, 'YYYY') || '-' || lpad((10000 + floor(random() * 90000))::int::text, 5, '0');
     exit when not exists (select 1 from public.issued_numbers where number = app);
   end loop;
   new.application_no := app;
-  insert into public.issued_numbers (number, kind) values (new.account_no, 'account'), (app, 'application');
+  insert into public.issued_numbers (number, kind) values (app, 'application');
   new.status := 'pending';
   new.issued_by := auth.uid();
   new.issued_by_name := (select full_name from public.profiles where id = auth.uid());
@@ -77,11 +77,49 @@ end;
 $$;
 revoke execute on function public.customers_before_insert() from public, anon, authenticated;
 
+-- ---------- the account number, made when the application is approved ----------
+create or replace function public.customers_account_number() returns trigger
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare initials text;
+begin
+  if new.status = 'active' and old.status in ('pending', 'verified') and new.account_no is null then
+    initials := upper(left(regexp_replace(new.first_name, '[^A-Za-z]', '', 'g'), 1) || left(regexp_replace(new.last_name, '[^A-Za-z]', '', 'g'), 1));
+    if initials = '' or initials is null then initials := 'XX'; end if;
+    new.account_no := initials || '-' || to_char(coalesce(new.application_date, current_date), 'YYYYMM')
+                      || lpad(public.next_counter('ACCOUNT')::text, 3, '0');
+    insert into public.issued_numbers (number, kind) values (new.account_no, 'account');
+  end if;
+  return new;
+end;
+$$;
+revoke execute on function public.customers_account_number() from public, anon, authenticated;
+drop trigger if exists customers_account_number on public.customers;
+create trigger customers_account_number before update of status on public.customers
+  for each row execute function public.customers_account_number();
+
+-- the notice of a new application names its application number (the account number comes on approval)
+create or replace function public.customers_after_insert() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.customer_secrets (customer_id, private_code)
+  values (new.id, public.customer_private_id(to_jsonb(new)));
+  insert into public.customer_events (customer_id, action, actor, actor_name)
+  values (new.id, 'application submitted', auth.uid(), new.issued_by_name);
+  insert into public.notifications (user_id, title, body, link)
+  select p.id, 'New customer application ' || new.application_no,
+         new.first_name || ' ' || new.last_name || ' is waiting for review.',
+         'customer/' || new.id
+  from public.profiles p where p.role = 'admin' and p.status = 'active';
+  return new;
+end;
+$$;
+revoke execute on function public.customers_after_insert() from public, anon, authenticated;
+
 -- ---------- the numbers are locked ----------
 create or replace function public.customers_numbers_locked() returns trigger
 language plpgsql set search_path = '' as $$
 begin
-  if new.account_no is distinct from old.account_no then
+  if old.account_no is not null and new.account_no is distinct from old.account_no then
     raise exception 'The account number % is locked and cannot be changed', old.account_no;
   end if;
   if new.application_no is distinct from old.application_no then
