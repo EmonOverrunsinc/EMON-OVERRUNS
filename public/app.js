@@ -6,8 +6,8 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "2.1";
-  const BUILD = "2.1.2"; // the same in index.html (?v=) and in version.json
+  const VERSION = "2.2";
+  const BUILD = "2.2.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -270,7 +270,7 @@
     return `<header class="co-head">${logoHtml()}<div class="co-text">
       <b>${esc(C.company.name)} <span class="co-tag">E-PORTAL</span></b>
       <span>${esc(C.company.address.join(", "))}</span>
-      <span>${esc(C.company.email)} · ${esc(C.company.phone)}${siteLink()}</span></div></header>`;
+      <span>${esc(C.company.email)}${siteLink()}</span></div></header>`;
   }
 
   // ---------- new versions ----------
@@ -307,6 +307,9 @@
     const { data, error } = await sb.from("profiles").select("*").eq("id", S.session.user.id).maybeSingle();
     if (error) fail(error, "Could not load your profile");
     S.profile = data;
+    // 2.2: the main Director (one account only) edits a customer's details; asked once (false when it cannot be told)
+    S.mainDirector = false;
+    if (data && data.role === "admin" && data.status === "active") S.mainDirector = (await sb.rpc("is_main_director").then((r) => r.data, () => false)) === true;
     // the job position shown with the user's name (the Director is shown as Director)
     S.position = "";
     if (data && data.role !== "admin") S.position = (await sb.from("employees").select("position").eq("profile_id", data.id).maybeSingle()).data?.position || "";
@@ -321,7 +324,7 @@
           <div class="wtitle">${esc(APP)} — ${esc(title)}</div>
           ${inner}
         </div>
-        <div class="login-below"><a href="#verify" class="verify-link">${ic("shield")} Verify a record — no sign-in needed</a><small>${esc(APP)} · Version ${VERSION}</small></div>
+        <div class="login-below"><a href="#contact" class="verify-link contact-link">${ic("mail")} Contact Us — send us a message</a><a href="#verify" class="verify-link">${ic("shield")} Verify a record — no sign-in needed</a><small>${esc(APP)} · Version ${VERSION}</small></div>
       </div>`;
   }
   const brandBlock = () => `<div class="brand">${logoHtml("login-logo")}<div><b>${esc(C.company.name)}</b><small>E-PORTAL</small></div></div>`;
@@ -651,6 +654,7 @@
   const OTHER = [
     ["verify", "Verification", () => true],
     ["changes", "Corrections", () => isAdmin()],
+    ["contacts", "Contact Messages", () => isAdmin()],
     ["logins", "User", () => isAdmin()],
     ["forms", "Download Forms", () => true]
   ];
@@ -932,9 +936,9 @@
   const stillHere = () => { const h = location.hash; return () => location.hash === h; };
 
   // ---------- scanning (the E-Portal app for Windows) ----------
-  // In the Windows app every document upload gets a Scan button: the page is scanned with the scanner of the computer
-  // (an HP printer and others). A circle shows how far the scan is (in %), with Cancel; when the page is in, the circle
-  // turns green with ✔. Where the upload saves at once (a signed copy, Files, a requirement on a profile …) the page is
+  // In the Windows app every document upload gets a Scan button: it opens the Windows scanner window, where the scanner
+  // of the computer (an HP printer and others) is chosen and Scan is pressed (2.2). A circle shows the scan, with
+  // Cancel; when the page is in, the circle turns green with ✔. Where the upload saves at once (a signed copy, Files, a requirement on a profile …) the page is
   // saved at once and the screen shows it. In a form that is saved with its Submit button, the scanned pages are listed
   // under the upload with Preview and Delete, and are saved with the form. Photos, barcode pictures and chat files have
   // no Scan.
@@ -955,7 +959,7 @@
       if (!scanFits(inp)) continue;
       const wrap = document.createElement("span");
       wrap.className = "scan-wrap" + (inp.hidden ? " for-hidden" : "");
-      wrap.innerHTML = `<button type="button" class="btn scan-btn" title="Scan the page with the scanner of this computer">${ic("doc")} Scan</button>
+      wrap.innerHTML = `<button type="button" class="btn scan-btn" title="Opens the Windows scanner window: choose the scanner, then press Scan there">${ic("doc")} Scan</button>
         <span class="scan-prog" role="progressbar" aria-label="Scan" aria-valuemin="0" aria-valuemax="100" hidden>
           <span class="ring"><svg viewBox="0 0 40 40" aria-hidden="true"><circle class="rb" cx="20" cy="20" r="17"/><circle class="rf" cx="20" cy="20" r="17"
             stroke-dasharray="${RING.toFixed(2)}" stroke-dashoffset="${RING.toFixed(2)}"/></svg><b class="rp">0%</b><span class="rc">${ic("check")}</span></span>
@@ -1066,8 +1070,6 @@
     }
     return ui;
   }
-  // The circle follows the time when the app gives no progress (the app for Windows 1.4).
-  const SCAN_GUESS_MS = 25000;
   // Waits until the upload has been saved and its screen drawn again (the upload is then no longer on the page), at
   // most `ms`.
   const untilGone = (el, ms) => new Promise((resolve) => {
@@ -1082,21 +1084,12 @@
     wrap.classList.add("scanning");
     btn.disabled = true;
     ui.pct = 0;
-    let heard = false;
-    const t0 = Date.now();
-    const guess = setInterval(() => { if (!heard) ui.show(3 + 87 * (1 - Math.exp(-(Date.now() - t0) / (SCAN_GUESS_MS / 2.2))), "Scanning the page"); }, 250);
-    const onProgress = (p) => { heard = true; ui.show(p && typeof p.pct === "number" ? p.pct : null, p?.text); };
-    ui.show(0, "Starting the scanner");
+    // 2.2: Scan always opens the Windows scanner window (the scanner is chosen there and its Scan button is pressed);
+    // the circle turns while the window is open, and the page is saved by itself when it comes back.
+    const onProgress = (p) => ui.show(p && typeof p.pct === "number" && p.stage !== "START" ? p.pct : null, p?.stage === "START" ? "Opening the scanner window" : p?.text);
+    ui.show(null, "Opening the scanner window");
     try {
-      let r = await window.EOApp.scan({}, onProgress);
-      if (r?.error && r.offerDialog !== false && !/already running/.test(r.error)) {
-        heard = true; ui.reset();
-        if (await confirmBox(`${esc(r.error)}<br><br>Open the scanner window to choose the scanner and scan from there?`, { title: "Scan", ok: "Scanner Window" })) {
-          ui.pct = 0; heard = true; ui.show(null, "Use the scanner window");
-          r = await window.EOApp.scan({ dialog: true }, onProgress);
-        } else r = { cancelled: true, quiet: true };
-      }
-      clearInterval(guess);
+      const r = await window.EOApp.scan({ dialog: true }, onProgress);
       if (r?.cancelled) { ui.reset(); if (!r.quiet) toast("Scan cancelled."); return; }
       if (!r?.ok) { ui.reset(); toast(r?.error || "The scan did not work.", true); return; }
       const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
@@ -1113,7 +1106,6 @@
       ui.reset();
       toast("The scan did not work: " + (e?.message || e), true);
     } finally {
-      clearInterval(guess);
       ui.busy = false;
       wrap.classList.remove("scanning");
       if (btn.isConnected) btn.disabled = false;
@@ -1239,7 +1231,7 @@
     const now = stamp();
     const stampHtml = `<div class="rp-stamp">Date : ${now}<br>User ID : ${esc((S.profile?.full_name || "").toUpperCase())}</div>`;
     const top = logo
-      ? `<div class="rp-brand">${logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)} · ${esc(C.company.phone)}${siteText()}</div></div>${stampHtml}</div>`
+      ? `<div class="rp-brand">${logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)}${siteText()}</div></div>${stampHtml}</div>`
       : stampHtml;
     const chunks = [];
     for (let i = 0; i < rows.length; i += perPage) chunks.push(rows.slice(i, i + perPage));
@@ -1265,7 +1257,7 @@
           <tbody>${summary.rows.map((r) => `<tr>${r.map((v, i) => `<td class="${i ? "num" : ""}">${esc(v)}</td>`).join("")}</tr>`).join("")}
           <tr class="sub">${summary.total.map((v, i) => `<td class="${i ? "num" : ""}">${esc(v)}</td>`).join("")}</tr></tbody></table>` : ""}
           <div class="rp-end">End of Report</div>
-          ${criteria ? `<div class="rp-crit"><b>Report Criteria</b>\n${esc(criteria)}</div>` : ""}` : ""}
+          ${criteria ? `<div class="rp-crit"><b>REPORT</b>\n${esc(criteria)}</div>` : ""}` : ""}
         <div class="rp-foot"><span>${esc(APP)}</span><span>Printed ${now}</span></div>`;
     });
   }
@@ -1420,6 +1412,7 @@
       stopTimers();
       $$(".chat-panel").forEach((x) => x.remove());
       if (key === "verify" && V.verify) return V.verify(arg);
+      if (key === "contact" && V.contact) return V.contact();
       return renderLogin();
     }
     if (recovering) { recovering = false; return renderSetPassword(true); }
@@ -1434,6 +1427,7 @@
     if (S.profile.status === "disabled") return renderDisabled();
     if (S.profile.status !== "active") {
       if (key === "verify" && V.verify) return V.verify(arg);
+      if (key === "contact" && V.contact) return V.contact();
       return V.applicant ? V.applicant(key, arg) : renderPending();
     }
     startTimers();

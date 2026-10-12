@@ -5,9 +5,9 @@ window.EMON_CONFIG = {
   supabaseKey: "sb_publishable_y7G4MCGyfZOKQs-yS5KmXQ_Xk1R13-2",
   company: {
     name: "EMON OVERRUNS",
-    address: ["156 Ignacio Street, Pasay City", "Metro Manila 1300"],
+    // 2.2: the address is the city only, and no phone number is shown anywhere (screens, prints and PDFs)
+    address: ["Pasay City, Metro Manila"],
     email: "emonoverruns@gmail.com",
-    phone: "09777672585",
     director: "Emon Hasan, Managing Director",
     // every printed page carries a small QR of the website: scanning it opens this address
     website: "https://emonoverruns.online"

@@ -603,7 +603,7 @@ table.grid.budget td:first-child input { min-width: 180px; }
 .soa-addr { font-size: 9.5px; }
 .soa-top { display: grid; grid-template-columns: 1fr auto; gap: 20px; margin: 6px 0 14px; font-size: 11px; line-height: 1.5; }
 .soa-acct { display: grid; grid-template-columns: auto auto; gap: 0 6px; }
-.soa-acct span { text-align: right; }
+.soa-acct span { text-align: right; text-transform: uppercase; }
 .soa-acct b { font-weight: normal; }
 table.soa-table { width: 100%; border-collapse: separate; border-spacing: 4px 0; font-size: 10.5px; }
 table.soa-table th { border: 1px solid #000; background: #eee; padding: 4px; font-size: 9.5px; text-align: center; }
@@ -617,7 +617,7 @@ table.soa-table tr.soa-total td { padding-top: 10px; }
 .soa-note { font-size: 9.5px; text-align: center; margin-top: 18px; border-top: 1px solid #000; padding-top: 6px; }
 .soa-sys { margin-top: 12px; text-align: center; font-size: 9.5px; font-style: italic; }
 .soa-thanks { margin-top: 14px; text-align: center; font-size: 13px; font-weight: bold; letter-spacing: .04em; }
-.soa-pg { text-align: right; font-size: 10px; }
+.soa-pg { text-align: right; font-size: 10px; text-transform: uppercase; }
 .soa-imgs { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .soa-imgs figure { margin: 0; text-align: center; }
 .soa-imgs img { width: 100%; max-height: 105mm; object-fit: contain; border: 1px solid #999; }
@@ -1332,3 +1332,22 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
 .scan-page .sp-name { flex: 1 1 120px; min-width: 0; font-weight: bold; }
 .scan-page .sp-name small { display: block; font-weight: normal; color: var(--ink-soft); }
 @media (prefers-reduced-motion: reduce) { .scan-prog.wait .ring > svg, .scan-prog.done .rc { animation: none; } }
+
+/* ---------- Contact Us (2.2) ---------- */
+.login-below .contact-link { font-weight: bold; }
+.contact-hero { text-align: left; }
+.contact-hero .vh-badge, .contact-hero h2, .contact-hero > p { text-align: center; }
+.ct-form { max-width: 560px; margin: 0 auto; display: grid; gap: 4px; }
+.ct-form input[type=text], .ct-form input[type=email], .ct-form input[type=tel], .ct-form textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 2px solid #b7c7da; font: 15px var(--font-ui); }
+.ct-form input:focus, .ct-form textarea:focus { outline: none; border-color: var(--band-2); box-shadow: 0 0 0 4px rgba(111,174,44,.2); }
+.ct-form textarea { resize: vertical; min-height: 110px; }
+.ct-form .btn.big { margin-top: 10px; justify-self: stretch; }
+.ct-via { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 2px 0 6px; }
+.ct-count { justify-self: end; color: var(--ink-soft); }
+.ct-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+.ct-ok { text-align: center; padding: 8px 4px; }
+.ct-ok .vf-seal { margin: 0 auto 6px; }
+.ct-ref-l { margin-top: 8px; color: var(--ink-soft); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.ct-ref { font-size: 26px; font-weight: bold; letter-spacing: .04em; color: var(--title-2); margin: 2px 0 8px; word-break: break-all; }
+.ct-card .ct-from { font-weight: bold; }
+.ct-msg { white-space: pre-wrap; margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: #f6f9fd; border: 1px solid var(--panel-line); }

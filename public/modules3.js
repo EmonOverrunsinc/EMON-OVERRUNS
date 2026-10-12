@@ -50,7 +50,7 @@
   // record numbers are never corrected: a wrong money record is deleted by the Director and recorded again.
   const FIELDS = {
     customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("facebook_link", "Facebook Account Link"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool"), F("credit_limit", "Credit Limit (₱)", "money")],
-    customer_invoices: [F("purchase_date", "Purchase Date", "date"), F("po_number", "PO Number"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int")],
+    customer_invoices: [F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int")], // 2.2: one date (the invoice date), no PO
     payments_received: [F("method", "Method", "select", METHODS), F("bank_name", "Bank Name"), F("bank_account", "Deposit Account"), F("reference_no", "Reference No"), F("notes", "Notes")],
     credit_memos: [F("payment_ref", "Payment Reference"), F("po_number", "Purchase Order"), F("article", "Article"), F("brand", "Brand"), F("style", "Style"), F("batch_no", "Batch No"), F("serial_no", "Serial No"), F("purchase_date", "Purchase Date", "date"),
       F("defect_category", "Defect Category", "select", [["fabric_damage", "Fabric Damage"], ["color_issue", "Color Issue"], ["wrong_box", "Wrong Box Delivered"], ["wrong_bundle", "Wrong Bundle"], ["other", "Other"]]), F("defect_detail", "Defect Details"),
@@ -113,14 +113,16 @@
   };
 
   // The saved record is not edited: a correction record is added with the new details and keeps the original ones.
+  // A customer's correction is added at once only by the main Director (2.2); another Director account asks for it.
+  const correctsAtOnce = (table) => (table === "customers" ? !!S.mainDirector : isAdmin());
   function correctRecord(table, row, label, reload) {
     const fields = FIELDS[table];
     if (!fields) return toast("This record cannot be corrected.", true);
-    const admin = isAdmin();
+    const admin = correctsAtOnce(table);
     const m = E.modal(`${admin ? "Add Correction" : "Request Correction"} — ${label}`, `
-      <div class="hint">${admin ? "The record takes the new details at once" : "When the Director approves, the record takes the new details"}. The correction itself is not kept: it leaves no history.</div>
+      <div class="hint">${admin ? "The record takes the new details at once" : `When the ${table === "customers" ? "main Director" : "Director"} approves, the record takes the new details`}. The correction itself is not kept: it leaves no history.</div>
       <div class="fields wide edit-grid">${fields.map((f) => fieldInput(f, row[f.k])).join("")}</div>
-      ${MONEY.includes(table) ? `<small class="muted">Amounts and transaction dates cannot be corrected. If they are wrong, ${admin ? "delete this record" : "ask the Director to delete this record"} and record it again.</small>` : ""}
+      ${MONEY.includes(table) ? `<small class="muted">Amounts and transaction dates cannot be corrected. If they are wrong, ${isAdmin() ? "delete this record" : "ask the Director to delete this record"} and record it again.</small>` : ""}
       <label class="fl" for="edReason">Reason for the correction *</label><textarea id="edReason" rows="2" placeholder="e.g. The wrong phone number was typed"></textarea>`,
       `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn primary" data-ok>${admin ? "Add Correction" : "Send for Approval"}</button>`, { wide: true });
     $("[data-x]", m.el).onclick = m.close;
@@ -135,7 +137,7 @@
       btn.disabled = false;
       if (error) return fail(error, admin ? "Could not add the correction" : "Could not send the correction");
       m.close();
-      toast(admin ? "Correction saved: the record shows the new details." : `Correction ${data.request_no} sent to the Director for approval.`);
+      toast(admin ? "Correction saved: the record shows the new details." : `Correction ${data.request_no} sent to the ${table === "customers" ? "main Director" : "Director"} for approval.`);
       if (reload) reload();
     };
   }
@@ -166,19 +168,24 @@
     if (RT.size > 300) RT.clear();
     const id = "rt" + Math.random().toString(36).slice(2, 9);
     RT.set(id, { table, row, label, ...opts });
-    return `<span class="rtools" data-rt="${id}">${fix ? `<button type="button" class="btn" data-rt-fix>${ic("edit")} ${admin ? "Add Correction" : "Request Correction"}</button>` : ""}${del ? `<button type="button" class="btn danger" data-rt-del>${ic("trash")} Delete</button>` : ""}</span>`;
+    const fixLabel = table === "customers" && S.mainDirector ? "Edit Customer" : correctsAtOnce(table) ? "Add Correction" : "Request Correction";
+    return `<span class="rtools" data-rt="${id}">${fix ? `<button type="button" class="btn" data-rt-fix>${ic("edit")} ${fixLabel}</button>` : ""}${del ? `<button type="button" class="btn danger" data-rt-del>${ic("trash")} Delete</button>` : ""}</span>`;
   }
   function bindRecordTools(root = document) {
     $$("[data-rt]", root).forEach((w) => {
       const o = RT.get(w.dataset.rt); if (!o) return;
       const fx = $("[data-rt-fix]", w), dl = $("[data-rt-del]", w);
-      if (fx) fx.onclick = (e) => { e.stopPropagation(); correctRecord(o.table, o.row, o.label, o.reload); };
+      if (fx) fx.onclick = (e) => {
+        e.stopPropagation();
+        if (o.table === "customers" && S.mainDirector && E.editCustomer) E.editCustomer(o.row, o.reload);
+        else correctRecord(o.table, o.row, o.label, o.reload);
+      };
       if (dl) dl.onclick = (e) => { e.stopPropagation(); deleteRecord(o.table, o.row, o.label, o.afterDelete || o.reload); };
     });
     $$("[data-rh]", root).forEach((el) => { const [t, id] = el.dataset.rh.split(":"); recordHistory(el, t, id); });
   }
   // Changes to one record (corrections still waiting, files removed, an order changed before approval), newest first.
-  // An approved correction leaves no line here (2.1). Director only.
+  // A decided correction leaves no line here (2.2). Director only.
   const rhBox = (table, id) => isAdmin() ? `<div class="rhist" data-rh="${esc(table)}:${esc(id)}" hidden></div>` : "";
   async function recordHistory(el, table, id) {
     const [done, reqs] = await Promise.all([
@@ -212,9 +219,9 @@
   V.changes = async () => {
     if (!isAdmin()) { location.hash = "dashboard"; return; }
     E.shell("changes", "Corrections", `
-      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button><button type="button" data-f="log">Change Log</button></div>
+      <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="log">Change Log</button></div>
       <div id="crRes">${busy()}</div>`,
-      "Employees send <b>corrections</b> (wrong details) here. <b>Approve</b> puts the new details on the record, and the correction is then removed: it leaves no history. Your own corrections change the record straight away. Only you can see corrections.");
+      "Employees send <b>corrections</b> (wrong details) here. <b>Approve</b> puts the new details on the record; <b>Reject</b> leaves the record as it is. Either way the correction is then removed: it leaves no record (the person who asked is told when it is rejected). Your own corrections change the record straight away. A customer's details are changed by the main Director only (<b>Edit Customer</b> on the customer).");
     const run = async (f) => {
       $("#crRes").innerHTML = busy();
       if (f === "log") {
@@ -227,8 +234,8 @@
           { label: "By", get: (r) => r.actor_name || "" }, { label: "Correction No", get: (r) => r.request_no || "" }], rows, empty: "No changes yet." });
         return E.setRecords(`Changes: ${rows.length}`);
       }
-      let q = sb.from("change_requests").select("*").order("created_at", { ascending: false }).limit(300);
-      if (f) q = q.eq("status", f);
+      // a decided correction is removed (2.2): only the ones waiting are here
+      const q = sb.from("change_requests").select("*").eq("status", "pending").order("created_at", { ascending: false }).limit(300);
       const { data, error } = await q;
       if (error) return fail(error, "Could not load corrections");
       const rows = data || [];
@@ -238,6 +245,7 @@
           <table class="grid cr-diff"><thead><tr><th>Field</th><th>Original</th><th>Corrected</th></tr></thead><tbody>
             ${Object.keys(r.changes || {}).map((k) => `<tr><td>${esc(fieldLabel(r.target_table, k))}</td><td class="old">${esc(showVal(r.previous?.[k]))}</td><td class="new">${esc(showVal(r.changes[k]))}</td></tr>`).join("")}</tbody></table>
           ${r.status !== "pending" ? `<div class="cr-done">${r.status === "approved" ? "Approved" : "Rejected"} by ${esc(r.reviewed_by_name || "")} · ${esc(E.dateTime(r.reviewed_at))}${r.review_note ? " — " + esc(r.review_note) : ""}</div>`
+            : r.target_table === "customers" && !S.mainDirector ? `<div class="cr-done">Waiting for the main Director: a customer's details are changed by the main Director only.</div>`
             : `<div class="cr-act"><input type="text" placeholder="Note (optional)" data-note="${r.id}"><button type="button" class="btn ok" data-cr="${r.id}" data-a="approve">${ic("check")} Approve</button><button type="button" class="btn danger" data-cr="${r.id}" data-a="reject">Reject</button></div>`}
         </article>`).join("") : `<div class="empty">${f === "pending" ? "Nothing waiting for approval." : "Nothing here."}</div>`;
       $$("[data-cr]").forEach((b) => (b.onclick = async () => {
@@ -245,7 +253,7 @@
         b.disabled = true;
         const { error: e2 } = await sb.rpc("review_change_request", { p_id: b.dataset.cr, p_action: b.dataset.a, p_note: note });
         if (e2) { b.disabled = false; return fail(e2, "Could not update the request"); }
-        toast(b.dataset.a === "reject" ? "Request rejected." : "Approved — the record shows the new details, and the correction is removed."); run(f); E.refreshBadge();
+        toast(b.dataset.a === "reject" ? "Rejected — the record stays as it is, and the correction is removed. The person who asked is told." : "Approved — the record shows the new details, and the correction is removed."); run(f); E.refreshBadge();
       }));
       E.setRecords(`Requests: ${rows.length}`);
     };
@@ -1280,6 +1288,117 @@
       <div class="vp-sys">This is a system-generated document. No signature is required.</div></div>`;
     E.openPreview(`Validated ${d.number}`, [page]);
   }
+
+  // ======================================================================
+  // Contact Us (no sign-in needed) and the Director's Contact Messages (2.2)
+  // ======================================================================
+  const REPLY_VIA = { email: "Email", call: "Phone Call", sms: "SMS / Text", whatsapp: "WhatsApp", viber: "Viber", facebook: "Facebook Messenger" };
+  const REPLY_TO = { email: "Your Email Address", call: "Your Mobile Number", sms: "Your Mobile Number", whatsapp: "Your WhatsApp Number",
+    viber: "Your Viber Number", facebook: "Your Facebook Name or Profile Link" };
+  V.contact = async () => {
+    const inside = !!(S.session && S.profile?.status === "active");
+    const body = `
+      <section class="verify-hero contact-hero">
+        <div class="vh-badge">${ic("mail")}</div>
+        <h2>Contact Us</h2>
+        <p>Send us a message and tell us how to reply. You get a reference number for your message.</p>
+        <form id="ctForm" class="ct-form" novalidate>
+          <label class="fl" for="ctName">Your Name *</label><input type="text" id="ctName" maxlength="120" autocomplete="name" required>
+          <span class="fl">How Should We Reply? *</span>
+          <div class="checks ct-via">${Object.entries(REPLY_VIA).map(([k, l], i) => `<label><input type="radio" name="ctVia" value="${k}" ${i ? "" : "checked"}> ${esc(l)}</label>`).join("")}</div>
+          <label class="fl" for="ctTo" id="ctToL">${REPLY_TO.email} *</label><input type="text" id="ctTo" maxlength="200" autocomplete="email" required>
+          <label class="fl" for="ctMsg">Message *</label><textarea id="ctMsg" rows="5" maxlength="2000" required></textarea>
+          <small class="ct-count" id="ctCount">0 / 2,000</small>
+          <input type="text" id="ctWeb" class="ct-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <button type="submit" class="btn primary big">${ic("send")} Send Message</button>
+        </form>
+        <div id="ctDone" hidden></div>
+      </section>`;
+    if (inside) E.shell("contact", "Contact Us", body); else E.miniShell("Contact Us", body, { home: "#dashboard" });
+    const via = () => $("input[name=ctVia]:checked").value;
+    const relabel = () => {
+      const v = via();
+      $("#ctToL").textContent = REPLY_TO[v] + " *";
+      $("#ctTo").type = v === "email" ? "email" : v === "facebook" ? "text" : "tel";
+      $("#ctTo").autocomplete = v === "email" ? "email" : v === "facebook" ? "off" : "tel";
+    };
+    $$("input[name=ctVia]").forEach((r) => (r.onchange = relabel));
+    $("#ctMsg").oninput = () => ($("#ctCount").textContent = `${$("#ctMsg").value.length.toLocaleString("en-US")} / 2,000`);
+    $("#ctName").focus();
+    $("#ctForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const name = $("#ctName").value.trim(), to = $("#ctTo").value.trim(), msg = $("#ctMsg").value.trim(), v = via();
+      if (name.length < 2) return toast("Enter your name.", true);
+      if (v === "email" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return toast("Enter your email address.", true);
+      if (["call", "sms", "whatsapp", "viber"].includes(v) && !/^[0-9]{7,15}$/.test(to.replace(/[^0-9]/g, ""))) return toast("Enter your mobile number.", true);
+      if (to.length < 3) return toast(`Enter ${REPLY_TO[v].toLowerCase()}.`, true);
+      if (msg.length < 2) return toast("Write your message.", true);
+      E.setBusy(e.target, true, "Sending");
+      if ($("#ctWeb").value) { await new Promise((r) => setTimeout(r, 800)); E.setBusy(e.target, false); return; } // a robot filled the hidden box
+      const { data: ref, error } = await sb.rpc("submit_contact_message", { p_name: name, p_reply_via: v, p_reply_to: to, p_message: msg });
+      E.setBusy(e.target, false);
+      if (error) return fail(error, "Could not send the message");
+      $("#ctForm").hidden = true;
+      const done = $("#ctDone");
+      done.hidden = false;
+      done.innerHTML = `<div class="ct-ok"><div class="vf-seal">✔</div><div class="vf-title">MESSAGE SENT</div>
+        <div class="ct-ref-l">Your Reference No</div><div class="ct-ref mono" id="ctRef">${esc(ref)}</div>
+        <p>Thank you, ${esc(name)}. Keep this number. We will reply by <b>${esc(REPLY_VIA[v])}</b> to <b>${esc(to)}</b>.</p>
+        <div class="btnrow center"><button type="button" class="btn" id="ctCopy">${ic("copy")} Copy Reference No</button><button type="button" class="btn" id="ctAgain">${ic("mail")} Send Another Message</button>${inside ? "" : `<a class="btn primary" href="#dashboard">${ic("user")} Sign In</a>`}</div></div>`;
+      $("#ctCopy").onclick = () => navigator.clipboard?.writeText(ref).then(() => toast("Reference No copied."), () => {});
+      $("#ctAgain").onclick = () => V.contact();
+      $("h2", done.closest(".contact-hero"))?.scrollIntoView({ block: "start", behavior: "smooth" });
+    };
+  };
+
+  // Where to reply: a link that opens the email, call, SMS, WhatsApp, Viber or Facebook (Philippine 09… numbers as +63).
+  const intl = (to) => { const d = String(to).replace(/[^0-9]/g, ""); return d.startsWith("0") ? "63" + d.slice(1) : d; };
+  function replyLink(m) {
+    const to = m.reply_to, t = esc(to);
+    switch (m.reply_via) {
+      case "email": return `<a href="mailto:${esc(encodeURIComponent(to).replace(/%40/g, "@"))}?subject=${esc(encodeURIComponent("Re: " + m.ref_no + " - " + C.company.name))}">${t}</a>`;
+      case "call": return `<a href="tel:+${intl(to)}">${t}</a>`;
+      case "sms": return `<a href="sms:+${intl(to)}">${t}</a>`;
+      case "whatsapp": return `<a href="https://wa.me/${intl(to)}" target="_blank" rel="noopener">${t}</a>`;
+      case "viber": return `<a href="viber://chat?number=%2B${intl(to)}">${t}</a>`;
+      default: return /^https?:\/\/(www\.|m\.)?(facebook|fb)\.com\//i.test(to) ? `<a href="${esc(to)}" target="_blank" rel="noopener">${t}</a>` : t;
+    }
+  }
+  V.contacts = async () => {
+    if (!isAdmin()) { location.hash = "dashboard"; return; }
+    E.shell("contacts", "Contact Messages", `
+      <div class="tabs" id="ctF"><button type="button" class="on" data-f="new">New</button><button type="button" data-f="replied">Replied</button><button type="button" data-f="">All</button></div>
+      <div id="ctRes">${busy()}</div>`,
+      "Messages sent with <b>Contact Us</b> on the sign-in page, each with its reference number. Reply the way the person asked (press the email, number or Facebook link), then press <b>Mark Replied</b>.");
+    const run = async (f) => {
+      $("#ctRes").innerHTML = busy();
+      let q = sb.from("contact_messages").select("*").order("created_at", { ascending: false }).limit(500);
+      if (f) q = q.eq("status", f);
+      const { data, error } = await q;
+      if (error) return fail(error, "Could not load the messages");
+      const rows = data || [];
+      $("#ctRes").innerHTML = rows.length ? rows.map((m) => `<article class="cr-card ct-card ${m.status === "replied" ? "st-approved" : ""}">
+          <header><b class="mono">${esc(m.ref_no)}</b> ${pill(m.status === "new" ? "pending" : "approved", m.status === "new" ? "NEW" : "REPLIED")} <span class="ct-from">${esc(m.name)}</span>
+            <small>${esc(E.dateTime(m.created_at))} · Reply by <b>${esc(REPLY_VIA[m.reply_via] || m.reply_via)}</b>: ${replyLink(m)}</small></header>
+          <div class="ct-msg">${esc(m.message)}</div>
+          ${m.status === "replied" ? `<div class="cr-done">Replied by ${esc(m.replied_by_name || "")} · ${esc(E.dateTime(m.replied_at))}</div>` : ""}
+          <div class="cr-act">${m.status === "new" ? `<button type="button" class="btn ok" data-ct="${m.id}" data-a="replied">${ic("check")} Mark Replied</button>` : `<button type="button" class="btn" data-ct="${m.id}" data-a="new">Mark as New</button>`}
+            <button type="button" class="btn danger" data-ct="${m.id}" data-a="delete">${ic("trash")} Delete</button></div>
+        </article>`).join("") : `<div class="empty">${f === "new" ? "No new messages." : "No messages."}</div>`;
+      $$("[data-ct]").forEach((b) => (b.onclick = async () => {
+        const m = rows.find((r) => r.id === b.dataset.ct), a = b.dataset.a;
+        if (a === "delete" && !await E.confirmBox(`Delete message <b>${esc(m.ref_no)}</b> from ${esc(m.name)}? It is gone for good.`, { title: "Delete Message", ok: "Delete", danger: true })) return;
+        b.disabled = true;
+        const { error: e2 } = await sb.rpc("contact_message_action", { p_id: m.id, p_action: a });
+        if (e2) { b.disabled = false; return fail(e2, "Could not update the message"); }
+        toast(a === "replied" ? `${m.ref_no} marked replied.` : a === "new" ? `${m.ref_no} is new again.` : `${m.ref_no} deleted.`);
+        run(f); E.refreshBadge();
+      }));
+      E.setRecords(`Messages: ${rows.length}`);
+    };
+    $$("#ctF button").forEach((b) => (b.onclick = () => { $$("#ctF button").forEach((x) => x.classList.toggle("on", x === b)); run(b.dataset.f); }));
+    run("new");
+  };
 
   // ======================================================================
   // Messages — chat between admin and employees, with photos and documents
