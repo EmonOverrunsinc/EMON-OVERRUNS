@@ -463,7 +463,6 @@
       </div>
       ${H("invoices") || H("payments") ? `<div class="cols" style="margin-top:10px">
         ${H("invoices") ? `<div class="box"><h3>Invoices <a href="#invoices" class="box-link">Open</a></h3><div class="in">
-          <div class="seg dinv-seg" id="dInvSeg"><button type="button" class="on" data-f="open">Active</button><button type="button" data-f="paid">Closed (Paid)</button></div>
           <div id="dInv">${busy()}</div></div></div>` : ""}
         ${H("payments") ? `<div class="box"><h3>Recent Payments</h3><div class="in" id="dPay">${busy()}</div></div>` : ""}
       </div>` : ""}`);
@@ -498,24 +497,15 @@
       E.bindGrid($("#dApps"), waiting.slice(0, 8), (r) => (location.hash = "customer/" + r.id));
     }
     if ($("#dInv")) {
-      // 2.4: Active invoices (UNPAID or PARTIAL PAYMENT, with what is still due) and Closed invoices (PAID)
-      const all = inv.data || [], open = invPick(all, "open"), closed = invPick(all, "paid");
-      const due = open.reduce((s, r) => s + num(r.balance), 0);
-      const [bOpen, bPaid] = $$("#dInvSeg button");
-      bOpen.textContent = `Active (${open.length}) · ₱ ${peso(due)}`; bPaid.textContent = `Closed (Paid) (${closed.length})`;
-      const show = (f) => {
-        const rows = (f === "paid" ? closed : open).slice(0, 8);
-        // three columns, so the status shows on a phone too: the invoice (with the customer under it), what is still
-        // due (the amount for a paid invoice), and PAID / PARTIAL PAYMENT / UNPAID
-        $("#dInv").innerHTML = E.grid({ cols: [
-          { label: "Invoice / Customer", html: (r) => `<b>${esc(r.invoice_no)}</b><br><small>${esc(fullName(r))}</small>` },
-          f === "paid" ? { label: "Amount (₱)", num: true, get: (r) => peso(r.total_amount) } : { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) },
-          { label: "Status", html: (r) => pill(r.pay_status) }],
-          rows, onRow: true, empty: f === "paid" ? "No paid invoices yet." : "No active invoices: everything is paid." });
-        E.bindGrid($("#dInv"), rows, (r) => (location.hash = "invoice/" + r.id));
-      };
-      $$("#dInvSeg button").forEach((b) => (b.onclick = () => { $$("#dInvSeg button").forEach((x) => x.classList.toggle("on", x === b)); show(b.dataset.f); }));
-      show("open");
+      // 2.4.3: the newest invoices with their status (PAID / PARTIAL PAYMENT / UNPAID); three columns, so the status
+      // shows on a phone too: the invoice (with the customer under it), what is still due, and the status
+      const rows = (inv.data || []).slice(0, 8);
+      $("#dInv").innerHTML = E.grid({ cols: [
+        { label: "Invoice / Customer", html: (r) => `<b>${esc(r.invoice_no)}</b><br><small>${esc(fullName(r))}</small>` },
+        { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) },
+        { label: "Status", html: (r) => pill(r.pay_status) }],
+        rows, onRow: true, empty: "No invoices yet." });
+      E.bindGrid($("#dInv"), rows, (r) => (location.hash = "invoice/" + r.id));
     }
     if ($("#dPay")) {
       const rp = pays.slice(0, 8);
@@ -1200,16 +1190,15 @@
     { label: "Balance (₱)", key: "balance", num: true, get: (r) => peso(r.balance) },
     { label: "Status", html: (r) => pill(r.pay_status) }
   ];
-  // 2.4: Active invoices still have a balance (UNPAID or PARTIAL PAYMENT); Closed invoices are PAID in full. What is
-  // paid comes from the database (invoice_balances): everything paid to the customer's account pays the oldest
+  // 2.4.3: the tabs are All, Unpaid, Partial Payment and Paid. What is paid comes from the database (invoice_balances): everything paid to the customer's account pays the oldest
   // invoices first (payments are never for one invoice).
-  const INV_TABS = [["open", "Active"], ["unpaid", "Unpaid"], ["partial", "Partial Payment"], ["paid", "Closed (Paid)"], ["", "All"]];
-  const invPick = (all, f) => (f === "open" ? all.filter((r) => r.pay_status !== "paid") : f ? all.filter((r) => r.pay_status === f) : all);
+  const INV_TABS = [["", "All"], ["unpaid", "Unpaid"], ["partial", "Partial Payment"], ["paid", "Paid"]];
+  const invPick = (all, f) => (f ? all.filter((r) => r.pay_status === f) : all);
   V.invoices = async () => {
     E.shell("invoices", "Invoice", `
       <div class="tabs" id="ivTabs">${INV_TABS.map(([f, l], i) => `<button type="button" class="${i ? "" : "on"}" data-f="${f}">${l} <span data-n="${f}"></span></button>`).join("")}</div>
       <div class="btnrow">${E.canWrite("invoices") ? `<a class="btn primary" href="#newinvoice">+ Record Invoice</a>` : ""}</div>
-      <div id="ivRes">${busy()}</div>`, "<b>Active</b> invoices still have a balance: <b>UNPAID</b> (nothing paid yet) or <b>PARTIAL PAYMENT</b>. <b>Closed</b> invoices are <b>PAID</b> in full. Payments, credit memos, discounts and settlement adjustments are for the customer's account: they pay the oldest invoices first. Press <b>Record Invoice</b> to add a sale for an ACTIVE customer.");
+      <div id="ivRes">${busy()}</div>`, "Every invoice is <b>PAID</b> (in full), <b>PARTIAL PAYMENT</b> or <b>UNPAID</b> (nothing paid yet). Payments, credit memos, discounts and settlement adjustments are for the customer's account: they pay the oldest invoices first. Press <b>Record Invoice</b> to add a sale for an ACTIVE customer.");
     const { data, error } = await sb.from("invoice_balances").select("*").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(5000);
     if (error) return fail(error, "Could not load invoices");
     const all = data || [];
@@ -1223,7 +1212,7 @@
       E.setRecords(`Invoices: ${rows.length}`);
     };
     $$("#ivTabs button").forEach((b) => (b.onclick = () => { $$("#ivTabs button").forEach((x) => x.classList.toggle("on", x === b)); run(b.dataset.f); }));
-    run("open");
+    run("");
   };
 
   V.newinvoice = async (custId) => {
