@@ -56,8 +56,8 @@ customer's **account**, never for one invoice (Record Payment has no "Apply to I
 invoice before is now for the account). Everything paid or credited pays what is owed **oldest first** (the opening
 balance, then each invoice, additional charge and settlement adjustment that adds, by date), so every invoice shows
 **PAID**, **PARTIAL PAYMENT** or **UNPAID**, and the invoices' balances add up to the account's balance. **Invoices**
-has the tabs **Active** (still a balance), **Unpaid**, **Partial Payment**, **Closed (Paid)** and **All**; the
-**Dashboard** has an **Invoices** box with **Active** (with what is still due) and **Closed (Paid)**. **Record Invoice**
+has the tabs **All**, **Unpaid**, **Partial Payment** and **Paid** (2.4.3: no Active / Closed); the **Dashboard**
+**Invoices** box lists the newest invoices with their balance and status. **Record Invoice**
 asks for the **Terms of Payment** (CASH ON DELIVERY, 7 / 15 / 30 / 45 / 60 / 90 DAYS, or other terms typed in) and
 shows the **Due Date**; an invoice recorded before gets its terms with **Add Correction**. The invoice page, its print
 and **Verify a record** show the terms, the status, what is paid and the balance (`invoice_balances` in
