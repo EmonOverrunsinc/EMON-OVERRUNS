@@ -6,12 +6,12 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "2.4";
-  const BUILD = "2.4.3"; // the same in index.html (?v=) and in version.json
+  const VERSION = "2.5";
+  const BUILD = "2.5.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
-  const S = { session: null, profile: null, chart: null, lastResult: [] };
+  const S = { session: null, profile: null, lastResult: [] };
 
   // ---------- helpers ----------
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -193,8 +193,30 @@
     return `${unit} ${parts.join(" ")}${cents ? ` AND ${pad(cents)}/100` : ""} ONLY`;
   }
 
+  // ---------- libraries loaded when needed (2.5) ----------
+  // The barcode maker (bwip-js, 1.1 MB) starts loading with the page but no longer holds it up (index.html preloads
+  // it); the code reader (ZXing) loads the first time something is scanned or read from a photo.
+  const LIBS = { bwip: ["vendor/bwip-js-min.js", "bwipjs"], zxing: ["vendor/zxing.min.js", "ZXing"] };
+  const libs = {};
+  function need(name) {
+    const [src, global] = LIBS[name];
+    if (window[global]) return Promise.resolve(window[global]);
+    return (libs[name] ||= new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src; s.async = true;
+      s.onload = () => (window[global] ? resolve(window[global]) : reject(new Error(`Could not start ${src}.`)));
+      s.onerror = () => { delete libs[name]; s.remove(); reject(new Error("Could not load a part of the portal. Check the internet connection and try again.")); };
+      document.head.appendChild(s);
+    }));
+  }
+  need("bwip").catch(() => {});
+
   // ---------- PDF417 and QR ----------
+  // Before the barcode maker has loaded, a canvas is drawn as soon as it is there, and a picture address is a mark
+  // ("bc:pdf417:…" or "bc:qrcode:…") that the print preview turns into the barcode (fillCodes).
+  const codeMark = (kind, text) => { need("bwip").catch(() => {}); return `bc:${kind}:${encodeURIComponent(text)}`; };
   function drawPdf417(canvas, text) {
+    if (!window.bwipjs) { need("bwip").then(() => drawPdf417(canvas, text), () => {}); return true; }
     try {
       window.bwipjs.toCanvas(canvas, { bcid: "pdf417", text, scale: 2, height: 10, columns: 6, padding: 4, backgroundcolor: "FFFFFF" });
       return true;
@@ -204,10 +226,11 @@
     }
   }
   function pdf417DataUrl(text) {
+    if (!window.bwipjs) return codeMark("pdf417", text);
     const c = document.createElement("canvas");
     return drawPdf417(c, text) ? c.toDataURL("image/png") : "";
   }
-  function decodeCanvas(canvas) {
+  function decodeCanvas(canvas) { // needs the code reader loaded first: await need("zxing")
     const Z = window.ZXing;
     const hints = new Map([[Z.DecodeHintType.TRY_HARDER, true], [Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.PDF_417, Z.BarcodeFormat.QR_CODE]]]);
     const bmp = new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)));
@@ -215,15 +238,20 @@
     return r.decode(bmp).getText();
   }
   function drawQr(canvas, text) {
+    if (!window.bwipjs) { need("bwip").then(() => drawQr(canvas, text), () => {}); return true; }
     try { window.bwipjs.toCanvas(canvas, { bcid: "qrcode", text, scale: 4, padding: 2, backgroundcolor: "FFFFFF" }); return true; }
     catch (e) { console.error(e); return false; }
   }
-  function qrDataUrl(text) { const c = document.createElement("canvas"); return drawQr(c, text) ? c.toDataURL("image/png") : ""; }
+  function qrDataUrl(text) {
+    if (!window.bwipjs) return codeMark("qrcode", text);
+    const c = document.createElement("canvas"); return drawQr(c, text) ? c.toDataURL("image/png") : "";
+  }
+  const fillCodes = (html) => html.replace(/bc:(pdf417|qrcode):([^"'\s<>]*)/g, (_, kind, t) => (kind === "pdf417" ? pdf417DataUrl : qrDataUrl)(decodeURIComponent(t)));
   // 2.1: the QR of the website for the foot of every printed page, made once. Error correction Q (a smudge or a fold
   // still scans) keeps it at 29 × 29 modules, so it stays small on paper.
   let webQrUrl = "";
   function websiteQr() {
-    if (webQrUrl || !C.company.website) return webQrUrl;
+    if (webQrUrl || !C.company.website || !window.bwipjs) return webQrUrl;
     const c = document.createElement("canvas");
     try { window.bwipjs.toCanvas(c, { bcid: "qrcode", text: C.company.website, eclevel: "Q", scale: 6, padding: 2, backgroundcolor: "FFFFFF" }); webQrUrl = c.toDataURL("image/png"); }
     catch (e) { console.error(e); }
@@ -231,6 +259,7 @@
   }
   // Try the image as-is and rotated, with a white quiet zone around it.
   async function decodeImageFile(file) {
+    await need("zxing");
     const url = URL.createObjectURL(file);
     try {
       const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("That file is not an image the browser can read.")); i.src = url; });
@@ -745,7 +774,7 @@
     ["verify", "Verification", () => true],
     ["changes", "Corrections", () => isAdmin()],
     ["contacts", "Contact Messages", () => isAdmin()],
-    ["logins", "User", () => isAdmin()],
+    ["logins", "Login Accounts", () => isAdmin()],
     ["forms", "Download Forms", () => true]
   ];
   const ACTIVE_OF = { orders: "orders", neworder: "orders", editorder: "orders", order: "orders", payslip: "employees", ebill: "inventory", find: "", profile: "", settings: "" };
@@ -952,11 +981,13 @@
       e.target.value = "";
     };
     if (navigator.mediaDevices?.getUserMedia) {
-      const Z = window.ZXing;
-      const hints = new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.QR_CODE, Z.BarcodeFormat.PDF_417]]]);
-      reader = new Z.BrowserMultiFormatReader(hints);
-      reader.decodeFromVideoDevice(undefined, $("#scVideo", d), (res) => { if (res) finish(res.getText()); })
-        .catch(() => { d.classList.add("nocam"); msg("The camera is not available. Use a photo instead."); });
+      need("zxing").then((Z) => {
+        if (done || !d.isConnected) return; // closed while the code reader loaded
+        const hints = new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.QR_CODE, Z.BarcodeFormat.PDF_417]]]);
+        reader = new Z.BrowserMultiFormatReader(hints);
+        reader.decodeFromVideoDevice(undefined, $("#scVideo", d), (res) => { if (res) finish(res.getText()); })
+          .catch(() => { d.classList.add("nocam"); msg("The camera is not available. Use a photo instead."); });
+      }, (err) => msg(err.message));
     } else { d.classList.add("nocam"); msg("The camera is not available here. Use a photo instead."); }
   }
   // Customer QR: the customer's Public ID key, like a crypto wallet address (EO + 40 letters and numbers).
@@ -1353,7 +1384,11 @@
 
   // ---------- report preview window ----------
   // size: "" (A4 portrait), "landscape" (A4 landscape) or "a5l" (A5 landscape slip).
-  function openPreview(title, pages, { landscape = false, size = "", undated = false } = {}) {
+  function openPreview(title, pages, opts = {}) {
+    // the barcodes are drawn first: a print made while the barcode maker was still loading opens when it is there
+    if (!window.bwipjs) { need("bwip").then(() => openPreview(title, pages, opts), (e) => toast(e.message, true)); return; }
+    pages = pages.map(fillCodes);
+    const { landscape = false, size = "", undated = false } = opts;
     closePreview();
     const cls = size ? " " + size : landscape ? " landscape" : "";
     // Every printed page shows the date it was printed (report listings and statements already carry their own);
@@ -1660,7 +1695,7 @@
   });
 
   // exposed for testing barcode round-trips
-  window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words };
+  window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words, need };
   // shared with modules.js to modules4.js
   Object.assign(window.EO, {
     APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,

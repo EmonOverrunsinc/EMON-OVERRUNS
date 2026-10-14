@@ -339,7 +339,7 @@
   };
 
   V.payroll = async () => {
-    E.shell("payroll", "Employee — Payroll", `${empTabs("payroll")}
+    E.shell("payroll", "Payroll", `${empTabs("payroll")}
       <div class="options"><fieldset class="opt"><legend>Month</legend><div class="fields"><label for="prMonth">For Month</label><input type="month" id="prMonth" value="${isoToday().slice(0, 7)}"></div></fieldset></div>
       <div class="btnrow"><button type="button" class="btn" id="prPrint">${ic("print")} Print Payroll</button></div>
       <div id="prRes">${busy()}</div>`, "Every salary, advance and bonus payment for the month. Open a row to see or print the payslip.");
@@ -370,7 +370,7 @@
 
   // ---------- job positions ----------
   V.positions = async () => {
-    E.shell("positions", "Employee — Job Positions", `${empTabs("positions")}
+    E.shell("positions", "Job Positions", `${empTabs("positions")}
       ${isAdmin() ? `<form class="window" id="poForm" novalidate style="margin-bottom:10px"><div class="wtitle">New Job Position</div><div class="wbody"><div class="formgrid">
         <div class="fields wide"><label for="poTitle">Position Title *</label><input type="text" id="poTitle" placeholder="e.g. Warehouse Supervisor">
           <label for="poCo">Company Name</label><input type="text" id="poCo" value="${esc(C.company.name)}">
@@ -416,7 +416,7 @@
     { label: "Status", html: (r) => pill(r.status) }, { label: "Approval No", get: (r) => r.approval_no || "" }
   ];
   V.jobapps = async () => {
-    E.shell("jobapps", "Employee — Job Applications", `${empTabs("jobapps")}
+    E.shell("jobapps", "Job Applications", `${empTabs("jobapps")}
       <div class="tabs" id="jaF"><button type="button" class="on" data-f="submitted">Waiting for Review</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div id="jaRes">${busy()}</div>`, "People who created an account and applied for a job. Open one, print the form, have the applicant sign it, upload the signed copy, choose the access and approve. Your signature is printed on the form when you approve.");
     const run = async (f) => {
@@ -748,7 +748,7 @@
   const curPicked = (name) => { const on = [...document.querySelectorAll(`input[name=${name}]:checked`)].map((i) => i.value); return on.length === 2 ? "BOTH" : on[0] || ""; };
   V.newpaycompany = () => {
     if (!E.canWrite("billing")) { location.hash = "billing"; return; }
-    E.shell("newpaycompany", "Billing — Add Company", `
+    E.shell("newpaycompany", "Add Company", `
       <form class="window" id="pcForm" novalidate><div class="wtitle">Company</div><div class="wbody">
         <div class="formgrid"><div class="fields wide">
           <label for="pcName">Company Name *</label><input type="text" id="pcName" required placeholder="e.g. Modina Apparels Pvt Ltd">
@@ -885,7 +885,7 @@
 
   V.newvoucher = async (companyId) => {
     if (!E.canWrite("billing")) { location.hash = "billing"; return; }
-    E.shell("newvoucher", "Billing — New Payment", busy());
+    E.shell("newvoucher", "New Payment Voucher", busy());
     const { data: cos, error } = await sb.from("pay_companies").select("*").order("name");
     if (error) return fail(error, "Could not load companies");
     if (!(cos || []).length) { $("#main").innerHTML = `<div class="empty">Add a company first. <a class="btn primary" href="#newpaycompany">Add Company</a></div>`; return; }
@@ -994,7 +994,7 @@
       <div class="rp-foot"><span>Scan the barcode in the ${esc(E.APP)} to verify this voucher.</span><span>${esc(v.voucher_no)}</span></div>`;
   }
   V.voucher = async (id) => {
-    E.shell("voucher", "Billing — Payment Voucher", busy());
+    E.shell("voucher", "Payment Voucher", busy());
     const { data: v } = await sb.from("pay_vouchers").select("*, pay_companies(*), pay_accounts(account_name,account_number,bank_name,branch_name), stock_bills(id,bill_no)").eq("id", id).maybeSingle();
     if (!v) { $("#main").innerHTML = `<div class="empty">Voucher not found. <a href="#billing">Back</a></div>`; return; }
     const att = await E.attachmentsOf("pay_voucher", id);

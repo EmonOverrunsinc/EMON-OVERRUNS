@@ -237,6 +237,7 @@
       $("#crRes").innerHTML = busy();
       if (f === "log") {
         const { data, error } = await sb.from("record_changes").select("*").order("created_at", { ascending: false }).limit(500);
+        if (!$("#crRes")) return; // another page was opened meanwhile
         if (error) return fail(error, "Could not load the change log");
         const rows = data || [];
         $("#crRes").innerHTML = E.grid({ cols: [
@@ -248,6 +249,7 @@
       // a decided correction is removed (2.2): only the ones waiting are here
       const q = sb.from("change_requests").select("*").eq("status", "pending").order("created_at", { ascending: false }).limit(300);
       const { data, error } = await q;
+      if (!$("#crRes")) return; // another page was opened meanwhile
       if (error) return fail(error, "Could not load corrections");
       const rows = data || [];
       $("#crRes").innerHTML = rows.length ? rows.map((r) => `<article class="cr-card st-${esc(r.status)}">
