@@ -275,7 +275,7 @@
       if (statuses) qq = qq.in("status", statuses);
       const { data } = await qq;
       const words2 = t.toLowerCase().split(/\s+/);
-      const rows = (data || []).filter((c) => words2.every((x) => `${fullName(c)} ${c.account_no} ${c.business_name || ""} ${c.phone || ""}`.toLowerCase().includes(x)));
+      const rows = (data || []).filter((c) => words2.every((x) => `${fullName(c)} ${c.account_no || ""} ${c.business_name || ""} ${c.phone || ""}`.toLowerCase().includes(x)));
       list.innerHTML = rows.length ? rows.map((c, i) => `<button type="button" data-i="${i}"><b>${esc(fullName(c))}</b> <span class="mono">${esc(c.account_no)}</span> ${pill(c.status)}</button>`).join("")
         : `<div class="empty">No ${statuses ? statuses.join(" / ") + " " : ""}customer matches.</div>`;
       $$("button", list).forEach((b) => (b.onclick = () => choose(rows[Number(b.dataset.i)])));
@@ -472,11 +472,14 @@
     loadCommunityBox();
     if (isAdmin()) loadTodo();
     if (!H("customers") && !H("invoices") && !H("payments")) { E.setRecords("Welcome"); return; }
-    const [cust, bal, inv, pay] = await Promise.all([
+    const nextMonth = (m) => { const [y, n] = m.split("-").map(Number); return n === 12 ? `${y + 1}-01-01` : `${y}-${String(n + 1).padStart(2, "0")}-01`; };
+    // 2.5: only what the dashboard shows is loaded (the 8 newest invoices and payments, this month's payment amounts)
+    const [cust, bal, inv, pay, month] = await Promise.all([
       sb.from("customers").select("id,first_name,last_name,account_no,application_no,status,application_date,business_name").order("created_at", { ascending: false }).limit(1000),
       sb.from("customer_balances").select("balance_due"),
-      sb.from("invoice_balances").select("id,invoice_no,invoice_date,first_name,last_name,account_no,total_amount,amount_paid,balance,pay_status").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(5000),
-      sb.from("payments_received").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).limit(200)
+      sb.from("invoice_balances").select("id,invoice_no,first_name,last_name,balance,pay_status").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(8),
+      sb.from("payments_received").select("id,receipt_no,amount,paid_date,customers(first_name,last_name)").order("created_at", { ascending: false }).limit(8),
+      sb.from("payments_received").select("amount").gte("paid_date", ym + "-01").lt("paid_date", nextMonth(ym))
     ]);
     if (cust.error) {
       $("#main").insertAdjacentHTML("afterbegin", `<div class="hint err">The customer database is not set up yet. Ask the Director to run the setup script <b>002_customers_invoices_payments.sql</b>.</div>`);
@@ -485,13 +488,13 @@
     const cs = cust.data || [];
     const due = (bal.data || []).reduce((s, b) => s + Math.max(0, num(b.balance_due)), 0);
     const pays = pay.data || [];
-    const monthPaid = pays.filter((p) => String(p.paid_date).startsWith(ym)).reduce((s, p) => s + num(p.amount), 0);
+    const monthPaid = (month.data || []).reduce((s, p) => s + num(p.amount), 0);
     const waiting = cs.filter((c) => ["pending", "verified"].includes(c.status));
     const tiles = [["ok", cs.filter((c) => c.status === "active").length], ["warn", waiting.length], ["", "₱ " + peso(due)], ["ok", "₱ " + peso(monthPaid)]];
     $$("#dTiles .tile").forEach((t, i) => { t.className = "tile " + tiles[i][0]; $(".v", t).textContent = tiles[i][1]; });
     if ($("#dApps")) {
       $("#dApps").innerHTML = E.grid({ cols: [
-        { label: "Application", get: (r) => r.application_no }, { label: "Account No", get: (r) => r.account_no },
+        { label: "Application", get: (r) => r.application_no },
         { label: "Name", get: fullName }, { label: "Date", get: (r) => mdy(r.application_date) }, { label: "Status", html: (r) => pill(r.status) }],
         rows: waiting.slice(0, 8), onRow: true, empty: "No applications waiting." });
       E.bindGrid($("#dApps"), waiting.slice(0, 8), (r) => (location.hash = "customer/" + r.id));
@@ -499,7 +502,7 @@
     if ($("#dInv")) {
       // 2.4.3: the newest invoices with their status (PAID / PARTIAL PAYMENT / UNPAID); three columns, so the status
       // shows on a phone too: the invoice (with the customer under it), what is still due, and the status
-      const rows = (inv.data || []).slice(0, 8);
+      const rows = inv.data || [];
       $("#dInv").innerHTML = E.grid({ cols: [
         { label: "Invoice / Customer", html: (r) => `<b>${esc(r.invoice_no)}</b><br><small>${esc(fullName(r))}</small>` },
         { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) },
@@ -508,7 +511,7 @@
       E.bindGrid($("#dInv"), rows, (r) => (location.hash = "invoice/" + r.id));
     }
     if ($("#dPay")) {
-      const rp = pays.slice(0, 8);
+      const rp = pays;
       $("#dPay").innerHTML = E.grid({ cols: [
         { label: "Receipt", get: (r) => r.receipt_no }, { label: "Customer", get: (r) => fullName(r.customers || {}) },
         { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) }, { label: "Date", get: (r) => mdy(r.paid_date) }],
@@ -569,7 +572,7 @@
       if (error) return fail(error, "Could not load customers");
       const bm = new Map((bal.data || []).map((b) => [b.customer_id, b]));
       const ws = t.toLowerCase().split(/\s+/).filter(Boolean);
-      const rows = (data || []).filter((c) => ws.every((x) => `${fullName(c)} ${c.account_no} ${c.business_name || ""} ${c.phone || ""} ${c.public_id}`.toLowerCase().includes(x)))
+      const rows = (data || []).filter((c) => ws.every((x) => `${fullName(c)} ${c.account_no || ""} ${c.business_name || ""} ${c.phone || ""} ${c.public_id}`.toLowerCase().includes(x)))
         .map((c) => ({ ...c, due: num(bm.get(c.id)?.balance_due) }));
       $("#cuRes").innerHTML = E.grid({ cols: [
         { label: "Account No", get: (r) => r.account_no }, { label: "Name", html: (r) => `${esc(fullName(r))}${r.status === "closed" ? ' <span class="closed-mark">CLOSED</span>' : ""}` },
@@ -699,7 +702,7 @@
         facebook_verified: $("input[name=ncFbv]:checked").value === "yes", phone: v("ncPhone"), email: v("ncEmail") || null
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not submit the application"); }
-      if (photo_path) await sb.from("attachments").insert({ owner_type: "customer", owner_id: c.id, kind: "photo", storage_path: photo_path, file_name: `${c.account_no} Profile Photo`, mime: photo.type, size: photo.size });
+      if (photo_path) await sb.from("attachments").insert({ owner_type: "customer", owner_id: c.id, kind: "photo", storage_path: photo_path, file_name: `${c.account_no || c.application_no} Profile Photo`, mime: photo.type, size: photo.size });
       const failed = await uploadRecords("customer", c.id, "requirement", filesOf("ncReq"));
       if (failed) toast(`${failed} requirement file(s) failed to upload. You can add them from the profile.`, true);
       location.hash = `customer/${c.id}/submitted`;
@@ -831,7 +834,7 @@
         ${canMemo ? `<a class="btn" href="#newcreditmemo/${c.id}">${ic("plus")} Credit Memo</a>` : ""}
         ${canOrder ? `<a class="btn" href="#neworder/${c.id}">${ic("doc")} ${orderBtn}</a>` : ""}
         <span class="grow"></span>
-        ${tools("customers", c, `${c.account_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers") })}
+        ${tools("customers", c, `${c.account_no || c.application_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers") })}
       </div>
       <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", sub: `${c.application_no} · print, have the customer sign it, then upload the signed copy`, ownerType: "customer", ownerId: c.id, att, print: () => printApplication(c), canUpload: isStaff() && c.status !== "closed",
         approved: isApprovedAccount(c) ? (() => { const a = [...(ev.data || [])].reverse().find((x) => x.action === "approve"); return { name: a?.actor_name || "", at: a?.created_at || c.reviewed_at }; })() : null })}</div>
@@ -861,7 +864,7 @@
       if (up.error) return fail(up.error, "The photo could not be uploaded");
       const { error } = await sb.rpc("set_customer_photo", { p_id: c.id, p_path: path });
       if (error) return fail(error, "Could not save the photo");
-      await sb.from("attachments").insert({ owner_type: "customer", owner_id: c.id, kind: "photo", storage_path: path, file_name: `${c.account_no} Profile Photo`, mime: f.type, size: f.size });
+      await sb.from("attachments").insert({ owner_type: "customer", owner_id: c.id, kind: "photo", storage_path: path, file_name: `${c.account_no || c.application_no} Profile Photo`, mime: f.type, size: f.size });
       dropOld(c.photo_path);
       toast("Photo saved."); V.customer(c.id);
     };
@@ -893,7 +896,7 @@
     if ($("#pvShow")) $("#pvShow").onclick = () => { const el = $("#pvCode"); const hidden = el.textContent.startsWith("•"); el.textContent = hidden ? el.dataset.code || "(none)" : "••••••••"; $("#pvShow").textContent = hidden ? "Hide" : "Show"; };
     if ($("#pfAdd")) $("#pfAdd").onchange = async (e) => { const here = E.stillHere(), f = await uploadRecords("customer", c.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed to upload.` : "Uploaded.", f > 0); if (here()) V.customer(c.id); };
     if (isAdmin() && ["pending", "verified"].includes(c.status)) bindReview(c);
-    E.setRecords(`Account: ${c.account_no}`);
+    E.setRecords(c.account_no ? `Account: ${c.account_no}` : `Application: ${c.application_no}`);
   };
 
   function detailsTable(c) {
@@ -982,7 +985,7 @@
       <div class="wbody"><div class="sub-grid">
         <div class="fields wide">
           <span>Account Name</span><b>${esc(fullName(c))}</b>
-          <span>Account No</span><b class="mono big">${esc(c.account_no)}</b>
+          <span>Account No</span><b class="mono big">${c.account_no ? esc(c.account_no) : "Given when the Director approves"}</b>
           <span>Application No</span><b class="mono">${esc(c.application_no)}</b>
           <span>Application Date</span><b>${mdy(c.application_date)}</b>
           <span>Public ID</span><b class="mono key">${esc(c.public_id)}</b>
@@ -1130,7 +1133,7 @@
   V.statements = async () => {
     if (!isAdmin()) { location.hash = "customers"; return; }
     const last = monthStart(new Date(new Date().setDate(0)).toISOString().slice(0, 10));
-    E.shell("statements", "All Statements of Account", `
+    E.shell("statements", "Statements of Account", `
       <div class="options"><fieldset class="opt"><legend>Month</legend><div class="fields"><label for="stMonth">Statement Month</label><input type="month" id="stMonth" value="${last.slice(0, 7)}"></div></fieldset></div>
       <div class="btnrow"><button type="button" class="btn primary" id="stGo">Show</button><button type="button" class="btn" id="stPrintAll">${ic("print")} Print All for Month</button><a class="btn" href="#customers">Close</a></div>
       <div id="stRes">${busy()}</div>`, "Statements are created automatically on the 1st of each month for the month just ended. Click a row to print it or upload a copy.");
@@ -1615,7 +1618,7 @@
     done();
     if (!$("#fdRes")) return; // navigated away
     const ws = t.toLowerCase().split(/\s+/);
-    const custs = (cs.data || []).filter((c) => ws.every((x) => `${fullName(c)} ${c.account_no} ${c.public_id} ${c.business_name || ""} ${c.phone || ""}`.toLowerCase().includes(x)));
+    const custs = (cs.data || []).filter((c) => ws.every((x) => `${fullName(c)} ${c.account_no || ""} ${c.public_id} ${c.business_name || ""} ${c.phone || ""}`.toLowerCase().includes(x)));
     const pays = (py.data || []).filter((p) => p.customers?.status !== "closed");
     const sections = [];
     if (H("customers")) sections.push(["Customers", custs, [{ label: "Account No", get: (r) => r.account_no }, { label: "Name", get: fullName }, { label: "Business", get: (r) => r.business_name || "" }, { label: "Phone", get: (r) => r.phone || "" }, { label: "Status", html: (r) => pill(r.status) }], (r) => "customer/" + r.id]);

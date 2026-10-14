@@ -68,6 +68,14 @@ top; the printed documents and PDFs keep it. Every page except the Dashboard has
 (it goes to the page before, and never leaves the portal). The browser tab and an installed app are named
 **EMON OVERRUNS**.
 
+**Update 2.5 (faster and cleaner):** the website no longer loads the unused chart library, and loads the barcode
+maker and the code reader only when they are needed (a print waits for its barcodes), so the sign-in page and the
+Dashboard open sooner. Files with a version number are kept by the browser, so a repeat visit downloads almost
+nothing. The Dashboard loads only what it shows. A customer waiting for approval no longer shows "null" where the
+account number will be; the Corrections page no longer fails when another page is opened while it loads; headlines
+read Payroll, Job Positions, Job Applications, Add Company, New Payment Voucher, Payment Voucher, Statements of
+Account and Login Accounts.
+
 **Watermark (2.4.2):** on printed A4 documents the company seal stands in the middle of the filled part of each page
 (from under the letterhead down to the last line, box or signature) and is as big as fits there: a short document has
 it behind its details, a full page in the middle of the page. The preview measures every page, on the screen and as on
@@ -193,7 +201,7 @@ smaller before upload, 2.2.2) and a custom domain for the database address.
 ## Files
 - `public/index.html`, `app.js`, `modules.js` to `modules4.js`, `styles.css`: the app
 - `public/config.js`: Supabase URL, publishable key and company details
-- `public/vendor/`: bundled libraries (supabase-js, bwip-js for PDF417, ZXing scanner, Chart.js)
+- `public/vendor/`: bundled libraries (supabase-js; bwip-js for PDF417 and QR codes and the ZXing scanner, both loaded only when needed)
 - `supabase/portal_init.sql`: database setup
 - `public/.well-known/assetlinks.json`: lets the Android app open the E-Portal full screen
 - `apps/windows/`, `apps/android/`: the Windows and Android apps
