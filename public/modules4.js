@@ -189,6 +189,8 @@
       const t = e.target;
       if (e.key !== "Enter" || !t.matches("input")) return;
       e.preventDefault();
+      // 2.6.2: Enter in a column name goes down to the first row of that column
+      if (t.dataset.col !== undefined) { const k = T.cols[Number(t.dataset.col)]?.key; $(`#sbItems [data-r="0"][data-k="${k}"]`)?.focus(); return; }
       if (!t.dataset.r) return;
       const ri = Number(t.dataset.r), k = t.dataset.k;
       if (ri === T.rows.length - 1) { addRow(); const next = $(`#sbItems [data-r="${ri + 1}"][data-k="${k}"]`); if (next) next.focus(); }

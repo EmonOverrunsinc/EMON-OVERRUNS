@@ -7,7 +7,7 @@
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
   const VERSION = "2.6";
-  const BUILD = "2.6.2"; // the same in index.html (?v=) and in version.json
+  const BUILD = "2.6.3"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -210,6 +210,24 @@
     }));
   }
   need("bwip").catch(() => {});
+
+  // ---------- Enter goes to the next box (2.6.2) ----------
+  // On a computer, Enter in a box of a form moves to the next box, like a spreadsheet, instead of saving the form;
+  // in the last box it saves as before. Boxes with their own Enter (the E-Bill table, search, chat) keep it.
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.defaultPrevented || e.shiftKey || e.ctrlKey || e.altKey || e.isComposing) return;
+    const t = e.target;
+    if (!t.matches || !t.matches("input:not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]):not([type=file]), select")) return;
+    const form = t.closest("#main form");
+    if (!form) return;
+    const boxes = $$("input, select, textarea, button[type=submit]", form)
+      .filter((x) => !x.disabled && !x.readOnly && x.type !== "hidden" && x.type !== "file" && x.offsetParent !== null);
+    const next = boxes[boxes.indexOf(t) + 1];
+    if (!next || next.type === "submit") return;
+    e.preventDefault();
+    next.focus();
+    if (next.tagName === "INPUT" && next.select) try { next.select(); } catch (_) {}
+  });
 
   // ---------- PDF417 and QR ----------
   // Before the barcode maker has loaded, a canvas is drawn as soon as it is there, and a picture address is a mark
