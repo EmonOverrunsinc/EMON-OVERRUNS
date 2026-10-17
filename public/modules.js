@@ -1330,7 +1330,10 @@
     E.shell("invoice", "Invoice", busy());
     const { data: inv } = await sb.from("invoice_balances").select("*").eq("id", id).maybeSingle();
     if (!inv) { $("#main").innerHTML = `<div class="empty">Invoice not found. <a href="#invoices">Back to Invoices</a></div>`; return; }
-    const att = await attachmentsOf("invoice", id);
+    const [att, pr] = await Promise.all([attachmentsOf("invoice", id),
+      sb.from("payments_received").select("id, receipt_no, paid_date, amount, invoice_id").eq("customer_id", inv.customer_id).order("paid_date", { ascending: false })]);
+    const pays = pr.data || [], linked = pays.filter((p) => p.invoice_id === inv.id);
+    const canLink = E.canWrite("payments") || E.canWrite("invoices");
     $(".band h1").textContent = `Invoice — ${inv.invoice_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${pill(inv.pay_status)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
@@ -1342,7 +1345,11 @@
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
         <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b><span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b><span>Balance</span><b>₱ ${peso(inv.balance)}</b>
         <span>Payment Status</span><span>${pill(inv.pay_status)}</span></div></div>
-      <small class="muted">Payments, discounts and orders are for the customer's account: they pay the oldest invoices first.</small>
+      <small class="muted">A payment linked to this invoice pays it first. Other payments, discounts and orders pay the customer's oldest invoices first.</small>
+      <div class="linked-pays"><div class="lp-head"><b>Linked Payments</b>${canLink && pays.length ? `<button type="button" class="btn small" id="ivLink">${ic("plus")} Link a Payment</button>` : ""}</div>
+        ${linked.length ? linked.map((p) => `<div class="lp-row"><a href="#payment/${p.id}"><b>${esc(p.receipt_no || "")}</b></a><span>${mdy(p.paid_date)}</span><b>₱ ${peso(p.amount)}</b>
+          ${canLink ? `<button type="button" class="linkbtn" data-unlink="${p.id}">Unlink</button>` : ""}</div>`).join("")
+          : `<div class="empty small">No payment is linked to this invoice${pays.length ? "" : " (this customer has no payments yet)"}.</div>`}</div>
       <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv)]) })}
         ${copyCard({ key: "invcopy", title: `Invoice ${inv.invoice_no}`, tag: "Paper Copy", sub: "Scan or upload the paper invoice", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}</div>
       <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
@@ -1353,6 +1360,24 @@
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.invoice(id));
     bindTools($("#main"));
+    // 2.7.3: link one of the customer's payments to this invoice (or unlink it)
+    const link = async (payId, invId) => {
+      const { error } = await sb.rpc("link_payment", { p_payment: payId, p_invoice: invId });
+      if (error) return fail(error, /link_payment/.test(error.message || "") ? "Run the database update 019_link_payment.sql first" : "Could not link the payment");
+      toast(invId ? "Payment linked to this invoice." : "Payment unlinked."); V.invoice(id);
+    };
+    $$("[data-unlink]").forEach((b) => (b.onclick = () => link(b.dataset.unlink, null)));
+    if ($("#ivLink")) $("#ivLink").onclick = async () => {
+      const others = pays.filter((p) => p.invoice_id !== inv.id);
+      const ids = [...new Set(others.map((p) => p.invoice_id).filter(Boolean))];
+      const nos = ids.length ? new Map(((await sb.from("customer_invoices").select("id, invoice_no").in("id", ids)).data || []).map((x) => [x.id, x.invoice_no])) : new Map();
+      const m = E.modal(`Link a Payment — ${inv.invoice_no}`, others.length
+        ? `<p class="muted" style="margin-top:0">Choose the payment of ${esc(fullName(inv))} that paid this invoice (balance ₱ ${peso(inv.balance)}).</p>
+          <div class="lp-pick">${others.map((p) => `<button type="button" class="lp-opt" data-pay="${p.id}"><b>${esc(p.receipt_no || "")}</b><span>${mdy(p.paid_date)}</span><b>₱ ${peso(p.amount)}</b>
+            <small>${p.invoice_id ? `Now linked to ${esc(nos.get(p.invoice_id) || "another invoice")}` : "Not linked (pays the oldest invoices)"}</small></button>`).join("")}</div>`
+        : `<div class="empty">Every payment of this customer is already linked to this invoice.</div>`);
+      $$("[data-pay]", m.el).forEach((b) => (b.onclick = () => { m.close(); link(b.dataset.pay, inv.id); }));
+    };
     E.setRecords(`Invoice: ${inv.invoice_no}`);
   };
   function invoicePage(inv) {

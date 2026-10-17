@@ -1714,3 +1714,13 @@ table.grid tbody tr { transition: background-color .25s var(--ease-out); }
 .toast { animation: toastIn .45s var(--spring); }
 html { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: reduce) { .content.page-in > .band, #main > *, .pop:not([hidden]), .tabpanes > div:not([hidden]) { animation: none !important; } }
+/* 2.7.3: payments linked to an invoice */
+.linked-pays { margin: 12px 0; padding: 12px 14px; border-radius: 14px; background: #fafafc; border: 1px solid #ececf0; }
+.lp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.lp-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 14px; align-items: center; padding: 7px 0; border-top: 1px solid #ececf0; }
+.lp-pick { display: grid; gap: 8px; }
+.lp-opt { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 14px; align-items: center; text-align: left; width: 100%; padding: 11px 14px; border: 1px solid #e5e5ea; border-radius: 12px; background: #fff; cursor: pointer; font: inherit; transition: border-color .2s, box-shadow .2s, transform .3s cubic-bezier(.2,.8,.2,1); }
+.lp-opt:hover { border-color: #0071e3; box-shadow: 0 0 0 4px rgba(0,113,227,.12); }
+.lp-opt:active { transform: scale(.98); }
+.lp-opt small { grid-column: 1 / -1; color: #6e6e73; }
+.btn.small { padding: 5px 12px; font-size: 13px; }
