@@ -6,8 +6,8 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "2.6";
-  const BUILD = "2.6.6"; // the same in index.html (?v=) and in version.json
+  const VERSION = "2.7";
+  const BUILD = "2.7.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -31,7 +31,6 @@
     return MON[Number(m) - 1] && d ? `${MON[Number(m) - 1]}\u00a0${d}\u00a0${y}` : s;
   };
   const stamp = (d = new Date()) => `${mdy(isoDay(d))} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  const longDate = (iso) => `${new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(iso)}`;
   const dateTime = (iso) => { if (!iso) return ""; const d = new Date(iso), h = d.getHours(); return `${mdy(isoDay(d))} ${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "AM" : "PM"}`; };
   // Dates the database writes as "20 Jun 2026" (record verification) show as JUNE 20 2026 too.
   const fixDates = (v) => String(v ?? "").replace(/\b(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})\b/g,
@@ -39,7 +38,6 @@
   // The website (config.js): its name for printed headers, and a link for the screens anyone can see.
   const siteName = () => String(C.company.website || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
   const siteText = () => (siteName() ? ` · ${esc(siteName())}` : "");
-  const siteLink = () => (siteName() ? ` · <a class="co-site" href="${esc(C.company.website)}" target="_blank" rel="noopener">${esc(siteName())}</a>` : "");
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const isAdmin = () => S.profile?.role === "admin";
@@ -107,7 +105,16 @@
     mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 7 8.5-7"/>',
     home: '<path d="M3.5 11 12 4l8.5 7"/><path d="M6 9.5V20h12V9.5"/>',
     install: '<path d="M12 4v10m0 0-4-4m4 4 4-4"/><rect x="4" y="16" width="16" height="4" rx="1"/>',
-    box: '<path d="M21 7.5 12 3 3 7.5v9L12 21l9-4.5z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9M7.5 5.2l9 4.6"/>'
+    box: '<path d="M21 7.5 12 3 3 7.5v9L12 21l9-4.5z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9M7.5 5.2l9 4.6"/>',
+    users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/>',
+    wallet: '<rect x="3" y="6" width="18" height="14" rx="2.5"/><path d="M3 10h18M16 15h2"/><path d="M6 6V5a2 2 0 0 1 2-2h9"/>',
+    receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+    order: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h4"/>',
+    tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    building: '<rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M10 21v-3h4v3"/>',
+    stamp: '<path d="M9 3h6l-1 7h-4z"/><path d="M5 14h14v3H5zM4 21h16"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'
   };
   const ic = (name, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
@@ -339,15 +346,6 @@
   // Built-in company logo and seal (an uploaded logo under Company Logo replaces the built-in one).
   const DEFAULT_LOGO = "brand/logo.jpg";
   const SEAL = "brand/seal.jpg";
-  // "Install App": the browser offers this event when the portal can be installed (Edge/Chrome on Windows, Android).
-  let installEvt = null;
-  const installed = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
-  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; $$(".install-app").forEach((b) => (b.hidden = false)); });
-  window.addEventListener("appinstalled", () => { installEvt = null; $$(".install-app").forEach((b) => (b.hidden = true)); toast(`${APP} installed. Find it in the Start menu or on your home screen.`); });
-  async function installApp() {
-    if (installEvt) { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; $$(".install-app").forEach((b) => (b.hidden = true)); return; }
-    toast("To install: open the browser menu (⋯ or ⋮) and choose “Install EMON OVERRUNS E-PORTAL” or “Apps → Install this site as an app”.");
-  }
   S.logoUrl = DEFAULT_LOGO;
   const publicUrl = (bucket, path) => path ? sb.storage.from(bucket).getPublicUrl(path).data.publicUrl : "";
   async function loadBranding() {
@@ -359,13 +357,6 @@
   const logoHtml = (cls = "co-logo") => S.logoUrl
     ? `<img class="${cls}" src="${esc(S.logoUrl)}" alt="${esc(C.company.name)} logo">`
     : `<span class="${cls} co-logo-fallback" aria-hidden="true">EO</span>`;
-  // 2.4: not shown on the screens any more (the printed documents keep the company name, address and email)
-  function companyHeader() {
-    return `<header class="co-head">${logoHtml()}<div class="co-text">
-      <b>${esc(C.company.name)} <span class="co-tag">E-PORTAL</span></b>
-      <span>${esc(C.company.address.join(", "))}</span>
-      <span>${esc(C.company.email)}${siteLink()}</span></div></header>`;
-  }
 
   // ---------- new versions ----------
   // version.json (never kept in the browser) names the version on the server. When it is not the version of this page,
@@ -379,13 +370,15 @@
       const v = String((await r.json()).version || "");
       if (!v || v === BUILD || v === newBuild) return;
       newBuild = v;
-      if ($(".update-bar")) return;
-      const bar = document.createElement("div");
-      bar.className = "update-bar"; bar.setAttribute("role", "status");
-      bar.innerHTML = `${ic("install")} A new version of the ${esc(APP)} is ready. <button type="button" class="btn small primary">Update now</button>`;
-      bar.querySelector("button").onclick = () => { reloadedFor(v); location.reload(); };
-      document.body.appendChild(bar);
+      // 2.7: the update is offered in the profile menu (a dot on the profile button shows it is there)
+      const pop = $("#userPop");
+      if (pop && !$("#upUpdate")) { $(".pop-head", pop).insertAdjacentHTML("afterend", updateItem()); bindUpdate(); }
     } catch (_) { /* offline: checked again later */ }
+  }
+  const updateItem = () => `<button type="button" id="upUpdate" class="up-update">${ic("install")} Update to version ${esc(newBuild)}<small>A new version is ready</small></button>`;
+  function bindUpdate() {
+    if ($("#tbUser")) $("#tbUser").classList.toggle("has-update", !!newBuild);
+    if ($("#upUpdate")) $("#upUpdate").onclick = () => { reloadedFor(newBuild); location.reload(); };
   }
   setTimeout(checkVersion, 4000);
   setInterval(checkVersion, 5 * 60 * 1000);
@@ -758,17 +751,17 @@
 
   // ---------- shell: company header, top bar, slide-out menu ----------
   const MENU = [
-    { k: "dashboard", n: "", label: "Dashboard" },
-    { k: "customers", n: "1", label: "Customer" },
-    { k: "invoices", n: "2", label: "Invoice" },
-    { k: "payments", n: "3", label: "Payment" },
-    { k: "creditmemos", n: "4", label: "Credit Memo" },
-    { k: "employees", n: "5", label: "Employee" },
-    { k: "community", n: "6", label: "Community" },
-    { k: "projects", n: "7", label: "Project" },
-    { k: "billing", n: "8", label: "Billing" },
-    { k: "orders", n: "9", label: "Director Portal" },
-    { k: "inventory", n: "10", label: "E-Bill" }
+    { k: "dashboard", icon: "home", label: "Dashboard" },
+    { k: "customers", icon: "user", label: "Customer" },
+    { k: "invoices", icon: "doc", label: "Invoice" },
+    { k: "payments", icon: "wallet", label: "Payment" },
+    { k: "creditmemos", icon: "tag", label: "Credit Memo" },
+    { k: "employees", icon: "users", label: "Employee" },
+    { k: "community", icon: "chat", label: "Community" },
+    { k: "projects", icon: "folder", label: "Project" },
+    { k: "billing", icon: "building", label: "Billing" },
+    { k: "orders", icon: "stamp", label: "Director Portal" },
+    { k: "inventory", icon: "box", label: "E-Bill" }
   ];
   // Which menu item (module) each page belongs to; pages a user has no access to are blocked.
   const MODULE_OF = {
@@ -789,11 +782,11 @@
   // Staff may add records in the sections they can open; viewers only look.
   const canWrite = (m) => isAdmin() || (isStaff() && hasModule(m));
   const OTHER = [
-    ["verify", "Verification", () => true],
-    ["changes", "Corrections", () => isAdmin()],
-    ["contacts", "Contact Messages", () => isAdmin()],
-    ["logins", "Login Accounts", () => isAdmin()],
-    ["forms", "Download Forms", () => true]
+    ["verify", "Verification", () => true, "shield"],
+    ["changes", "Corrections", () => isAdmin(), "edit"],
+    ["contacts", "Contact Messages", () => isAdmin(), "mail"],
+    ["logins", "Login Accounts", () => isAdmin(), "key"],
+    ["forms", "Download Forms", () => true, "download"]
   ];
   const ACTIVE_OF = { orders: "orders", neworder: "orders", editorder: "orders", order: "orders", payslip: "employees", ebill: "inventory", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
@@ -860,8 +853,8 @@
   function shell(key, title, body, hint) {
     const cur = ACTIVE_OF[key] ?? (Array.isArray(MODULE_OF[key]) ? MODULE_OF[key][0] : MODULE_OF[key]) ?? key;
     const items = MENU.filter((m) => m.k === "dashboard" || m.k === "community" || hasModule(m.k));
-    const main = items.map((m, i) => `<a href="#${m.k}" style="--i:${i}" class="${m.k === cur ? "active" : ""}"><span class="num">${m.n || ic("home")}</span><span class="lbl">${esc(m.label)}</span></a>`).join("");
-    const other = OTHER.filter((o) => o[2]()).map(([k, label], j) => `<a href="#${k}" style="--i:${items.length + j + 1}" class="sub ${k === cur ? "active" : ""}"><span class="lbl">${esc(label)}</span></a>`).join("");
+    const main = items.map((m, i) => `<a href="#${m.k}" style="--i:${i}" class="${m.k === cur ? "active" : ""}"><span class="num">${ic(m.icon)}</span><span class="lbl">${esc(m.label)}</span></a>`).join("");
+    const other = OTHER.filter((o) => o[2]()).map(([k, label, , icon], j) => `<a href="#${k}" style="--i:${items.length + j + 1}" class="sub ${k === cur ? "active" : ""}"><span class="num">${ic(icon)}</span><span class="lbl">${esc(label)}</span></a>`).join("");
     const av = avatarUrl();
     const who = S.profile.full_name || S.session.user.email;
     app.innerHTML = `
@@ -874,7 +867,6 @@
           <button type="button" class="scanbtn" id="tbScan" title="Scan a QR code or barcode">${ic("scan")}<span>Scan</span></button>
         </form>
         <div class="tb-right">
-          <button type="button" class="iconbtn install-app" id="tbInstall" title="Install the E-PORTAL as an app" ${installEvt ? "" : "hidden"}>${ic("install")}<span class="tb-install-txt">Install App</span></button>
           <button type="button" class="iconbtn" id="tbChat" aria-label="Messages" title="Messages">${ic("chat")}<span class="badge" id="tbChatBadge" hidden>0</span></button>
           <button type="button" class="iconbtn" id="tbBell" aria-label="Notifications" title="Notifications" aria-haspopup="true">${ic("bell")}<span class="badge" id="tbBadge" hidden>0</span></button>
           <button type="button" class="avatar-btn" id="tbUser" aria-haspopup="true" aria-label="Your account">
@@ -886,7 +878,7 @@
           <div class="pop-head">${esc(S.profile.full_name || "")}<small>${S.profile.username ? "@" + esc(S.profile.username) + " · " : ""}${esc(S.session.user.email)} · ${esc(personTitle(S.profile.role, S.position).toUpperCase())}</small></div>
           <a href="#profile">${ic("user")} My Profile</a>
           <button type="button" id="chPw">${ic("key")} Change Password</button>
-          ${installed() ? "" : `<button type="button" id="upInstall">${ic("install")} Install App</button>`}
+          ${newBuild ? updateItem() : ""}
           ${isAdmin() ? `<a href="#settings">${ic("image")} Company Logo</a>` : ""}
           <button type="button" id="signOut">${ic("out")} Sign Out</button>
         </div>
@@ -916,8 +908,7 @@
     $$("#drawer a").forEach((a) => (a.onclick = () => { if (isPhone()) drawerOpen(false); }));
     $("#signOut").onclick = signOut;
     $("#chPw").onclick = () => renderSetPassword(false);
-    $("#tbInstall").onclick = installApp;
-    if ($("#upInstall")) $("#upInstall").onclick = installApp;
+    bindUpdate();
     $("#tbSearch").onsubmit = (e) => {
       e.preventDefault();
       const q = $("#tbQ").value.trim();
@@ -1415,7 +1406,8 @@
     const dated = (p) => (undated || /Date Printed|rp-stamp|Printed \d/.test(p) ? "" : `<div class="pg-date">Date Printed: ${esc(printed)}</div>`);
     // and ends with the QR of the website (scan it to open the website)
     const qr = websiteQr(), site = String(C.company.website || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
-    const web = qr ? `<div class="pg-web"><span>Scan to visit<br><b>${esc(site)}</b></span><img src="${qr}" alt="QR code: ${esc(site)}"></div>` : "";
+    // 2.7: an official foot line on every page: issued through the E-Portal, with the website QR
+    const web = qr ? `<div class="pg-web"><span class="pg-off">Official document issued through the <b>${esc(APP)}</b><br>Every record can be checked online at ${esc(site)}</span><span>Scan to visit<br><b>${esc(site)}</b></span><img src="${qr}" alt="QR code: ${esc(site)}"></div>` : "";
     S.docTitle = document.title;
     document.title = title; // "Save as PDF" uses this as the file name
     const pv = document.createElement("div");
@@ -1716,11 +1708,11 @@
   window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words, need };
   // shared with modules.js to modules4.js
   Object.assign(window.EO, {
-    APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
+    APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
-    shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, siteLink,
+    shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, 
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, slimFile, scanDialog, openScanned, isCustKey, keepTab, stillHere,
-    roleName, personTitle, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
+    roleName, personTitle, publicUrl, logoHtml, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
     requestDeletion, TERMS, termsDue, changePassword: () => renderSetPassword(false)
   });
 })();

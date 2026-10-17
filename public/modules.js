@@ -192,14 +192,6 @@
       return await new Promise((ok) => out.toBlob(ok, "image/png"));
     } finally { URL.revokeObjectURL(url); }
   }
-  // Upload a signature picture for a person (into their own folder) and give back its path.
-  async function uploadSignature(file, userId) {
-    const blob = await cleanSignature(file);
-    const path = `signature/${userId}/Signature_${Date.now()}.png`;
-    const up = await sb.storage.from("records").upload(path, blob, { contentType: "image/png" });
-    if (up.error) throw up.error;
-    return path;
-  }
 
   // ---------- document cards ----------
   // One card per printable document. Until a signed copy is uploaded the card prints the system form;
@@ -447,8 +439,6 @@
     ? `<div class="sig-on">${sign.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="line"></div>${label}${sign.name ? `: <b class="nw">${esc(sign.name)}</b>` : ""}${sign.at ? ` &nbsp;·&nbsp; <span class="nw">${esc(mdy(sign.at))}</span>` : ""}</div>`
     : `<div><div class="line"></div>${label}</div>`;
   const sigs = (left, right, sign = null) => `<div class="psig">${sigCol(left)}${sigCol(right, sign)}</div>`;
-  // Printed documents carry no status stamps; the signed copy uploaded afterwards is the record.
-  const stampHtml = () => "";
 
   // ======================================================================
   // Dashboard
@@ -456,23 +446,29 @@
   V.dashboard = async () => {
     const H = E.hasModule;
     const quick = [
-      [E.canWrite("customers"), "#newcustomer", "+ New Customer", "primary"],
-      [E.canWrite("invoices"), "#newinvoice", "+ Record Invoice"],
-      [E.canWrite("payments") || E.canWrite("invoices"), "#newpayment", "+ Record Payment"],
-      [E.canWrite("creditmemos"), "#newcreditmemo", "+ Credit Memo"],
-      [["orders", "customers", "employees", "billing"].some(E.canWrite), "#neworder", "+ Request Order"],
-      [E.canWrite("billing"), "#newvoucher", "+ Payment Voucher"],
-      [true, "#community", "Community"],
-      [true, "#verify", "Verify a Record"]
+      [E.canWrite("customers"), "#newcustomer", "New Customer", "user", "blue"],
+      [E.canWrite("invoices"), "#newinvoice", "Record Invoice", "doc", "indigo"],
+      [E.canWrite("payments") || E.canWrite("invoices"), "#newpayment", "Record Payment", "wallet", "green"],
+      [E.canWrite("creditmemos"), "#newcreditmemo", "Credit Memo", "tag", "orange"],
+      [["orders", "customers", "employees", "billing"].some(E.canWrite), "#neworder", "Request Order", "order", "purple"],
+      [E.canWrite("billing"), "#newvoucher", "Payment Voucher", "receipt", "teal"],
+      [true, "#community", "Community", "users", "pink"],
+      [true, "#verify", "Verify a Record", "shield", "gray"]
     ].filter((q) => q[0]);
     const today = `${new Date().toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(isoToday())}`;
+    // 2.7: a greeting by the time of day (Manila time, as every date in the portal)
+    const hr = new Date().getHours(), greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
+    const first = String(myName() || "").trim().split(/\s+/)[0] || "";
+    const tileIc = ["users", "order", "wallet", "check"];
     E.shell("dashboard", "Dashboard", `
-      <section class="hero">${E.logoHtml("hero-logo")}<div>
-        <h2>${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span></h2>
-        <p class="welcome">Welcome, <b>${esc(myName())}</b> (${esc(E.personTitle(S.profile.role, S.position).toUpperCase())}) · ${esc(today)}</p></div></section>
+      <section class="hero home-hero">${E.logoHtml("hero-logo")}<div>
+        <p class="hero-date">${esc(today)}</p>
+        <h2>${esc(greet)}${first ? `, ${esc(first.charAt(0) + first.slice(1).toLowerCase())}` : ""}</h2>
+        <p class="welcome">Welcome to the ${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span> · <b>${esc(E.personTitle(S.profile.role, S.position))}</b></p></div></section>
       ${isAdmin() ? `<div class="todo" id="dTodo"></div>` : ""}
-      ${H("customers") ? `<div class="tiles" id="dTiles">${["Active Customers", "Applications to Review", "Balance Due (₱)", "Payments This Month (₱)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>` : ""}
-      <div class="quick">${quick.map((q) => `<a class="btn ${q[3] || ""}" href="${q[1]}">${esc(q[2])}</a>`).join("")}</div>
+      ${H("customers") ? `<div class="tiles" id="dTiles">${["Active Customers", "Applications to Review", "Balance Due (₱)", "Payments This Month (₱)"].map((k, i) => `<div class="tile"><span class="tile-ic">${ic(tileIc[i])}</span><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>` : ""}
+      <h3 class="home-h">Quick Actions</h3>
+      <div class="quick">${quick.map((q) => `<a class="qa qa-${q[4]}" href="${q[1]}"><span class="qa-ic">${ic(q[3])}</span><span class="qa-l">${esc(q[2])}</span></a>`).join("")}</div>
       <div class="cols">
         ${H("customers") ? `<div class="box"><h3>Applications Waiting for Review</h3><div class="in" id="dApps">${busy()}</div></div>` : ""}
         <div class="box"><h3>Community <a href="#community" class="box-link">Open</a></h3><div class="in" id="dComm">${busy()}</div></div>
@@ -859,15 +855,8 @@
         </div>
         <div class="ch-qr"><canvas id="pfQr" aria-label="Customer QR code"></canvas><small>Public ID</small><b class="mono key" id="pfKey">${esc(c.public_id || "")}</b><button type="button" class="linkbtn" id="pfCopy">${ic("copy")} Copy</button></div>
       </section>
-      <div class="tiles">
-        ${num(b.opening_balance) > 0 ? `<div class="tile"><div class="k">Opening Balance</div><div class="v">₱ ${peso(b.opening_balance)}</div></div>` : ""}
-        <div class="tile"><div class="k">Total Invoiced</div><div class="v">₱ ${peso(b.total_invoiced)}</div></div>
-        <div class="tile"><div class="k">Additional Charge</div><div class="v">₱ ${peso(b.total_charges)}</div></div>
-        <div class="tile"><div class="k">Settlement Adjustment</div><div class="v">${num(b.total_settlement) < 0 ? "− " : num(b.total_settlement) > 0 ? "+ " : ""}₱ ${peso(Math.abs(num(b.total_settlement)))}</div></div>
-        <div class="tile ok"><div class="k">Total Paid</div><div class="v">₱ ${peso(b.total_paid)}</div></div>
-        <div class="tile"><div class="k">Credits / Discounts</div><div class="v">₱ ${peso(b.total_credits)}</div></div>
-        <div class="tile ${num(b.balance_due) > 0 ? "warn" : "ok"}"><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
-      </div>
+      <div class="due-card ${num(b.balance_due) > 0 ? "warn" : "ok"}"><div><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
+        <small>${num(b.balance_due) > 0 ? "Amount the customer still owes" : "Nothing due · fully paid"} · see Details for the full summary</small></div>
       <div class="actionbar">
         ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">${ic("plus")} Record Invoice</a>` : ""}
         ${canPay ? `<a class="btn" href="#newpayment/${c.id}">${ic("plus")} Record Payment</a>` : ""}
@@ -882,7 +871,7 @@
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed) : ""}
       <div class="tabs" id="pfTabs">${tabs.map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes">
-        <div data-p="0">${detailsTable(c)}${rhBox("customers", c.id)}</div>
+        <div data-p="0">${detailsTable(c, b)}${rhBox("customers", c.id)}</div>
         <div data-p="1" hidden id="pfSoa">${busy("Loading statements")}</div>
         <div data-p="2" hidden>${E.grid({ cols: INV_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: invs.data || [], onRow: true, empty: "No invoices yet." })}</div>
         <div data-p="3" hidden>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
@@ -940,11 +929,16 @@
     E.setRecords(c.account_no ? `Account: ${c.account_no}` : `Application: ${c.application_no}`);
   };
 
-  function detailsTable(c) {
+  // 2.7: the account amounts are listed here; the profile shows only the Balance Due
+  function detailsTable(c, b = null) {
+    const st = b ? num(b.total_settlement) : 0;
+    const money = b ? [["Total Invoiced", "₱ " + peso(b.total_invoiced)], ["Additional Charge", "₱ " + peso(b.total_charges)],
+      ["Settlement Adjustment", `${st < 0 ? "− " : st > 0 ? "+ " : ""}₱ ${peso(Math.abs(st))}`], ["Total Paid", "₱ " + peso(b.total_paid)],
+      ["Credits / Discounts", "₱ " + peso(b.total_credits)], ["Balance Due", "₱ " + peso(b.balance_due)]] : [];
     const rows = [
       ["First Name", c.first_name], ["Last Name", c.last_name], ["Phone", c.phone], ["Email", c.email],
       ["Full Address", c.address],
-      ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], ["Opening Balance", "₱ " + peso(c.opening_balance)],
+      ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], ["Opening Balance", "₱ " + peso(c.opening_balance)], ...money,
       ["Business Name", c.business_name], ["Business Start Date", mdy(c.business_start_date)],
       ["Facebook Name", c.facebook_name], ["Facebook Account Link", c.facebook_link, fbLinkHtml(c.facebook_link)],
       ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
@@ -1868,7 +1862,7 @@
   // shared with modules2.js and modules3.js
   Object.assign(E, {
     extOf, viewFile, latestSigned, uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, isImage,
-    docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, stampHtml, uuid, cleanQ, idBox, METHOD,
-    loadSignatures, approvedBy, signaturePic, uploadSignature, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm, editCustomer
+    docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, uuid, cleanQ, idBox, METHOD,
+    loadSignatures, approvedBy, signaturePic, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm, editCustomer
   });
 })();
