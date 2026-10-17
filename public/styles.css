@@ -1757,3 +1757,4 @@ html { -webkit-tap-highlight-color: transparent; }
 .vh-badge, .vf-form .btn { background: #28a745; box-shadow: none; }
 .post-who .who { background: none; }
 .danger-fill { background: #d70015 !important; border-color: #d70015 !important; }
+.summary-box { background: #f2f7ff; border: 0; border-radius: 12px; padding: 10px 14px; color: #1d1d1f; }
