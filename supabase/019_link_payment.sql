@@ -3,6 +3,9 @@
 -- A payment linked to an invoice pays that invoice first (any amount over the invoice goes to the customer's other
 -- invoices). Payments that are not linked pay the oldest invoices first, as before. Linking and unlinking is done on
 -- the invoice page (Link a Payment) and written in the customer's history.
+-- An employee who uploads or scans a new paper copy of a customer's application form or of an invoice (when one is
+-- already on file) sends it to the Director: it waits as an update until the Director approves it (then it replaces
+-- the old copy) or rejects it (then it is deleted). The Director's own update replaces the copy at once.
 -- Run once in the Supabase SQL Editor after 018_invoice_po.sql. It is safe to run again.
 -- =====================================================================
 
@@ -93,5 +96,58 @@ $$;
 revoke execute on function public.link_payment(uuid, uuid) from public, anon;
 grant execute on function public.link_payment(uuid, uuid) to authenticated;
 
+-- ---------- a new paper copy waits for the Director ----------
+alter table public.attachments add column if not exists pending boolean not null default false;
+
+create or replace function public.attachments_pending_copy() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  new.pending := false;
+  if new.owner_type in ('customer','invoice') and new.kind in ('signed_form','application') and not public.is_admin()
+     and exists (select 1 from public.attachments a where a.owner_type = new.owner_type and a.owner_id = new.owner_id
+                 and a.kind in ('signed_form','application') and not a.pending) then
+    new.pending := true;
+    insert into public.notifications (user_id, title, body, link)
+    select p.id, 'Paper copy update to approve',
+           coalesce((select full_name from public.profiles where id = auth.uid()), 'An employee') || ' sent a new paper copy: ' || new.file_name,
+           new.owner_type || '/' || new.owner_id
+    from public.profiles p where p.role = 'admin' and p.status = 'active';
+  end if;
+  return new;
+end;
+$$;
+revoke execute on function public.attachments_pending_copy() from public, anon, authenticated;
+drop trigger if exists attachments_pending_copy on public.attachments;
+create trigger attachments_pending_copy before insert on public.attachments
+  for each row execute function public.attachments_pending_copy();
+
+-- The Director approves (the update replaces the old copy) or rejects (the update is deleted; the file's path is
+-- given back so the portal removes the file too).
+create or replace function public.decide_attachment(p_id uuid, p_ok boolean) returns text
+language plpgsql security definer set search_path = '' as $$
+declare a public.attachments;
+begin
+  if not public.is_admin() then raise exception 'Only the Director approves a paper copy update'; end if;
+  select * into a from public.attachments where id = p_id and pending;
+  if not found then raise exception 'This update was already decided'; end if;
+  perform set_config('eo.allow_change', 'on', true);
+  if p_ok then
+    update public.attachments set pending = false, created_at = now() where id = p_id;
+  else
+    delete from public.attachments where id = p_id;
+  end if;
+  perform set_config('eo.allow_change', 'off', true);
+  if a.uploaded_by is not null and a.uploaded_by <> auth.uid() then
+    insert into public.notifications (user_id, title, body, link)
+    values (a.uploaded_by, case when p_ok then 'Paper copy approved' else 'Paper copy not approved' end, a.file_name,
+            a.owner_type || '/' || a.owner_id);
+  end if;
+  return case when p_ok then null else a.storage_path end;
+end;
+$$;
+revoke execute on function public.decide_attachment(uuid, boolean) from public, anon;
+grant execute on function public.decide_attachment(uuid, boolean) to authenticated;
+
 select 'UPDATE 2.7.3 READY - payments can be linked to an invoice' as result,
+  (select count(*) from public.attachments where pending) as copies_waiting,
   (select count(*) from public.payments_received where invoice_id is not null) as payments_already_linked;

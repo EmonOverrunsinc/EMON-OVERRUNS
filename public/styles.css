@@ -1724,3 +1724,6 @@ html { -webkit-tap-highlight-color: transparent; }
 .lp-opt:active { transform: scale(.98); }
 .lp-opt small { grid-column: 1 / -1; color: #6e6e73; }
 .btn.small { padding: 5px 12px; font-size: 13px; }
+/* 2.7.3: a paper copy update waiting for the Director */
+.dc-main small.dc-wait, .doccard.signed .dc-main small.dc-wait { color: #b25d00; font-weight: 600; margin-top: 2px; }
+.dc-wait .ic { width: 14px; height: 14px; }
