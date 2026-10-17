@@ -1656,10 +1656,10 @@ table.grid tfoot td { background: #fafafc; border-top: 1px solid var(--panel-lin
    and an official foot line. Sizes stay as before, so every document keeps its page count. */
 .page { font-family: "Helvetica Neue", Arial, "Liberation Sans", sans-serif; color: #111; }
 .page .ph { border-bottom: 3px double #111; padding-bottom: 7px; }
-.page .ph-co, .page .cm-co, .page .soa-co, .page .rp-brand b { font-family: Georgia, "Times New Roman", "Liberation Serif", serif; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.page .ph-co, .page .cm-co, .page .soa-co, .page .rp-brand b { font-family: Arial, "Helvetica Neue", "Liberation Sans", sans-serif; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .page .ph-addr { color: #333; letter-spacing: .02em; }
 .page .ph-title, .page .rp-title, .page .vt {
-  font-family: Georgia, "Times New Roman", "Liberation Serif", serif; font-weight: 700; text-transform: uppercase; letter-spacing: .18em;
+  font-family: Arial, "Helvetica Neue", "Liberation Sans", sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: .18em;
   border-top: 1px solid #111; border-bottom: 1px solid #111; padding: 4px 0; margin: 10px 0 9px;
 }
 .page .pbox { border: 1px solid #111; border-radius: 0; }
