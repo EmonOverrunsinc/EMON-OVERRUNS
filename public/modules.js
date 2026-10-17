@@ -730,8 +730,6 @@
   // before 2.1 has only the address check (verified = found).
   const LOCATION = { found: "✔ FOUND", no_need: "NO NEED TO CHECK LOCATION", not_found: "✖ NOT FOUND" };
   const locOf = (c) => (LOCATION[c.location_check] ? c.location_check : c.address_verified ? "found" : "not_found");
-  const locFlag = (c) => ({ found: `<span class="flag ok">${ic("check")} Location found</span>`, no_need: `<span class="flag muted">No need to check location</span>`,
-    not_found: `<span class="flag bad">${ic("x")} Location not found</span>` })[locOf(c)];
   const locSelect = (c, id) => `<label class="loc-pick" for="${id}">Location <select id="${id}">${Object.entries(LOCATION).map(([k, l]) => `<option value="${k}" ${k === locOf(c) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`;
   function applicationPage(c, photoUrl, reqs, sign = null) {
     const qr = E.qrDataUrl(custQr(c));
@@ -747,12 +745,12 @@
           ${cell("Full Address", c.address, "span2")}</div></div>`)}
       ${box("Business & Facebook", `<div class="pgrid2">
         ${cell("Business Start Date", mdy(c.business_start_date), "span2")}
-        ${cell("Facebook Name", c.facebook_name)}${cell("Facebook Account", c.facebook_verified ? "VERIFIED" : "NOT VERIFIED")}
+        ${cell("Facebook Name", c.facebook_name, "span2")}
         ${c.facebook_link ? cell("Facebook Account Link", c.facebook_link, "span2") : ""}
         ${c.has_extra_facebook ? cell("Additional Facebook", "YES — " + (c.extra_facebook_name || ""), "span2") : ""}</div>`)}
       ${box("Requirements Submitted", `<div class="pv" style="padding:6px">${reqs.length ? reqs.map((r) => "☑ " + esc(r.file_name)).join("<br>") : "None uploaded yet"}</div>`)}
       ${box("For Office Use", `<div class="pgrid2">${cell("Issued By", c.issued_by_name)}${cell("Status", c.status.toUpperCase())}
-        ${cell("Location", LOCATION[locOf(c)])}${cell("Credit Limit (PHP)", c.credit_limit != null ? peso(c.credit_limit) : "")}
+        ${cell("Credit Limit (PHP)", c.credit_limit != null ? peso(c.credit_limit) : "")}
         ${cell("Opening Balance (PHP)", peso(c.opening_balance))}</div>`)}
       <p class="pdecl">I certify that the information above is true and correct, and I agree to the terms of ${esc(C.company.name)}.</p>
       ${sigs("Customer Signature over Printed Name &nbsp; / &nbsp; Date", sign ? "Approved by" : "Approved by (Signature) &nbsp; / &nbsp; Date", sign)}
@@ -844,7 +842,7 @@
       ...(chg.data || []).map((r) => r.action === "correction" ? { at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }
         : { at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.action === "file removed" ? r.previous?.file || "" : changeText(r) })
     ].sort((x, y) => String(x.at).localeCompare(String(y.at)));
-    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Orders (${orders.length})`, `Files (${att.length})`, "History"];
+    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Orders (${orders.length})`, `Documents (${att.length})`, "History"];
     $(".band h1").textContent = `Customer — ${fullName(c)}`;
     $("#main").innerHTML = `
       ${statusBanner(c)}
@@ -858,7 +856,6 @@
             ${idBox("Account No", c.account_no)}${idBox("Application No", c.application_no)}${idBox("Opened", mdy(c.application_date))}${c.credit_limit != null ? idBox("Credit Limit", "₱ " + peso(c.credit_limit)) : ""}
             ${isAdmin() ? `<div class="idbox"><small>Private ID</small><b class="mono" id="pvCode" data-code="${esc(secret.data?.private_code || "")}">••••••••</b> <button type="button" class="linkbtn" id="pvShow">Show</button></div>` : ""}
           </div>
-          <div class="ch-flags">${locFlag(c)}${isAdmin() && c.status !== "closed" ? locSelect(c, "pfLoc") : ""}${c.facebook_verified ? `<span class="flag ok">${ic("check")} Facebook verified</span>` : ""}</div>
         </div>
         <div class="ch-qr"><canvas id="pfQr" aria-label="Customer QR code"></canvas><small>Public ID</small><b class="mono key" id="pfKey">${esc(c.public_id || "")}</b><button type="button" class="linkbtn" id="pfCopy">${ic("copy")} Copy</button></div>
       </section>
@@ -881,7 +878,7 @@
       </div>
       <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", tag: "System Generated", sub: `${c.application_no} · made by the E-Portal · print it for the customer to sign`, ownerType: "customer", ownerId: c.id, att, kind: "__system", canUpload: false, print: () => printApplication(c),
         approved: isApprovedAccount(c) ? (() => { const a = [...(ev.data || [])].reverse().find((x) => x.action === "approve"); return { name: a?.actor_name || "", at: a?.created_at || c.reviewed_at }; })() : null })}
-        ${copyCard({ key: "appcopy", title: "Customer Application Form", tag: "Signed Paper Copy", sub: "Scan or upload the form signed by the customer", ownerType: "customer", ownerId: c.id, att, kind: "signed_form", kinds: ["signed_form", "application"], canUpload: isStaff() && c.status !== "closed" })}</div>
+        ${signed.length ? "" : copyCard({ key: "appcopy", title: "Customer Application Form", tag: "Signed Paper Copy", sub: "Scan or upload the form signed by the customer", ownerType: "customer", ownerId: c.id, att, kind: "signed_form", kinds: ["signed_form", "application"], canUpload: isStaff() && c.status !== "closed" })}</div>
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed) : ""}
       <div class="tabs" id="pfTabs">${tabs.map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes">
@@ -891,7 +888,7 @@
         <div data-p="3" hidden>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
         <div data-p="4" hidden>${E.grid({ cols: MEMO_COLS.filter((x) => x.label !== "Customer"), rows: memos.data || [], onRow: true, empty: "No credit memos." })}</div>
         <div data-p="5" hidden>${E.grid({ cols: [{ label: "Order No", get: (r) => r.order_no }, { label: "Date", get: (r) => mdy(r.order_date) }, { label: "Subject", get: (r) => r.subject }, { label: "Type", get: (r) => r.subject_type.replace(/_/g, " ").toUpperCase() }, { label: "Status", html: (r) => pill(r.status) }, { label: "Result", get: (r) => r.applied_result || "" }], rows: orders, onRow: true, empty: "No orders for this account." })}</div>
-        <div data-p="6" hidden>${filesHtml(att)}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple data-save-now")}</div>` : ""}</div>
+        <div data-p="6" hidden>${filesHtml(att.map((a) => a.kind === "signed_form" ? { ...a, kind: "application" } : a), "No documents yet.")}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple data-save-now")}</div>` : ""}</div>
         <div data-p="7" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
@@ -946,12 +943,11 @@
   function detailsTable(c) {
     const rows = [
       ["First Name", c.first_name], ["Last Name", c.last_name], ["Phone", c.phone], ["Email", c.email],
-      ["Full Address", c.address], ["Location", LOCATION[locOf(c)]],
+      ["Full Address", c.address],
       ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], ["Opening Balance", "₱ " + peso(c.opening_balance)],
       ["Business Name", c.business_name], ["Business Start Date", mdy(c.business_start_date)],
       ["Facebook Name", c.facebook_name], ["Facebook Account Link", c.facebook_link, fbLinkHtml(c.facebook_link)],
       ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
-      ["Facebook Account", c.facebook_verified ? "✔ VERIFIED" : "✖ NOT VERIFIED"],
       [["pending", "verified", "rejected"].includes(c.status) ? "Application Date" : "Opening Date", mdy(c.application_date)], ["Issued By", c.issued_by_name], ["Account Status", c.status.toUpperCase()], ["Status Note", c.status_note]
     ];
     return `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v, html]) => `<tr><th scope="row">${esc(k)}</th><td>${html || esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
