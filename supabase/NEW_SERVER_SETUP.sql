@@ -7591,6 +7591,17 @@ from public.customer_invoices i
 join public.customers c on c.id = i.customer_id
 join paid pd on pd.id = i.id;
 
+-- 2.4 made every payment an account payment (the link was cleared on save). A link made with link_payment below is kept.
+create or replace function public.payments_account_only() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if tg_op = 'UPDATE' and current_setting('eo.allow_change', true) = 'on' then return new; end if;
+  new.invoice_id := case when tg_op = 'UPDATE' then old.invoice_id else null end;
+  return new;
+end;
+$$;
+revoke execute on function public.payments_account_only() from public, anon, authenticated;
+
 -- Link a payment to an invoice of the same customer (p_invoice null: unlink). Staff who record payments or invoices,
 -- and the Director.
 create or replace function public.link_payment(p_payment uuid, p_invoice uuid) returns void
@@ -7671,9 +7682,8 @@ $$;
 revoke execute on function public.decide_attachment(uuid, boolean) from public, anon;
 grant execute on function public.decide_attachment(uuid, boolean) to authenticated;
 
-select 'UPDATE 2.7.3 READY - payments can be linked to an invoice' as result,
-  (select count(*) from public.attachments where pending) as copies_waiting,
-  (select count(*) from public.payments_received where invoice_id is not null) as payments_already_linked;
+select 'UPDATE 2.7.3 READY - payments can be linked to an invoice; paper copy updates wait for the Director'
+  || ' (payments already linked: ' || (select count(*) from public.payments_received where invoice_id is not null) || ')' as result;
 $sql$;
 begin
   s := replace(s, chr(13), '');  -- Windows line breaks
