@@ -421,6 +421,9 @@ ipcMain.handle("eo-scan", async (e, opts) => {
   if (!useWindow && !r.ok && !r.cancelled && r.offerDialog !== false && !scan) {
     logScan("direct scan did not work: the scanner window opens");
     r = await scanOnce(e, true);
+    // 1.7.1: this scanner needs its window, so the next scans open only the scanner window (one step, not two).
+    // Scanner › Always Use the Scanner Window shows it and can turn it off again.
+    if (r.ok) { saveScanSettings({ useWindow: true }); logScan("the scanner window is used from now on"); buildMenu(); }
   }
   return r;
 });

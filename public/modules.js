@@ -208,19 +208,20 @@
   // approved ({ name, at }): the Director approved the document. Its print carries the Director's signature, so there is
   // no signed copy to upload; a copy uploaded before the approval can still be opened.
   const DC = new Map();
-  function docCard({ key, title, sub = "", ownerType, ownerId, att, print, canUpload = isStaff(), printLabel = "Print / Download", kind = "signed_form", uploadLabel = "Upload Signed Copy", copyName = "Signed copy", approved = null }) {
+  function docCard({ key, title, sub = "", ownerType, ownerId, att, print, canUpload = isStaff(), printLabel = "Print / Download", kind = "signed_form", uploadLabel = "Upload Signed Copy", copyName = "Signed copy", approved = null, tag = "" }) {
+    const tg = tag ? `<span class="dc-tag">${esc(tag)}</span>` : "";
     DC.set(key, { att, print, kind, copyName });
     const signed = latestSigned(att, kind);
     if (approved) return `<div class="doccard signed esigned">
       <div class="dc-ic">${ic("doc")}<span class="dc-ok">${ic("check")}</span></div>
-      <div class="dc-main"><b>${esc(title)}</b><small>Approved${approved.name ? ` by ${esc(approved.name)}` : ""}${approved.at ? ` on ${mdy(approved.at)}` : ""} · the Director's signature is printed on it</small></div>
+      <div class="dc-main">${tg}<b>${esc(title)}</b><small>Approved${approved.name ? ` by ${esc(approved.name)}` : ""}${approved.at ? ` on ${mdy(approved.at)}` : ""} · the Director's signature is printed on it</small></div>
       <div class="dc-act"><button type="button" class="btn primary" data-dc-print="${esc(key)}">${ic("print")} ${esc(printLabel)}</button>
         ${signed ? `<button type="button" class="btn" data-dc-view="${esc(key)}">${ic("eye")} ${esc(copyName)}</button>` : ""}</div></div>`;
     const upId = `dcUp_${key.replace(/\W/g, "_")}`;
     const mayUpload = signed ? isAdmin() : canUpload;
     return `<div class="doccard${signed ? " signed" : ""}">
       <div class="dc-ic">${ic("doc")}${signed ? `<span class="dc-ok">${ic("check")}</span>` : ""}</div>
-      <div class="dc-main"><b>${esc(title)}</b><small>${signed ? `${esc(copyName)} · uploaded ${mdy(signed.created_at)}` : esc(sub || "Print it, have it signed, then upload the signed copy")}</small></div>
+      <div class="dc-main">${tg}<b>${esc(title)}</b><small>${signed ? `${esc(copyName)} · uploaded ${mdy(signed.created_at)}` : esc(sub || "Print it, have it signed, then upload the signed copy")}</small></div>
       <div class="dc-act">
         ${signed ? `<button type="button" class="btn primary" data-dc-view="${esc(key)}">${ic("eye")} View</button>${rmBtn(signed)}`
           : `<button type="button" class="btn primary" data-dc-print="${esc(key)}">${ic("print")} ${esc(printLabel)}</button>`}
@@ -229,13 +230,15 @@
       </div></div>`;
   }
   // 2.6: a card for a paper copy (scanned or uploaded): View / Replace / Remove, or Add when there is none yet
-  function copyCard({ key, title, sub = "", ownerType, ownerId, att, kind, canUpload = isStaff(), addLabel = "Upload" }) {
-    DC.set(key, { att, kind, copyName: title, plain: true });
-    const f = latestSigned(att, kind);
+  // kinds: the kinds of upload shown here (the newest one); a new upload is saved as kind.
+  function copyCard({ key, title, sub = "", ownerType, ownerId, att, kind, kinds = [kind], canUpload = isStaff(), addLabel = "Upload", tag = "" }) {
+    const shown = att.filter((a) => kinds.includes(a.kind));
+    DC.set(key, { att: shown.map((a) => ({ ...a, kind })), kind, copyName: title, plain: true });
+    const f = [...shown].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
     const upId = `dcUp_${key.replace(/\W/g, "_")}`;
     return `<div class="doccard${f ? " signed" : ""}">
       <div class="dc-ic">${ic("doc")}${f ? `<span class="dc-ok">${ic("check")}</span>` : ""}</div>
-      <div class="dc-main"><b>${esc(title)}</b><small>${f ? `Uploaded ${mdy(f.created_at)}${sub ? " · " + esc(sub) : ""}` : esc(sub || "No copy yet")}</small></div>
+      <div class="dc-main">${tag ? `<span class="dc-tag">${esc(tag)}</span>` : ""}<b>${esc(title)}</b><small>${f ? `On file · uploaded ${mdy(f.created_at)}` : esc(sub || "No copy yet")}</small></div>
       <div class="dc-act">${f ? `<button type="button" class="btn primary" data-dc-view="${esc(key)}">${ic("eye")} View</button>${rmBtn(f)}` : ""}
         ${canUpload ? `<label class="btn${f ? "" : " primary"}" for="${upId}"${window.EOApp ? " hidden" : ""}>${ic("upload")} ${f ? "Replace" : esc(addLabel)}</label>
           <input type="file" id="${upId}" hidden accept="image/*,application/pdf" data-save-now data-dc-up="${esc(key)}" data-owner="${esc(ownerType)}" data-id="${esc(ownerId)}">` : ""}
@@ -727,8 +730,6 @@
   // before 2.1 has only the address check (verified = found).
   const LOCATION = { found: "✔ FOUND", no_need: "NO NEED TO CHECK LOCATION", not_found: "✖ NOT FOUND" };
   const locOf = (c) => (LOCATION[c.location_check] ? c.location_check : c.address_verified ? "found" : "not_found");
-  const locFlag = (c) => ({ found: `<span class="flag ok">${ic("check")} Location found</span>`, no_need: `<span class="flag muted">No need to check location</span>`,
-    not_found: `<span class="flag bad">${ic("x")} Location not found</span>` })[locOf(c)];
   const locSelect = (c, id) => `<label class="loc-pick" for="${id}">Location <select id="${id}">${Object.entries(LOCATION).map(([k, l]) => `<option value="${k}" ${k === locOf(c) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`;
   function applicationPage(c, photoUrl, reqs, sign = null) {
     const qr = E.qrDataUrl(custQr(c));
@@ -744,12 +745,12 @@
           ${cell("Full Address", c.address, "span2")}</div></div>`)}
       ${box("Business & Facebook", `<div class="pgrid2">
         ${cell("Business Start Date", mdy(c.business_start_date), "span2")}
-        ${cell("Facebook Name", c.facebook_name)}${cell("Facebook Account", c.facebook_verified ? "VERIFIED" : "NOT VERIFIED")}
+        ${cell("Facebook Name", c.facebook_name, "span2")}
         ${c.facebook_link ? cell("Facebook Account Link", c.facebook_link, "span2") : ""}
         ${c.has_extra_facebook ? cell("Additional Facebook", "YES — " + (c.extra_facebook_name || ""), "span2") : ""}</div>`)}
       ${box("Requirements Submitted", `<div class="pv" style="padding:6px">${reqs.length ? reqs.map((r) => "☑ " + esc(r.file_name)).join("<br>") : "None uploaded yet"}</div>`)}
       ${box("For Office Use", `<div class="pgrid2">${cell("Issued By", c.issued_by_name)}${cell("Status", c.status.toUpperCase())}
-        ${cell("Location", LOCATION[locOf(c)])}${cell("Credit Limit (PHP)", c.credit_limit != null ? peso(c.credit_limit) : "")}
+        ${cell("Credit Limit (PHP)", c.credit_limit != null ? peso(c.credit_limit) : "")}
         ${cell("Opening Balance (PHP)", peso(c.opening_balance))}</div>`)}
       <p class="pdecl">I certify that the information above is true and correct, and I agree to the terms of ${esc(C.company.name)}.</p>
       ${sigs("Customer Signature over Printed Name &nbsp; / &nbsp; Date", sign ? "Approved by" : "Approved by (Signature) &nbsp; / &nbsp; Date", sign)}
@@ -766,22 +767,23 @@
   async function printApplication(c) {
     const [att, ok] = await Promise.all([attachmentsOf("customer", c.id), accountApproval(c), loadSignatures()]);
     const photoUrl = c.photo_path ? await signedUrl(c.photo_path, 900) : "";
-    E.openPreview(`Application ${c.application_no}`, [applicationPage(c, photoUrl, att.filter((a) => a.kind === "requirement"), ok ? approvedBy(ok.id, ok.name, ok.at) : null)]);
+    const pages = [applicationPage(c, photoUrl, att.filter((a) => a.kind === "requirement"), ok ? approvedBy(ok.id, ok.name, ok.at) : null)];
+    // an approved account: page 2 is the Record Validation (verified / approved by, E-Portal record date, paper copy)
+    if (ok) pages.push(await validationPage(c, att));
+    E.openPreview(`Application ${c.application_no}`, pages);
   }
 
-  // 2.6.4 Record Validation (A4): the account's log validation like the old paper form — verified by / date,
+  // 2.6.5 Record Validation (A4, page 2 of an approved account's application print): the account's log validation like the old paper form — verified by / date,
   // approved by / date — with the date it was recorded in the E-Portal, the paper form on file, and a QR to check it.
-  async function printValidation(c) {
-    const [att, ev] = await Promise.all([attachmentsOf("customer", c.id),
-      sb.from("customer_events").select("action, actor, actor_name, created_at").eq("customer_id", c.id).in("action", ["verify", "approve"]).order("created_at", { ascending: false }),
-      loadSignatures()]);
+  async function validationPage(c, att) {
+    const ev = await sb.from("customer_events").select("action, actor, actor_name, created_at").eq("customer_id", c.id).in("action", ["verify", "approve"]).order("created_at", { ascending: false });
     const last = (a) => (ev.data || []).find((x) => x.action === a);
     const ver = last("verify"), apr = last("approve"), ok = isApprovedAccount(c);
-    const paper = latestSigned(att, "application");
+    const paper = att.filter((a) => a.kind === "signed_form" || a.kind === "application").sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
     const when = new Date(), vno = "V" + when.toISOString().replace(/\D/g, "").slice(2, 14), at = E.dateTime(when.toISOString());
     const row = (k, v) => `<tr><th>${esc(k)}</th><td${k === "Public ID" ? ' class="key"' : ""}>${esc(v || "—")}</td></tr>`;
     const complete = ok && !!paper;
-    const page = `<div class="vp">${printHead("RECORD VALIDATION")}
+    return `<div class="vp">${printHead("RECORD VALIDATION")}
       <div class="vp-true${complete ? "" : " part"}"><span class="vp-seal">${complete ? "✔" : "!"}</span><div><b>${complete ? "RECORD COMPLETE" : ok ? "PAPER FORM NOT ON FILE" : "NOT YET APPROVED"}</b>
         <small>${esc(fullName(c))} · ${esc(c.account_no || c.application_no)}</small><small>Recorded in the ${esc(E.APP)} on ${esc(mdy(c.created_at))}</small></div></div>
       ${box("Customer Record", `<table class="vp-fields"><tbody>${row("Account Name", fullName(c))}${row("Account No", c.account_no)}${row("Application No", c.application_no)}
@@ -793,7 +795,6 @@
         <div class="vp-qr"><img src="${E.qrDataUrl(`${location.origin}${location.pathname}#verify/${encodeURIComponent(c.public_id || c.account_no || "")}`)}" alt="Verification QR code"><small>Scan to verify online</small></div></div>`)}
       ${sigs("Verified by (Signature) &nbsp; / &nbsp; Date", ok ? "Approved by" : "Approved by (Signature) &nbsp; / &nbsp; Date", ok ? approvedBy(apr?.actor || c.reviewed_by, apr?.actor_name || "", apr?.created_at || c.reviewed_at) : null)}
       <div class="vp-sys">This record is kept in the ${esc(E.APP)}. Scan the QR code to check it.</div></div>`;
-    E.openPreview(`Validation ${c.account_no || c.application_no}`, [page]);
   }
 
   // Suspended / closed accounts are marked for everyone who opens them.
@@ -828,7 +829,7 @@
     ]);
     const b = bal.data || { total_invoiced: 0, total_paid: 0, total_credits: 0, balance_due: 0, total_charges: 0, total_settlement: 0 };
     const photoUrl = c.photo_path ? await signedUrl(c.photo_path) : "";
-    const signed = att.filter((a) => a.kind === "signed_form");
+    const signed = att.filter((a) => a.kind === "signed_form" || a.kind === "application");
     const orders = ords.data || [];
     const canInvoice = c.status === "active" && E.canWrite("invoices");
     const canPay = ["active", "suspended", "closed"].includes(c.status) && (E.canWrite("payments") || E.canWrite("invoices"));
@@ -841,7 +842,7 @@
       ...(chg.data || []).map((r) => r.action === "correction" ? { at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }
         : { at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.action === "file removed" ? r.previous?.file || "" : changeText(r) })
     ].sort((x, y) => String(x.at).localeCompare(String(y.at)));
-    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Orders (${orders.length})`, `Files (${att.length})`, "History"];
+    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Orders (${orders.length})`, `Documents (${att.length})`, "History"];
     $(".band h1").textContent = `Customer — ${fullName(c)}`;
     $("#main").innerHTML = `
       ${statusBanner(c)}
@@ -855,7 +856,6 @@
             ${idBox("Account No", c.account_no)}${idBox("Application No", c.application_no)}${idBox("Opened", mdy(c.application_date))}${c.credit_limit != null ? idBox("Credit Limit", "₱ " + peso(c.credit_limit)) : ""}
             ${isAdmin() ? `<div class="idbox"><small>Private ID</small><b class="mono" id="pvCode" data-code="${esc(secret.data?.private_code || "")}">••••••••</b> <button type="button" class="linkbtn" id="pvShow">Show</button></div>` : ""}
           </div>
-          <div class="ch-flags">${locFlag(c)}${isAdmin() && c.status !== "closed" ? locSelect(c, "pfLoc") : ""}${c.facebook_verified ? `<span class="flag ok">${ic("check")} Facebook verified</span>` : ""}</div>
         </div>
         <div class="ch-qr"><canvas id="pfQr" aria-label="Customer QR code"></canvas><small>Public ID</small><b class="mono key" id="pfKey">${esc(c.public_id || "")}</b><button type="button" class="linkbtn" id="pfCopy">${ic("copy")} Copy</button></div>
       </section>
@@ -876,10 +876,9 @@
         <span class="grow"></span>
         ${tools("customers", c, `${c.account_no || c.application_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers") })}
       </div>
-      <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", sub: `${c.application_no} · print, have the customer sign it, then upload the signed copy`, ownerType: "customer", ownerId: c.id, att, print: () => printApplication(c), canUpload: isStaff() && c.status !== "closed",
+      <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", tag: "System Generated", sub: `${c.application_no} · made by the E-Portal · print it for the customer to sign`, ownerType: "customer", ownerId: c.id, att, kind: "__system", canUpload: false, print: () => printApplication(c),
         approved: isApprovedAccount(c) ? (() => { const a = [...(ev.data || [])].reverse().find((x) => x.action === "approve"); return { name: a?.actor_name || "", at: a?.created_at || c.reviewed_at }; })() : null })}
-        ${copyCard({ key: "oldform", title: "Paper Application Form", sub: "Scan or upload the old signed paper form", ownerType: "customer", ownerId: c.id, att, kind: "application", canUpload: isStaff() && c.status !== "closed" })}
-        ${docCard({ key: "val", title: "Record Validation", sub: "Recorded in the E-Portal · verified and approved by · print", ownerType: "customer", ownerId: c.id, att, kind: "__system", canUpload: false, print: () => printValidation(c) })}</div>
+        ${signed.length ? "" : copyCard({ key: "appcopy", title: "Customer Application Form", tag: "Signed Paper Copy", sub: "Scan or upload the form signed by the customer", ownerType: "customer", ownerId: c.id, att, kind: "signed_form", kinds: ["signed_form", "application"], canUpload: isStaff() && c.status !== "closed" })}</div>
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed) : ""}
       <div class="tabs" id="pfTabs">${tabs.map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes">
@@ -889,7 +888,7 @@
         <div data-p="3" hidden>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
         <div data-p="4" hidden>${E.grid({ cols: MEMO_COLS.filter((x) => x.label !== "Customer"), rows: memos.data || [], onRow: true, empty: "No credit memos." })}</div>
         <div data-p="5" hidden>${E.grid({ cols: [{ label: "Order No", get: (r) => r.order_no }, { label: "Date", get: (r) => mdy(r.order_date) }, { label: "Subject", get: (r) => r.subject }, { label: "Type", get: (r) => r.subject_type.replace(/_/g, " ").toUpperCase() }, { label: "Status", html: (r) => pill(r.status) }, { label: "Result", get: (r) => r.applied_result || "" }], rows: orders, onRow: true, empty: "No orders for this account." })}</div>
-        <div data-p="6" hidden>${filesHtml(att)}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple data-save-now")}</div>` : ""}</div>
+        <div data-p="6" hidden>${filesHtml(att.map((a) => a.kind === "signed_form" ? { ...a, kind: "application" } : a), "No documents yet.")}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple data-save-now")}</div>` : ""}</div>
         <div data-p="7" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
@@ -944,12 +943,11 @@
   function detailsTable(c) {
     const rows = [
       ["First Name", c.first_name], ["Last Name", c.last_name], ["Phone", c.phone], ["Email", c.email],
-      ["Full Address", c.address], ["Location", LOCATION[locOf(c)]],
+      ["Full Address", c.address],
       ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], ["Opening Balance", "₱ " + peso(c.opening_balance)],
       ["Business Name", c.business_name], ["Business Start Date", mdy(c.business_start_date)],
       ["Facebook Name", c.facebook_name], ["Facebook Account Link", c.facebook_link, fbLinkHtml(c.facebook_link)],
       ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
-      ["Facebook Account", c.facebook_verified ? "✔ VERIFIED" : "✖ NOT VERIFIED"],
       [["pending", "verified", "rejected"].includes(c.status) ? "Application Date" : "Opening Date", mdy(c.application_date)], ["Issued By", c.issued_by_name], ["Account Status", c.status.toUpperCase()], ["Status Note", c.status_note]
     ];
     return `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v, html]) => `<tr><th scope="row">${esc(k)}</th><td>${html || esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
@@ -971,7 +969,7 @@
           <button type="button" class="btn" id="rvFb">${c.facebook_verified ? "Mark Facebook NOT verified" : "Mark Facebook verified"}</button>
           ${locSelect(c, "rvLoc")}</div><div id="rvResult">${c.status === "verified" ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
         <li><b>Application form signed by the customer:</b> ${signed.length ? `<span class="ok-txt">✔ Uploaded.</span>`
-          : `<span class="bad-txt">not uploaded yet.</span> Print the form from the <b>Customer Application Form</b> card above, have the customer sign it, then press <b>Upload Signed Copy</b>.`}
+          : `<span class="bad-txt">not uploaded yet.</span> Print the form from the <b>System Generated</b> card above, have the customer sign it, then scan or upload it on the <b>Signed Paper Copy</b> card.`}
           You do not sign it by hand: your signature is printed on the form when you approve.</li>
         <li><b>Decide:</b>
           <div class="fields wide"><label for="rvNote">Note</label><input type="text" id="rvNote" placeholder="Optional note (shown in history)"></div>
@@ -1351,8 +1349,8 @@
         <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b><span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b><span>Balance</span><b>₱ ${peso(inv.balance)}</b>
         <span>Payment Status</span><span>${pill(inv.pay_status)}</span></div></div>
       <small class="muted">Payments, discounts and orders are for the customer's account: they pay the oldest invoices first.</small>
-      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no} (System)`, sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv)]) })}
-        ${copyCard({ key: "invcopy", title: "Invoice Paper Copy", sub: "Scanned or uploaded", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}</div>
+      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv)]) })}
+        ${copyCard({ key: "invcopy", title: `Invoice ${inv.invoice_no}`, tag: "Paper Copy", sub: "Scan or upload the paper invoice", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}</div>
       <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
       ${rhBox("customer_invoices", inv.id)}</div>
       <div class="wfoot">${tools("customer_invoices", inv, `Invoice ${inv.invoice_no}`, { reload: () => V.invoice(id), afterDelete: () => (location.hash = "invoices") })}
