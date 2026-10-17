@@ -10,7 +10,7 @@ Target amd64-unicode
 !define EXE "E-Portal.exe"
 !define COMPANY "EMON OVERRUNS"
 !ifndef VERSION
-  !define VERSION "1.6.0"
+  !define VERSION "1.7.0"
 !endif
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\EMONOVERRUNS.EPortal"
 

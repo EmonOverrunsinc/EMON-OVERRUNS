@@ -414,7 +414,17 @@ ipcMain.handle("eo-scan", async (e, opts) => {
   if (!inApp(e.senderFrame ? e.senderFrame.url : "")) return { error: "Scanning is only for the E-Portal." };
   if (process.platform !== "win32") return { error: "Scanning works in the E-Portal app for Windows." };
   if (scan) return { error: "Another scan is still running. Wait a moment until it has finished, then try again.", code: "RUNNING", offerDialog: false };
-  const dialogMode = !!(opts && opts.dialog);
+  // 1.7: the page is scanned at once, without the scanner window (no button to press). When that does not work, the
+  // scanner window opens by itself. Scanner › Always Use the Scanner Window brings back the window first.
+  const useWindow = !!scanSettings().useWindow;
+  let r = await scanOnce(e, useWindow);
+  if (!useWindow && !r.ok && !r.cancelled && r.offerDialog !== false && !scan) {
+    logScan("direct scan did not work: the scanner window opens");
+    r = await scanOnce(e, true);
+  }
+  return r;
+});
+async function scanOnce(e, dialogMode) {
   const s = scanSettings();
   const key = `${s.dpi}-${s.intent}`;
   const expected = Math.min(120000, Math.max(5000, (s.times || {})[key] || (s.dpi >= 300 ? 40000 : s.intent === 2 ? 18000 : 25000)));
@@ -479,7 +489,7 @@ ipcMain.handle("eo-scan", async (e, opts) => {
     scan = null;
     fs.promises.unlink(file).catch(() => {});
   }
-});
+}
 // Cancel on the E-Portal page: PowerShell is closed and the scan answers "cancelled".
 ipcMain.handle("eo-scan-cancel", (e) => {
   if (!inApp(e.senderFrame ? e.senderFrame.url : "")) return false;
@@ -542,6 +552,9 @@ function buildMenu() {
         click: () => saveScanSettings({ dpi: q.dpi, intent: q.intent }) })),
       { type: "separator" },
       // what the scans did, to send when a scan has a problem
+      { label: "Always Use the Scanner Window", type: "checkbox", checked: !!scanSettings().useWindow,
+        click: (m) => saveScanSettings({ useWindow: m.checked }) },
+      { type: "separator" },
       { label: "Open Scan Log", click: () => { logScan("log opened"); shell.openPath(scanLog()).catch(() => {}); } },
     ] },
     { label: "Help", submenu: [
