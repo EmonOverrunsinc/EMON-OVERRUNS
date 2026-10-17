@@ -363,8 +363,6 @@ body.drawer-open .burger span:nth-child(3) { transform: translateY(-6px) rotate(
 .mail-item.unread { background: #eef6ff !important; }
 .mail-item.unread b::before { content: "● "; color: #1f5fbf; }
 .mail-item small { color: var(--ink-soft); }
-.install-app { font-size: 13px; white-space: nowrap; background: #fff; color: var(--title-2); font-weight: bold; display: inline-flex; gap: 4px; }
-.install-app[hidden] { display: none; }
 
 .layout { display: flex; min-height: calc(100vh - 140px); }
 .drawer {
@@ -634,8 +632,6 @@ table.soa-table tr.soa-total td { padding-top: 10px; }
 .soa-imgs img { width: 100%; max-height: 105mm; object-fit: contain; border: 1px solid #999; }
 .soa-imgs figcaption { font-size: 9.5px; margin-top: 3px; }
 .soa-pdf { border: 1px dashed #999; padding: 30px 8px; font-size: 10px; }
-.install-app { font-size: 13px; padding: 0 10px; white-space: nowrap; background: #fff; color: var(--title-2); font-weight: bold; }
-@media (max-width: 620px) { .tb-install-txt { display: none; } }
 
 /* ===================== Version 1.1: animations, loading, sign-in, new screens ===================== */
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
@@ -1314,10 +1310,7 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
 .person-check { margin: 0 0 10px; }
 .person-check .grid-wrap, #rvResult .grid-wrap { margin-top: 6px; }
 .co-text a.co-site, .hero a.co-site { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
-.update-bar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 9999; display: flex; align-items: center; gap: 10px;
   max-width: calc(100% - 24px); padding: 8px 12px; border-radius: 10px; background: #1f4a8c; color: #fff; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
-.update-bar .ic { width: 16px; height: 16px; flex: none; }
-@media print { .update-bar { display: none !important; } }
 
 /* 2.1: the Scan button of the Windows app, next to a document upload */
 .scan-wrap { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
@@ -1412,7 +1405,6 @@ body {
 .scanbtn:hover { background: var(--accent-2); transform: none; box-shadow: none; }
 .avatar-btn { border: 0; background: #e8e8ed; color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px rgba(0,0,0,.06); }
 .avatar-btn:hover { box-shadow: 0 0 0 4px rgba(0,113,227,.18); }
-.install-app { background: var(--accent-soft); color: var(--accent); border-radius: 18px; }
 .pop { border: 1px solid rgba(0,0,0,.08); border-radius: 14px; box-shadow: var(--shadow-2); background: rgba(255,255,255,.96);
   -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); animation: popIn .25s var(--spring); }
 .pop-head { background: transparent; border-bottom: 1px solid var(--panel-line); padding: 12px 14px; }
@@ -1685,3 +1677,45 @@ table.grid tfoot td { background: #fafafc; border-top: 1px solid var(--panel-lin
 .page > .pg-web .pg-off { margin-right: auto; text-align: left; font-size: 7.5px; line-height: 1.45; color: #333; letter-spacing: .02em; }
 .page > .pg-web .pg-off b { font-size: 7.5px; }
 .page.a5l > .pg-web .pg-off { font-size: 7px; }
+
+/* 2.7: a new version is offered in the profile menu; a dot on the profile button shows it */
+.avatar-btn { position: relative; overflow: visible; }
+.avatar-btn > img, .avatar-btn > span { border-radius: 50%; overflow: hidden; display: grid; place-items: center; width: 100%; height: 100%; }
+.avatar-btn.has-update::after { content: ""; position: absolute; top: 0; right: 0; width: 10px; height: 10px; border-radius: 50%; background: #ff3b30; box-shadow: 0 0 0 2px #fff; animation: pop .4s ease; }
+.pop > button.up-update { flex-wrap: wrap; font-weight: 600; }
+.pop > button.up-update small { flex-basis: 100%; padding-left: 26px; font-weight: 400; color: #6e6e73; }
+
+/* ===================== 2.7: black-and-white theme =====================
+   One ink colour (near black) on white and soft greys. Colour stays only where it carries meaning: status pills
+   (paid / unpaid / closed), red badges and errors. */
+.topbar, .layout, .statusbar, .login, .modal, .pop, .toast, .mini-content, .boot {
+  --accent: #1d1d1f; --accent-2: #000000; --accent-soft: rgba(0,0,0,.06); --title-1: #1d1d1f;
+}
+.layout a, .modal a, .mini-content a { color: #1d1d1f; }
+.box-link, .linkbtn { text-decoration: underline; text-underline-offset: 2px; }
+.hint b:first-child { color: #1d1d1f; }
+.drawer a.active { background: #1d1d1f; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.drawer .num { color: #1d1d1f; }
+.tb-search:focus-within, .layout input:focus, .layout select:focus, .layout textarea:focus, .modal input:focus, .modal select:focus, .modal textarea:focus,
+.login-form input:focus { box-shadow: 0 0 0 4px rgba(0,0,0,.08); border-color: #1d1d1f; }
+:focus-visible { outline-color: rgba(0,0,0,.45); }
+.avatar-btn:hover { box-shadow: 0 0 0 4px rgba(0,0,0,.08); }
+.qa-ic, .qa-blue, .qa-indigo, .qa-green, .qa-orange, .qa-purple, .qa-teal, .qa-pink, .qa-gray { --c: #1d1d1f; }
+.qa-ic { box-shadow: 0 4px 10px rgba(0,0,0,.18); }
+.tile-ic, .tile.ok .tile-ic, .tile.warn .tile-ic { background: #f2f2f7; color: #1d1d1f; }
+.hero-tag { background: #1d1d1f; color: #fff; }
+.home-hero { background: linear-gradient(135deg, #ffffff 0%, #f7f7f9 60%, #efeff3 100%); }
+.dc-ic, .doccard.signed .dc-ic { background: #f2f2f7; color: #1d1d1f; }
+.dc-tag, .doccard.signed .dc-tag { color: #6e6e73; }
+.doccard.signed .dc-main small { color: #1d1d1f; }
+.doccard.signed { box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 2px 10px rgba(0,0,0,.04), inset 0 3px 0 #1d1d1f; }
+.dc-ok { background: #1d1d1f; }
+.due-card .v, .due-card.warn .v, .due-card.ok .v { color: #1d1d1f; }
+.due-card.warn { box-shadow: inset 4px 0 0 #1d1d1f, 0 2px 10px rgba(0,0,0,.05); }
+.due-card.ok { box-shadow: inset 4px 0 0 #c7c7cc, 0 2px 10px rgba(0,0,0,.05); }
+.btn.ok { background: #e8e8ed; color: #1d1d1f; }
+.scanbtn { background: #1d1d1f; }
+.scanbtn:hover { background: #000; }
+.verify-link .ic { color: #1d1d1f; }
+.preview .pv-tools .btn.primary { background: #1d1d1f; }
+.login { background: radial-gradient(1200px 600px at 20% 0%, #ffffff 0%, transparent 60%), linear-gradient(180deg, #f5f5f7, #e9e9ee); }

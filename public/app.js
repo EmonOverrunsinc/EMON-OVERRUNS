@@ -31,7 +31,6 @@
     return MON[Number(m) - 1] && d ? `${MON[Number(m) - 1]}\u00a0${d}\u00a0${y}` : s;
   };
   const stamp = (d = new Date()) => `${mdy(isoDay(d))} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  const longDate = (iso) => `${new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(iso)}`;
   const dateTime = (iso) => { if (!iso) return ""; const d = new Date(iso), h = d.getHours(); return `${mdy(isoDay(d))} ${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "AM" : "PM"}`; };
   // Dates the database writes as "20 Jun 2026" (record verification) show as JUNE 20 2026 too.
   const fixDates = (v) => String(v ?? "").replace(/\b(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4})\b/g,
@@ -39,7 +38,6 @@
   // The website (config.js): its name for printed headers, and a link for the screens anyone can see.
   const siteName = () => String(C.company.website || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
   const siteText = () => (siteName() ? ` · ${esc(siteName())}` : "");
-  const siteLink = () => (siteName() ? ` · <a class="co-site" href="${esc(C.company.website)}" target="_blank" rel="noopener">${esc(siteName())}</a>` : "");
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const isAdmin = () => S.profile?.role === "admin";
@@ -348,15 +346,6 @@
   // Built-in company logo and seal (an uploaded logo under Company Logo replaces the built-in one).
   const DEFAULT_LOGO = "brand/logo.jpg";
   const SEAL = "brand/seal.jpg";
-  // "Install App": the browser offers this event when the portal can be installed (Edge/Chrome on Windows, Android).
-  let installEvt = null;
-  const installed = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
-  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; $$(".install-app").forEach((b) => (b.hidden = false)); });
-  window.addEventListener("appinstalled", () => { installEvt = null; $$(".install-app").forEach((b) => (b.hidden = true)); toast(`${APP} installed. Find it in the Start menu or on your home screen.`); });
-  async function installApp() {
-    if (installEvt) { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; $$(".install-app").forEach((b) => (b.hidden = true)); return; }
-    toast("To install: open the browser menu (⋯ or ⋮) and choose “Install EMON OVERRUNS E-PORTAL” or “Apps → Install this site as an app”.");
-  }
   S.logoUrl = DEFAULT_LOGO;
   const publicUrl = (bucket, path) => path ? sb.storage.from(bucket).getPublicUrl(path).data.publicUrl : "";
   async function loadBranding() {
@@ -368,13 +357,6 @@
   const logoHtml = (cls = "co-logo") => S.logoUrl
     ? `<img class="${cls}" src="${esc(S.logoUrl)}" alt="${esc(C.company.name)} logo">`
     : `<span class="${cls} co-logo-fallback" aria-hidden="true">EO</span>`;
-  // 2.4: not shown on the screens any more (the printed documents keep the company name, address and email)
-  function companyHeader() {
-    return `<header class="co-head">${logoHtml()}<div class="co-text">
-      <b>${esc(C.company.name)} <span class="co-tag">E-PORTAL</span></b>
-      <span>${esc(C.company.address.join(", "))}</span>
-      <span>${esc(C.company.email)}${siteLink()}</span></div></header>`;
-  }
 
   // ---------- new versions ----------
   // version.json (never kept in the browser) names the version on the server. When it is not the version of this page,
@@ -388,13 +370,15 @@
       const v = String((await r.json()).version || "");
       if (!v || v === BUILD || v === newBuild) return;
       newBuild = v;
-      if ($(".update-bar")) return;
-      const bar = document.createElement("div");
-      bar.className = "update-bar"; bar.setAttribute("role", "status");
-      bar.innerHTML = `${ic("install")} A new version of the ${esc(APP)} is ready. <button type="button" class="btn small primary">Update now</button>`;
-      bar.querySelector("button").onclick = () => { reloadedFor(v); location.reload(); };
-      document.body.appendChild(bar);
+      // 2.7: the update is offered in the profile menu (a dot on the profile button shows it is there)
+      const pop = $("#userPop");
+      if (pop && !$("#upUpdate")) { $(".pop-head", pop).insertAdjacentHTML("afterend", updateItem()); bindUpdate(); }
     } catch (_) { /* offline: checked again later */ }
+  }
+  const updateItem = () => `<button type="button" id="upUpdate" class="up-update">${ic("install")} Update to version ${esc(newBuild)}<small>A new version is ready</small></button>`;
+  function bindUpdate() {
+    if ($("#tbUser")) $("#tbUser").classList.toggle("has-update", !!newBuild);
+    if ($("#upUpdate")) $("#upUpdate").onclick = () => { reloadedFor(newBuild); location.reload(); };
   }
   setTimeout(checkVersion, 4000);
   setInterval(checkVersion, 5 * 60 * 1000);
@@ -883,7 +867,6 @@
           <button type="button" class="scanbtn" id="tbScan" title="Scan a QR code or barcode">${ic("scan")}<span>Scan</span></button>
         </form>
         <div class="tb-right">
-          <button type="button" class="iconbtn install-app" id="tbInstall" title="Install the E-PORTAL as an app" ${installEvt ? "" : "hidden"}>${ic("install")}<span class="tb-install-txt">Install App</span></button>
           <button type="button" class="iconbtn" id="tbChat" aria-label="Messages" title="Messages">${ic("chat")}<span class="badge" id="tbChatBadge" hidden>0</span></button>
           <button type="button" class="iconbtn" id="tbBell" aria-label="Notifications" title="Notifications" aria-haspopup="true">${ic("bell")}<span class="badge" id="tbBadge" hidden>0</span></button>
           <button type="button" class="avatar-btn" id="tbUser" aria-haspopup="true" aria-label="Your account">
@@ -895,7 +878,7 @@
           <div class="pop-head">${esc(S.profile.full_name || "")}<small>${S.profile.username ? "@" + esc(S.profile.username) + " · " : ""}${esc(S.session.user.email)} · ${esc(personTitle(S.profile.role, S.position).toUpperCase())}</small></div>
           <a href="#profile">${ic("user")} My Profile</a>
           <button type="button" id="chPw">${ic("key")} Change Password</button>
-          ${installed() ? "" : `<button type="button" id="upInstall">${ic("install")} Install App</button>`}
+          ${newBuild ? updateItem() : ""}
           ${isAdmin() ? `<a href="#settings">${ic("image")} Company Logo</a>` : ""}
           <button type="button" id="signOut">${ic("out")} Sign Out</button>
         </div>
@@ -925,8 +908,7 @@
     $$("#drawer a").forEach((a) => (a.onclick = () => { if (isPhone()) drawerOpen(false); }));
     $("#signOut").onclick = signOut;
     $("#chPw").onclick = () => renderSetPassword(false);
-    $("#tbInstall").onclick = installApp;
-    if ($("#upInstall")) $("#upInstall").onclick = installApp;
+    bindUpdate();
     $("#tbSearch").onsubmit = (e) => {
       e.preventDefault();
       const q = $("#tbQ").value.trim();
@@ -1726,11 +1708,11 @@
   window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words, need };
   // shared with modules.js to modules4.js
   Object.assign(window.EO, {
-    APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, longDate, dateTime, fixDates, timeAgo, online, $, $$,
+    APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
-    shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, siteLink,
+    shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, 
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, slimFile, scanDialog, openScanned, isCustKey, keepTab, stillHere,
-    roleName, personTitle, publicUrl, logoHtml, companyHeader, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
+    roleName, personTitle, publicUrl, logoHtml, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
     requestDeletion, TERMS, termsDue, changePassword: () => renderSetPassword(false)
   });
 })();

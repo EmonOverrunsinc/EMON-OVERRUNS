@@ -192,14 +192,6 @@
       return await new Promise((ok) => out.toBlob(ok, "image/png"));
     } finally { URL.revokeObjectURL(url); }
   }
-  // Upload a signature picture for a person (into their own folder) and give back its path.
-  async function uploadSignature(file, userId) {
-    const blob = await cleanSignature(file);
-    const path = `signature/${userId}/Signature_${Date.now()}.png`;
-    const up = await sb.storage.from("records").upload(path, blob, { contentType: "image/png" });
-    if (up.error) throw up.error;
-    return path;
-  }
 
   // ---------- document cards ----------
   // One card per printable document. Until a signed copy is uploaded the card prints the system form;
@@ -447,8 +439,6 @@
     ? `<div class="sig-on">${sign.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="line"></div>${label}${sign.name ? `: <b class="nw">${esc(sign.name)}</b>` : ""}${sign.at ? ` &nbsp;·&nbsp; <span class="nw">${esc(mdy(sign.at))}</span>` : ""}</div>`
     : `<div><div class="line"></div>${label}</div>`;
   const sigs = (left, right, sign = null) => `<div class="psig">${sigCol(left)}${sigCol(right, sign)}</div>`;
-  // Printed documents carry no status stamps; the signed copy uploaded afterwards is the record.
-  const stampHtml = () => "";
 
   // ======================================================================
   // Dashboard
@@ -1872,7 +1862,7 @@
   // shared with modules2.js and modules3.js
   Object.assign(E, {
     extOf, viewFile, latestSigned, uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, isImage,
-    docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, stampHtml, uuid, cleanQ, idBox, METHOD,
-    loadSignatures, approvedBy, signaturePic, uploadSignature, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm, editCustomer
+    docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, uuid, cleanQ, idBox, METHOD,
+    loadSignatures, approvedBy, signaturePic, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm, editCustomer
   });
 })();
