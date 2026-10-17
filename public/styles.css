@@ -1366,3 +1366,4 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
 .ct-ref { font-size: 26px; font-weight: bold; letter-spacing: .04em; color: var(--title-2); margin: 2px 0 8px; word-break: break-all; }
 .ct-card .ct-from { font-weight: bold; }
 .ct-msg { white-space: pre-wrap; margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: #f6f9fd; border: 1px solid var(--panel-line); }
+.vp-true.part { color: #8a5a00; border-color: #8a5a00; } .vp-true.part .vp-seal { background: #8a5a00; }

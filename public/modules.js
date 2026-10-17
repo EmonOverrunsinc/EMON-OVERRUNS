@@ -229,7 +229,7 @@
       </div></div>`;
   }
   // 2.6: a card for a paper copy (scanned or uploaded): View / Replace / Remove, or Add when there is none yet
-  function copyCard({ key, title, sub = "", ownerType, ownerId, att, kind, canUpload = isStaff(), addLabel = "Add / Scan" }) {
+  function copyCard({ key, title, sub = "", ownerType, ownerId, att, kind, canUpload = isStaff(), addLabel = "Upload" }) {
     DC.set(key, { att, kind, copyName: title, plain: true });
     const f = latestSigned(att, kind);
     const upId = `dcUp_${key.replace(/\W/g, "_")}`;
@@ -237,7 +237,7 @@
       <div class="dc-ic">${ic("doc")}${f ? `<span class="dc-ok">${ic("check")}</span>` : ""}</div>
       <div class="dc-main"><b>${esc(title)}</b><small>${f ? `Uploaded ${mdy(f.created_at)}${sub ? " · " + esc(sub) : ""}` : esc(sub || "No copy yet")}</small></div>
       <div class="dc-act">${f ? `<button type="button" class="btn primary" data-dc-view="${esc(key)}">${ic("eye")} View</button>${rmBtn(f)}` : ""}
-        ${canUpload ? `<label class="btn${f ? "" : " primary"}" for="${upId}">${ic("upload")} ${f ? "Replace" : esc(addLabel)}</label>
+        ${canUpload ? `<label class="btn${f ? "" : " primary"}" for="${upId}"${window.EOApp ? " hidden" : ""}>${ic("upload")} ${f ? "Replace" : esc(addLabel)}</label>
           <input type="file" id="${upId}" hidden accept="image/*,application/pdf" data-save-now data-dc-up="${esc(key)}" data-owner="${esc(ownerType)}" data-id="${esc(ownerId)}">` : ""}
       </div></div>`;
   }
@@ -769,6 +769,33 @@
     E.openPreview(`Application ${c.application_no}`, [applicationPage(c, photoUrl, att.filter((a) => a.kind === "requirement"), ok ? approvedBy(ok.id, ok.name, ok.at) : null)]);
   }
 
+  // 2.6.4 Record Validation (A4): the account's log validation like the old paper form — verified by / date,
+  // approved by / date — with the date it was recorded in the E-Portal, the paper form on file, and a QR to check it.
+  async function printValidation(c) {
+    const [att, ev] = await Promise.all([attachmentsOf("customer", c.id),
+      sb.from("customer_events").select("action, actor, actor_name, created_at").eq("customer_id", c.id).in("action", ["verify", "approve"]).order("created_at", { ascending: false }),
+      loadSignatures()]);
+    const last = (a) => (ev.data || []).find((x) => x.action === a);
+    const ver = last("verify"), apr = last("approve"), ok = isApprovedAccount(c);
+    const paper = latestSigned(att, "application");
+    const when = new Date(), vno = "V" + when.toISOString().replace(/\D/g, "").slice(2, 14), at = E.dateTime(when.toISOString());
+    const row = (k, v) => `<tr><th>${esc(k)}</th><td${k === "Public ID" ? ' class="key"' : ""}>${esc(v || "—")}</td></tr>`;
+    const complete = ok && !!paper;
+    const page = `<div class="vp">${printHead("RECORD VALIDATION")}
+      <div class="vp-true${complete ? "" : " part"}"><span class="vp-seal">${complete ? "✔" : "!"}</span><div><b>${complete ? "RECORD COMPLETE" : ok ? "PAPER FORM NOT ON FILE" : "NOT YET APPROVED"}</b>
+        <small>${esc(fullName(c))} · ${esc(c.account_no || c.application_no)}</small><small>Recorded in the ${esc(E.APP)} on ${esc(mdy(c.created_at))}</small></div></div>
+      ${box("Customer Record", `<table class="vp-fields"><tbody>${row("Account Name", fullName(c))}${row("Account No", c.account_no)}${row("Application No", c.application_no)}
+        ${c.business_name ? row("Business Name", c.business_name) : ""}${row(ok ? "Opening Date" : "Application Date", mdy(c.application_date))}${row("E-Portal Record Date", mdy(c.created_at))}
+        ${row("Account Status", String(c.status).toUpperCase())}${row("Public ID", c.public_id)}${row("Paper Application Form", paper ? `On file · scanned ${mdy(paper.created_at)}` : "Not on file")}</tbody></table>`)}
+      ${box("Log Validation", `<table class="vp-fields"><tbody>${row("Verified By", ver?.actor_name || (ok && !ver ? "Approved directly by the Director" : ""))}${row("Date of Verification", ver ? mdy(ver.created_at) : "")}
+        ${row("Approved By", ok ? apr?.actor_name || "" : "")}${row("Approval Date", ok ? mdy(apr?.created_at || c.reviewed_at) : "")}</tbody></table>`)}
+      ${box("E-Portal Validation", `<div class="vp-valid"><table class="vp-fields"><tbody>${row("Validation No", vno)}${row("Validated On", at)}${row("Validated By", S.profile?.full_name || "")}</tbody></table>
+        <div class="vp-qr"><img src="${E.qrDataUrl(`${location.origin}${location.pathname}#verify/${encodeURIComponent(c.public_id || c.account_no || "")}`)}" alt="Verification QR code"><small>Scan to verify online</small></div></div>`)}
+      ${sigs("Verified by (Signature) &nbsp; / &nbsp; Date", ok ? "Approved by" : "Approved by (Signature) &nbsp; / &nbsp; Date", ok ? approvedBy(apr?.actor || c.reviewed_by, apr?.actor_name || "", apr?.created_at || c.reviewed_at) : null)}
+      <div class="vp-sys">This record is kept in the ${esc(E.APP)}. Scan the QR code to check it.</div></div>`;
+    E.openPreview(`Validation ${c.account_no || c.application_no}`, [page]);
+  }
+
   // Suspended / closed accounts are marked for everyone who opens them.
   function statusBanner(c) {
     if (c.status === "closed") return `<div class="banner closed">${ic("x")} CLOSED ACCOUNT — new invoices cannot be recorded. It can be reopened only with an approved order letter.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
@@ -850,7 +877,9 @@
         ${tools("customers", c, `${c.account_no || c.application_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers") })}
       </div>
       <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", sub: `${c.application_no} · print, have the customer sign it, then upload the signed copy`, ownerType: "customer", ownerId: c.id, att, print: () => printApplication(c), canUpload: isStaff() && c.status !== "closed",
-        approved: isApprovedAccount(c) ? (() => { const a = [...(ev.data || [])].reverse().find((x) => x.action === "approve"); return { name: a?.actor_name || "", at: a?.created_at || c.reviewed_at }; })() : null })}</div>
+        approved: isApprovedAccount(c) ? (() => { const a = [...(ev.data || [])].reverse().find((x) => x.action === "approve"); return { name: a?.actor_name || "", at: a?.created_at || c.reviewed_at }; })() : null })}
+        ${copyCard({ key: "oldform", title: "Paper Application Form", sub: "Scan or upload the old signed paper form", ownerType: "customer", ownerId: c.id, att, kind: "application", canUpload: isStaff() && c.status !== "closed" })}
+        ${docCard({ key: "val", title: "Record Validation", sub: "Recorded in the E-Portal · verified and approved by · print", ownerType: "customer", ownerId: c.id, att, kind: "__system", canUpload: false, print: () => printValidation(c) })}</div>
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed) : ""}
       <div class="tabs" id="pfTabs">${tabs.map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes">
@@ -1255,9 +1284,7 @@
             <span>Due Date</span><b id="niDue">—</b></div>
             <small class="muted">Payments are recorded with <b>Record Payment</b> for the customer's account: they pay the oldest invoices first.</small></fieldset>
           <fieldset class="opt"><legend>Purchase Order</legend><div class="fields wide">
-            <label for="niPo">PO Number</label><input type="text" id="niPo" maxlength="60" placeholder="e.g. PO-2026-0145">
-            <label for="niPDate">PO Date</label><input type="date" id="niPDate">
-            ${fileField("niPoF", "Purchase Order Copy (scan or upload)", 'accept="image/*,application/pdf"')}</div></fieldset>
+            <label for="niPo">PO Number</label><input type="text" id="niPo" maxlength="60" placeholder="e.g. PO-2026-0145"></div></fieldset>
           <fieldset class="opt"><legend>Documents</legend><div class="fields wide">
             ${fileField("niInvF", "Invoice Paper Copy (scan or upload)", 'accept="image/*,application/pdf"')}
             ${fileField("niDr", "Delivery Receipt", 'multiple accept="image/*,application/pdf"')}</div></fieldset>
@@ -1286,7 +1313,7 @@
       if (!t) return toast($("#niTerms").value === "OTHER" ? "Type the terms of payment." : "Choose the terms of payment.", true);
       E.setBusy(e.target, true, "Saving");
       const row = {
-        customer_id: cust.id, invoice_date: $("#niDate").value || isoToday(), purchase_date: $("#niPDate").value || $("#niDate").value || isoToday(),
+        customer_id: cust.id, invoice_date: $("#niDate").value || isoToday(), purchase_date: $("#niDate").value || isoToday(),
         po_number: $("#niPo").value.trim().toUpperCase() || null,
         total_boxes: Math.max(0, Math.floor(num($("#niBox").value))),
         total_pcs: Math.max(0, Math.floor(num($("#niPcs").value))), total_amount: amt, payment_terms: t
@@ -1302,7 +1329,6 @@
       let failed = 0;
       failed += await uploadRecords("invoice", inv.id, "signed_form", filesOf("niInvF"));
       failed += await uploadRecords("invoice", inv.id, "delivery_receipt", filesOf("niDr"));
-      failed += await uploadRecords("invoice", inv.id, "purchase_order", filesOf("niPoF"));
       toast(`Invoice ${inv.invoice_no} recorded for ${fullName(cust)}.${noTerms ? " The Terms of Payment were not saved: the server needs database update 2.4 first (017_play_store.sql); after it, add them with Add Correction." : ""}${failed ? ` ${failed} file(s) failed to upload.` : ""}`, failed > 0 || noTerms);
       location.hash = "invoice/" + inv.id;
     };
@@ -1318,7 +1344,7 @@
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>
-        <span>PO Number</span><span>${esc(inv.po_number || "—")}</span><span>PO Date</span><span>${inv.po_number ? mdy(inv.purchase_date) : "—"}</span>
+        <span>PO Number</span><span>${esc(inv.po_number || "—")}</span>
         <span>Terms of Payment</span><span>${esc(inv.payment_terms || "—")}</span><span>Due Date</span><span>${mdy(inv.due_date) || "—"}</span>
         <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
@@ -1326,9 +1352,8 @@
         <span>Payment Status</span><span>${pill(inv.pay_status)}</span></div></div>
       <small class="muted">Payments, discounts and orders are for the customer's account: they pay the oldest invoices first.</small>
       <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no} (System)`, sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv)]) })}
-        ${copyCard({ key: "invcopy", title: "Invoice Paper Copy", sub: "Scanned or uploaded", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}
-        ${copyCard({ key: "invpo", title: "Purchase Order", sub: inv.po_number ? `${inv.po_number} · ${mdy(inv.purchase_date)}` : "", ownerType: "invoice", ownerId: inv.id, att, kind: "purchase_order" })}</div>
-      <div><b>Other Files</b>${filesHtml(att.filter((a) => !["signed_form", "purchase_order"].includes(a.kind)), "No other files.")}</div>
+        ${copyCard({ key: "invcopy", title: "Invoice Paper Copy", sub: "Scanned or uploaded", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}</div>
+      <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
       ${rhBox("customer_invoices", inv.id)}</div>
       <div class="wfoot">${tools("customer_invoices", inv, `Invoice ${inv.invoice_no}`, { reload: () => V.invoice(id), afterDelete: () => (location.hash = "invoices") })}
         ${(E.canWrite("payments") || E.canWrite("invoices")) && ["unpaid", "partial"].includes(inv.pay_status) && !["rejected", "pending", "verified"].includes(inv.customer_status) ? `<a class="btn" href="#newpayment/${inv.customer_id}">Record Payment</a>` : ""}
@@ -1343,7 +1368,7 @@
       ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}</div>`)}
       ${box("Invoice", `<div class="prow3">${cell("Invoice No", inv.invoice_no)}${cell("Invoice Date", mdy(inv.invoice_date))}${cell("Total Boxes", inv.total_boxes)}</div>
         <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Terms of Payment", inv.payment_terms || "—")}${cell("Due Date", mdy(inv.due_date) || "—")}</div>
-        ${inv.po_number ? `<div class="pgrid2">${cell("PO Number", inv.po_number)}${cell("PO Date", mdy(inv.purchase_date))}</div>` : ""}
+        ${inv.po_number ? `<div class="pcell"><div class="pl">PO Number</div><div class="pv">${esc(inv.po_number)}</div></div>` : ""}
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
       ${box("Payment", `<div class="pgrid2">${cell("Payment Status", { paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase())}${cell("Total Amount (₱)", peso(inv.total_amount))}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(inv.balance))}</div>`)}
       ${sigs("Received by (Customer Signature) / Date", `Prepared by: ${esc(inv.created_by_name || "")}`)}`;
