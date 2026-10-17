@@ -237,7 +237,7 @@
       <div class="dc-ic">${ic("doc")}${f ? `<span class="dc-ok">${ic("check")}</span>` : ""}</div>
       <div class="dc-main"><b>${esc(title)}</b><small>${f ? `Uploaded ${mdy(f.created_at)}${sub ? " · " + esc(sub) : ""}` : esc(sub || "No copy yet")}</small></div>
       <div class="dc-act">${f ? `<button type="button" class="btn primary" data-dc-view="${esc(key)}">${ic("eye")} View</button>${rmBtn(f)}` : ""}
-        ${canUpload ? `<label class="btn${f ? "" : " primary"}" for="${upId}">${ic("upload")} ${f ? "Replace" : esc(addLabel)}</label>
+        ${canUpload ? `<label class="btn${f ? "" : " primary"}" for="${upId}"${window.EOApp ? " hidden" : ""}>${ic("upload")} ${f ? "Replace" : esc(addLabel)}</label>
           <input type="file" id="${upId}" hidden accept="image/*,application/pdf" data-save-now data-dc-up="${esc(key)}" data-owner="${esc(ownerType)}" data-id="${esc(ownerId)}">` : ""}
       </div></div>`;
   }
