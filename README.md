@@ -68,6 +68,13 @@ top; the printed documents and PDFs keep it. Every page except the Dashboard has
 (it goes to the page before, and never leaves the portal). The browser tab and an installed app are named
 **EMON OVERRUNS**.
 
+**Invoice Purchase Order and paper copies (2.6):** Record Invoice has a **Purchase Order** section: PO Number, PO
+Date and the PO paper (scan or upload). The invoice page shows three documents: the **invoice made by the E-Portal**
+(print / PDF), the **Invoice Paper Copy** and the **Purchase Order** paper, each with **Add / Scan** when it is still
+missing. Every detail of an invoice can be corrected with **Add Correction**, also the invoice date and the total
+amount (`supabase/018_invoice_po.sql`): the Director's correction changes it at once, and the balance, the PAID /
+PARTIAL PAYMENT / UNPAID status and the statements of account follow.
+
 **Update 2.5 (faster and cleaner):** the website no longer loads the unused chart library, and loads the barcode
 maker and the code reader only when they are needed (a print waits for its barcodes), so the sign-in page and the
 Dashboard open sooner. Files with a version number are kept by the browser, so a repeat visit downloads almost
