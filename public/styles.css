@@ -1658,3 +1658,30 @@ table.grid tfoot td { background: #fafafc; border-top: 1px solid var(--panel-lin
 .due-card.ok .v { color: #1f8a3b; }
 .due-card small { color: #6e6e73; }
 @media (max-width: 620px) { .due-card .v { font-size: 28px; } }
+
+/* ===================== 2.7: printed documents in an official, government-style look =====================
+   Clean letterhead with a double rule, a ruled title band, dark section bars, small-caps labels with firm values,
+   and an official foot line. Sizes stay as before, so every document keeps its page count. */
+.page { font-family: "Helvetica Neue", Arial, "Liberation Sans", sans-serif; color: #111; }
+.page .ph { border-bottom: 3px double #111; padding-bottom: 7px; }
+.page .ph-co, .page .cm-co, .page .soa-co, .page .rp-brand b { font-family: Georgia, "Times New Roman", "Liberation Serif", serif; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.page .ph-addr { color: #333; letter-spacing: .02em; }
+.page .ph-title, .page .rp-title, .page .vt {
+  font-family: Georgia, "Times New Roman", "Liberation Serif", serif; font-weight: 700; text-transform: uppercase; letter-spacing: .18em;
+  border-top: 1px solid #111; border-bottom: 1px solid #111; padding: 4px 0; margin: 10px 0 9px;
+}
+.page .pbox { border: 1px solid #111; border-radius: 0; }
+.page .pbox-h { background: #1f1f1f; color: #fff; border-bottom: 0; letter-spacing: .12em; font-size: 9.5px; padding: 3px 7px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.page .pcell { border-bottom: 1px solid #d9d9d9; }
+.page .pl { font-size: 7.6px; letter-spacing: .08em; color: #555; font-weight: 600; }
+.page .pv { font-weight: 600; color: #000; }
+.page .pcell.hl .pv { background: #f1f1f1; }
+.page .psig { font-size: 9.5px; letter-spacing: .02em; }
+.page .psig .line { border-top: 1px solid #111; }
+.page .pdecl { font-style: italic; color: #222; }
+.page table.soa-table th, .page .rp-table th { background: #1f1f1f; color: #fff; border-color: #1f1f1f; letter-spacing: .06em; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+/* official foot line: issued through the E-Portal, website QR on the right */
+.page > .pg-web { align-self: stretch; justify-content: flex-end; border-top: 1px solid #111; padding-top: 2mm; }
+.page > .pg-web .pg-off { margin-right: auto; text-align: left; font-size: 7.5px; line-height: 1.45; color: #333; letter-spacing: .02em; }
+.page > .pg-web .pg-off b { font-size: 7.5px; }
+.page.a5l > .pg-web .pg-off { font-size: 7px; }

@@ -1424,7 +1424,8 @@
     const dated = (p) => (undated || /Date Printed|rp-stamp|Printed \d/.test(p) ? "" : `<div class="pg-date">Date Printed: ${esc(printed)}</div>`);
     // and ends with the QR of the website (scan it to open the website)
     const qr = websiteQr(), site = String(C.company.website || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
-    const web = qr ? `<div class="pg-web"><span>Scan to visit<br><b>${esc(site)}</b></span><img src="${qr}" alt="QR code: ${esc(site)}"></div>` : "";
+    // 2.7: an official foot line on every page: issued through the E-Portal, with the website QR
+    const web = qr ? `<div class="pg-web"><span class="pg-off">Official document issued through the <b>${esc(APP)}</b><br>Every record can be checked online at ${esc(site)}</span><span>Scan to visit<br><b>${esc(site)}</b></span><img src="${qr}" alt="QR code: ${esc(site)}"></div>` : "";
     S.docTitle = document.title;
     document.title = title; // "Save as PDF" uses this as the file name
     const pv = document.createElement("div");
