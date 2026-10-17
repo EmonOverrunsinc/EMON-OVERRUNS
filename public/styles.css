@@ -1685,37 +1685,3 @@ table.grid tfoot td { background: #fafafc; border-top: 1px solid var(--panel-lin
 .pop > button.up-update { flex-wrap: wrap; font-weight: 600; }
 .pop > button.up-update small { flex-basis: 100%; padding-left: 26px; font-weight: 400; color: #6e6e73; }
 
-/* ===================== 2.7: black-and-white theme =====================
-   One ink colour (near black) on white and soft greys. Colour stays only where it carries meaning: status pills
-   (paid / unpaid / closed), red badges and errors. */
-.topbar, .layout, .statusbar, .login, .modal, .pop, .toast, .mini-content, .boot {
-  --accent: #1d1d1f; --accent-2: #000000; --accent-soft: rgba(0,0,0,.06); --title-1: #1d1d1f;
-}
-.layout a, .modal a, .mini-content a { color: #1d1d1f; }
-.box-link, .linkbtn { text-decoration: underline; text-underline-offset: 2px; }
-.hint b:first-child { color: #1d1d1f; }
-.drawer a.active { background: #1d1d1f; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
-.drawer .num { color: #1d1d1f; }
-.tb-search:focus-within, .layout input:focus, .layout select:focus, .layout textarea:focus, .modal input:focus, .modal select:focus, .modal textarea:focus,
-.login-form input:focus { box-shadow: 0 0 0 4px rgba(0,0,0,.08); border-color: #1d1d1f; }
-:focus-visible { outline-color: rgba(0,0,0,.45); }
-.avatar-btn:hover { box-shadow: 0 0 0 4px rgba(0,0,0,.08); }
-.qa-ic, .qa-blue, .qa-indigo, .qa-green, .qa-orange, .qa-purple, .qa-teal, .qa-pink, .qa-gray { --c: #1d1d1f; }
-.qa-ic { box-shadow: 0 4px 10px rgba(0,0,0,.18); }
-.tile-ic, .tile.ok .tile-ic, .tile.warn .tile-ic { background: #f2f2f7; color: #1d1d1f; }
-.hero-tag { background: #1d1d1f; color: #fff; }
-.home-hero { background: linear-gradient(135deg, #ffffff 0%, #f7f7f9 60%, #efeff3 100%); }
-.dc-ic, .doccard.signed .dc-ic { background: #f2f2f7; color: #1d1d1f; }
-.dc-tag, .doccard.signed .dc-tag { color: #6e6e73; }
-.doccard.signed .dc-main small { color: #1d1d1f; }
-.doccard.signed { box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 2px 10px rgba(0,0,0,.04), inset 0 3px 0 #1d1d1f; }
-.dc-ok { background: #1d1d1f; }
-.due-card .v, .due-card.warn .v, .due-card.ok .v { color: #1d1d1f; }
-.due-card.warn { box-shadow: inset 4px 0 0 #1d1d1f, 0 2px 10px rgba(0,0,0,.05); }
-.due-card.ok { box-shadow: inset 4px 0 0 #c7c7cc, 0 2px 10px rgba(0,0,0,.05); }
-.btn.ok { background: #e8e8ed; color: #1d1d1f; }
-.scanbtn { background: #1d1d1f; }
-.scanbtn:hover { background: #000; }
-.verify-link .ic { color: #1d1d1f; }
-.preview .pv-tools .btn.primary { background: #1d1d1f; }
-.login { background: radial-gradient(1200px 600px at 20% 0%, #ffffff 0%, transparent 60%), linear-gradient(180deg, #f5f5f7, #e9e9ee); }
