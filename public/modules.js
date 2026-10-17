@@ -456,23 +456,29 @@
   V.dashboard = async () => {
     const H = E.hasModule;
     const quick = [
-      [E.canWrite("customers"), "#newcustomer", "+ New Customer", "primary"],
-      [E.canWrite("invoices"), "#newinvoice", "+ Record Invoice"],
-      [E.canWrite("payments") || E.canWrite("invoices"), "#newpayment", "+ Record Payment"],
-      [E.canWrite("creditmemos"), "#newcreditmemo", "+ Credit Memo"],
-      [["orders", "customers", "employees", "billing"].some(E.canWrite), "#neworder", "+ Request Order"],
-      [E.canWrite("billing"), "#newvoucher", "+ Payment Voucher"],
-      [true, "#community", "Community"],
-      [true, "#verify", "Verify a Record"]
+      [E.canWrite("customers"), "#newcustomer", "New Customer", "user", "blue"],
+      [E.canWrite("invoices"), "#newinvoice", "Record Invoice", "doc", "indigo"],
+      [E.canWrite("payments") || E.canWrite("invoices"), "#newpayment", "Record Payment", "wallet", "green"],
+      [E.canWrite("creditmemos"), "#newcreditmemo", "Credit Memo", "tag", "orange"],
+      [["orders", "customers", "employees", "billing"].some(E.canWrite), "#neworder", "Request Order", "order", "purple"],
+      [E.canWrite("billing"), "#newvoucher", "Payment Voucher", "receipt", "teal"],
+      [true, "#community", "Community", "users", "pink"],
+      [true, "#verify", "Verify a Record", "shield", "gray"]
     ].filter((q) => q[0]);
     const today = `${new Date().toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(isoToday())}`;
+    // 2.7: a greeting by the time of day (Manila time, as every date in the portal)
+    const hr = new Date().getHours(), greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
+    const first = String(myName() || "").trim().split(/\s+/)[0] || "";
+    const tileIc = ["users", "order", "wallet", "check"];
     E.shell("dashboard", "Dashboard", `
-      <section class="hero">${E.logoHtml("hero-logo")}<div>
-        <h2>${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span></h2>
-        <p class="welcome">Welcome, <b>${esc(myName())}</b> (${esc(E.personTitle(S.profile.role, S.position).toUpperCase())}) · ${esc(today)}</p></div></section>
+      <section class="hero home-hero">${E.logoHtml("hero-logo")}<div>
+        <p class="hero-date">${esc(today)}</p>
+        <h2>${esc(greet)}${first ? `, ${esc(first.charAt(0) + first.slice(1).toLowerCase())}` : ""}</h2>
+        <p class="welcome">Welcome to the ${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span> · <b>${esc(E.personTitle(S.profile.role, S.position))}</b></p></div></section>
       ${isAdmin() ? `<div class="todo" id="dTodo"></div>` : ""}
-      ${H("customers") ? `<div class="tiles" id="dTiles">${["Active Customers", "Applications to Review", "Balance Due (₱)", "Payments This Month (₱)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>` : ""}
-      <div class="quick">${quick.map((q) => `<a class="btn ${q[3] || ""}" href="${q[1]}">${esc(q[2])}</a>`).join("")}</div>
+      ${H("customers") ? `<div class="tiles" id="dTiles">${["Active Customers", "Applications to Review", "Balance Due (₱)", "Payments This Month (₱)"].map((k, i) => `<div class="tile"><span class="tile-ic">${ic(tileIc[i])}</span><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>` : ""}
+      <h3 class="home-h">Quick Actions</h3>
+      <div class="quick">${quick.map((q) => `<a class="qa qa-${q[4]}" href="${q[1]}"><span class="qa-ic">${ic(q[3])}</span><span class="qa-l">${esc(q[2])}</span></a>`).join("")}</div>
       <div class="cols">
         ${H("customers") ? `<div class="box"><h3>Applications Waiting for Review</h3><div class="in" id="dApps">${busy()}</div></div>` : ""}
         <div class="box"><h3>Community <a href="#community" class="box-link">Open</a></h3><div class="in" id="dComm">${busy()}</div></div>
