@@ -229,7 +229,7 @@
       </div></div>`;
   }
   // 2.6: a card for a paper copy (scanned or uploaded): View / Replace / Remove, or Add when there is none yet
-  function copyCard({ key, title, sub = "", ownerType, ownerId, att, kind, canUpload = isStaff(), addLabel = "Add / Scan" }) {
+  function copyCard({ key, title, sub = "", ownerType, ownerId, att, kind, canUpload = isStaff(), addLabel = "Upload" }) {
     DC.set(key, { att, kind, copyName: title, plain: true });
     const f = latestSigned(att, kind);
     const upId = `dcUp_${key.replace(/\W/g, "_")}`;
