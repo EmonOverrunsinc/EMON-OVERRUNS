@@ -1255,9 +1255,7 @@
             <span>Due Date</span><b id="niDue">—</b></div>
             <small class="muted">Payments are recorded with <b>Record Payment</b> for the customer's account: they pay the oldest invoices first.</small></fieldset>
           <fieldset class="opt"><legend>Purchase Order</legend><div class="fields wide">
-            <label for="niPo">PO Number</label><input type="text" id="niPo" maxlength="60" placeholder="e.g. PO-2026-0145">
-            <label for="niPDate">PO Date</label><input type="date" id="niPDate">
-            ${fileField("niPoF", "Purchase Order Copy (scan or upload)", 'accept="image/*,application/pdf"')}</div></fieldset>
+            <label for="niPo">PO Number</label><input type="text" id="niPo" maxlength="60" placeholder="e.g. PO-2026-0145"></div></fieldset>
           <fieldset class="opt"><legend>Documents</legend><div class="fields wide">
             ${fileField("niInvF", "Invoice Paper Copy (scan or upload)", 'accept="image/*,application/pdf"')}
             ${fileField("niDr", "Delivery Receipt", 'multiple accept="image/*,application/pdf"')}</div></fieldset>
@@ -1286,7 +1284,7 @@
       if (!t) return toast($("#niTerms").value === "OTHER" ? "Type the terms of payment." : "Choose the terms of payment.", true);
       E.setBusy(e.target, true, "Saving");
       const row = {
-        customer_id: cust.id, invoice_date: $("#niDate").value || isoToday(), purchase_date: $("#niPDate").value || $("#niDate").value || isoToday(),
+        customer_id: cust.id, invoice_date: $("#niDate").value || isoToday(), purchase_date: $("#niDate").value || isoToday(),
         po_number: $("#niPo").value.trim().toUpperCase() || null,
         total_boxes: Math.max(0, Math.floor(num($("#niBox").value))),
         total_pcs: Math.max(0, Math.floor(num($("#niPcs").value))), total_amount: amt, payment_terms: t
@@ -1302,7 +1300,6 @@
       let failed = 0;
       failed += await uploadRecords("invoice", inv.id, "signed_form", filesOf("niInvF"));
       failed += await uploadRecords("invoice", inv.id, "delivery_receipt", filesOf("niDr"));
-      failed += await uploadRecords("invoice", inv.id, "purchase_order", filesOf("niPoF"));
       toast(`Invoice ${inv.invoice_no} recorded for ${fullName(cust)}.${noTerms ? " The Terms of Payment were not saved: the server needs database update 2.4 first (017_play_store.sql); after it, add them with Add Correction." : ""}${failed ? ` ${failed} file(s) failed to upload.` : ""}`, failed > 0 || noTerms);
       location.hash = "invoice/" + inv.id;
     };
@@ -1318,7 +1315,7 @@
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>
-        <span>PO Number</span><span>${esc(inv.po_number || "—")}</span><span>PO Date</span><span>${inv.po_number ? mdy(inv.purchase_date) : "—"}</span>
+        <span>PO Number</span><span>${esc(inv.po_number || "—")}</span>
         <span>Terms of Payment</span><span>${esc(inv.payment_terms || "—")}</span><span>Due Date</span><span>${mdy(inv.due_date) || "—"}</span>
         <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
@@ -1326,9 +1323,8 @@
         <span>Payment Status</span><span>${pill(inv.pay_status)}</span></div></div>
       <small class="muted">Payments, discounts and orders are for the customer's account: they pay the oldest invoices first.</small>
       <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no} (System)`, sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv)]) })}
-        ${copyCard({ key: "invcopy", title: "Invoice Paper Copy", sub: "Scanned or uploaded", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}
-        ${copyCard({ key: "invpo", title: "Purchase Order", sub: inv.po_number ? `${inv.po_number} · ${mdy(inv.purchase_date)}` : "", ownerType: "invoice", ownerId: inv.id, att, kind: "purchase_order" })}</div>
-      <div><b>Other Files</b>${filesHtml(att.filter((a) => !["signed_form", "purchase_order"].includes(a.kind)), "No other files.")}</div>
+        ${copyCard({ key: "invcopy", title: "Invoice Paper Copy", sub: "Scanned or uploaded", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}</div>
+      <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
       ${rhBox("customer_invoices", inv.id)}</div>
       <div class="wfoot">${tools("customer_invoices", inv, `Invoice ${inv.invoice_no}`, { reload: () => V.invoice(id), afterDelete: () => (location.hash = "invoices") })}
         ${(E.canWrite("payments") || E.canWrite("invoices")) && ["unpaid", "partial"].includes(inv.pay_status) && !["rejected", "pending", "verified"].includes(inv.customer_status) ? `<a class="btn" href="#newpayment/${inv.customer_id}">Record Payment</a>` : ""}
@@ -1343,7 +1339,7 @@
       ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}</div>`)}
       ${box("Invoice", `<div class="prow3">${cell("Invoice No", inv.invoice_no)}${cell("Invoice Date", mdy(inv.invoice_date))}${cell("Total Boxes", inv.total_boxes)}</div>
         <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Terms of Payment", inv.payment_terms || "—")}${cell("Due Date", mdy(inv.due_date) || "—")}</div>
-        ${inv.po_number ? `<div class="pgrid2">${cell("PO Number", inv.po_number)}${cell("PO Date", mdy(inv.purchase_date))}</div>` : ""}
+        ${inv.po_number ? `<div class="pcell"><div class="pl">PO Number</div><div class="pv">${esc(inv.po_number)}</div></div>` : ""}
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
       ${box("Payment", `<div class="pgrid2">${cell("Payment Status", { paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase())}${cell("Total Amount (₱)", peso(inv.total_amount))}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(inv.balance))}</div>`)}
       ${sigs("Received by (Customer Signature) / Date", `Prepared by: ${esc(inv.created_by_name || "")}`)}`;
