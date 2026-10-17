@@ -7,6 +7,8 @@
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
   const VERSION = "2.9";
+  // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
+  if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
   const BUILD = "2.9.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
@@ -905,6 +907,7 @@
           <div class="pop-head">${esc(S.profile.full_name || "")}<small>${S.profile.username ? "@" + esc(S.profile.username) + " · " : ""}${esc(S.session.user.email)} · ${esc(personTitle(S.profile.role, S.position).toUpperCase())}</small></div>
           <a href="#profile">${ic("user")} My Profile</a>
           <button type="button" id="chPw">${ic("key")} Change Password</button>
+          ${window.EOApp?.menu ? `<button type="button" id="upAppMenu">${ic("box")} App Menu (scanner, about)</button>` : ""}
           ${newBuild ? updateItem() : ""}
           ${isAdmin() ? `<a href="#settings">${ic("image")} Company Logo</a>` : ""}
           <button type="button" id="signOut">${ic("out")} Sign Out</button>
@@ -933,6 +936,7 @@
     $$("#drawer a").forEach((a) => (a.onclick = () => { if (isPhone()) drawerOpen(false); }));
     $("#signOut").onclick = signOut;
     $("#chPw").onclick = () => renderSetPassword(false);
+    if ($("#upAppMenu")) $("#upAppMenu").onclick = () => { $$(".pop").forEach((p) => (p.hidden = true)); window.EOApp.menu().catch(() => {}); };
     bindUpdate();
     $("#tbSearch").onsubmit = (e) => {
       e.preventDefault();

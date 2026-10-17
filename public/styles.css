@@ -1813,3 +1813,13 @@ html { -webkit-tap-highlight-color: transparent; }
 .qa, .tiles .tile, .doccard, .due-card { animation-duration: .3s; }
 @media (prefers-reduced-motion: reduce) { .content.page-in, .content.page-in.nav-back { animation: none !important; } }
 .layout { overflow-x: clip; }
+
+/* 2.9: the Windows app 1.8 has no Windows title bar: the top bar moves the window and leaves room for its buttons */
+html.eo-overlay .topbar { -webkit-app-region: drag; min-height: 54px;
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 150px)) + 10px); }
+html.eo-overlay .topbar :is(button, a, input, select, label, form, .pop, .avatar-btn) { -webkit-app-region: no-drag; }
+html.eo-overlay .login { -webkit-app-region: drag; }
+html.eo-overlay .login :is(.login-card, .login-below, a, button, input) { -webkit-app-region: no-drag; }
+html.eo-overlay .preview .pv-title { -webkit-app-region: drag; padding-right: 160px; min-height: 40px; }
+html.eo-overlay .preview .pv-tools { -webkit-app-region: no-drag; }
+html.eo-overlay .boot { -webkit-app-region: drag; }
