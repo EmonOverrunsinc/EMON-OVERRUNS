@@ -6,8 +6,8 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "2.8";
-  const BUILD = "2.8.0"; // the same in index.html (?v=) and in version.json
+  const VERSION = "2.9";
+  const BUILD = "2.9.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -412,7 +412,7 @@
           <div class="wtitle">${esc(APP)} — ${esc(title)}</div>
           ${inner}
         </div>
-        <div class="login-below"><a href="#contact" class="verify-link contact-link">${ic("mail")} Contact Us — send us a message</a><a href="#verify" class="verify-link">${ic("shield")} Verify a record — no sign-in needed</a><small class="legal-links"><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> · <a href="/delete-account" target="_blank" rel="noopener">Delete Account</a></small><small>${esc(APP)} · Version ${VERSION}</small></div>
+        <div class="login-below"><a href="#careers" class="verify-link join-link">${ic("users")} Join Us — see open jobs</a><a href="#contact" class="verify-link contact-link">${ic("mail")} Contact Us — send us a message</a><a href="#verify" class="verify-link">${ic("shield")} Verify a record — no sign-in needed</a><small class="legal-links"><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> · <a href="/delete-account" target="_blank" rel="noopener">Delete Account</a></small><small>${esc(APP)} · Version ${VERSION}</small></div>
       </div>`;
   }
   const brandBlock = () => `<div class="brand">${logoHtml("login-logo")}<div><b>${esc(C.company.name)}</b><small>E-PORTAL</small></div></div>`;
@@ -1441,7 +1441,7 @@
         <select id="pvZoom" style="width:auto"><option>50</option><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
         <button type="button" class="btn" id="pvClose">Close</button>
       </div>
-      <div class="pv-desk" id="pvDesk">${pages.map((p) => `<div class="page${cls}"><img class="wm" src="${SEAL}" alt="">${dated(p)}${p}${web}</div>`).join("")}</div>
+      <div class="pv-desk" id="pvDesk">${pages.map((p, i) => `<div class="page${cls}"><img class="wm" src="${SEAL}" alt="">${dated(p)}${p}${web}<div class="pg-num">PAGE ${i + 1} OF ${pages.length}</div></div>`).join("")}</div>
       <div class="statusbar"><span id="pvCur">Current Page No: 1</span><span>Total Page No: ${pages.length}</span><span id="pvZf">Zoom Factor: 100%</span></div>`;
     document.body.appendChild(pv);
     placeSeals(pv);
@@ -1676,6 +1676,8 @@
       $$(".chat-panel").forEach((x) => x.remove());
       if (key === "verify" && V.verify) return V.verify(arg);
       if (key === "contact" && V.contact) return V.contact();
+      if (key === "careers" && V.careers) return V.careers();
+      if (key === "signup") return renderLogin("signup");
       return renderLogin();
     }
     if (recovering) { recovering = false; return renderSetPassword(true); }
@@ -1691,9 +1693,11 @@
     if (S.profile.status !== "active") {
       if (key === "verify" && V.verify) return V.verify(arg);
       if (key === "contact" && V.contact) return V.contact();
+      if (key === "careers" && V.careers) return V.careers();
       return V.applicant ? V.applicant(key, arg) : renderPending();
     }
     startTimers();
+    if (key === "careers") { location.replace("#" + (isAdmin() ? "positions" : "dashboard")); return; }
     if (!canOpen(key)) { toast("You do not have access to that section. Ask the Director.", true); location.hash = "dashboard"; return; }
     const view = V[key] || BUILTIN[key];
     if (view) return view(arg, extra);

@@ -276,6 +276,36 @@
   };
 
   // ======================================================================
+  // 2.9 Join Us (public): the open job positions; Apply → create an account (or sign in) → that position's form
+  // ======================================================================
+  const APPLY_KEY = "eoApplyPos";
+  const keepApply = (id) => { try { id ? sessionStorage.setItem(APPLY_KEY, id) : sessionStorage.removeItem(APPLY_KEY); } catch (_) {} };
+  const wantedApply = () => { try { return sessionStorage.getItem(APPLY_KEY) || ""; } catch (_) { return ""; } };
+  V.careers = async () => {
+    E.miniShell("Join Us", busy("Loading open positions"), { home: "#dashboard" });
+    const { data, error } = await sb.from("job_positions").select("id, title, company_name, monthly_salary, duty_hours, description").eq("is_open", true).order("title");
+    const list = error ? [] : data || [];
+    $("#main").innerHTML = `
+      <section class="verify-hero join-hero">
+        <div class="vh-badge">${ic("users")}</div>
+        <h2>Work with ${esc(C.company.name)}</h2>
+        <p>${list.length ? "Choose an open position and apply in a few minutes. Create your free account, fill in the job application, and we will get back to you." : "Thank you for your interest in joining our team."}</p>
+      </section>
+      ${list.length ? `<h3 class="home-h">Open Positions <span class="muted">(${list.length})</span></h3>
+        <div class="pos-grid">${list.map((p) => `<article class="pos-card"><h4>${esc(p.title)}</h4><div class="pos-co">${esc(p.company_name || C.company.name)}</div>
+          <div class="pos-meta">${num(p.monthly_salary) ? `<span>₱ ${peso(p.monthly_salary)} / month</span>` : ""}${p.duty_hours ? `<span>${esc(p.duty_hours)}</span>` : ""}</div>
+          ${p.description ? `<p>${esc(p.description)}</p>` : "<p></p>"}<button type="button" class="btn primary" data-join="${p.id}">Apply Now</button></article>`).join("")}</div>`
+      : `<div class="join-empty"><div class="je-ic">${ic("doc")}</div><h3>No open positions right now</h3>
+          <p>We post new jobs here first. Please check again soon — or send us a message and we will keep you in mind for the next opening.</p>
+          <div class="btnrow center"><a class="btn primary" href="#contact">${ic("mail")} Contact Us</a><a class="btn" href="#dashboard">Back to Sign In</a></div></div>`}`;
+    $$("[data-join]").forEach((b) => (b.onclick = () => {
+      keepApply(b.dataset.join);
+      if (!S.session) { toast("Create your free account to apply. Already have one? Sign in."); location.hash = "signup"; return; }
+      location.hash = "dashboard";
+    }));
+  };
+
+  // ======================================================================
   // Job applicant portal (new sign-ups that are not employees yet)
   // ======================================================================
   let applicantTimer = null;
@@ -294,8 +324,12 @@
     ]);
     if (apps.error) { $("#main").innerHTML = `<div class="empty">Job applications are not available yet. Please try again later.</div>`; return; }
     const last = (apps.data || [])[0];
-    if (last && last.status !== "rejected") return applicantStatus(last);
+    if (last && last.status !== "rejected") { keepApply(""); return applicantStatus(last); }
     applicantPositions(pos.data || [], last);
+    // 2.9: chosen on Join Us before signing up → open that position's application form at once
+    const want = wantedApply(), chosen = want && (pos.data || []).find((p) => p.id === want);
+    keepApply("");
+    if (chosen) applicationForm(chosen);
   };
   function applicantPositions(positions, rejected) {
     $("#main").innerHTML = `
