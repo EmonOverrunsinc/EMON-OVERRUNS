@@ -1077,7 +1077,7 @@
     });
     pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: "PAYMENT RECEIVED", debit: 0, credit: num(p.amount), pay: p }));
     memos.filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action) && m.approved_at)
-      .forEach((m) => t.push({ date: isoDay(new Date(m.approved_at)), ref: m.memo_no, desc: m.requested_action === "discount" ? "DISCOUNT" : "CREDIT MEMO", debit: 0, credit: num(m.request_amount) }));
+      .forEach((m) => t.push({ date: isoDay(new Date(m.approved_at)), ref: m.memo_no, desc: m.is_return ? `RETURN${m.po_number ? " · " + m.po_number : ""}` : m.requested_action === "discount" ? "DISCOUNT" : "CREDIT MEMO", debit: 0, credit: num(m.request_amount) }));
     return t.sort((a, b) => a.date.localeCompare(b.date) || (b.debit - a.debit));
   }
   // The first SOA of an account is the month the account was opened (its application date): entries dated before it
@@ -1354,6 +1354,10 @@
     if (!inv) { $("#main").innerHTML = `<div class="empty">Invoice not found. <a href="#invoices">Back to Invoices</a></div>`; return; }
     const [att, pr] = await Promise.all([attachmentsOf("invoice", id),
       sb.from("payments_received").select("id, receipt_no, paid_date, amount, invoice_id").eq("customer_id", inv.customer_id).order("paid_date", { ascending: false })]);
+    // 2.8: returns of this invoice (credit memos marked RETURN); without update 020 the list is simply empty
+    const rets = ((await sb.from("credit_memos").select("id, memo_no, memo_date, serial_no, qty, request_amount, status").eq("invoice_id", inv.id).eq("is_return", true).order("memo_date")).data) || [];
+    const canReturn = E.canWrite("invoices") || E.canWrite("creditmemos");
+    const returned = num(inv.amount_returned);
     const pays = pr.data || [], linked = pays.filter((p) => p.invoice_id === inv.id);
     const canLink = E.canWrite("payments") || E.canWrite("invoices");
     $(".band h1").textContent = `Invoice — ${inv.invoice_no}`;
@@ -1365,9 +1369,13 @@
         <span>Terms of Payment</span><span>${esc(inv.payment_terms || "—")}</span><span>Due Date</span><span>${mdy(inv.due_date) || "—"}</span>
         <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
-        <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b><span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b><span>Balance</span><b>₱ ${peso(inv.balance)}</b>
+        <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b>${returned > 0 ? `<span>Returned</span><b>− ₱ ${peso(returned)}</b>` : ""}<span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b><span>Balance</span><b>₱ ${peso(inv.balance)}</b>
         <span>Payment Status</span><span>${pill(inv.pay_status)}</span></div></div>
       <small class="muted">A payment linked to this invoice pays it first. Other payments, discounts and orders pay the customer's oldest invoices first.</small>
+      <div class="linked-pays"><div class="lp-head"><b>Returns</b>${canReturn ? `<button type="button" class="btn small" id="ivReturn">${ic("back")} Record Return</button>` : ""}</div>
+        ${rets.length ? rets.map((r) => `<div class="lp-row lp-ret"><a href="#creditmemo/${r.id}"><b>${esc(r.memo_no || "")}</b></a><span>${mdy(r.memo_date)} · ${esc(r.serial_no || "")}${r.qty ? ` · ${r.qty} pcs` : ""}</span><b>− ₱ ${peso(r.request_amount)}</b>
+          ${r.status === "pending" ? `<span class="pill pending">WAITING FOR APPROVAL</span>` : r.status === "rejected" ? pill("rejected") : `<span class="pill active">TAKEN OFF</span>`}</div>`).join("")
+          : `<div class="empty small">No returns on this invoice.</div>`}</div>
       <div class="linked-pays"><div class="lp-head"><b>Linked Payments</b>${canLink && pays.length ? `<button type="button" class="btn small" id="ivLink">${ic("plus")} Link a Payment</button>` : ""}</div>
         ${linked.length ? linked.map((p) => `<div class="lp-row"><a href="#payment/${p.id}"><b>${esc(p.receipt_no || "")}</b></a><span>${mdy(p.paid_date)}</span><b>₱ ${peso(p.amount)}</b>
           ${canLink ? `<button type="button" class="linkbtn" data-unlink="${p.id}">Unlink</button>` : ""}</div>`).join("")
@@ -1382,6 +1390,30 @@
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.invoice(id));
     bindTools($("#main"));
+    // 2.8: record a return: the amount is taken off this invoice (the Director's at once, an employee's after approval)
+    if ($("#ivReturn")) $("#ivReturn").onclick = () => {
+      const left = num(inv.total_amount) - rets.filter((r) => r.status !== "rejected").reduce((a, r) => a + num(r.request_amount), 0);
+      const m = E.modal(`Record Return — ${inv.invoice_no}`, `<form id="rtForm" class="fields wide" novalidate>
+          <label for="rtDate">Return Date</label><input type="date" id="rtDate" value="${isoToday()}">
+          <label for="rtItems">Items Returned *</label><input type="text" id="rtItems" maxlength="300" placeholder="Serial no / item, e.g. G2026034G, C2026071001">
+          <label for="rtQty">Quantity (pcs)</label><input type="number" id="rtQty" min="0" step="1" inputmode="numeric">
+          <label for="rtAmt">Return Amount (₱) *</label><input type="number" id="rtAmt" min="0.01" step="0.01" inputmode="decimal" placeholder="Up to ${peso(left)}">
+          <label for="rtNote">Note</label><input type="text" id="rtNote" maxlength="300" placeholder="Optional, e.g. refund 14,000 given">
+        </form><p class="muted" style="margin:8px 0 0">The amount is taken off this invoice and the customer's balance, and shows as RETURN on the statement of account.${isAdmin() ? "" : " It waits for the Director's approval."}</p>`,
+        `<button type="button" class="btn" id="rtCancel">Cancel</button><button type="button" class="btn primary" id="rtSave">${ic("check")} Save Return</button>`);
+      $("#rtCancel", m.el).onclick = m.close;
+      $("#rtSave", m.el).onclick = async () => {
+        const amt = num($("#rtAmt", m.el).value), items = $("#rtItems", m.el).value.trim();
+        if (!items) return toast("Enter the items returned.", true);
+        if (!(amt > 0)) return toast("Enter the return amount.", true);
+        if (amt > left + 0.001) return toast(`The return cannot be more than ₱ ${peso(left)}.`, true);
+        const b = $("#rtSave", m.el); b.disabled = true;
+        const { error } = await sb.rpc("record_return", { p_invoice: inv.id, p_amount: amt, p_date: $("#rtDate", m.el).value || null, p_items: items, p_qty: Math.max(0, Math.round(num($("#rtQty", m.el).value))), p_note: $("#rtNote", m.el).value.trim() || null });
+        if (error) { b.disabled = false; return fail(error, /record_return/.test(error.message || "") ? "Run the database update 020_invoice_return.sql first" : "Could not save the return"); }
+        m.close(); toast(isAdmin() ? "Return saved and taken off the invoice." : "Return saved. It waits for the Director's approval."); V.invoice(id);
+      };
+      setTimeout(() => $("#rtItems", m.el)?.focus(), 50);
+    };
     // 2.7.3: link one of the customer's payments to this invoice (or unlink it)
     const link = async (payId, invId) => {
       const { error } = await sb.rpc("link_payment", { p_payment: payId, p_invoice: invId });
@@ -1409,7 +1441,7 @@
         <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Terms of Payment", inv.payment_terms || "—")}${cell("Due Date", mdy(inv.due_date) || "—")}</div>
         ${inv.po_number ? `<div class="pcell"><div class="pl">PO Number</div><div class="pv">${esc(inv.po_number)}</div></div>` : ""}
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
-      ${box("Payment", `<div class="pgrid2">${cell("Payment Status", { paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase())}${cell("Total Amount (₱)", peso(inv.total_amount))}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(inv.balance))}</div>`)}
+      ${box("Payment", `<div class="pgrid2">${cell("Payment Status", { paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase())}${cell("Total Amount (₱)", peso(inv.total_amount))}${num(inv.amount_returned) > 0 ? cell("Returned (₱)", peso(inv.amount_returned)) : ""}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(inv.balance))}</div>`)}
       ${sigs("Received by (Customer Signature) / Date", `Prepared by: ${esc(inv.created_by_name || "")}`)}`;
   }
 
@@ -1532,7 +1564,7 @@
   const MEMO_COLS = [
     { label: "Report No", get: (r) => r.memo_no }, { label: "Date", get: (r) => mdy(r.memo_date) },
     { label: "Customer", get: (r) => fullName(r.customers || {}) }, { label: "Article", get: (r) => r.article || "" },
-    { label: "Defect", get: (r) => DEFECT[r.defect_category] || "" }, { label: "Request", get: (r) => ACTION[r.requested_action] || "" },
+    { label: "Defect", get: (r) => (r.is_return ? "Return" : DEFECT[r.defect_category] || "") }, { label: "Request", get: (r) => (r.is_return ? `Return · ${r.po_number || ""}` : ACTION[r.requested_action] || "") },
     { label: "Amount (₱)", key: "request_amount", num: true, get: (r) => peso(r.request_amount) }, { label: "Status", html: (r) => pill(r.status) }
   ];
   V.creditmemos = async () => {
@@ -1634,7 +1666,7 @@
         <span>Qty</span><span>${m.qty}</span><span>Purchase Date</span><span>${mdy(m.purchase_date) || "—"}</span></div>
       <div class="fields wide">
         <span>Defect</span><span>${esc(DEFECT[m.defect_category])}${m.defect_detail ? " — " + esc(m.defect_detail) : ""}</span>
-        <span>Request</span><span>${esc(ACTION[m.requested_action])}${m.rate > 0 ? ` (₱${peso(m.rate)} / pc)` : ""}</span>
+        <span>Request</span><span>${m.is_return ? `Return of invoice ${m.invoice_id ? `<a href="#invoice/${m.invoice_id}">${esc(m.po_number || "")}</a>` : esc(m.po_number || "")}` : esc(ACTION[m.requested_action])}${m.rate > 0 ? ` (₱${peso(m.rate)} / pc)` : ""}</span>
         <span>Requested Amount</span><b>₱ ${peso(m.request_amount)}</b>
         <span>Assigned By</span><span>${esc(m.assigned_by || "—")}</span><span>Inspection Notes</span><span>${esc(m.inspection_notes || "—")}</span>
         <span>Factory Status</span><span>${esc(m.factory_status || "—")}</span>
