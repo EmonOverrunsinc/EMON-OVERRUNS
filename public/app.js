@@ -865,6 +865,9 @@
     // swapped, with a soft fade. The whole frame is drawn again only when the menu or the person changes.
     const frame = [S.session.user.id, who, av, newBuild, items.map((m) => m.k).join(","), OTHER.filter((o) => o[2]()).map((o) => o[0]).join(",")].join("|");
     const content = $(".layout > .content", app);
+    const samePage = app.dataset.page === location.hash;
+    app.dataset.page = location.hash;
+    const slideIn = (el) => { if (!el || samePage) return; el.classList.remove("page-in", "nav-back"); void el.offsetWidth; el.classList.add("page-in"); if (navDir === "back") el.classList.add("nav-back"); };
     if (content && app.dataset.frame === frame) {
       $$("#drawer a").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + cur));
       $$(".pop").forEach((p) => (p.hidden = true));
@@ -874,8 +877,8 @@
       if (sb2[1]) sb2[1].textContent = "Records: –";
       if (sb2[2]) sb2[2].textContent = "Currency: " + currency;
       content.innerHTML = bandHtml + mainHtml;
-      content.classList.remove("page-in"); void content.offsetWidth; content.classList.add("page-in");
-      window.scrollTo({ top: 0 });
+      slideIn(content);
+      if (!samePage) window.scrollTo({ top: 0 });
       bindBack("#dashboard");
       refreshBadges();
       return;
@@ -918,6 +921,7 @@
         <div class="content">${bandHtml}${mainHtml}</div>
       </div>
       <div class="statusbar"><span>User: ${esc(who)}</span><span id="sbRecords">Records: –</span><span>Currency: ${currency}</span></div>`;
+    slideIn($(".layout > .content", app));
     let saved = null; try { saved = localStorage.getItem("eoDrawer"); } catch (_) {}
     document.body.classList.add("no-anim");
     drawerOpen(isPhone() ? false : saved !== "0");
@@ -1661,7 +1665,56 @@
 
   // ---------- router ----------
   const BUILTIN = { forms: viewForms, logins: viewUsers };
+  // 2.9: each page is remembered as it was left (scroll, what was typed or chosen, the open tab). Back slides the page
+  // in from the left (iOS) and puts it back as it was; a new page slides in from the right.
+  let navDir = "fwd", shownHash = null;
+  const trail = [], pageMemo = new Map();
+  const NO_RESTORE = new Set(["rvLoc", "tbQ"]);
+  function memoPage() {
+    const main = $("#main");
+    if (!shownHash || !main) return;
+    const fields = {}, tabs = {};
+    $$("input[id], select[id], textarea[id]", main).forEach((el) => {
+      if (["file", "password", "hidden", "button", "submit"].includes(el.type) || NO_RESTORE.has(el.id) || el.disabled) return;
+      fields[el.id] = el.type === "checkbox" || el.type === "radio" ? el.checked : el.value;
+    });
+    $$(".tabs[id]", main).forEach((t) => { const i = $$("button", t).findIndex((b) => b.classList.contains("on")); if (i > 0) tabs[t.id] = i; });
+    pageMemo.set(shownHash, { y: window.scrollY, fields, tabs });
+    if (pageMemo.size > 40) pageMemo.delete(pageMemo.keys().next().value);
+  }
+  function restorePage(h) {
+    const m = pageMemo.get(h);
+    if (!m) return;
+    for (const [id, v] of Object.entries(m.fields)) {
+      const el = document.getElementById(id);
+      if (!el || !el.closest("#main")) continue;
+      if (typeof v === "boolean") { if (el.checked !== v) { el.checked = v; el.dispatchEvent(new Event("change", { bubbles: true })); } }
+      else if (el.value !== v && (el.tagName === "SELECT" ? [...el.options].some((o) => o.value === v) : true)) {
+        el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }
+    for (const [id, i] of Object.entries(m.tabs)) { const b = $$(`#${CSS.escape(id)} button`)[i]; if (b) b.click(); }
+    // the list may still be loading: wait until the page is long enough, then go back to where it was
+    let tries = 0;
+    const go = () => {
+      if (location.hash !== h) return;
+      if (document.documentElement.scrollHeight - innerHeight >= m.y - 4 || tries++ > 20) window.scrollTo(0, m.y);
+      else setTimeout(go, 100);
+    };
+    requestAnimationFrame(go);
+  }
   async function route() {
+    const h = location.hash || "#dashboard";
+    const back = trail.length > 1 && trail[trail.length - 2] === h;
+    if (h !== shownHash) memoPage();
+    if (back) trail.pop(); else if (trail[trail.length - 1] !== h) { trail.push(h); if (trail.length > 60) trail.shift(); }
+    navDir = back ? "back" : "fwd";
+    await routePage();
+    const again = shownHash === h;
+    shownHash = h;
+    if (back && !again) restorePage(h);
+  }
+  async function routePage() {
     justSaved = null; // a page drawn by the router (Remove, a correction, another page) is not the save's redraw
     takeLinkError();
     closePreview();

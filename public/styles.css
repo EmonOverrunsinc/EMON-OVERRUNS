@@ -1798,3 +1798,18 @@ html { -webkit-tap-highlight-color: transparent; }
 .page > .pg-num { position: absolute; right: 14mm; bottom: 3.5mm; font: 700 7px/1 Arial, sans-serif; letter-spacing: .12em; color: #6b7a99; }
 .page:has(.soa-pg, .sb-cont, .rp-co) > .pg-num { display: none; }
 .page *, .page *::before { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+/* ===================== 2.9: iOS-style page movement =====================
+   Nothing rises from below any more: a new page slides in from the right, Back slides in from the left, and parts
+   of a page only fade in. */
+@keyframes rise { from { opacity: 0; } to { opacity: 1; } }
+@keyframes riseSoft { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pageIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pushIn { from { opacity: .35; transform: translate3d(36px, 0, 0); } to { opacity: 1; transform: none; } }
+@keyframes pushBack { from { opacity: .35; transform: translate3d(-36px, 0, 0); } to { opacity: 1; transform: none; } }
+#main > *, .content.page-in > .band, .band h1 { animation: none; }
+.content.page-in { animation: pushIn .38s cubic-bezier(.32,.72,0,1) both; }
+.content.page-in.nav-back { animation-name: pushBack; }
+.qa, .tiles .tile, .doccard, .due-card { animation-duration: .3s; }
+@media (prefers-reduced-motion: reduce) { .content.page-in, .content.page-in.nav-back { animation: none !important; } }
+.layout { overflow-x: clip; }
