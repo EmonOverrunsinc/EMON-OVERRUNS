@@ -1,0 +1,15 @@
+# Copy this file to settings.txt (same folder) and fill it in. Keep settings.txt private: never send it to anybody.
+
+# Where the backups go (the extra hard drive). One folder per day is made inside it.
+BACKUP_FOLDER=D:\EMON-BACKUP
+
+# Supabase › Project Settings › Database › Connection string › URI (Session pooler), with your database password in it.
+DATABASE_URL=postgresql://postgres.cvmqjerbbejvmzypbawi:YOUR-DB-PASSWORD@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres
+
+# For the uploaded files (photos, scans, signatures). Supabase › Project Settings › API:
+# Project URL, and the "service_role" secret key. Leave the key empty to back up the database only.
+SUPABASE_URL=https://cvmqjerbbejvmzypbawi.supabase.co
+SERVICE_ROLE_KEY=
+
+# How many daily backups to keep (older ones are deleted).
+KEEP_DAYS=60

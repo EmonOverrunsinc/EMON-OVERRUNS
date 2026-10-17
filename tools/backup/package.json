@@ -1,0 +1,9 @@
+{
+  "name": "emon-overruns-backup",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Backs up the EMON OVERRUNS E-Portal database and files to a folder on this PC (for example an extra hard drive).",
+  "scripts": { "backup": "node backup.mjs" },
+  "dependencies": { "pg": "^8.13.1" }
+}
