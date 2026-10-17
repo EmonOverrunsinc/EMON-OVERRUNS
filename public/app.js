@@ -7,7 +7,7 @@
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
   const VERSION = "2.7";
-  const BUILD = "2.7.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "2.7.3"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -111,6 +111,7 @@
     receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
     order: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h4"/>',
     tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
     building: '<rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M10 21v-3h4v3"/>',
     stamp: '<path d="M9 3h6l-1 7h-4z"/><path d="M5 14h14v3H5zM4 21h16"/>',
@@ -857,6 +858,29 @@
     const other = OTHER.filter((o) => o[2]()).map(([k, label, , icon], j) => `<a href="#${k}" style="--i:${items.length + j + 1}" class="sub ${k === cur ? "active" : ""}"><span class="num">${ic(icon)}</span><span class="lbl">${esc(label)}</span></a>`).join("");
     const av = avatarUrl();
     const who = S.profile.full_name || S.session.user.email;
+    const currency = ["inventory", "newstockbill", "stockbill", "ebill"].includes(key) ? "BDT" : "PHP (₱)";
+    const bandHtml = `<div class="band">${key === "dashboard" ? "" : backBtn()}<h1>${esc(title)}</h1><span class="help" title="${esc(hint ? hint.replace(/<[^>]+>/g, "") : title)}">?</span></div>`;
+    const mainHtml = `<main id="main">${hint ? `<div class="hint"><b>Hint:</b> ${hint}</div>` : ""}${body}</main>`;
+    // 2.7.2: moving between pages keeps the top bar and the side menu in place (no flash); only the page itself is
+    // swapped, with a soft fade. The whole frame is drawn again only when the menu or the person changes.
+    const frame = [S.session.user.id, who, av, newBuild, items.map((m) => m.k).join(","), OTHER.filter((o) => o[2]()).map((o) => o[0]).join(",")].join("|");
+    const content = $(".layout > .content", app);
+    if (content && app.dataset.frame === frame) {
+      $$("#drawer a").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + cur));
+      $$(".pop").forEach((p) => (p.hidden = true));
+      if ($("#tbSpin")) $("#tbSpin").hidden = true;
+      if ($("#tbQ") && document.activeElement !== $("#tbQ")) $("#tbQ").value = "";
+      const sb2 = $$(".statusbar > span", app);
+      if (sb2[1]) sb2[1].textContent = "Records: –";
+      if (sb2[2]) sb2[2].textContent = "Currency: " + currency;
+      content.innerHTML = bandHtml + mainHtml;
+      content.classList.remove("page-in"); void content.offsetWidth; content.classList.add("page-in");
+      window.scrollTo({ top: 0 });
+      bindBack("#dashboard");
+      refreshBadges();
+      return;
+    }
+    app.dataset.frame = frame;
     app.innerHTML = `
       <div class="topbar" id="topbar">
         <button type="button" class="iconbtn burger" id="tbMenu" aria-label="Menu" aria-controls="drawer" aria-expanded="false"><span></span><span></span><span></span></button>
@@ -891,12 +915,9 @@
           ${other}
         </nav>
         <div class="scrim" id="scrim"></div>
-        <div class="content">
-          <div class="band">${key === "dashboard" ? "" : backBtn()}<h1>${esc(title)}</h1><span class="help" title="${esc(hint ? hint.replace(/<[^>]+>/g, "") : title)}">?</span></div>
-          <main id="main">${hint ? `<div class="hint"><b>Hint:</b> ${hint}</div>` : ""}${body}</main>
-        </div>
+        <div class="content">${bandHtml}${mainHtml}</div>
       </div>
-      <div class="statusbar"><span>User: ${esc(who)}</span><span id="sbRecords">Records: –</span><span>Currency: ${["inventory", "newstockbill", "stockbill", "ebill"].includes(key) ? "BDT" : "PHP (₱)"}</span></div>`;
+      <div class="statusbar"><span>User: ${esc(who)}</span><span id="sbRecords">Records: –</span><span>Currency: ${currency}</span></div>`;
     let saved = null; try { saved = localStorage.getItem("eoDrawer"); } catch (_) {}
     document.body.classList.add("no-anim");
     drawerOpen(isPhone() ? false : saved !== "0");
@@ -1089,7 +1110,7 @@
       if (!scanFits(inp)) continue;
       const wrap = document.createElement("span");
       wrap.className = "scan-wrap" + (inp.hidden ? " for-hidden" : "");
-      wrap.innerHTML = `<button type="button" class="btn scan-btn" title="Opens the Windows scanner window: choose the scanner, then press Scan there">${ic("doc")} Scan</button>
+      wrap.innerHTML = `<button type="button" class="btn scan-btn" title="Opens the Windows scanner window: choose the scanner, then press Scan there">${ic("doc")} ${esc(inp.dataset.scanLabel || "Scan")}</button>
         <span class="scan-prog" role="progressbar" aria-label="Scan" aria-valuemin="0" aria-valuemax="100" hidden>
           <span class="ring"><svg viewBox="0 0 40 40" aria-hidden="true"><circle class="rb" cx="20" cy="20" r="17"/><circle class="rf" cx="20" cy="20" r="17"
             stroke-dasharray="${RING.toFixed(2)}" stroke-dashoffset="${RING.toFixed(2)}"/></svg><b class="rp">0%</b><span class="rc">${ic("check")}</span></span>

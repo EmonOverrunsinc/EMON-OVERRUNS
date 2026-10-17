@@ -3,7 +3,7 @@ import re, sys
 SRC = "/home/user/emon-overruns/supabase/"
 FILES = ["portal_init", "002_customers_invoices_payments", "003_statements", "004_update_1_1", "005_update_1_2", "006_update_1_3",
          "007_update_1_4", "008_update_1_5", "009_update_1_6", "010_update_1_7", "011_update_1_8", "012_update_1_9",
-         "013_update_2_0", "014_update_2_1", "015_update_2_2", "016_update_2_3", "017_play_store", "018_invoice_po"]
+         "013_update_2_0", "014_update_2_1", "015_update_2_2", "016_update_2_3", "017_play_store", "018_invoice_po", "019_link_payment"]
 parts = []
 for f in FILES:
     t = open(SRC + f + ".sql", encoding="utf-8").read().replace("\r", "")

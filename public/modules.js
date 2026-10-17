@@ -84,7 +84,10 @@
   }
   async function attachmentsOf(ownerType, ownerId) {
     const { data } = await sb.from("attachments").select("*").eq("owner_type", ownerType).eq("owner_id", ownerId).order("created_at", { ascending: false });
-    return data || [];
+    // 2.7.3: a paper copy update that waits for the Director is kept apart (att.pending) until it is approved
+    const all = data || [], att = all.filter((a) => !a.pending);
+    att.pending = all.filter((a) => a.pending);
+    return att;
   }
   // A wrong upload can be removed and the right file uploaded again: the Director removes any file,
   // the person who uploaded it within 24 hours. The removal is written in the record's history.
@@ -225,15 +228,21 @@
   // kinds: the kinds of upload shown here (the newest one); a new upload is saved as kind.
   function copyCard({ key, title, sub = "", ownerType, ownerId, att, kind, kinds = [kind], canUpload = isStaff(), addLabel = "Upload", tag = "" }) {
     const shown = att.filter((a) => kinds.includes(a.kind));
-    DC.set(key, { att: shown.map((a) => ({ ...a, kind })), kind, copyName: title, plain: true });
     const f = [...shown].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+    // 2.7.3: with a copy on file, a new scan or upload is an Update; an employee's Update waits for the Director
+    const wait = (att.pending || []).filter((a) => kinds.includes(a.kind))[0];
+    DC.set(key, { att: shown.map((a) => ({ ...a, kind })), kind, copyName: title, plain: true, update: !!f, wait });
     const upId = `dcUp_${key.replace(/\W/g, "_")}`;
+    const mayUpdate = canUpload && !(wait && !isAdmin());
     return `<div class="doccard${f ? " signed" : ""}">
       <div class="dc-ic">${ic("doc")}${f ? `<span class="dc-ok">${ic("check")}</span>` : ""}</div>
-      <div class="dc-main">${tag ? `<span class="dc-tag">${esc(tag)}</span>` : ""}<b>${esc(title)}</b><small>${f ? `On file · uploaded ${mdy(f.created_at)}` : esc(sub || "No copy yet")}</small></div>
+      <div class="dc-main">${tag ? `<span class="dc-tag">${esc(tag)}</span>` : ""}<b>${esc(title)}</b><small>${f ? `On file · uploaded ${mdy(f.created_at)}` : esc(sub || "No copy yet")}</small>
+        ${wait ? `<small class="dc-wait">${ic("clock")} Update waiting for the Director's approval · sent ${mdy(wait.created_at)}</small>` : ""}</div>
       <div class="dc-act">${f ? `<button type="button" class="btn primary" data-dc-view="${esc(key)}">${ic("eye")} View</button>${rmBtn(f)}` : ""}
-        ${canUpload ? `<label class="btn${f ? "" : " primary"}" for="${upId}"${window.EOApp ? " hidden" : ""}>${ic("upload")} ${f ? "Replace" : esc(addLabel)}</label>
-          <input type="file" id="${upId}" hidden accept="image/*,application/pdf" data-save-now data-dc-up="${esc(key)}" data-owner="${esc(ownerType)}" data-id="${esc(ownerId)}">` : ""}
+        ${wait ? `<button type="button" class="btn" data-dc-viewp="${esc(key)}">${ic("eye")} View Update</button>
+          ${isAdmin() ? `<button type="button" class="btn ok" data-dc-ok="${esc(wait.id)}">${ic("check")} Approve</button><button type="button" class="btn danger" data-dc-no="${esc(wait.id)}">${ic("x")} Reject</button>` : ""}` : ""}
+        ${mayUpdate ? `<label class="btn${f ? "" : " primary"}" for="${upId}"${window.EOApp ? " hidden" : ""}>${ic("upload")} ${f ? "Update" : esc(addLabel)}</label>
+          <input type="file" id="${upId}" hidden accept="image/*,application/pdf" data-save-now data-dc-up="${esc(key)}" data-owner="${esc(ownerType)}" data-id="${esc(ownerId)}"${f ? ' data-scan-label="Update"' : ""}>` : ""}
       </div></div>`;
   }
   function bindDocCards(root, reload) {
@@ -249,10 +258,21 @@
       $(".dc-main small", card).innerHTML = `<span class="spin sm"></span> Uploading…`;
       const d = DC.get(inp.dataset.dcUp);
       const f = await uploadRecords(inp.dataset.owner, inp.dataset.id, d?.kind || "signed_form", files);
-      toast(f ? "Upload failed." : d?.plain ? `${d.copyName} saved.` : `${d?.copyName || "Signed copy"} uploaded. It now replaces the system copy.`, f > 0);
+      toast(f ? "Upload failed." : d?.plain && d.update && !isAdmin() ? "Update sent to the Director for approval." : d?.plain ? `${d.copyName} saved.` : `${d?.copyName || "Signed copy"} uploaded. It now replaces the system copy.`, f > 0);
       if (here()) reload();
     }));
     $$("[data-rm]", root).forEach((b) => (b.onclick = () => removeFile(b)));
+    $$("[data-dc-viewp]", root).forEach((b) => (b.onclick = () => { const d = DC.get(b.dataset.dcViewp); if (d?.wait) viewFile(d.wait); }));
+    const decide = async (b, ok) => {
+      if (!ok && !(await E.confirmBox("Reject this paper copy update? It is deleted and the copy on file stays.", { title: "Reject Update", ok: "Reject", danger: true }))) return;
+      b.disabled = true;
+      const { data: path, error } = await sb.rpc("decide_attachment", { p_id: ok ? b.dataset.dcOk : b.dataset.dcNo, p_ok: ok });
+      if (error) { b.disabled = false; return fail(error, "Could not decide the update"); }
+      if (path) sb.storage.from("records").remove([path]).catch(() => {});
+      toast(ok ? "Update approved: it is now the copy on file." : "Update rejected."); reload();
+    };
+    $$("[data-dc-ok]", root).forEach((b) => (b.onclick = () => decide(b, true)));
+    $$("[data-dc-no]", root).forEach((b) => (b.onclick = () => decide(b, false)));
   }
 
   const fileField = (id, label, opts = "") => `<label for="${id}">${label}</label><input type="file" id="${id}" ${opts}>`;
@@ -548,16 +568,18 @@
   async function loadTodo() {
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
-    const [apps, jobs, orders, changes, memos, contacts] = await Promise.all([
+    const [apps, jobs, orders, changes, memos, contacts, copies] = await Promise.all([
       cnt(sb.from("customers").select("id", head).in("status", ["pending", "verified"])),
       cnt(sb.from("job_applications").select("id", head).eq("status", "submitted")),
       cnt(sb.from("order_letters").select("id", head).eq("status", "pending")),
       cnt(sb.from("change_requests").select("id", head).eq("status", "pending")),
       cnt(sb.from("credit_memos").select("id", head).eq("status", "pending")),
-      cnt(sb.from("contact_messages").select("id", head).eq("status", "new"))
+      cnt(sb.from("contact_messages").select("id", head).eq("status", "new")),
+      sb.from("attachments").select("owner_type, owner_id").eq("pending", true).order("created_at").limit(50).then((r) => r.data || [], () => [])
     ]);
     const el = $("#dTodo"); if (!el) return;
     const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [orders, "Orders to approve", "#orders"], [changes, "Corrections", "#changes"], [memos, "Credit memos", "#creditmemos"], [contacts, "Contact messages", "#contacts"]];
+    if (copies.length) items.push([copies.length, "Paper copy updates", `#${copies[0].owner_type}/${copies[0].owner_id}`]);
     el.innerHTML = `<span class="todo-h">Waiting for you:</span>` + items.map(([n, label, href]) => `<a class="todo-chip ${n ? "hot" : ""}" href="${href}"><b>${n}</b> ${esc(label)}</a>`).join("");
   }
 
@@ -1330,7 +1352,10 @@
     E.shell("invoice", "Invoice", busy());
     const { data: inv } = await sb.from("invoice_balances").select("*").eq("id", id).maybeSingle();
     if (!inv) { $("#main").innerHTML = `<div class="empty">Invoice not found. <a href="#invoices">Back to Invoices</a></div>`; return; }
-    const att = await attachmentsOf("invoice", id);
+    const [att, pr] = await Promise.all([attachmentsOf("invoice", id),
+      sb.from("payments_received").select("id, receipt_no, paid_date, amount, invoice_id").eq("customer_id", inv.customer_id).order("paid_date", { ascending: false })]);
+    const pays = pr.data || [], linked = pays.filter((p) => p.invoice_id === inv.id);
+    const canLink = E.canWrite("payments") || E.canWrite("invoices");
     $(".band h1").textContent = `Invoice — ${inv.invoice_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${pill(inv.pay_status)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
@@ -1342,7 +1367,11 @@
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
         <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b><span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b><span>Balance</span><b>₱ ${peso(inv.balance)}</b>
         <span>Payment Status</span><span>${pill(inv.pay_status)}</span></div></div>
-      <small class="muted">Payments, discounts and orders are for the customer's account: they pay the oldest invoices first.</small>
+      <small class="muted">A payment linked to this invoice pays it first. Other payments, discounts and orders pay the customer's oldest invoices first.</small>
+      <div class="linked-pays"><div class="lp-head"><b>Linked Payments</b>${canLink && pays.length ? `<button type="button" class="btn small" id="ivLink">${ic("plus")} Link a Payment</button>` : ""}</div>
+        ${linked.length ? linked.map((p) => `<div class="lp-row"><a href="#payment/${p.id}"><b>${esc(p.receipt_no || "")}</b></a><span>${mdy(p.paid_date)}</span><b>₱ ${peso(p.amount)}</b>
+          ${canLink ? `<button type="button" class="linkbtn" data-unlink="${p.id}">Unlink</button>` : ""}</div>`).join("")
+          : `<div class="empty small">No payment is linked to this invoice${pays.length ? "" : " (this customer has no payments yet)"}.</div>`}</div>
       <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv)]) })}
         ${copyCard({ key: "invcopy", title: `Invoice ${inv.invoice_no}`, tag: "Paper Copy", sub: "Scan or upload the paper invoice", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}</div>
       <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
@@ -1353,6 +1382,24 @@
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.invoice(id));
     bindTools($("#main"));
+    // 2.7.3: link one of the customer's payments to this invoice (or unlink it)
+    const link = async (payId, invId) => {
+      const { error } = await sb.rpc("link_payment", { p_payment: payId, p_invoice: invId });
+      if (error) return fail(error, /link_payment/.test(error.message || "") ? "Run the database update 019_link_payment.sql first" : "Could not link the payment");
+      toast(invId ? "Payment linked to this invoice." : "Payment unlinked."); V.invoice(id);
+    };
+    $$("[data-unlink]").forEach((b) => (b.onclick = () => link(b.dataset.unlink, null)));
+    if ($("#ivLink")) $("#ivLink").onclick = async () => {
+      const others = pays.filter((p) => p.invoice_id !== inv.id);
+      const ids = [...new Set(others.map((p) => p.invoice_id).filter(Boolean))];
+      const nos = ids.length ? new Map(((await sb.from("customer_invoices").select("id, invoice_no").in("id", ids)).data || []).map((x) => [x.id, x.invoice_no])) : new Map();
+      const m = E.modal(`Link a Payment — ${inv.invoice_no}`, others.length
+        ? `<p class="muted" style="margin-top:0">Choose the payment of ${esc(fullName(inv))} that paid this invoice (balance ₱ ${peso(inv.balance)}).</p>
+          <div class="lp-pick">${others.map((p) => `<button type="button" class="lp-opt" data-pay="${p.id}"><b>${esc(p.receipt_no || "")}</b><span>${mdy(p.paid_date)}</span><b>₱ ${peso(p.amount)}</b>
+            <small>${p.invoice_id ? `Now linked to ${esc(nos.get(p.invoice_id) || "another invoice")}` : "Not linked (pays the oldest invoices)"}</small></button>`).join("")}</div>`
+        : `<div class="empty">Every payment of this customer is already linked to this invoice.</div>`);
+      $$("[data-pay]", m.el).forEach((b) => (b.onclick = () => { m.close(); link(b.dataset.pay, inv.id); }));
+    };
     E.setRecords(`Invoice: ${inv.invoice_no}`);
   };
   function invoicePage(inv) {
