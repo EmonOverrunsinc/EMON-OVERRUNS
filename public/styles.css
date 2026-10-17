@@ -1647,3 +1647,14 @@ table.grid tfoot td { background: #fafafc; border-top: 1px solid var(--panel-lin
 .drawer a.sub { padding-left: 10px; }
 .drawer a.sub .num { color: #8e8e93; }
 .drawer a.sub.active .num { color: #fff; }
+/* 2.7: the customer profile shows the Balance Due only (the other amounts are in Details) */
+.due-card { display: flex; align-items: center; justify-content: space-between; gap: 10px 20px; flex-wrap: wrap; margin: 14px 0; padding: 18px 22px;
+  background: #fff; border-radius: 20px; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 2px 10px rgba(0,0,0,.04); animation: rise .5s cubic-bezier(.2,.8,.2,1) backwards; }
+.due-card .k { font-size: 13px; font-weight: 600; color: #6e6e73; }
+.due-card .v { font-size: 34px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; color: #1d1d1f; font-variant-numeric: tabular-nums; }
+.due-card.warn { box-shadow: inset 4px 0 0 #ff9500, 0 2px 10px rgba(0,0,0,.05); }
+.due-card.warn .v { color: #b25d00; }
+.due-card.ok { box-shadow: inset 4px 0 0 #34c759, 0 2px 10px rgba(0,0,0,.05); }
+.due-card.ok .v { color: #1f8a3b; }
+.due-card small { color: #6e6e73; }
+@media (max-width: 620px) { .due-card .v { font-size: 28px; } }

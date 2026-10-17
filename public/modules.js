@@ -865,15 +865,8 @@
         </div>
         <div class="ch-qr"><canvas id="pfQr" aria-label="Customer QR code"></canvas><small>Public ID</small><b class="mono key" id="pfKey">${esc(c.public_id || "")}</b><button type="button" class="linkbtn" id="pfCopy">${ic("copy")} Copy</button></div>
       </section>
-      <div class="tiles">
-        ${num(b.opening_balance) > 0 ? `<div class="tile"><div class="k">Opening Balance</div><div class="v">₱ ${peso(b.opening_balance)}</div></div>` : ""}
-        <div class="tile"><div class="k">Total Invoiced</div><div class="v">₱ ${peso(b.total_invoiced)}</div></div>
-        <div class="tile"><div class="k">Additional Charge</div><div class="v">₱ ${peso(b.total_charges)}</div></div>
-        <div class="tile"><div class="k">Settlement Adjustment</div><div class="v">${num(b.total_settlement) < 0 ? "− " : num(b.total_settlement) > 0 ? "+ " : ""}₱ ${peso(Math.abs(num(b.total_settlement)))}</div></div>
-        <div class="tile ok"><div class="k">Total Paid</div><div class="v">₱ ${peso(b.total_paid)}</div></div>
-        <div class="tile"><div class="k">Credits / Discounts</div><div class="v">₱ ${peso(b.total_credits)}</div></div>
-        <div class="tile ${num(b.balance_due) > 0 ? "warn" : "ok"}"><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
-      </div>
+      <div class="due-card ${num(b.balance_due) > 0 ? "warn" : "ok"}"><div><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
+        <small>${num(b.balance_due) > 0 ? "Amount the customer still owes" : "Nothing due · fully paid"} · see Details for the full summary</small></div>
       <div class="actionbar">
         ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">${ic("plus")} Record Invoice</a>` : ""}
         ${canPay ? `<a class="btn" href="#newpayment/${c.id}">${ic("plus")} Record Payment</a>` : ""}
@@ -888,7 +881,7 @@
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed) : ""}
       <div class="tabs" id="pfTabs">${tabs.map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes">
-        <div data-p="0">${detailsTable(c)}${rhBox("customers", c.id)}</div>
+        <div data-p="0">${detailsTable(c, b)}${rhBox("customers", c.id)}</div>
         <div data-p="1" hidden id="pfSoa">${busy("Loading statements")}</div>
         <div data-p="2" hidden>${E.grid({ cols: INV_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: invs.data || [], onRow: true, empty: "No invoices yet." })}</div>
         <div data-p="3" hidden>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
@@ -946,11 +939,16 @@
     E.setRecords(c.account_no ? `Account: ${c.account_no}` : `Application: ${c.application_no}`);
   };
 
-  function detailsTable(c) {
+  // 2.7: the account amounts are listed here; the profile shows only the Balance Due
+  function detailsTable(c, b = null) {
+    const st = b ? num(b.total_settlement) : 0;
+    const money = b ? [["Total Invoiced", "₱ " + peso(b.total_invoiced)], ["Additional Charge", "₱ " + peso(b.total_charges)],
+      ["Settlement Adjustment", `${st < 0 ? "− " : st > 0 ? "+ " : ""}₱ ${peso(Math.abs(st))}`], ["Total Paid", "₱ " + peso(b.total_paid)],
+      ["Credits / Discounts", "₱ " + peso(b.total_credits)], ["Balance Due", "₱ " + peso(b.balance_due)]] : [];
     const rows = [
       ["First Name", c.first_name], ["Last Name", c.last_name], ["Phone", c.phone], ["Email", c.email],
       ["Full Address", c.address],
-      ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], ["Opening Balance", "₱ " + peso(c.opening_balance)],
+      ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], ["Opening Balance", "₱ " + peso(c.opening_balance)], ...money,
       ["Business Name", c.business_name], ["Business Start Date", mdy(c.business_start_date)],
       ["Facebook Name", c.facebook_name], ["Facebook Account Link", c.facebook_link, fbLinkHtml(c.facebook_link)],
       ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
