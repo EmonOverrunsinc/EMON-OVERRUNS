@@ -7,7 +7,7 @@
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
   const VERSION = "2.7";
-  const BUILD = "2.7.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "2.7.2"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -857,6 +857,29 @@
     const other = OTHER.filter((o) => o[2]()).map(([k, label, , icon], j) => `<a href="#${k}" style="--i:${items.length + j + 1}" class="sub ${k === cur ? "active" : ""}"><span class="num">${ic(icon)}</span><span class="lbl">${esc(label)}</span></a>`).join("");
     const av = avatarUrl();
     const who = S.profile.full_name || S.session.user.email;
+    const currency = ["inventory", "newstockbill", "stockbill", "ebill"].includes(key) ? "BDT" : "PHP (₱)";
+    const bandHtml = `<div class="band">${key === "dashboard" ? "" : backBtn()}<h1>${esc(title)}</h1><span class="help" title="${esc(hint ? hint.replace(/<[^>]+>/g, "") : title)}">?</span></div>`;
+    const mainHtml = `<main id="main">${hint ? `<div class="hint"><b>Hint:</b> ${hint}</div>` : ""}${body}</main>`;
+    // 2.7.2: moving between pages keeps the top bar and the side menu in place (no flash); only the page itself is
+    // swapped, with a soft fade. The whole frame is drawn again only when the menu or the person changes.
+    const frame = [S.session.user.id, who, av, newBuild, items.map((m) => m.k).join(","), OTHER.filter((o) => o[2]()).map((o) => o[0]).join(",")].join("|");
+    const content = $(".layout > .content", app);
+    if (content && app.dataset.frame === frame) {
+      $$("#drawer a").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + cur));
+      $$(".pop").forEach((p) => (p.hidden = true));
+      if ($("#tbSpin")) $("#tbSpin").hidden = true;
+      if ($("#tbQ") && document.activeElement !== $("#tbQ")) $("#tbQ").value = "";
+      const sb2 = $$(".statusbar > span", app);
+      if (sb2[1]) sb2[1].textContent = "Records: –";
+      if (sb2[2]) sb2[2].textContent = "Currency: " + currency;
+      content.innerHTML = bandHtml + mainHtml;
+      content.classList.remove("page-in"); void content.offsetWidth; content.classList.add("page-in");
+      window.scrollTo({ top: 0 });
+      bindBack("#dashboard");
+      refreshBadges();
+      return;
+    }
+    app.dataset.frame = frame;
     app.innerHTML = `
       <div class="topbar" id="topbar">
         <button type="button" class="iconbtn burger" id="tbMenu" aria-label="Menu" aria-controls="drawer" aria-expanded="false"><span></span><span></span><span></span></button>
@@ -891,12 +914,9 @@
           ${other}
         </nav>
         <div class="scrim" id="scrim"></div>
-        <div class="content">
-          <div class="band">${key === "dashboard" ? "" : backBtn()}<h1>${esc(title)}</h1><span class="help" title="${esc(hint ? hint.replace(/<[^>]+>/g, "") : title)}">?</span></div>
-          <main id="main">${hint ? `<div class="hint"><b>Hint:</b> ${hint}</div>` : ""}${body}</main>
-        </div>
+        <div class="content">${bandHtml}${mainHtml}</div>
       </div>
-      <div class="statusbar"><span>User: ${esc(who)}</span><span id="sbRecords">Records: –</span><span>Currency: ${["inventory", "newstockbill", "stockbill", "ebill"].includes(key) ? "BDT" : "PHP (₱)"}</span></div>`;
+      <div class="statusbar"><span>User: ${esc(who)}</span><span id="sbRecords">Records: –</span><span>Currency: ${currency}</span></div>`;
     let saved = null; try { saved = localStorage.getItem("eoDrawer"); } catch (_) {}
     document.body.classList.add("no-anim");
     drawerOpen(isPhone() ? false : saved !== "0");
