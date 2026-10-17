@@ -113,6 +113,9 @@
     receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
     order: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h4"/>',
     tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    building: '<rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M10 21v-3h4v3"/>',
+    stamp: '<path d="M9 3h6l-1 7h-4z"/><path d="M5 14h14v3H5zM4 21h16"/>',
     globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'
   };
   const ic = (name, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
@@ -764,17 +767,17 @@
 
   // ---------- shell: company header, top bar, slide-out menu ----------
   const MENU = [
-    { k: "dashboard", n: "", label: "Dashboard" },
-    { k: "customers", n: "1", label: "Customer" },
-    { k: "invoices", n: "2", label: "Invoice" },
-    { k: "payments", n: "3", label: "Payment" },
-    { k: "creditmemos", n: "4", label: "Credit Memo" },
-    { k: "employees", n: "5", label: "Employee" },
-    { k: "community", n: "6", label: "Community" },
-    { k: "projects", n: "7", label: "Project" },
-    { k: "billing", n: "8", label: "Billing" },
-    { k: "orders", n: "9", label: "Director Portal" },
-    { k: "inventory", n: "10", label: "E-Bill" }
+    { k: "dashboard", icon: "home", label: "Dashboard" },
+    { k: "customers", icon: "user", label: "Customer" },
+    { k: "invoices", icon: "doc", label: "Invoice" },
+    { k: "payments", icon: "wallet", label: "Payment" },
+    { k: "creditmemos", icon: "tag", label: "Credit Memo" },
+    { k: "employees", icon: "users", label: "Employee" },
+    { k: "community", icon: "chat", label: "Community" },
+    { k: "projects", icon: "folder", label: "Project" },
+    { k: "billing", icon: "building", label: "Billing" },
+    { k: "orders", icon: "stamp", label: "Director Portal" },
+    { k: "inventory", icon: "box", label: "E-Bill" }
   ];
   // Which menu item (module) each page belongs to; pages a user has no access to are blocked.
   const MODULE_OF = {
@@ -795,11 +798,11 @@
   // Staff may add records in the sections they can open; viewers only look.
   const canWrite = (m) => isAdmin() || (isStaff() && hasModule(m));
   const OTHER = [
-    ["verify", "Verification", () => true],
-    ["changes", "Corrections", () => isAdmin()],
-    ["contacts", "Contact Messages", () => isAdmin()],
-    ["logins", "Login Accounts", () => isAdmin()],
-    ["forms", "Download Forms", () => true]
+    ["verify", "Verification", () => true, "shield"],
+    ["changes", "Corrections", () => isAdmin(), "edit"],
+    ["contacts", "Contact Messages", () => isAdmin(), "mail"],
+    ["logins", "Login Accounts", () => isAdmin(), "key"],
+    ["forms", "Download Forms", () => true, "download"]
   ];
   const ACTIVE_OF = { orders: "orders", neworder: "orders", editorder: "orders", order: "orders", payslip: "employees", ebill: "inventory", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
@@ -866,8 +869,8 @@
   function shell(key, title, body, hint) {
     const cur = ACTIVE_OF[key] ?? (Array.isArray(MODULE_OF[key]) ? MODULE_OF[key][0] : MODULE_OF[key]) ?? key;
     const items = MENU.filter((m) => m.k === "dashboard" || m.k === "community" || hasModule(m.k));
-    const main = items.map((m, i) => `<a href="#${m.k}" style="--i:${i}" class="${m.k === cur ? "active" : ""}"><span class="num">${m.n || ic("home")}</span><span class="lbl">${esc(m.label)}</span></a>`).join("");
-    const other = OTHER.filter((o) => o[2]()).map(([k, label], j) => `<a href="#${k}" style="--i:${items.length + j + 1}" class="sub ${k === cur ? "active" : ""}"><span class="lbl">${esc(label)}</span></a>`).join("");
+    const main = items.map((m, i) => `<a href="#${m.k}" style="--i:${i}" class="${m.k === cur ? "active" : ""}"><span class="num">${ic(m.icon)}</span><span class="lbl">${esc(m.label)}</span></a>`).join("");
+    const other = OTHER.filter((o) => o[2]()).map(([k, label, , icon], j) => `<a href="#${k}" style="--i:${items.length + j + 1}" class="sub ${k === cur ? "active" : ""}"><span class="num">${ic(icon)}</span><span class="lbl">${esc(label)}</span></a>`).join("");
     const av = avatarUrl();
     const who = S.profile.full_name || S.session.user.email;
     app.innerHTML = `
