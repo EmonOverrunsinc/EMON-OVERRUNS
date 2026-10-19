@@ -1,5 +1,5 @@
 /* EMON OVERRUNS E-PORTAL — job applicant portal, 6 Community, 9 Director Portal (order letters), Verification (public),
-   Messages (chat), Corrections, and the Add Correction / Delete (Director) tools used on every record
+   Messages (chat), Corrections, and the Edit / Delete (Director) tools used on every record
    (saved records are never edited; only the Director deletes, permanently). */
 (function () {
   "use strict";
@@ -39,7 +39,7 @@
   const avatarOf = (c) => c.avatar_path ? `<img src="${esc(E.publicUrl("avatars", c.avatar_path))}" alt="">` : `<span>${esc(E.initials(c.full_name))}</span>`;
 
   // ======================================================================
-  // Records are only added: Add Correction on every record (staff: Request Correction, approved by the Director).
+  // Records: Edit on every record for the Director (staff: Request Correction, approved by the Director).
   // Only the Director deletes a record, and then it is gone for good.
   // ======================================================================
   const F = (k, label, type = "text", opts) => ({ k, label, type, opts });
@@ -80,6 +80,8 @@
   const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v)
     : /^\d{4}-\d\d-\d\d$/.test(v) ? mdy(v) : String(v));
   // names: e-bill numbers by id (the e-bill a memo pays is saved as its id)
+  // the details named in an approved or direct edit (2.9: only their names are kept)
+  const fieldNames = (table, ch) => Object.keys(ch || {}).map((k) => fieldLabel(table, k)).join(", ");
   const changeList = (table, ch, prev, names) => Object.keys(ch || {}).map((k) => {
     const v = (x) => (k === "memo_bill_id" ? (x ? names?.get(x) || "another e-bill" : "(none)") : showVal(x));
     return `${fieldLabel(table, k)}: ${v(prev?.[k])} → ${v(ch[k])}`;
@@ -122,32 +124,34 @@
     return String(a ?? "") === String(b ?? "");
   };
 
-  // The saved record is not edited: a correction record is added with the new details and keeps the original ones.
-  // A customer's correction is added at once only by the main Director (2.2); another Director account asks for it.
+  // The Director edits a record directly: it takes the new details at once (a customer's: the main Director's only, 2.2).
+  // An employee asks for a correction: the Director approves it, and the employee is told who approved it (2.9). No reason
+  // is needed; an employee may add a note for the Director. A decided correction keeps no old details: the record shows only which details were changed and by whom.
   const correctsAtOnce = (table) => (table === "customers" ? !!S.mainDirector : isAdmin());
   function correctRecord(table, row, label, reload) {
     const fields = FIELDS[table];
     if (!fields) return toast("This record cannot be corrected.", true);
-    const admin = correctsAtOnce(table);
-    const m = E.modal(`${admin ? "Add Correction" : "Request Correction"} — ${label}`, `
-      <div class="hint">${admin ? "The record takes the new details at once" : `When the ${table === "customers" ? "main Director" : "Director"} approves, the record takes the new details`}. The correction itself is not kept: it leaves no history.</div>
+    const admin = correctsAtOnce(table), boss = table === "customers" ? "main Director" : "Director";
+    const m = E.modal(`${admin ? "Edit" : "Request Correction"} — ${label}`, `
+      <div class="hint">${admin ? `Saved at once by you (Director ${esc(S.profile?.full_name || "")}): the record shows the new details straight away.` : `Sent to the ${boss} for approval. When the ${boss} approves, the record takes the new details and you are told who approved it.`}</div>
       <div class="fields wide edit-grid">${fields.map((f) => fieldInput(f, row[f.k])).join("")}</div>
-      ${MONEY.includes(table) ? `<small class="muted">Amounts and transaction dates cannot be corrected. If they are wrong, ${isAdmin() ? "delete this record" : "ask the Director to delete this record"} and record it again.</small>` : ""}
-      <label class="fl" for="edReason">Reason for the correction *</label><textarea id="edReason" rows="2" placeholder="e.g. The wrong phone number was typed"></textarea>`,
-      `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn primary" data-ok>${admin ? "Add Correction" : "Send for Approval"}</button>`, { wide: true });
+      ${MONEY.includes(table) && table !== "customer_invoices" ? `<small class="muted">Amounts and transaction dates cannot be changed here. If they are wrong, ${isAdmin() ? "delete this record" : "ask the Director to delete this record"} and record it again.</small>` : ""}
+      ${admin ? "" : `<label class="fl" for="edReason">Note for the ${boss} (optional)</label><textarea id="edReason" rows="2" placeholder="Optional"></textarea>`}`,
+      `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn primary" data-ok>${admin ? `${ic("check")} Save Changes` : "Send for Approval"}</button>`, { wide: true });
     $("[data-x]", m.el).onclick = m.close;
     $("[data-ok]", m.el).onclick = async () => {
       const changes = {};
       for (const f of fields) { const v = readField(f, m.el); if (!same(f, row[f.k], v)) changes[f.k] = v; }
       if (!Object.keys(changes).length) return toast("Nothing was changed.", true);
-      const reason = $("#edReason", m.el).value.trim();
-      if (!reason) return toast("Write the reason for the correction.", true);
+      const reason = admin ? "" : $("#edReason", m.el).value.trim();
       const btn = $("[data-ok]", m.el); btn.disabled = true;
       const { data, error } = await sb.rpc("submit_change_request", { p_table: table, p_id: row.id, p_changes: changes, p_reason: reason, p_label: label });
-      btn.disabled = false;
-      if (error) return fail(error, admin ? "Could not add the correction" : "Could not send the correction");
+      if (error) {
+        btn.disabled = false;
+        return fail(error, /reason/i.test(error.message || "") ? "Run the database update 022_update_2_9.sql first (a correction then needs no reason)" : admin ? "Could not save the changes" : "Could not send the correction");
+      }
       m.close();
-      toast(admin ? "Correction saved: the record shows the new details." : `Correction ${data.request_no} sent to the ${table === "customers" ? "main Director" : "Director"} for approval.`);
+      toast(admin ? "Saved — the record shows the new details." : `Correction ${data.request_no} sent to the ${boss} for approval. You will be told when it is approved.`);
       if (reload) reload();
     };
   }
@@ -178,7 +182,7 @@
     if (RT.size > 300) RT.clear();
     const id = "rt" + Math.random().toString(36).slice(2, 9);
     RT.set(id, { table, row, label, ...opts });
-    const fixLabel = table === "customers" && S.mainDirector ? "Edit Customer" : correctsAtOnce(table) ? "Add Correction" : "Request Correction";
+    const fixLabel = table === "customers" && S.mainDirector ? "Edit Customer" : correctsAtOnce(table) ? "Edit" : "Request Correction";
     return `<span class="rtools" data-rt="${id}">${fix ? `<button type="button" class="btn" data-rt-fix>${ic("edit")} ${fixLabel}</button>` : ""}${del ? `<button type="button" class="btn danger" data-rt-del>${ic("trash")} Delete</button>` : ""}</span>`;
   }
   function bindRecordTools(root = document) {
@@ -214,13 +218,15 @@
       ...(done.data || []).map((r) => r.action === "file removed"
         ? { at: r.created_at, no: "", st: "removed", what: "File removed", detail: r.previous?.file || "", why: "", by: r.actor_name }
         : r.action === "order changed" ? { at: r.created_at, no: "", st: "changed", what: "Changed before approval", detail: changeList(table, r.changes, r.previous, names), why: "", by: r.actor_name }
+        // 2.9: which details were changed and the Director who approved (and who asked) or who edited; no old values
+        : r.action === "correction approved" || r.action === "edited" ? { at: r.created_at, no: r.request_no || "", st: "approved", what: r.action === "edited" ? `Edited by Director ${r.actor_name || ""}` : `Approved by Director ${r.actor_name || ""}`, detail: fieldNames(table, r.changes), why: "", by: r.requested_by_name || r.actor_name }
         : { at: r.created_at, no: r.request_no || "", st: "approved", what: "Correction", detail: changeList(table, r.changes, r.previous), why: why.get(r.request_no) || "", by: r.actor_name })
     ];
     if (!rows.length) { el.hidden = true; return; }
     el.hidden = false;
     el.innerHTML = `<b>Changes</b>${E.grid({ cols: [
       { label: "Date / Time", get: (r) => E.stamp(new Date(r.at)) }, { label: "Correction No", get: (r) => r.no }, { label: "Type", html: (r) => `${esc(r.what)} ${pill(r.st)}` },
-      { label: "Original → Corrected", get: (r) => r.detail || "—" }, { label: "Reason", get: (r) => r.why || "" }, { label: "By", get: (r) => r.by || "" }], rows })}`;
+      { label: "Details", get: (r) => r.detail || "—" }, { label: "Note", get: (r) => r.why || "" }, { label: "Asked / Done By", get: (r) => r.by || "" }], rows })}`;
   }
 
   // ======================================================================
@@ -231,7 +237,7 @@
     E.shell("changes", "Corrections", `
       <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="log">Change Log</button></div>
       <div id="crRes">${busy()}</div>`,
-      "Employees send <b>corrections</b> (wrong details) here. <b>Approve</b> puts the new details on the record; <b>Reject</b> leaves the record as it is. Either way the correction is then removed: it leaves no record (the person who asked is told when it is rejected). Your own corrections change the record straight away. A customer's details are changed by the main Director only (<b>Edit Customer</b> on the customer).");
+      "Employees send <b>corrections</b> (wrong details) here. <b>Approve</b> puts the new details on the record; <b>Reject</b> leaves the record as it is. Either way the person who asked is told, with your name, and the correction is removed: the record keeps only a line naming the details changed and that you approved them (no old details). You edit records yourself with <b>Edit</b>: the record changes straight away. A customer's details are changed by the main Director only (<b>Edit Customer</b> on the customer).");
     const run = async (f) => {
       $("#crRes").innerHTML = busy();
       if (f === "log") {
@@ -241,7 +247,8 @@
         const rows = data || [];
         $("#crRes").innerHTML = E.grid({ cols: [
           { label: "Date / Time", get: (r) => E.stamp(new Date(r.created_at)) }, { label: "Record", get: (r) => `${TABLE_NAME[r.target_table] || r.target_table}: ${r.target_label || ""}` },
-          { label: "Original → Corrected", get: (r) => r.action === "file removed" ? `File removed: ${r.previous?.file || ""}` : changeList(r.target_table, r.changes, r.previous) },
+          { label: "Change", get: (r) => r.action === "file removed" ? `File removed: ${r.previous?.file || ""}` : r.action === "edited" ? `Edited: ${fieldNames(r.target_table, r.changes)}`
+            : r.action === "correction approved" ? `Correction approved: ${fieldNames(r.target_table, r.changes)}${r.requested_by_name ? ` (asked by ${r.requested_by_name})` : ""}` : changeList(r.target_table, r.changes, r.previous) },
           { label: "By", get: (r) => r.actor_name || "" }, { label: "Correction No", get: (r) => r.request_no || "" }], rows, empty: "No changes yet." });
         return E.setRecords(`Changes: ${rows.length}`);
       }
@@ -253,7 +260,7 @@
       const rows = data || [];
       $("#crRes").innerHTML = rows.length ? rows.map((r) => `<article class="cr-card st-${esc(r.status)}">
           <header><b class="mono">${esc(r.request_no)}</b>${pill(r.status)}<span>${esc(TABLE_NAME[r.target_table] || r.target_table)}: ${ROUTE_OF[r.target_table] ? `<a href="#${ROUTE_OF[r.target_table]}/${r.target_id}">${esc(r.target_label || "open record")}</a>` : esc(r.target_label || "")}</span><small>${esc(E.dateTime(r.created_at))} · by ${esc(r.requested_by_name || "")}</small></header>
-          <div class="cr-reason"><b>Reason:</b> ${esc(r.reason)}</div>
+          ${r.reason ? `<div class="cr-reason"><b>Note:</b> ${esc(r.reason)}</div>` : ""}
           <table class="grid cr-diff"><thead><tr><th>Field</th><th>Original</th><th>Corrected</th></tr></thead><tbody>
             ${Object.keys(r.changes || {}).map((k) => `<tr><td>${esc(fieldLabel(r.target_table, k))}</td><td class="old">${esc(showVal(r.previous?.[k]))}</td><td class="new">${esc(showVal(r.changes[k]))}</td></tr>`).join("")}</tbody></table>
           ${r.status !== "pending" ? `<div class="cr-done">${r.status === "approved" ? "Approved" : "Rejected"} by ${esc(r.reviewed_by_name || "")} · ${esc(E.dateTime(r.reviewed_at))}${r.review_note ? " — " + esc(r.review_note) : ""}</div>`
@@ -265,7 +272,7 @@
         b.disabled = true;
         const { error: e2 } = await sb.rpc("review_change_request", { p_id: b.dataset.cr, p_action: b.dataset.a, p_note: note });
         if (e2) { b.disabled = false; return fail(e2, "Could not update the request"); }
-        toast(b.dataset.a === "reject" ? "Rejected — the record stays as it is, and the correction is removed. The person who asked is told." : "Approved — the record shows the new details, and the correction is removed."); run(f); E.refreshBadge();
+        toast(b.dataset.a === "reject" ? "Rejected — the record stays as it is, and the correction is removed. The person who asked is told." : "Approved — the record shows the new details. The person who asked is told you approved it."); run(f); E.refreshBadge();
       }));
       E.setRecords(`Requests: ${rows.length}`);
     };
@@ -578,8 +585,10 @@
   // Who an order is for, who may request it, and which orders fit each status.
   const KINDS = {
     customer: { label: "Customer", write: () => E.canWrite("orders") || E.canWrite("customers"), subject: {},
-      types: (st) => st === "suspended" ? ["reactivation", "closure", "charge", "settlement", "balance_certificate"] : st === "closed" ? ["reopen", "settlement", "balance_certificate"]
-        : ["suspension", "closure", "unpaid", "installment", "unsettled_balance", "promise_to_pay", "charge", "settlement", "balance_certificate", "other"] },
+      // 2.9: the Account Balance Certificate and the closure are on the customer's Request menu (Total Outstanding
+      // Balance, Closed Account); the closure order is opened from there (#neworder/<customer id>/closure)
+      types: (st) => st === "suspended" ? ["reactivation", "charge", "settlement"] : st === "closed" ? ["reopen", "settlement"]
+        : ["suspension", "unpaid", "installment", "unsettled_balance", "promise_to_pay", "charge", "settlement", "other"] },
     employee: { label: "Employee", write: () => E.canWrite("employees"), subject: { suspension: "Suspension from Work", reactivation: "Return to Work" },
       types: (st) => st === "suspended" ? ["reactivation", "termination", "memo"] : st === "terminated" ? ["memo"] : st === "waiting" ? ["termination", "memo"] : ["suspension", "termination", "memo"] },
     company: { label: "Billing Company", write: () => E.canWrite("billing"), subject: { suspension: "Suspension of Payments", reactivation: "Reactivation of Payments", memo: "Notice" },
@@ -601,7 +610,7 @@
   const ORDER_ALL = "*, customers(*), employees(*), pay_companies(*), stock_bills(id,bill_no,status)";
   const dayOf = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const EVERY = { month: "Every month", "15 days": "Every 15 days", week: "Every week" };
-  const CLOSE_REASONS = ["Requested by the customer", "Unpaid balance", "Violation of terms", "Business closed", "Other"];
+  const CLOSE_REASONS = ["Requested by the customer", "Overdue Outstanding Balance", "Suspicious Activities", "No Transaction / Inactive", "Unpaid balance", "Violation of terms", "Business closed", "Other"];
   // Installment plan: due dates from the first due date, the last installment takes what is left after rounding.
   const nextDue = (iso, every, i) => {
     const d = new Date(iso + "T00:00:00");
@@ -714,8 +723,10 @@
     }
     let kind = edit ? kindOf(edit) : KINDS[a] ? a : "customer";
     let presetId = KINDS[a] ? b : a;
+    // #neworder/<customer id>/closure (Request → Closed Account): the closure of an active or suspended account
+    const closeOnly = !edit && !KINDS[a] && b === "closure";
     if (!edit && !allowed.includes(kind)) { kind = allowed[0]; presetId = null; }
-    E.shell(edit ? "editorder" : "neworder", edit ? "Edit Order" : "Request Order", `
+    E.shell(edit ? "editorder" : "neworder", edit ? "Edit Order" : closeOnly ? "Close Account" : "Request Order", `
       <form class="window" id="noForm" novalidate><div class="wtitle">${edit ? `Edit Order ${esc(edit.order_no)}` : "Order Request"}</div><div class="wbody">
         <div class="summary-box"><div class="fields wide"><span>Order No</span><b>${edit ? esc(edit.order_no) : `Assigned on save (EO-${isoToday().slice(0, 7)}-0001, …)`}</b><span>Prepared By</span><b>${esc((edit ? edit.created_by_name : S.profile.full_name) || "")}</b></div></div>
         <fieldset class="opt"><legend>Order For</legend>
@@ -758,7 +769,7 @@
     let who = null, due = null, dirty = false, subjTyped = false, memoBills = [];
     const touched = new Set();
     const memoBillOf = () => memoBills.find((x) => x.id === $("#noMemoBill").value) || null;
-    const types = () => (edit ? [edit.subject_type] : KINDS[kind].types(who?.status));
+    const types = () => (edit ? [edit.subject_type] : closeOnly && kind === "customer" && ["active", "suspended"].includes(who?.status) ? ["closure"] : KINDS[kind].types(who?.status));
     const type = () => $("input[name=noType]:checked")?.value || types()[0];
     const bal = () => num(due?.balance_due);
     const reason = () => ($("#noReason").value === "Other" ? $("#noReason2").value.trim() : $("#noReason").value);
@@ -1147,6 +1158,183 @@
       <div class="ol-sign one">${authBlock(approved, o, sign)}</div>
       <div class="rp-foot"><span>Scan the barcode in the ${esc(E.APP)} to verify this certificate.</span><span>${esc(o.order_no)}</span></div>`;
   }
+  // ======================================================================
+  // 2.9 Request (customer profile): documents made at once from the account's records, in public wording, for the
+  // customer or anyone who needs them: the Total Outstanding Balance Certificate (it replaces the Account Balance
+  // Certificate order), the Certificate of Account Closure (for an open account: the closure order form, approved by
+  // the Director) and the Delivery Clearance Certificate needed before every delivery. Each one issued is written in
+  // the customer's history.
+  // ======================================================================
+  const DELIVERY = {
+    clear: { head: "CLEAR FOR DELIVERY", line: "THIS ACCOUNT IS CLEAR FOR DELIVERY ANYTIME", sub: "No hold on deliveries to this account.", tone: "ok" },
+    cash: { head: "CASH ONLY", line: "DELIVERY ON CASH BASIS ONLY", sub: "Each delivery is released only against full payment in cash.", tone: "warn" },
+    restricted: { head: "RESTRICTED", line: "RESTRICTED DELIVERY", sub: "Each delivery needs the prior approval of the office.", tone: "warn" },
+    consignment: { head: "CONSIGNMENT ACCOUNT", line: "CONSIGNMENT ACCOUNT", sub: "Deliveries are made on consignment terms only.", tone: "info" },
+    hold: { head: "ON HOLD", line: "DELIVERY ON HOLD", sub: "No delivery may be released until the office clears the account.", tone: "bad" }
+  };
+  const HOLD_REASONS = ["Suspicious Activities", "Overdue Outstanding Balance", "Closed Account", "Account Suspended", "No Transaction / Inactive"];
+  const INACTIVE_DAYS = 180;
+  const stampNo = (prefix, c, time = false) => {
+    const d = new Date(), p2 = (n) => String(n).padStart(2, "0");
+    return `${prefix}-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${time ? "-" + p2(d.getHours()) + p2(d.getMinutes()) : ""}-${c.account_no || c.application_no}`;
+  };
+  // What the records say about deliveries today: the status the system suggests and why.
+  function deliveryCheck(c, ctx) {
+    const today = isoToday();
+    const overdue = (ctx.invs || []).filter((i) => num(i.balance) > 0.004 && i.due_date && i.due_date < today);
+    const last = [...(ctx.invs || []).map((i) => i.invoice_date), ...(ctx.pays || []).map((p) => p.paid_date)].filter(Boolean).sort().pop() || c.application_date;
+    const idle = last ? Math.floor((new Date(today + "T00:00:00") - new Date(last + "T00:00:00")) / 86400000) : 0;
+    const reasons = [];
+    if (c.status === "closed") reasons.push("Closed Account");
+    if (c.status === "suspended") reasons.push("Account Suspended");
+    if (overdue.length) reasons.push("Overdue Outstanding Balance");
+    if (idle >= INACTIVE_DAYS) reasons.push("No Transaction / Inactive");
+    const status = ["closed", "suspended"].includes(c.status) ? "hold" : overdue.length ? "cash" : idle >= INACTIVE_DAYS ? "restricted" : "clear";
+    return { status, reasons, overdue, last, idle };
+  }
+  // The person issuing: the Director's own signature is printed; anyone else signs the paper.
+  const issuerBlock = () => {
+    const sign = isAdmin() ? E.approvedBy(S.session?.user?.id, S.profile?.full_name, new Date().toISOString()) : null;
+    return `<div class="ol-sign one"><div class="ol-auth${sign?.pic ? " has-sig" : ""}">${sign?.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="ol-auth-name">${esc(S.profile?.full_name || "")}</div><div class="line"></div>${isAdmin() ? "Director · Authorized Representative" : "Issued by · Authorized Representative"}</div></div>`;
+  };
+  // Barcode of the account no and the QR of its Public ID (opens the online check of the account).
+  const custCodes = (c, no) => `<div class="ph-codes"><div><img src="${E.pdf417DataUrl("EMONCUST|" + (c.account_no || c.application_no))}" alt="" class="ph-bar"><div class="mono">${esc(no)}</div></div>
+    ${c.public_id ? `<img src="${E.qrDataUrl(verifyUrl(c.public_id))}" alt="Verification QR code" class="ph-qr">` : ""}</div>`;
+  const tr2 = (k, html) => `<tr><th>${esc(k)}</th><td>${html}</td></tr>`;
+  const php2 = (n) => `PHP ${peso(n)}`;
+
+  function balancePage(c, ctx, no, purpose) {
+    const b = ctx.b || {}, bal = num(b.balance_due), today = isoToday(), asOf = mdy(today);
+    const open = (ctx.invs || []).filter((i) => num(i.balance) > 0.004).sort((x, y) => String(x.invoice_date).localeCompare(String(y.invoice_date)));
+    const days = (d) => (d && d < today ? Math.floor((new Date(today + "T00:00:00") - new Date(d + "T00:00:00")) / 86400000) : 0);
+    const st = num(b.total_settlement), ret = (ctx.invs || []).reduce((s, i) => s + num(i.amount_returned), 0);
+    return `${E.printHead("TOTAL OUTSTANDING BALANCE CERTIFICATE", custCodes(c, no))}
+      <div class="cert-no"><span>Certificate No: <b>${esc(no)}</b></span><span>Date Issued: <b>${esc(asOf)}</b></span></div>
+      <p class="cert-to">TO WHOM IT MAY CONCERN:</p>
+      <p class="cert-body">This is to certify that, based on the records of ${esc(C.company.name)}, the account of <b>${esc(fullName(c).toUpperCase())}</b>, Account No <b class="nw">${esc(c.account_no || "")}</b>,
+        ${bal > 0.004 ? `has a <b>total outstanding balance of PHP ${peso(bal)}</b> (${esc(words(bal))}) as of <span class="nw">${esc(asOf)}</span>.`
+          : bal < -0.004 ? `has <b>no outstanding balance</b> as of <span class="nw">${esc(asOf)}</span>: the account has paid PHP ${peso(-bal)} more than the amount owed (balance <b>PHP ${peso(bal)}</b>).`
+          : `has <b>no outstanding balance</b> as of <span class="nw">${esc(asOf)}</span>. The account is fully paid.`}</p>
+      <div class="ol-sec">ACCOUNT DETAILS</div>
+      <table class="ol-grid"><tbody>${tr2("Name of Customer", esc(fullName(c)))}${tr2("Account No", esc(c.account_no || "—"))}${c.business_name ? tr2("Business Name", esc(c.business_name)) : ""}
+        ${tr2("Account Status", esc(String(c.status || "").toUpperCase()))}${tr2("Account Opened", esc(mdy(c.application_date) || "—"))}</tbody></table>
+      <div class="ol-sec">ACCOUNT SUMMARY</div>
+      <table class="ol-grid"><tbody>${num(c.opening_balance) ? tr2("Opening Balance", php2(c.opening_balance)) : ""}${tr2("Total Invoiced", php2(b.total_invoiced))}
+        ${num(b.total_charges) ? tr2("Additional Charges", php2(b.total_charges)) : ""}${st ? tr2("Settlement Adjustments", `${st < 0 ? "−" : "+"} ${php2(Math.abs(st))}`) : ""}
+        ${tr2("Total Payments", `− ${php2(b.total_paid)}`)}${num(b.total_credits) ? tr2(`Credits / Discounts${ret ? " / Returns" : ""}`, `− ${php2(b.total_credits)}`) : ""}
+        ${tr2("Total Outstanding Balance", `<b>${php2(bal)}</b>`)}${tr2("Amount in Words", esc(bal < -0.004 ? `OVERPAID — ${words(-bal)}` : words(bal)))}${tr2("As Of", esc(asOf))}</tbody></table>
+      ${open.length ? `<div class="ol-sec">UNPAID INVOICES</div>
+      <table class="ol-grid ol-sched"><thead><tr><th>Invoice No</th><th>Invoice Date</th><th>Due Date</th><th class="num">Days Overdue</th><th class="num">Balance (PHP)</th></tr></thead><tbody>
+        ${open.map((i) => `<tr><td class="nw">${esc(i.invoice_no)}</td><td>${esc(mdy(i.invoice_date))}</td><td>${esc(mdy(i.due_date) || "—")}</td><td class="num">${days(i.due_date) || "—"}</td><td class="num">${peso(i.balance)}</td></tr>`).join("")}</tbody></table>` : ""}
+      <p class="cert-body">${purpose ? `This certificate is issued upon the request of the account holder for: ${para(purpose)}.` : "This certificate is issued upon the request of the account holder for whatever purpose it may serve."}
+        Payments received after the date above are not included.</p>
+      ${issuerBlock()}
+      <div class="rp-foot"><span>Scan the QR code to check this account online.</span><span>${esc(no)}</span></div>`;
+  }
+
+  function closurePage(c, ctx, no, ord) {
+    const bal = num(ctx.b?.balance_due);
+    const when = ord?.applied_at ? mdy(dayOf(ord.applied_at)) : ord?.order_date ? mdy(ord.order_date) : "";
+    return `${E.printHead("CERTIFICATE OF ACCOUNT CLOSURE", custCodes(c, no))}
+      <div class="cert-no"><span>Certificate No: <b>${esc(no)}</b></span><span>Date Issued: <b>${esc(mdy(isoToday()))}</b></span></div>
+      <p class="cert-to">TO WHOM IT MAY CONCERN:</p>
+      <p class="cert-body">This is to certify that the account of <b>${esc(fullName(c).toUpperCase())}</b>, Account No <b class="nw">${esc(c.account_no || "")}</b>, with ${esc(C.company.name)}
+        is <b>CLOSED</b>${when ? ` effective <span class="nw">${esc(when)}</span>` : ""}. No new purchases, invoices or deliveries are made on this account.
+        ${bal > 0.004 ? `The remaining balance of <b>PHP ${peso(bal)}</b> (${esc(words(bal))}) must still be settled.` : bal < -0.004 ? `The account has a credit of PHP ${peso(-bal)} (balance PHP ${peso(bal)}).` : "The account has no remaining balance."}</p>
+      <div class="ol-sec">ACCOUNT DETAILS</div>
+      <table class="ol-grid"><tbody>${tr2("Name of Customer", esc(fullName(c)))}${tr2("Account No", esc(c.account_no || "—"))}${c.business_name ? tr2("Business Name", esc(c.business_name)) : ""}
+        ${tr2("Account Opened", esc(mdy(c.application_date) || "—"))}${tr2("Account Status", "<b>CLOSED</b>")}</tbody></table>
+      <div class="ol-sec">CLOSURE</div>
+      <table class="ol-grid"><tbody>${tr2("Date Closed", esc(when || "—"))}${tr2("Reason for Closure", `<b>${esc(ord?.closure_reason || c.status_note || "—")}</b>`)}${ord ? tr2("Closure Order No", esc(ord.order_no)) : ""}
+        ${tr2("Balance at Issue", `<b>${php2(bal)}</b>`)}</tbody></table>
+      <p class="cert-body">This certificate is issued upon request for whatever purpose it may serve. The account can be reopened only by an approved order of ${esc(C.company.name)}.</p>
+      ${issuerBlock()}
+      <div class="rp-foot"><span>Scan the QR code to check this account online.</span><span>${esc(no)}</span></div>`;
+  }
+
+  function deliveryPage(c, no, d) {
+    const s = DELIVERY[d.status] || DELIVERY.clear;
+    return `${E.printHead("DELIVERY CLEARANCE CERTIFICATE", custCodes(c, no))}
+      <div class="cert-no"><span>Certificate No: <b>${esc(no)}</b></span><span>Date Issued: <b>${esc(E.dateTime(new Date().toISOString()))}</b></span></div>
+      <div class="dc-head dc-${s.tone}"><b>${esc(s.line)}</b><small>${esc(s.sub)}</small></div>
+      <p class="cert-to">TO WHOM IT MAY CONCERN:</p>
+      <p class="cert-body">This is to certify that the account of <b>${esc(fullName(c).toUpperCase())}</b>, Account No <b class="nw">${esc(c.account_no || "")}</b>, was checked by ${esc(C.company.name)} before delivery.
+        Delivery status: <b>${esc(s.head)}</b>.${d.valid ? ` This clearance is valid for deliveries on <span class="nw">${esc(mdy(d.valid))}</span> only.` : ""}</p>
+      <div class="ol-sec">ACCOUNT DETAILS</div>
+      <table class="ol-grid"><tbody>${tr2("Name of Customer", esc(fullName(c)))}${tr2("Account No", esc(c.account_no || "—"))}${c.business_name ? tr2("Business Name", esc(c.business_name)) : ""}
+        ${tr2("Account Status", esc(String(c.status || "").toUpperCase()))}</tbody></table>
+      <div class="ol-sec">DELIVERY STATUS</div>
+      <table class="ol-grid"><tbody>${Object.entries(DELIVERY).map(([k, x]) => tr2(x.head, `<span class="dc-box${k === d.status ? " on" : ""}">${k === d.status ? "✔" : ""}</span> ${esc(x.sub)}`)).join("")}</tbody></table>
+      <div class="ol-sec">REMARKS</div>
+      <table class="ol-grid"><tbody>${HOLD_REASONS.map((r) => tr2(r, `<span class="dc-box${d.reasons.includes(r) ? " on" : ""}">${d.reasons.includes(r) ? "✔" : ""}</span> ${d.reasons.includes(r) ? "Yes" : "None"}`)).join("")}
+        ${d.ref ? tr2("Order / Delivery Reference", esc(d.ref)) : ""}${d.note ? tr2("Note", para(d.note)) : ""}</tbody></table>
+      <p class="pdecl">A new Delivery Clearance Certificate is needed before every delivery. Deliveries made against this certificate must match the status above.</p>
+      ${issuerBlock()}
+      <div class="rp-foot"><span>Scan the QR code to check this account online.</span><span>${esc(no)}</span></div>`;
+  }
+
+  // Print a Request document and write it in the customer's history (the history line is skipped quietly on a
+  // database without update 022).
+  async function issueDoc(c, title, no, page, note) {
+    E.openPreview(`${title} ${no}`, [page]);
+    sb.rpc("log_customer_document", { p_customer: c.id, p_document: `${title.toUpperCase()} ${no}`, p_note: note || null }).then(() => {}, () => {});
+  }
+
+  async function customerRequest(c, ctx) {
+    const closed = c.status === "closed";
+    const canClose = !closed && ["active", "suspended"].includes(c.status) && (E.canWrite("orders") || E.canWrite("customers"));
+    const pendingClose = (ctx.orders || []).find((o) => o.subject_type === "closure" && o.status === "pending");
+    const m = E.modal(`Request — ${fullName(c)} (${c.account_no || ""})`, `<div class="rq-list">
+        <button type="button" class="rq-opt" data-rq="balance">${ic("wallet")}<span><b>Request for Total Outstanding Balance</b><small>Total Outstanding Balance Certificate as of today</small></span></button>
+        <button type="button" class="rq-opt" data-rq="closed"${!closed && !canClose && !pendingClose ? " disabled" : ""}>${ic("x")}<span><b>Closed Account</b><small>${closed ? "Certificate of Account Closure" : pendingClose ? `Closure order ${esc(pendingClose.order_no)} is waiting for the Director's approval` : canClose ? "Close this account: closure order form (approved by the Director)" : "Only for closed accounts"}</small></span></button>
+        <button type="button" class="rq-opt" data-rq="delivery">${ic("check")}<span><b>Delivery Clearance Certificate</b><small>Needed before every delivery: clear, cash only, restricted, consignment or on hold</small></span></button>
+      </div>`);
+    $$("[data-rq]", m.el).forEach((b) => (b.onclick = async () => {
+      m.close();
+      await E.loadSignatures();
+      if (b.dataset.rq === "balance") return balanceForm(c, ctx);
+      if (b.dataset.rq === "delivery") return deliveryForm(c, ctx);
+      if (pendingClose && !closed) { location.hash = "order/" + pendingClose.id; return; }
+      if (!closed) { location.hash = `neworder/${c.id}/closure`; return; }
+      const ord = (ctx.orders || []).filter((o) => o.subject_type === "closure" && o.status === "applied").sort((x, y) => String(y.applied_at || y.created_at).localeCompare(String(x.applied_at || x.created_at)))[0];
+      const no = stampNo("CA", c);
+      issueDoc(c, "Certificate of Account Closure", no, closurePage(c, ctx, no, ord));
+    }));
+  }
+  function balanceForm(c, ctx) {
+    const bal = num(ctx.b?.balance_due);
+    const m = E.modal("Total Outstanding Balance Certificate", `<div class="summary-box"><div class="fields wide"><span>Customer</span><b>${esc(fullName(c))} (${esc(c.account_no || "")})</b>
+        <span>Total Outstanding Balance</span><b class="${bal < 0 ? "neg" : ""}">₱ ${peso(bal)}</b><span>As Of</span><b>${esc(mdy(isoToday()))}</b></div></div>
+      <div class="fields wide" style="margin-top:10px"><label for="rqPurpose">Purpose (optional)</label><input type="text" id="rqPurpose" maxlength="160" placeholder="e.g. bank requirement, settlement of account"></div>`,
+      `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${ic("print")} Print / Download</button>`);
+    $("[data-x]", m.el).onclick = m.close;
+    $("[data-ok]", m.el).onclick = () => {
+      const purpose = $("#rqPurpose", m.el).value.trim(), no = stampNo("OB", c);
+      m.close(); issueDoc(c, "Total Outstanding Balance Certificate", no, balancePage(c, ctx, no, purpose), `PHP ${peso(bal)}${purpose ? " · " + purpose : ""}`);
+    };
+  }
+  function deliveryForm(c, ctx) {
+    const auto = deliveryCheck(c, ctx), admin = isAdmin();
+    const m = E.modal("Delivery Clearance Certificate", `<div class="summary-box"><div class="fields wide"><span>Customer</span><b>${esc(fullName(c))} (${esc(c.account_no || "")})</b>
+        <span>Account Status</span><b>${esc(String(c.status).toUpperCase())}</b><span>Overdue Invoices</span><b>${auto.overdue.length ? `${auto.overdue.length} · ₱ ${peso(auto.overdue.reduce((s, i) => s + num(i.balance), 0))}` : "None"}</b>
+        <span>Last Transaction</span><b>${auto.last ? `${esc(mdy(auto.last))} (${auto.idle} day${auto.idle === 1 ? "" : "s"} ago)` : "—"}</b></div></div>
+      <p class="muted" style="margin:8px 0">The status is checked from the account's records${admin ? "; as the Director you can change it" : "; only the Director can change it"}.</p>
+      <div class="dc-pick" id="dcPick">${Object.entries(DELIVERY).map(([k, x]) => `<label class="subj dc-${x.tone}"><input type="radio" name="dcSt" value="${k}" ${k === auto.status ? "checked" : ""} ${admin || k === auto.status ? "" : "disabled"}><span><b>${esc(x.head)}</b><small>${esc(x.sub)}</small></span></label>`).join("")}</div>
+      <fieldset class="opt"><legend>Remarks</legend><div class="dc-why">${HOLD_REASONS.map((r) => `<label class="sw"><input type="checkbox" value="${esc(r)}" ${auto.reasons.includes(r) ? "checked" : ""} ${admin ? "" : "disabled"}> ${esc(r)}</label>`).join("")}</div></fieldset>
+      <div class="fields wide"><label for="dcRef">Order / Delivery Reference</label><input type="text" id="dcRef" maxlength="80" placeholder="Optional, e.g. PO or delivery receipt no">
+        <label for="dcValid">Valid for Delivery On</label><input type="date" id="dcValid" value="${isoToday()}">
+        <label for="dcNote">Note</label><input type="text" id="dcNote" maxlength="200" placeholder="Optional"></div>`,
+      `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${ic("print")} Print / Download</button>`, { wide: true });
+    $("[data-x]", m.el).onclick = m.close;
+    $("[data-ok]", m.el).onclick = () => {
+      const d = { status: $("input[name=dcSt]:checked", m.el)?.value || auto.status, reasons: $$(".dc-why input:checked", m.el).map((x) => x.value),
+        ref: $("#dcRef", m.el).value.trim(), valid: $("#dcValid", m.el).value || "", note: $("#dcNote", m.el).value.trim() };
+      if (d.status !== "clear" && d.status !== "consignment" && !d.reasons.length && admin) return toast("Tick the reason for this status in Remarks.", true);
+      const no = stampNo("DC", c, true);
+      m.close(); issueDoc(c, "Delivery Clearance Certificate", no, deliveryPage(c, no, d), `${DELIVERY[d.status].head}${d.reasons.length ? " · " + d.reasons.join(", ") : ""}${d.ref ? " · " + d.ref : ""}`);
+    };
+  }
+
   // Print an order by its id (used from My Profile).
   async function printOrder(id) {
     const [{ data: o, error }] = await Promise.all([sb.from("order_letters").select(ORDER_ALL).eq("id", id).maybeSingle(), E.loadSignatures()]);
@@ -1581,5 +1769,5 @@
     if (CH.tick % 4 === 0) loadContacts();
   }
 
-  Object.assign(E, { recordTools, bindRecordTools, correctRecord, deleteRecord, rhBox, fieldLabel, ordersGrid, printOrder, openChat, closeChat, shrinkImage, signedMap, lightbox });
+  Object.assign(E, { recordTools, bindRecordTools, correctRecord, deleteRecord, rhBox, fieldLabel, ordersGrid, printOrder, openChat, closeChat, shrinkImage, signedMap, lightbox, customerRequest });
 })();

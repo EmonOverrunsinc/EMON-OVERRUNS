@@ -17,7 +17,7 @@
   // randomUUID needs a secure context; fall back to getRandomValues elsewhere.
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
     : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (d) => (d ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (d / 4)))).toString(16)));
-  // Add Correction / Delete (Director) buttons and the corrections box (modules3.js).
+  // Edit / Delete (Director) buttons and the corrections box (modules3.js).
   const tools = (...a) => (E.recordTools ? E.recordTools(...a) : "");
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
   const rhBox = (t, id) => (E.rhBox ? E.rhBox(t, id) : "");
@@ -344,7 +344,7 @@
   }
 
   // ---------- Edit Customer (the main Director, 2.2) ----------
-  // Every detail of a customer in one form, saved at once; like an approved correction it leaves no history. Not here:
+  // Every detail of a customer in one form, saved at once; like an approved correction it keeps no old details, only one line naming the details and who edited them (2.9). Not here:
   // the account number, application number and Public ID (on printed papers and QR codes), the status (its own steps)
   // and the photo (Change Photo). A new opening balance or opening date (the application date) also updates the
   // monthly statements: after Save everything is updated at once.
@@ -354,7 +354,7 @@
     const day = (x) => String(x || "").slice(0, 10);
     const yes = (on, name, a, b) => `<div class="checks"><label><input type="radio" name="${name}" value="no" ${on ? "" : "checked"}> ${a}</label><label><input type="radio" name="${name}" value="yes" ${on ? "checked" : ""}> ${b}</label></div>`;
     const m = E.modal(`Edit Customer — ${fullName(c)}`, `
-      <div class="hint">Change any detail, then press <b>Save</b>. The customer shows the new details at once, and the edit leaves no history.
+      <div class="hint">Change any detail, then press <b>Save</b>. The customer shows the new details at once, and the customer's History shows only that you edited these details (not the old ones).
         Account No <b>${esc(c.account_no || "")}</b>, the application number and the Public ID stay the same.</div>
       <fieldset class="opt"><legend>Personal Details</legend><div class="fields wide">
         <label for="ecFirst">First Name *</label><input type="text" id="ecFirst" value="${v(c.first_name)}" autocomplete="off">
@@ -815,8 +815,8 @@
 
   // Suspended / closed accounts are marked for everyone who opens them.
   function statusBanner(c) {
-    if (c.status === "closed") return `<div class="banner closed">${ic("x")} CLOSED ACCOUNT — new invoices cannot be recorded. It can be reopened only with an approved order letter.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
-    if (c.status === "suspended") return `<div class="banner warn">⚠ SUSPENDED ACCOUNT — new invoices are blocked until the account is reactivated with an approved order letter.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
+    if (c.status === "closed") return `<div class="banner closed">${ic("x")} CLOSED ACCOUNT — new invoices cannot be recorded; payments can still be recorded. It can be reopened only with an approved order letter.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
+    if (c.status === "suspended") return `<div class="banner warn">⚠ SUSPENDED ACCOUNT — new invoices are blocked until the account is reactivated with an approved order letter; payments can still be recorded.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
     if (c.status === "rejected") return `<div class="banner closed">REJECTED APPLICATION${c.status_note ? " — " + esc(c.status_note) : ""}</div>`;
     return "";
   }
@@ -856,6 +856,8 @@
     const history = [
       ...(ev.data || []).map((r) => ({ at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
       ...(chg.data || []).map((r) => r.action === "correction" ? { at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }
+        : r.action === "edited" || r.action === "correction approved" ? { at: r.created_at, action: r.action === "edited" ? "EDITED BY DIRECTOR" : `CORRECTION APPROVED BY DIRECTOR${r.request_no ? " (" + r.request_no + ")" : ""}`,
+          by: r.actor_name || "", note: `${Object.keys(r.changes || {}).map((k) => fieldLabel("customers", k)).join(", ")}${r.requested_by_name ? ` · asked by ${r.requested_by_name}` : ""}` }
         : { at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.action === "file removed" ? r.previous?.file || "" : changeText(r) })
     ].sort((x, y) => String(x.at).localeCompare(String(y.at)));
     const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Orders (${orders.length})`, `Documents (${att.length})`, "History"];
@@ -875,13 +877,14 @@
         </div>
         <div class="ch-qr"><canvas id="pfQr" aria-label="Customer QR code"></canvas><small>Public ID</small><b class="mono key" id="pfKey">${esc(c.public_id || "")}</b><button type="button" class="linkbtn" id="pfCopy">${ic("copy")} Copy</button></div>
       </section>
-      <div class="due-card ${num(b.balance_due) > 0 ? "warn" : "ok"}"><div><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
-        <small>${num(b.balance_due) > 0 ? "Amount the customer still owes" : "Nothing due · fully paid"} · see Details for the full summary</small></div>
+      <div class="due-card ${num(b.balance_due) > 0 ? "warn" : num(b.balance_due) < 0 ? "credit" : "ok"}"><div><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
+        <small>${num(b.balance_due) > 0 ? "Amount the customer still owes" : num(b.balance_due) < 0 ? `Overpaid · the customer has paid ₱ ${peso(-num(b.balance_due))} more than owed` : "Nothing due · fully paid"} · see Details for the full summary</small></div>
       <div class="actionbar">
         ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">${ic("plus")} Record Invoice</a>` : ""}
         ${canPay ? `<a class="btn" href="#newpayment/${c.id}">${ic("plus")} Record Payment</a>` : ""}
         ${canMemo ? `<a class="btn" href="#newcreditmemo/${c.id}">${ic("plus")} Credit Memo</a>` : ""}
         ${canOrder ? `<a class="btn" href="#neworder/${c.id}">${ic("doc")} ${orderBtn}</a>` : ""}
+        ${isApprovedAccount(c) && isStaff() && E.customerRequest ? `<button type="button" class="btn" id="pfRequest">${ic("stamp")} Request</button>` : ""}
         <span class="grow"></span>
         ${tools("customers", c, `${c.account_no || c.application_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers") })}
       </div>
@@ -943,6 +946,7 @@
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.customer(c.id));
     bindTools($("#main"));
+    if ($("#pfRequest")) $("#pfRequest").onclick = () => E.customerRequest(c, { b, invs: invs.data || [], pays: pays.data || [], orders });
     if ($("#pvShow")) $("#pvShow").onclick = () => { const el = $("#pvCode"); const hidden = el.textContent.startsWith("•"); el.textContent = hidden ? el.dataset.code || "(none)" : "••••••••"; $("#pvShow").textContent = hidden ? "Hide" : "Show"; };
     if ($("#pfAdd")) $("#pfAdd").onchange = async (e) => { const here = E.stillHere(), f = await uploadRecords("customer", c.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed to upload.` : "Uploaded.", f > 0); if (here()) V.customer(c.id); };
     if (isAdmin() && ["pending", "verified"].includes(c.status)) bindReview(c);
@@ -1127,7 +1131,7 @@
         ${rows.map((x) => `<tr><td>${mdy(x.date)}</td><td>${esc(x.ref)}</td><td>${esc(x.desc)}</td><td class="num">${x.debit ? peso(x.debit) : ""}</td><td class="num">${x.credit ? peso(x.credit) : ""}</td><td class="num">${peso(x.bal)}</td></tr>`).join("")}
         <tr class="soa-end"><td>${mdy(p.end)}</td><td></td><td>ENDING BALANCE</td><td></td><td></td><td class="num">${peso(closing)}</td></tr>
         <tr class="soa-total"><td><b>TOTAL</b></td><td>${rows.length} TRANSACTION${rows.length === 1 ? "" : "S"}</td><td>${esc(copiesSummary(images))}</td><td class="num">${peso(deb)}</td><td class="num">${peso(cre)}</td><td></td></tr></tbody></table>
-      <div class="soa-due"><span>AMOUNT DUE</span><b>₱ ${peso(closing)}</b><small>${esc(words(Math.max(0, closing)))}</small></div>
+      <div class="soa-due"><span>AMOUNT DUE</span><b>₱ ${peso(closing)}</b><small>${esc(closing < 0 ? `OVERPAID — ${words(-closing)}` : words(closing))}</small></div>
       <div class="soa-note">PLEASE EXAMINE THIS STATEMENT. REPORT ANY DISCREPANCY TO ${esc(C.company.name.toUpperCase())} WITHIN 10 DAYS; OTHERWISE, IT IS CONSIDERED CORRECT.<br>PAYMENTS: ${esc(C.company.email)}</div>
       <div class="soa-sys">SYSTEM-GENERATED STATEMENT. NO SIGNATURE REQUIRED.</div>
       <div class="soa-thanks">THANK YOU FOR YOUR BUSINESS.</div>`;
@@ -1243,6 +1247,7 @@
     { label: "Account No", get: (r) => r.account_no }, { label: "Customer", get: fullName },
     { label: "Boxes", num: true, get: (r) => r.total_boxes }, { label: "Pcs", num: true, get: (r) => r.total_pcs },
     { label: "Amount (₱)", key: "total_amount", num: true, get: (r) => peso(r.total_amount) },
+    { label: "Returned (₱)", key: "amount_returned", num: true, get: (r) => (num(r.amount_returned) ? peso(r.amount_returned) : "") },
     { label: "Paid (₱)", key: "amount_paid", num: true, get: (r) => peso(r.amount_paid) },
     { label: "Balance (₱)", key: "balance", num: true, get: (r) => peso(r.balance) },
     { label: "Status", html: (r) => pill(r.pay_status) }
@@ -1264,7 +1269,7 @@
     const run = (f) => {
       const rows = invPick(all, f);
       const sum = (k) => peso(rows.reduce((s, r) => s + num(r[k]), 0));
-      $("#ivRes").innerHTML = E.grid({ cols: INV_COLS, rows, onRow: true, foot: { total_amount: sum("total_amount"), amount_paid: sum("amount_paid"), balance: sum("balance") }, empty: "No invoices here." });
+      $("#ivRes").innerHTML = E.grid({ cols: INV_COLS, rows, onRow: true, foot: { total_amount: sum("total_amount"), amount_returned: sum("amount_returned"), amount_paid: sum("amount_paid"), balance: sum("balance") }, empty: "No invoices here." });
       E.bindGrid($("#ivRes"), rows, (r) => (location.hash = "invoice/" + r.id));
       E.setRecords(`Invoices: ${rows.length}`);
     };
@@ -1341,23 +1346,32 @@
       let failed = 0;
       failed += await uploadRecords("invoice", inv.id, "signed_form", filesOf("niInvF"));
       failed += await uploadRecords("invoice", inv.id, "delivery_receipt", filesOf("niDr"));
-      toast(`Invoice ${inv.invoice_no} recorded for ${fullName(cust)}.${noTerms ? " The Terms of Payment were not saved: the server needs database update 2.4 first (017_play_store.sql); after it, add them with Add Correction." : ""}${failed ? ` ${failed} file(s) failed to upload.` : ""}`, failed > 0 || noTerms);
+      toast(`Invoice ${inv.invoice_no} recorded for ${fullName(cust)}.${noTerms ? " The Terms of Payment were not saved: the server needs database update 2.4 first (017_play_store.sql); after it, add them with Edit." : ""}${failed ? ` ${failed} file(s) failed to upload.` : ""}`, failed > 0 || noTerms);
       location.hash = "invoice/" + inv.id;
     };
   };
 
   V.invoice = async (id) => {
     E.shell("invoice", "Invoice", busy());
-    const { data: inv } = await sb.from("invoice_balances").select("*").eq("id", id).maybeSingle();
+    const here = E.stillHere();
+    // 2.9: everything the page needs is asked for at once. Returns (2.8, update 020) and payment links (update 022) are
+    // empty lists on a database without those updates.
+    const [ib, att, rt, lk] = await Promise.all([
+      sb.from("invoice_balances").select("*").eq("id", id).maybeSingle(),
+      attachmentsOf("invoice", id),
+      sb.from("credit_memos").select("*").eq("invoice_id", id).eq("is_return", true).order("memo_date"),
+      sb.from("payment_links").select("*, payments_received(receipt_no, paid_date, amount)").eq("invoice_id", id).order("linked_at")
+    ]);
+    if (!here()) return;
+    const inv = ib.data;
     if (!inv) { $("#main").innerHTML = `<div class="empty">Invoice not found. <a href="#invoices">Back to Invoices</a></div>`; return; }
-    const [att, pr] = await Promise.all([attachmentsOf("invoice", id),
-      sb.from("payments_received").select("id, receipt_no, paid_date, amount, invoice_id").eq("customer_id", inv.customer_id).order("paid_date", { ascending: false })]);
-    // 2.8: returns of this invoice (credit memos marked RETURN); without update 020 the list is simply empty
-    const rets = ((await sb.from("credit_memos").select("id, memo_no, memo_date, serial_no, qty, request_amount, status").eq("invoice_id", inv.id).eq("is_return", true).order("memo_date")).data) || [];
+    const rets = rt.data || [];
+    const linksOn = !lk.error, links = lk.data || [], active = links.filter((l) => !l.removed_at);
     const canReturn = E.canWrite("invoices") || E.canWrite("creditmemos");
-    const returned = num(inv.amount_returned);
-    const pays = pr.data || [], linked = pays.filter((p) => p.invoice_id === inv.id);
-    const canLink = E.canWrite("payments") || E.canWrite("invoices");
+    const canLink = linksOn && (E.canWrite("payments") || E.canWrite("invoices"));
+    const returned = num(inv.amount_returned), bal = num(inv.balance);
+    // what the invoice still needs from linked payments (other payments pay it only through the oldest-first order)
+    const need = num(inv.total_amount) - returned - active.reduce((s, l) => s + num(l.amount), 0);
     $(".band h1").textContent = `Invoice — ${inv.invoice_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${pill(inv.pay_status)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
@@ -1367,79 +1381,130 @@
         <span>Terms of Payment</span><span>${esc(inv.payment_terms || "—")}</span><span>Due Date</span><span>${mdy(inv.due_date) || "—"}</span>
         <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
-        <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b>${returned > 0 ? `<span>Returned</span><b>− ₱ ${peso(returned)}</b>` : ""}<span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b><span>Balance</span><b>₱ ${peso(inv.balance)}</b>
-        <span>Payment Status</span><span>${pill(inv.pay_status)}</span></div></div>
-      <small class="muted">A payment linked to this invoice pays it first. Other payments, discounts and orders pay the customer's oldest invoices first.</small>
+        <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b>${returned > 0 ? `<span>Returned</span><b>− ₱ ${peso(returned)}</b>` : ""}<span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b>
+        <span>Balance</span><b class="${bal < 0 ? "neg" : ""}">₱ ${peso(bal)}</b>
+        <span>Payment Status</span><span>${pill(inv.pay_status)}${bal < 0 ? ` <small class="muted">overpaid ₱ ${peso(-bal)}</small>` : ""}</span></div></div>
+      <small class="muted">A payment linked to this invoice pays it first; only what the invoice needs is taken, the rest of the payment stays available for another invoice. Other payments, discounts and orders pay the customer's oldest invoices first.${bal < 0 ? " A negative balance means the customer has paid more than everything owed." : ""}</small>
       <div class="linked-pays"><div class="lp-head"><b>Returns</b>${canReturn ? `<button type="button" class="btn small" id="ivReturn">${ic("back")} Record Return</button>` : ""}</div>
         ${rets.length ? rets.map((r) => `<div class="lp-row lp-ret"><a href="#creditmemo/${r.id}"><b>${esc(r.memo_no || "")}</b></a><span>${mdy(r.memo_date)} · ${esc(r.serial_no || "")}${r.qty ? ` · ${r.qty} pcs` : ""}</span><b>− ₱ ${peso(r.request_amount)}</b>
-          ${r.status === "pending" ? `<span class="pill pending">WAITING FOR APPROVAL</span>` : r.status === "rejected" ? pill("rejected") : `<span class="pill active">TAKEN OFF</span>`}</div>`).join("")
+          ${r.status === "pending" ? `<span class="pill pending">WAITING FOR APPROVAL</span>` : r.status === "rejected" ? pill("rejected") : `<span class="pill active">TAKEN OFF</span>`}${r.warehouse_status ? ` <span class="pill ${r.warehouse_status === "received" ? "active" : "pending"}">${WAREHOUSE[r.warehouse_status] || ""}</span>` : ""}</div>`).join("")
           : `<div class="empty small">No returns on this invoice.</div>`}</div>
-      <div class="linked-pays"><div class="lp-head"><b>Linked Payments</b>${canLink && pays.length ? `<button type="button" class="btn small" id="ivLink">${ic("plus")} Link a Payment</button>` : ""}</div>
-        ${linked.length ? linked.map((p) => `<div class="lp-row"><a href="#payment/${p.id}"><b>${esc(p.receipt_no || "")}</b></a><span>${mdy(p.paid_date)}</span><b>₱ ${peso(p.amount)}</b>
-          ${canLink ? `<button type="button" class="linkbtn" data-unlink="${p.id}">Unlink</button>` : ""}</div>`).join("")
-          : `<div class="empty small">No payment is linked to this invoice${pays.length ? "" : " (this customer has no payments yet)"}.</div>`}</div>
-      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv)]) })}
+      <div class="linked-pays"><div class="lp-head"><b>Linked Payments</b>${canLink && need > 0.004 ? `<button type="button" class="btn small" id="ivLink">${ic("plus")} Link a Payment</button>` : ""}</div>
+        ${!linksOn ? `<div class="empty small">Linking payments needs the database update 022_update_2_9.sql.</div>`
+          : links.length ? links.map((l) => `<div class="lp-row${l.removed_at ? " lp-off" : ""}"><a href="#payment/${l.payment_id}"><b>${esc(l.payments_received?.receipt_no || "")}</b></a>
+            <span>Paid ${mdy(l.payments_received?.paid_date)} · ₱ ${peso(l.payments_received?.amount)}<small>Linked ${esc(E.dateTime(l.linked_at))}${l.linked_by_name ? ` by ${esc(l.linked_by_name)}` : ""}${l.removed_at ? ` · unlinked ${esc(E.dateTime(l.removed_at))}${l.removed_by_name ? ` by ${esc(l.removed_by_name)}` : ""}` : ""}</small></span>
+            <b>₱ ${peso(l.amount)}</b>${l.removed_at ? `<span class="pill rejected">UNLINKED</span>` : canLink ? `<button type="button" class="linkbtn" data-unlink="${l.id}">Unlink</button>` : `<span class="pill active">LINKED</span>`}</div>`).join("")
+          : `<div class="empty small">No payment is linked to this invoice.</div>`}
+        ${linksOn && active.length ? `<div class="lp-sum"><span>Linked to this invoice</span><b>₱ ${peso(active.reduce((s, l) => s + num(l.amount), 0))}</b>${need > 0.004 ? `<span>Still needed from a payment</span><b>₱ ${peso(need)}</b>` : ""}</div>` : ""}</div>
+      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, active)]) })}
         ${copyCard({ key: "invcopy", title: `Invoice ${inv.invoice_no}`, tag: "Paper Copy", sub: "Scan or upload the paper invoice", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}</div>
       <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
       ${rhBox("customer_invoices", inv.id)}</div>
       <div class="wfoot">${tools("customer_invoices", inv, `Invoice ${inv.invoice_no}`, { reload: () => V.invoice(id), afterDelete: () => (location.hash = "invoices") })}
-        ${(E.canWrite("payments") || E.canWrite("invoices")) && ["unpaid", "partial"].includes(inv.pay_status) && !["rejected", "pending", "verified"].includes(inv.customer_status) ? `<a class="btn" href="#newpayment/${inv.customer_id}">Record Payment</a>` : ""}
+        ${(E.canWrite("payments") || E.canWrite("invoices")) && ["active", "suspended", "closed"].includes(inv.customer_status) ? `<a class="btn" href="#newpayment/${inv.customer_id}">Record Payment</a>` : ""}
         <a class="btn" href="#invoices">Close</a></div></div>`;
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.invoice(id));
     bindTools($("#main"));
-    // 2.8: record a return: the amount is taken off this invoice (the Director's at once, an employee's after approval)
+    // 2.9: record a return with up to 20 item lines (item, description, boxes, pcs, amount) and their totals. RETURN OF
+    // ITEMS waits for the warehouse (NOT RECEIVED until it is marked RECEIVED); PRICE LESS, DAMAGE and OTHERS bring no
+    // goods back. The amount is taken off this invoice (the Director's at once, an employee's after approval).
     if ($("#ivReturn")) $("#ivReturn").onclick = () => {
       const left = num(inv.total_amount) - rets.filter((r) => r.status !== "rejected").reduce((a, r) => a + num(r.request_amount), 0);
-      const m = E.modal(`Record Return — ${inv.invoice_no}`, `<form id="rtForm" class="fields wide" novalidate>
-          <label for="rtDate">Return Date</label><input type="date" id="rtDate" value="${isoToday()}">
-          <label for="rtItems">Items Returned *</label><input type="text" id="rtItems" maxlength="300" placeholder="Serial no / item, e.g. G2026034G, C2026071001">
-          <label for="rtQty">Quantity (pcs)</label><input type="number" id="rtQty" min="0" step="1" inputmode="numeric">
-          <label for="rtAmt">Return Amount (₱) *</label><input type="number" id="rtAmt" min="0.01" step="0.01" inputmode="decimal" placeholder="Up to ${peso(left)}">
-          <label for="rtNote">Note</label><input type="text" id="rtNote" maxlength="300" placeholder="Optional, e.g. refund 14,000 given">
-        </form><p class="muted" style="margin:8px 0 0">The amount is taken off this invoice and the customer's balance, and shows as RETURN on the statement of account.${isAdmin() ? "" : " It waits for the Director's approval."}</p>`,
-        `<button type="button" class="btn" id="rtCancel">Cancel</button><button type="button" class="btn primary" id="rtSave">${ic("check")} Save Return</button>`);
+      const line = () => `<tr class="rt-line"><td><input type="text" class="rtI" maxlength="60" placeholder="e.g. G2026034G"></td><td><input type="text" class="rtD" maxlength="80" placeholder="e.g. Ladies short pant"></td>
+        <td><input type="number" class="rtB" min="0" step="1" inputmode="numeric"></td><td><input type="number" class="rtP" min="0" step="1" inputmode="numeric"></td>
+        <td><input type="number" class="rtA" min="0" step="0.01" inputmode="decimal"></td><td><button type="button" class="linkbtn del rtX" aria-label="Remove line">${ic("x")}</button></td></tr>`;
+      const m = E.modal(`Record Return — ${inv.invoice_no}`, `<form id="rtForm" novalidate>
+          <div class="fields wide"><span>Kind</span><div class="subj-grid" id="rtKind">${Object.entries(RET_KIND).map(([k, v], i) => `<label class="subj"><input type="radio" name="rtK" value="${k}" ${i ? "" : "checked"}><span>${esc(v)}</span></label>`).join("")}</div>
+            <label for="rtDate">Return Date</label><input type="date" id="rtDate" value="${isoToday()}"></div>
+          <div class="grid-wrap rt-wrap"><table class="grid rt-table"><thead><tr><th>Item / Serial No</th><th>Description</th><th class="num">Boxes</th><th class="num">Pcs</th><th class="num">Amount (₱)</th><th></th></tr></thead>
+            <tbody id="rtLines">${line()}</tbody><tfoot><tr><td colspan="2"><button type="button" class="btn small" id="rtAdd">${ic("plus")} Add Item</button> <small class="muted">up to 20 items</small></td>
+            <td class="num" id="rtTB">0</td><td class="num" id="rtTP">0</td><td class="num" id="rtTA">0.00</td><td></td></tr></tfoot></table></div>
+          <div class="fields wide"><label for="rtAmt">Return Amount (₱) *</label><input type="number" id="rtAmt" min="0.01" step="0.01" inputmode="decimal" placeholder="Up to ${peso(left)}">
+            <label for="rtNote">Note</label><input type="text" id="rtNote" maxlength="300" placeholder="Optional, e.g. refund 14,000 given"></div>
+        </form><p class="muted" style="margin:8px 0 0" id="rtHint"></p>`,
+        `<button type="button" class="btn" id="rtCancel">Cancel</button><button type="button" class="btn primary" id="rtSave">${ic("check")} Save Return</button>`, { wide: true });
+      const lines = () => $$("#rtLines .rt-line", m.el).map((tr) => ({ item: $(".rtI", tr).value.trim(), desc: $(".rtD", tr).value.trim(),
+        boxes: Math.max(0, Math.round(num($(".rtB", tr).value))), pcs: Math.max(0, Math.round(num($(".rtP", tr).value))), amount: Math.max(0, num($(".rtA", tr).value)) }))
+        .filter((l) => l.item || l.desc || l.pcs || l.boxes || l.amount);
+      const kind = () => $("input[name=rtK]:checked", m.el)?.value || "return";
+      let amtTyped = false;
+      const sum = () => {
+        const ls = lines(), tb = ls.reduce((s, l) => s + l.boxes, 0), tp = ls.reduce((s, l) => s + l.pcs, 0), ta = ls.reduce((s, l) => s + l.amount, 0);
+        $("#rtTB", m.el).textContent = tb; $("#rtTP", m.el).textContent = tp; $("#rtTA", m.el).textContent = peso(ta);
+        if (!amtTyped && ta > 0) $("#rtAmt", m.el).value = ta.toFixed(2);
+        $("#rtAdd", m.el).disabled = $$("#rtLines .rt-line", m.el).length >= 20;
+        $("#rtHint", m.el).textContent = `${kind() === "return" ? "The items come back: the return shows NOT RECEIVED until the warehouse marks it RECEIVED. " : "No goods come back (the warehouse status is not needed). "}The amount is taken off this invoice and the customer's balance, and shows as RETURN on the statement of account.${isAdmin() ? "" : " It waits for the Director's approval."}`;
+      };
+      const bindLines = () => $$("#rtLines .rt-line", m.el).forEach((tr) => {
+        $$("input", tr).forEach((x) => (x.oninput = sum));
+        $(".rtX", tr).onclick = () => { if ($$("#rtLines .rt-line", m.el).length > 1) tr.remove(); else $$("input", tr).forEach((x) => (x.value = "")); sum(); };
+      });
+      $("#rtAdd", m.el).onclick = () => { if ($$("#rtLines .rt-line", m.el).length >= 20) return; $("#rtLines", m.el).insertAdjacentHTML("beforeend", line()); bindLines(); sum(); $("#rtLines .rt-line:last-child .rtI", m.el).focus(); };
+      $("#rtAmt", m.el).oninput = () => (amtTyped = true);
+      $$("input[name=rtK]", m.el).forEach((r) => (r.onchange = sum));
+      bindLines(); sum();
       $("#rtCancel", m.el).onclick = m.close;
       $("#rtSave", m.el).onclick = async () => {
-        const amt = num($("#rtAmt", m.el).value), items = $("#rtItems", m.el).value.trim();
-        if (!items) return toast("Enter the items returned.", true);
+        const ls = lines(), amt = num($("#rtAmt", m.el).value);
+        if (!ls.length || ls.some((l) => !l.item && !l.desc)) return toast("Write the item or description on every line.", true);
         if (!(amt > 0)) return toast("Enter the return amount.", true);
         if (amt > left + 0.001) return toast(`The return cannot be more than ₱ ${peso(left)}.`, true);
         const b = $("#rtSave", m.el); b.disabled = true;
-        const { error } = await sb.rpc("record_return", { p_invoice: inv.id, p_amount: amt, p_date: $("#rtDate", m.el).value || null, p_items: items, p_qty: Math.max(0, Math.round(num($("#rtQty", m.el).value))), p_note: $("#rtNote", m.el).value.trim() || null });
-        if (error) { b.disabled = false; return fail(error, /record_return/.test(error.message || "") ? "Run the database update 020_invoice_return.sql first" : "Could not save the return"); }
+        const items = ls.map((l) => l.item || l.desc).join(", ");
+        const { error } = await sb.rpc("record_return", { p_invoice: inv.id, p_amount: amt, p_date: $("#rtDate", m.el).value || null, p_items: items.slice(0, 300),
+          p_qty: ls.reduce((s, l) => s + l.pcs, 0), p_note: $("#rtNote", m.el).value.trim() || null, p_lines: ls, p_kind: kind(), p_boxes: ls.reduce((s, l) => s + l.boxes, 0) });
+        if (error) { b.disabled = false; return fail(error, /record_return|p_lines/.test(error.message || "") ? "Run the database update 022_update_2_9.sql first" : "Could not save the return"); }
         m.close(); toast(isAdmin() ? "Return saved and taken off the invoice." : "Return saved. It waits for the Director's approval."); V.invoice(id);
       };
-      setTimeout(() => $("#rtItems", m.el)?.focus(), 50);
+      setTimeout(() => $(".rtI", m.el)?.focus(), 50);
     };
-    // 2.7.3: link one of the customer's payments to this invoice (or unlink it)
-    const link = async (payId, invId) => {
-      const { error } = await sb.rpc("link_payment", { p_payment: payId, p_invoice: invId });
-      if (error) return fail(error, /link_payment/.test(error.message || "") ? "Run the database update 019_link_payment.sql first" : "Could not link the payment");
-      toast(invId ? "Payment linked to this invoice." : "Payment unlinked."); V.invoice(id);
-    };
-    $$("[data-unlink]").forEach((b) => (b.onclick = () => link(b.dataset.unlink, null)));
+    // 2.9: unlink one link (it stays in the list as UNLINKED, and its amount is available again)
+    $$("[data-unlink]").forEach((b) => (b.onclick = async () => {
+      const l = links.find((x) => x.id === b.dataset.unlink);
+      if (!l || !(await E.confirmBox(`Unlink receipt <b>${esc(l.payments_received?.receipt_no || "")}</b> (₱ ${peso(l.amount)}) from ${esc(inv.invoice_no)}? The amount becomes available to link again.`, { ok: "Unlink" }))) return;
+      b.disabled = true;
+      const { error } = await sb.rpc("unlink_payment", { p_link: l.id });
+      if (error) { b.disabled = false; return fail(error, "Could not unlink the payment"); }
+      toast("Payment unlinked. Its amount is available again."); V.invoice(id);
+    }));
+    // 2.9: link a payment of this customer that still has an amount available; only what the invoice needs is taken
     if ($("#ivLink")) $("#ivLink").onclick = async () => {
-      const others = pays.filter((p) => p.invoice_id !== inv.id);
-      const ids = [...new Set(others.map((p) => p.invoice_id).filter(Boolean))];
-      const nos = ids.length ? new Map(((await sb.from("customer_invoices").select("id, invoice_no").in("id", ids)).data || []).map((x) => [x.id, x.invoice_no])) : new Map();
-      const m = E.modal(`Link a Payment — ${inv.invoice_no}`, others.length
-        ? `<p class="muted" style="margin-top:0">Choose the payment of ${esc(fullName(inv))} that paid this invoice (balance ₱ ${peso(inv.balance)}).</p>
-          <div class="lp-pick">${others.map((p) => `<button type="button" class="lp-opt" data-pay="${p.id}"><b>${esc(p.receipt_no || "")}</b><span>${mdy(p.paid_date)}</span><b>₱ ${peso(p.amount)}</b>
-            <small>${p.invoice_id ? `Now linked to ${esc(nos.get(p.invoice_id) || "another invoice")}` : "Not linked (pays the oldest invoices)"}</small></button>`).join("")}</div>`
-        : `<div class="empty">Every payment of this customer is already linked to this invoice.</div>`);
-      $$("[data-pay]", m.el).forEach((b) => (b.onclick = () => { m.close(); link(b.dataset.pay, inv.id); }));
+      const { data: av, error } = await sb.from("payment_available").select("*").eq("customer_id", inv.customer_id).gt("available", 0).order("paid_date");
+      if (error) return fail(error, "Could not load the payments");
+      const opts = av || [];
+      const m = E.modal(`Link a Payment — ${inv.invoice_no}`, opts.length
+        ? `<p class="muted" style="margin-top:0">Choose the payment of ${esc(fullName(inv))} that paid this invoice. It still needs <b>₱ ${peso(need)}</b> from a linked payment; only that is taken and the rest of the payment stays available.</p>
+          <div class="lp-pick">${opts.map((p) => `<div class="lp-opt" data-pay="${p.id}"><b>${esc(p.receipt_no || "")}</b><span>${mdy(p.paid_date)}</span><b>₱ ${peso(p.amount)}</b>
+            <small>Available to link: <b>₱ ${peso(p.available)}</b>${num(p.linked) > 0 ? ` (₱ ${peso(p.linked)} already linked to other invoices)` : ""}</small>
+            <div class="lp-amt"><label for="lpA${p.id}">Amount to link (₱)</label><input type="number" id="lpA${p.id}" min="0.01" step="0.01" inputmode="decimal" value="${Math.min(num(p.available), need).toFixed(2)}">
+              <button type="button" class="btn small primary" data-go="${p.id}">${ic("check")} Link</button></div></div>`).join("")}</div>`
+        : `<div class="empty">No payment of ${esc(fullName(inv))} has an amount left to link: every payment is fully linked. Record the payment first.</div>`);
+      $$("[data-go]", m.el).forEach((b) => (b.onclick = async () => {
+        const p = opts.find((x) => x.id === b.dataset.go), amt = num($(`#lpA${p.id}`, m.el).value);
+        if (!(amt > 0)) return toast("Enter the amount to link.", true);
+        if (amt > num(p.available) + 0.004) return toast(`Only ₱ ${peso(p.available)} of ${p.receipt_no} is available.`, true);
+        if (amt > need + 0.004) return toast(`This invoice needs only ₱ ${peso(need)}.`, true);
+        b.disabled = true;
+        const { error: e2 } = await sb.rpc("link_payment", { p_payment: p.id, p_invoice: inv.id, p_amount: amt });
+        if (e2) { b.disabled = false; return fail(e2, /link_payment|payment_links/.test(e2.message || "") ? "Run the database update 022_update_2_9.sql first" : "Could not link the payment"); }
+        m.close(); toast(`₱ ${peso(amt)} of ${p.receipt_no} linked to this invoice.`); V.invoice(id);
+      }));
     };
     E.setRecords(`Invoice: ${inv.invoice_no}`);
   };
-  function invoicePage(inv) {
+  // The invoice print. links: the payments linked to it (2.9), listed with the amount each one paid.
+  function invoicePage(inv, links = []) {
+    const bal = num(inv.balance);
     return `${printHead("INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
       ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}</div>`)}
       ${box("Invoice", `<div class="prow3">${cell("Invoice No", inv.invoice_no)}${cell("Invoice Date", mdy(inv.invoice_date))}${cell("Total Boxes", inv.total_boxes)}</div>
         <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Terms of Payment", inv.payment_terms || "—")}${cell("Due Date", mdy(inv.due_date) || "—")}</div>
         ${inv.po_number ? `<div class="pcell"><div class="pl">PO Number</div><div class="pv">${esc(inv.po_number)}</div></div>` : ""}
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
-      ${box("Payment", `<div class="pgrid2">${cell("Payment Status", { paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase())}${cell("Total Amount (₱)", peso(inv.total_amount))}${num(inv.amount_returned) > 0 ? cell("Returned (₱)", peso(inv.amount_returned)) : ""}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(inv.balance))}</div>`)}
+      ${box("Payment", `<div class="pgrid2">${cell("Payment Status", ({ paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase()) + (bal < 0 ? " (OVERPAID)" : ""))}${cell("Total Amount (₱)", peso(inv.total_amount))}${num(inv.amount_returned) > 0 ? cell("Returned (₱)", peso(inv.amount_returned)) : ""}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(bal))}</div>
+        ${links.length ? `<table class="ptl"><thead><tr><th>Linked Payment (Receipt No)</th><th>Date Paid</th><th class="num">Amount Linked (₱)</th></tr></thead><tbody>
+          ${links.map((l) => `<tr><td>${esc(l.payments_received?.receipt_no || "")}</td><td>${mdy(l.payments_received?.paid_date)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}</tbody></table>` : ""}`)}
       ${sigs("Received by (Customer Signature) / Date", `Prepared by: ${esc(inv.created_by_name || "")}`)}`;
   }
 
@@ -1522,7 +1587,10 @@
     E.shell("payment", "Payment", busy());
     const { data: p } = await sb.from("payments_received").select("*, customers(*)").eq("id", id).maybeSingle();
     if (!p) { $("#main").innerHTML = `<div class="empty">Payment not found. <a href="#payments">Back to Payments</a></div>`; return; }
-    const att = await attachmentsOf("payment", id);
+    // 2.9: the invoices this payment is linked to (update 022), and what is still available to link
+    const [att, lk] = await Promise.all([attachmentsOf("payment", id),
+      sb.from("payment_links").select("*, customer_invoices(invoice_no)").eq("payment_id", id).is("removed_at", null).order("linked_at")]);
+    const links = lk.data || [], linked = links.reduce((s, l) => s + num(l.amount), 0);
     $(".band h1").textContent = `Payment — ${p.receipt_no}`;
     $("#main").innerHTML = `
       ${extra === "done" ? `<div class="banner ok">✔ Payment successfully recorded — Receipt No <b>${esc(p.receipt_no)}</b>. It has been added to ${esc(fullName(p.customers))}'s account.</div>` : ""}
@@ -1535,6 +1603,10 @@
         <span>Deposit Account</span><span>${esc(p.bank_account || "—")}</span><span>Reference No</span><span>${esc(p.reference_no || "—")}</span>
         <span>Description</span><span>PAYMENT RECEIVED</span>
         <span>Verified By</span><span>${esc(p.created_by_name || "")}</span></div></div>
+      ${lk.error ? "" : `<div class="linked-pays"><div class="lp-head"><b>Linked to Invoices</b></div>
+        ${links.length ? links.map((l) => `<div class="lp-row"><a href="#invoice/${l.invoice_id}"><b>${esc(l.customer_invoices?.invoice_no || "")}</b></a><span>Linked ${esc(E.dateTime(l.linked_at))}${l.linked_by_name ? ` by ${esc(l.linked_by_name)}` : ""}</span><b>₱ ${peso(l.amount)}</b><span class="pill active">LINKED</span></div>`).join("")
+          : `<div class="empty small">Not linked to an invoice: it pays the customer's oldest invoices first. Link it on the invoice page (Link a Payment).</div>`}
+        <div class="lp-sum"><span>Available to link</span><b>₱ ${peso(num(p.amount) - linked)}</b></div></div>`}
       <div class="docgrid">${docCard({ key: "ack", title: `Acknowledgment Receipt ${p.receipt_no}`, sub: `₱ ${peso(p.amount)} · ${mdy(p.paid_date)}`, ownerType: "payment", ownerId: p.id, att, print: () => E.openPreview(`Acknowledgment ${p.receipt_no}`, [ackPage(p)]), uploadLabel: "Upload Copy", copyName: "Copy" })}</div>
       <div><b>Uploaded Receipts &amp; Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No receipts uploaded.")}</div>
       ${rhBox("payments_received", p.id)}</div>
@@ -1559,6 +1631,9 @@
   // ======================================================================
   // 4. Credit Memo (customer complaint)
   // ======================================================================
+  // 2.9: the kinds of return (RETURN OF ITEMS brings goods back to the warehouse)
+  const RET_KIND = { return: "Return of Items", price_less: "Price Less", damage: "Damage", other: "Others" };
+  const WAREHOUSE = { not_received: "NOT RECEIVED", received: "RECEIVED AT WAREHOUSE" };
   const MEMO_COLS = [
     { label: "Report No", get: (r) => r.memo_no }, { label: "Date", get: (r) => mdy(r.memo_date) },
     { label: "Customer", get: (r) => fullName(r.customers || {}) }, { label: "Article", get: (r) => r.article || "" },
@@ -1670,7 +1745,8 @@
         <span>Factory Status</span><span>${esc(m.factory_status || "—")}</span>
         <span>Approved By</span><span>${esc(m.approved_by_name || "—")} ${m.approved_at ? mdy(m.approved_at) : ""}</span>
         <span>Paid / Settled</span><span>${m.paid_at ? `${esc(m.paid_by_name || "")} ${mdy(m.paid_at)}` : "—"}</span></div></div>
-      <div class="docgrid">${docCard({ key: "memo", title: `Credit Memo ${m.memo_no}`, sub: `₱ ${peso(m.request_amount)} · ${mdy(m.memo_date)}`, ownerType: "credit_memo", ownerId: m.id, att, print: () => E.openPreview(`Credit Memo ${m.memo_no}`, [memoPage(m)]),
+      ${m.is_return ? returnBox(m) : ""}
+      <div class="docgrid">${docCard({ key: "memo", title: `${m.is_return ? "Return" : "Credit Memo"} ${m.memo_no}`, tag: m.is_return ? "System Generated" : undefined, sub: `₱ ${peso(m.request_amount)} · ${mdy(m.memo_date)}`, ownerType: "credit_memo", ownerId: m.id, att, print: () => E.openPreview(`${m.is_return ? "Return" : "Credit Memo"} ${m.memo_no}`, [m.is_return ? returnPage(m) : memoPage(m)]),
         approved: memoApproved(m) ? { name: m.approved_by_name, at: m.approved_at } : null })}</div>
       <div><b>Proof</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No proof uploaded.")}</div>
       ${isAdmin() && ["pending", "approved"].includes(m.status) ? `<fieldset class="opt review"><legend>Director's Decision</legend>
@@ -1681,13 +1757,50 @@
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.creditmemo(id));
     bindTools($("#main"));
+    if ($("#rtRecv")) $("#rtRecv").onclick = async (e) => {
+      if (!(await E.confirmBox(`Mark the items of <b>${esc(m.memo_no)}</b> as RECEIVED at the warehouse?`, { ok: "Received" }))) return;
+      e.target.disabled = true;
+      const { error } = await sb.rpc("return_received", { p_memo: m.id });
+      if (error) { e.target.disabled = false; return fail(error, "Could not mark the return received"); }
+      toast("Return received at the warehouse."); V.creditmemo(m.id);
+    };
     $$("[data-a]").forEach((b) => (b.onclick = async () => {
+      b.disabled = true;
       const r = await sb.rpc("credit_memo_action", { p_id: m.id, p_action: b.dataset.a, p_note: $("#cmNote").value.trim() || null });
-      if (r.error) return fail(r.error, "Could not update the credit memo");
+      if (r.error) { b.disabled = false; return fail(r.error, "Could not update the credit memo"); }
       toast(`${m.memo_no} updated.`); V.creditmemo(m.id);
     }));
     E.setRecords(`Credit memo: ${m.memo_no}`);
   };
+  // 2.9: a return's items (up to 20 lines) with totals, and the warehouse status (RETURN OF ITEMS only).
+  const retLines = (m) => (Array.isArray(m.return_lines) && m.return_lines.length ? m.return_lines
+    : [{ item: m.serial_no || "", desc: "", boxes: m.return_boxes || 0, pcs: m.qty || 0, amount: num(m.request_amount) }]);
+  function returnBox(m) {
+    const ls = retLines(m), can = (E.canWrite("invoices") || E.canWrite("creditmemos")) && m.warehouse_status === "not_received" && m.status !== "rejected";
+    return `<div class="linked-pays"><div class="lp-head"><b>Returned Items · ${esc(RET_KIND[m.return_kind] || "Return of Items")}</b>
+        ${m.warehouse_status ? `<span class="pill ${m.warehouse_status === "received" ? "active" : "pending"}">${WAREHOUSE[m.warehouse_status]}</span>` : `<span class="pill">NO GOODS RETURNED</span>`}</div>
+      <div class="grid-wrap"><table class="grid"><thead><tr><th>#</th><th>Item / Serial No</th><th>Description</th><th class="num">Boxes</th><th class="num">Pcs</th><th class="num">Amount (₱)</th></tr></thead><tbody>
+        ${ls.map((l, i) => `<tr><td>${i + 1}</td><td>${esc(l.item || "")}</td><td>${esc(l.desc || "")}</td><td class="num">${num(l.boxes)}</td><td class="num">${num(l.pcs)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}</tbody>
+        <tfoot><tr><td colspan="3">TOTAL</td><td class="num">${ls.reduce((s, l) => s + num(l.boxes), 0)}</td><td class="num">${ls.reduce((s, l) => s + num(l.pcs), 0)}</td><td class="num">${peso(m.request_amount)}</td></tr></tfoot></table></div>
+      ${m.warehouse_status === "received" ? `<small class="muted">Received at the warehouse ${esc(E.dateTime(m.warehouse_at))}${m.warehouse_by_name ? ` by ${esc(m.warehouse_by_name)}` : ""}.</small>` : ""}
+      ${can ? `<div class="btnrow"><button type="button" class="btn ok" id="rtRecv">${ic("check")} Mark Received at Warehouse</button></div>` : ""}</div>`;
+  }
+  // The return's own printed form (system generated, in the company form style).
+  function returnPage(m) {
+    const c = m.customers, ls = retLines(m), sign = memoApproved(m) ? approvedBy(m.approved_by, m.approved_by_name, m.approved_at) : null;
+    const wh = m.warehouse_status ? WAREHOUSE[m.warehouse_status] : "NO GOODS RETURNED";
+    return `${printHead("RETURN", `<img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt="" class="ph-bar"><div class="mono">${esc(m.memo_no)}</div>`)}
+      ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(c))}${cell("Account No", c.account_no)}${cell("Invoice No", m.po_number)}${cell("Return Date", mdy(m.memo_date))}</div>`)}
+      ${box("Return", `<div class="pgrid2">${cell("Kind of Return", (RET_KIND[m.return_kind] || "Return of Items").toUpperCase())}${cell("Status", ({ pending: "WAITING FOR APPROVAL", approved: "APPROVED · TAKEN OFF THE INVOICE", paid: "APPROVED · SETTLED", rejected: "NOT APPROVED" }[m.status] || String(m.status).toUpperCase()))}
+        ${cell("Warehouse", wh + (m.warehouse_status === "received" && m.warehouse_at ? ` · ${mdy(m.warehouse_at)}` : ""))}${cell("Recorded By", m.created_by_name || "")}</div>`)}
+      ${box("Returned Items", `<table class="ptl"><thead><tr><th>#</th><th>Item / Serial No</th><th>Description</th><th class="num">Boxes</th><th class="num">Pcs</th><th class="num">Amount (PHP)</th></tr></thead><tbody>
+        ${ls.map((l, i) => `<tr><td>${i + 1}</td><td>${esc(l.item || "")}</td><td>${esc(l.desc || "")}</td><td class="num">${num(l.boxes)}</td><td class="num">${num(l.pcs)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
+        <tr class="ptl-tot"><td colspan="3">TOTAL RETURNS</td><td class="num">${ls.reduce((s, l) => s + num(l.boxes), 0)} BOX</td><td class="num">${ls.reduce((s, l) => s + num(l.pcs), 0)} PCS</td><td class="num">${peso(m.request_amount)}</td></tr></tbody></table>
+        <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(m.request_amount))}</div></div>
+        ${m.inspection_notes ? cell("Note", m.inspection_notes) : ""}`)}
+      <p class="pdecl">The amount above is taken off invoice ${esc(m.po_number || "")} and the customer's balance once approved.${m.warehouse_status ? " The returned items are checked and received at the warehouse." : ""}</p>
+      ${sigs("Received by (Warehouse) &nbsp; / &nbsp; Date", sign ? "Approved by" : "Approved by (Signature) &nbsp; / &nbsp; Date", sign)}`;
+  }
   // A credit memo the Director approved is printed with the Director's signature on "Approval Signature".
   const memoApproved = (m) => ["approved", "paid"].includes(m.status) && !!(m.approved_by || m.approved_by_name);
   function memoPage(m) {
