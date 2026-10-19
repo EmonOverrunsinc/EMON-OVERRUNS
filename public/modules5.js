@@ -100,6 +100,53 @@
     return { read };
   }
 
+  // ---------- voice notes (3.0): record with the microphone or attach an audio file, up to 10; listen, delete, record again ----------
+  const MAX_VOICES = 10, MAX_SECONDS = 120;
+  const voiceMime = () => (window.MediaRecorder ? ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"].find((m) => MediaRecorder.isTypeSupported(m)) || "" : "");
+  function voiceEditor(box, keep, urls) {
+    const picked = []; let rec = null, stream = null, timer = null, t0 = 0;
+    box.innerHTML = `<div class="vo-bar"><button type="button" class="btn primary vo-rec">${ic("mic")} Record</button><button type="button" class="btn danger vo-stop" hidden>■ Stop</button>
+        <span class="vo-time" aria-live="polite"></span><label class="btn vo-attach" for="voFile">${ic("clip")} Attach audio file</label><input type="file" id="voFile" accept="audio/*" multiple hidden></div>
+      <div class="vo-list"></div>
+      <small class="muted">Up to ${MAX_VOICES} voice notes (${MAX_SECONDS / 60} minutes each). Press <b>Record</b>, speak, press <b>Stop</b>, then listen. The Director listens before deciding; the voice notes are deleted from the server when the order is approved.</small>`;
+    const list = $(".vo-list", box), recBtn = $(".vo-rec", box), stopBtn = $(".vo-stop", box), clock = $(".vo-time", box);
+    const total = () => keep.length + picked.length;
+    const render = () => {
+      const items = [...keep.map((k, i) => ({ src: urls.get(k), kind: "k", i })), ...picked.map((x, i) => ({ src: x.url, kind: "p", i }))];
+      list.innerHTML = items.map((x, n) => `<div class="vo-row"><b>Voice ${n + 1}</b><audio controls preload="metadata" src="${esc(x.src || "")}"></audio>
+        <button type="button" class="linkbtn del" data-rm="${x.kind}${x.i}" aria-label="Delete voice ${n + 1}">${ic("trash")} Delete</button></div>`).join("");
+      $$("[data-rm]", list).forEach((b) => (b.onclick = () => { const k = b.dataset.rm; if (k[0] === "k") keep.splice(Number(k.slice(1)), 1); else { URL.revokeObjectURL(picked[Number(k.slice(1))].url); picked.splice(Number(k.slice(1)), 1); } render(); }));
+      const full = total() >= MAX_VOICES;
+      recBtn.disabled = full || !!rec; $(".vo-attach", box).classList.toggle("disabled", full);
+    };
+    const add = (file) => { if (total() >= MAX_VOICES) return toast(`Up to ${MAX_VOICES} voice notes.`, true); picked.push({ file, url: URL.createObjectURL(file) }); render(); };
+    const done = () => { clearInterval(timer); timer = null; stopBtn.hidden = true; recBtn.hidden = false; clock.textContent = ""; stream?.getTracks().forEach((t) => t.stop()); stream = null; rec = null; render(); };
+    recBtn.onclick = async () => {
+      if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast("Recording does not work on this device. Use Attach audio file.", true);
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+      catch (_) { return toast("The microphone is not allowed. Allow the microphone for this app, then press Record again.", true); }
+      const mime = voiceMime(), chunks = [];
+      rec = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 32000 });
+      rec.ondataavailable = (e) => e.data?.size && chunks.push(e.data);
+      rec.onstop = () => {
+        const type = (rec?.mimeType || mime || "audio/webm").split(";")[0], ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
+        const blob = new Blob(chunks, { type });
+        done();
+        if (blob.size > 800) add(new File([blob], `voice_${Date.now()}.${ext}`, { type })); else toast("Nothing was recorded.", true);
+      };
+      rec.start(1000); t0 = Date.now(); recBtn.hidden = true; stopBtn.hidden = false;
+      timer = setInterval(() => {
+        if (!box.isConnected) { try { rec?.stop(); } catch (_) {} return; }
+        const sec = Math.floor((Date.now() - t0) / 1000); clock.textContent = `● ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+        if (sec >= MAX_SECONDS) stopBtn.click();
+      }, 250);
+    };
+    stopBtn.onclick = () => { try { rec?.stop(); } catch (_) { done(); } };
+    $("#voFile", box).onchange = (e) => { for (const f of Array.from(e.target.files)) { if (!/^audio\//.test(f.type)) { toast(`${f.name} is not an audio file.`, true); continue; } if (f.size > 8 * 1024 * 1024) { toast(`${f.name} is larger than 8 MB.`, true); continue; } add(f); } e.target.value = ""; };
+    render();
+    return { keep: () => keep, files: () => picked.map((x) => x.file), recording: () => !!rec };
+  }
+
   V.newpurchase = (id) => poForm(null);
   V.editpo = async (id) => {
     E.shell("editpo", "Edit Purchase Order", busy());
@@ -116,6 +163,7 @@
           <div class="po-photos" id="poPics"></div>
           <label class="po-drop" for="poFiles">${ic("camera")}<b>Please upload the product photos (up to 2)</b><span>অনুগ্রহ করে পণ্যের ছবি আপলোড করুন (সর্বোচ্চ ২টি)</span></label>
           <input type="file" id="poFiles" accept="image/*" multiple hidden></fieldset>
+        <fieldset class="opt"><legend>Voice Notes</legend><div id="poVoice"></div></fieldset>
         <fieldset class="opt"><legend>Lot</legend><div class="fields wide">
           <label for="poLot">Lot Name *</label><input type="text" id="poLot" maxlength="120" value="${esc(p?.lot_name || "")}" placeholder="e.g. Zara">
           <label for="poDate">Date</label><input type="date" id="poDate" value="${esc(p?.po_date || isoToday())}">
@@ -127,6 +175,8 @@
         ${p?.status === "negotiation" ? `<div class="banner warn">${ic("bell")} EMON OVERRUNS authority does not agree with the price. Negotiate, change the prices and submit again.${p.director_note ? " Note: " + esc(p.director_note) : ""}</div>` : ""}
       </div><div class="wfoot"><button type="button" class="btn" id="poCancel">Cancel</button><button type="submit" class="btn primary">${p ? (isAdmin() ? "Save" : "Submit Again") : "Submit Purchase Order"}</button></div></form>`);
     const ed = linesEditor($("#poLines"), p?.items || []);
+    const vurls = p?.voices?.length ? await E.signedMap(p.voices) : new Map();
+    const vo = voiceEditor($("#poVoice"), [...(p?.voices || [])], vurls);
     let keep = [...(p?.photos || [])], picked = [];
     const urls = keep.length ? await E.signedMap(keep) : new Map();
     const showPics = () => {
@@ -145,6 +195,7 @@
       if (!items.length) return toast("Add at least one item.", true);
       const bad = items.findIndex((l) => !l.item || !(l.qty > 0));
       if (bad >= 0) return toast(`Line ${bad + 1}: write the item name and the quantity.`, true);
+      if (vo.recording()) return toast("Press Stop to finish the recording first.", true);
       E.setBusy(e.target, true, "Saving");
       const { data: po, error } = await sb.rpc("save_purchase_order", { p_id: p?.id || null, p_data: { lot_name: lot, po_date: $("#poDate").value || null, processing_time: $("#poProc").value.trim(),
         authorized_person: $("#poAuth").value.trim(), notes: $("#poNotes").value.trim(), items } });
@@ -161,6 +212,19 @@
         const r = await sb.rpc("set_purchase_photos", { p_id: po.id, p_photos: paths });
         if (r.error) toast("The photos could not be saved: " + r.error.message, true);
         if (gone.length) sb.storage.from("records").remove(gone).then(() => {}, () => {});
+      }
+      // the voice notes: the kept ones and the new ones
+      const vpaths = [...vo.keep()];
+      for (const [i, f] of vo.files().entries()) {
+        const path = `purchase/${po.id}/voice_${i + 1}_${Date.now()}.${E.extOf(f)}`;
+        const up = await sb.storage.from("records").upload(path, f, { contentType: f.type });
+        if (!up.error) vpaths.push(path); else toast("A voice note could not be uploaded: " + up.error.message, true);
+      }
+      const vgone = (p?.voices || []).filter((x) => !vpaths.includes(x));
+      if (vpaths.join() !== (p?.voices || []).join()) {
+        const r = await sb.rpc("set_purchase_voices", { p_id: po.id, p_voices: vpaths });
+        if (r.error) toast("The voice notes could not be saved: " + r.error.message, true);
+        if (vgone.length) sb.storage.from("records").remove(vgone).then(() => {}, () => {});
       }
       toast(p ? "Saved." : `Purchase order ${po.po_no} submitted. The Director reviews it.`);
       location.hash = "po/" + po.id;
@@ -208,6 +272,7 @@
     if (error && notSet(error)) { $("#main").innerHTML = needUpdate; return; }
     if (!p) { $("#main").innerHTML = `<div class="empty">Purchase order not found. <a href="#purchase">Back to Purchase Orders</a></div>`; return; }
     const urls = p.photos?.length ? await E.signedMap(p.photos) : new Map();
+    const vurls = p.voices?.length ? await E.signedMap(p.voices) : new Map();
     if (!here()) return;
     const mine = p.created_by === meId(), open = ["pending", "negotiation"].includes(p.status);
     $(".band h1").textContent = `Purchase Order — ${p.po_no}`;
@@ -225,6 +290,8 @@
         <span>Average Price</span><b>BDT ${peso(avg(p))}</b></div></div>
       <div class="grid-wrap"><table class="grid po-lines"><thead><tr><th>#</th><th>Item Name</th><th>Brand</th><th class="num">Demand Price (BDT)</th><th class="num">Quantity</th><th>Price</th><th>Note</th><th class="num">Total (BDT)</th></tr></thead>
         <tbody>${lines}</tbody><tfoot><tr><td colspan="4">TOTAL</td><td class="num">${qtyText(p.total_qty)}</td><td colspan="2" class="num">Average BDT <span id="ngAvg">${peso(avg(p))}</span></td><td class="num" id="ngTot">${peso(p.total_amount)}</td></tr></tfoot></table></div>
+      ${p.voices?.length ? `<div class="po-notes po-voices"><b>${ic("mic")} Voice notes (${p.voices.length})</b>${p.voices.map((v, i) => `<div class="vo-row"><b>Voice ${i + 1}</b><audio controls preload="metadata" src="${esc(vurls.get(v) || "")}"></audio></div>`).join("")}
+        <small class="muted">${isAdmin() ? "Listen before you decide. The voice notes are deleted from the server when you approve." : "They are deleted from the server when the Director approves."}</small></div>` : ""}
       ${p.notes ? `<div class="po-notes"><b>Notes / Details</b><p>${esc(p.notes)}</p></div>` : ""}
       ${p.pending_update ? `<div class="linked-pays"><div class="lp-head"><b>Update asked by ${esc(p.pending_update.by || "")} · ${esc(E.dateTime(p.update_requested_at))}</b></div>
         ${E.grid({ cols: [{ label: "Item", get: (l) => l.item }, { label: "Brand", get: (l) => l.brand || "" }, { label: "Price (BDT)", num: true, get: (l) => peso(l.price) }, { label: "Quantity", num: true, get: (l) => qtyText(l.qty) }, { label: "Total (BDT)", num: true, get: (l) => peso(l.amount) }], rows: p.pending_update.items || [] })}

@@ -1932,3 +1932,12 @@ button, a, input, select, label.btn { touch-action: manipulation; }
   .po-lines tfoot td { display: block; width: 100%; padding: 4px 0; text-align: left; border: 0; background: none; }
   .po-lines tfoot td:empty { display: none; }
 }
+
+/* ===================== 3.0: voice notes on a purchase order ===================== */
+.vo-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
+.vo-time { min-width: 56px; font-variant-numeric: tabular-nums; color: #c41e3a; font-weight: 700; }
+.vo-attach.disabled, .vo-rec:disabled { opacity: .5; pointer-events: none; }
+.vo-list { display: grid; gap: 8px; margin-bottom: 6px; }
+.vo-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px; border: 1px solid #ececf0; border-radius: 12px; background: #fff; }
+.vo-row audio { flex: 1 1 220px; min-width: 0; height: 40px; }
+.po-voices { display: grid; gap: 6px; }

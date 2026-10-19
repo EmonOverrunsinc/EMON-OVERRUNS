@@ -24,6 +24,7 @@ create table if not exists public.purchase_orders (
   total_qty numeric(14,2) not null default 0,
   total_amount numeric(14,2) not null default 0, -- BDT (taka)
   photos text[] not null default '{}',
+  voices text[] not null default '{}',
   status text not null default 'pending' check (status in ('pending','negotiation','approved','cancelled')),
   director_note text,
   pending_update jsonb,
@@ -40,6 +41,7 @@ create table if not exists public.purchase_orders (
   arrived_at timestamptz,
   arrived_by_name text
 );
+alter table public.purchase_orders add column if not exists voices text[] not null default '{}';
 create index if not exists purchase_orders_status_idx on public.purchase_orders(status, po_date);
 create index if not exists purchase_orders_created_by_idx on public.purchase_orders(created_by);
 create index if not exists purchase_orders_approved_by_idx on public.purchase_orders(approved_by);
@@ -129,6 +131,25 @@ $$;
 revoke execute on function public.set_purchase_photos(uuid, text[]) from public, anon;
 grant execute on function public.set_purchase_photos(uuid, text[]) to authenticated;
 
+-- Voice notes (up to 10 recordings or attached audio files) for the Director to listen to before deciding. They are deleted
+-- from the server as soon as the purchase order is approved (or cancelled or deleted).
+create or replace function public.set_purchase_voices(p_id uuid, p_voices text[]) returns public.purchase_orders
+language plpgsql security definer set search_path = '' as $$
+declare po public.purchase_orders;
+begin
+  select * into po from public.purchase_orders where id = p_id for update;
+  if not found then raise exception 'Purchase order not found'; end if;
+  if po.status not in ('pending','negotiation') then raise exception 'The voice notes cannot be changed now'; end if;
+  if not (public.is_admin() or po.created_by = auth.uid()) then raise exception 'Not allowed'; end if;
+  if coalesce(array_length(p_voices, 1), 0) > 10 then raise exception 'Up to 10 voice notes'; end if;
+  if exists (select 1 from unnest(p_voices) x where x not like 'purchase/' || p_id || '/voice%') then raise exception 'Wrong voice note'; end if;
+  update public.purchase_orders set voices = coalesce(p_voices, '{}'), updated_at = now() where id = p_id returning * into po;
+  return po;
+end;
+$$;
+revoke execute on function public.set_purchase_voices(uuid, text[]) from public, anon;
+grant execute on function public.set_purchase_voices(uuid, text[]) to authenticated;
+
 -- The Director decides: approve, negotiate (with new prices for the lines: p_items), or cancel. A cancel gives back
 -- the photo paths so the portal deletes the files; the details stay.
 create or replace function public.decide_purchase_order(p_id uuid, p_action text, p_note text default null, p_items jsonb default null) returns text[]
@@ -140,7 +161,8 @@ begin
   if not found then raise exception 'Purchase order not found'; end if;
   if po.status not in ('pending','negotiation') then raise exception 'Purchase order % is already %', po.po_no, upper(po.status); end if;
   if p_action = 'approve' then
-    update public.purchase_orders set status = 'approved', approved_by = auth.uid(), approved_by_name = me, approved_at = now(),
+    gone := po.voices; -- the voice notes are deleted from the server once the order is approved
+    update public.purchase_orders set status = 'approved', approved_by = auth.uid(), approved_by_name = me, approved_at = now(), voices = '{}',
       director_note = nullif(trim(coalesce(p_note, '')), ''), updated_at = now() where id = p_id;
     perform public.notify_user(po.created_by, 'Your ' || po.lot_name || ' lot was APPROVED (' || po.po_no || ')',
       'Approved by Director ' || coalesce(me, '') || '. Buy at the approved price.', 'po/' || po.id);
@@ -157,8 +179,8 @@ begin
         || 'Please negotiate the price, then edit the details and submit again.' || coalesce(' Note: ' || nullif(trim(p_note), ''), ''));
     end if;
   elsif p_action = 'cancel' then
-    gone := po.photos;
-    update public.purchase_orders set status = 'cancelled', photos = '{}', cancelled_by_name = me, cancelled_at = now(),
+    gone := po.photos || po.voices;
+    update public.purchase_orders set status = 'cancelled', photos = '{}', voices = '{}', cancelled_by_name = me, cancelled_at = now(),
       director_note = nullif(trim(coalesce(p_note, '')), ''), updated_at = now() where id = p_id;
     perform public.notify_user(po.created_by, 'Purchase order ' || po.po_no || ' was cancelled', po.lot_name || coalesce(' - ' || nullif(trim(p_note), ''), ''), 'po/' || po.id);
   else
@@ -226,7 +248,7 @@ begin
   if not (public.is_admin() or po.created_by = auth.uid()) then raise exception 'Not allowed'; end if;
   delete from public.notifications where title = 'Purchase order ' || po.po_no || ' to review';
   delete from public.purchase_orders where id = p_id;
-  return po.photos;
+  return po.photos || po.voices;
 end;
 $$;
 revoke execute on function public.delete_purchase_order(uuid) from public, anon;
