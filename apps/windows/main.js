@@ -108,10 +108,9 @@ function createWindow() {
     show: false,
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true, preload: path.join(__dirname, "preload.js") },
   });
-  win.once("ready-to-show", () => {
-    if (!st || st.maximized) win.maximize(); // the first start fills the screen
-    win.show();
-  });
+  // 3.0: the window opens at once (light background, no white flash) and the portal fills in as it loads
+  if (!st || st.maximized) win.maximize(); // the first start fills the screen
+  win.show();
   win.on("close", () => saveState(win));
   wire(win);
   win.loadURL(HOME);

@@ -9,7 +9,7 @@
   const VERSION = "3.0";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.0.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.0.4"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -120,6 +120,7 @@
     order: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h4"/>',
     tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
     folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
     building: '<rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M10 21v-3h4v3"/>',
     stamp: '<path d="M9 3h6l-1 7h-4z"/><path d="M5 14h14v3H5zM4 21h16"/>',
@@ -1275,7 +1276,8 @@
       const r = await window.EOApp.scan({ dialog: true }, onProgress);
       if (r?.cancelled) { ui.reset(); if (!r.quiet) toast("Scan cancelled."); return; }
       if (!r?.ok) { ui.reset(); toast(r?.error || "The scan did not work.", true); return; }
-      const bytes = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
+      // 3.0: the scanned page is turned into a file by the browser itself (no per-character loop on megabytes)
+      const bytes = await (await fetch(`data:${r.type || "image/jpeg"};base64,${r.data}`)).blob();
       const file = new File([bytes], r.name || `Scan_${Date.now()}.jpg`, { type: r.type || "image/jpeg" });
       if (wrap.dataset.abandoned) return toast("The scanned page was left out (the form was saved without it).", true);
       if (!inp.isConnected && location.hash === hash && inp.id) {
@@ -1618,7 +1620,9 @@
     const main = $("#main");
     if (!shownHash || !main) return;
     const fields = {}, tabs = {};
-    $$("input[id], select[id], textarea[id]", main).forEach((el) => {
+    // 3.0: a form that saves a record (#new…, #edit…) is not filled in again on Back: it could be saved twice
+    const isForm = /^#(new|edit)/.test(shownHash);
+    $$("input[id], select[id], textarea[id]", isForm ? document.createElement("div") : main).forEach((el) => {
       if (["file", "password", "hidden", "button", "submit"].includes(el.type) || NO_RESTORE.has(el.id) || el.disabled) return;
       fields[el.id] = el.type === "checkbox" || el.type === "radio" ? el.checked : el.value;
     });
@@ -1724,7 +1728,7 @@
     if (event === "PASSWORD_RECOVERY") { booted = true; S.profile = null; setTimeout(() => renderSetPassword(true), 0); return; }
     // 3.0: the first page does not wait more than a moment for the company logo (it is set as soon as it comes)
     if (!booted) { booted = true; S.profile = null; setTimeout(() => Promise.race([loadBranding(), new Promise((r) => setTimeout(r, 350))]).then(route), 0); return; }
-    if (changedUser) { S.profile = null; badgeState.at = 0; stopTimers(); setTimeout(route, 0); }
+    if (changedUser) { S.profile = null; badgeState.at = 0; pageMemo.clear(); trail.length = 0; stopTimers(); setTimeout(route, 0); }
   });
 
   // exposed for testing barcode round-trips
