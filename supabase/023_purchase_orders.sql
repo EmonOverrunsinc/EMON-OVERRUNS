@@ -232,4 +232,66 @@ $$;
 revoke execute on function public.delete_purchase_order(uuid) from public, anon;
 grant execute on function public.delete_purchase_order(uuid) to authenticated;
 
+-- After approval the Director's portal keeps small copies of the product photos for the PDF (print_photos); one
+-- month after approval the full photos are deleted from storage, and the PDF keeps showing the small copies.
+alter table public.purchase_orders add column if not exists print_photos text[] not null default '{}';
+create or replace function public.purchase_order_photos(p_id uuid, p_action text, p_print text[] default null) returns text[]
+language plpgsql security definer set search_path = '' as $$
+declare po public.purchase_orders; gone text[];
+begin
+  if not public.is_admin() then raise exception 'Only the Director'; end if;
+  select * into po from public.purchase_orders where id = p_id for update;
+  if not found or po.status <> 'approved' then raise exception 'Purchase order not approved'; end if;
+  if p_action = 'print' then
+    if coalesce(array_length(p_print, 1), 0) > 2 or exists (select 1 from unnest(p_print) x where x not like 'data:image/jpeg;base64,%' or length(x) > 400000) then
+      raise exception 'Wrong print photos';
+    end if;
+    update public.purchase_orders set print_photos = p_print where id = p_id;
+    return '{}';
+  elsif p_action = 'expire' then
+    if po.approved_at > now() - interval '30 days' or coalesce(array_length(po.print_photos, 1), 0) = 0 then return '{}'; end if;
+    gone := po.photos;
+    update public.purchase_orders set photos = '{}' where id = p_id;
+    return gone;
+  end if;
+  raise exception 'Unknown action %', p_action;
+end;
+$$;
+revoke execute on function public.purchase_order_photos(uuid, text, text[]) from public, anon;
+grant execute on function public.purchase_order_photos(uuid, text, text[]) to authenticated;
+
+-- ---------- an approved employee is linked to a login account once ----------
+-- The Director links an employee (no login yet) to an existing login account. The link cannot be removed, and an
+-- employee linked to a login account cannot be deleted.
+create or replace function public.link_employee_account(p_employee uuid, p_profile uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+declare em public.employees; pr public.profiles;
+begin
+  if not public.is_admin() then raise exception 'Only the Director links a login account'; end if;
+  select * into em from public.employees where id = p_employee for update;
+  if not found then raise exception 'Employee not found'; end if;
+  if em.profile_id is not null then raise exception 'Employee % is already linked to a login account', em.employee_no; end if;
+  if em.status in ('terminated') then raise exception 'Employee % is TERMINATED', em.employee_no; end if;
+  select * into pr from public.profiles where id = p_profile;
+  if not found then raise exception 'Login account not found'; end if;
+  if pr.role = 'admin' then raise exception 'A Director account cannot be linked to an employee'; end if;
+  if exists (select 1 from public.employees e where e.profile_id = p_profile) then raise exception 'That login account is already linked to another employee'; end if;
+  perform public.allow_record_change();
+  update public.employees set profile_id = p_profile, status = case when status = 'waiting' then 'active' else status end where id = p_employee;
+end;
+$$;
+revoke execute on function public.link_employee_account(uuid, uuid) from public, anon;
+grant execute on function public.link_employee_account(uuid, uuid) to authenticated;
+
+create or replace function public.employees_keep_linked() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if old.profile_id is not null then raise exception 'This employee is linked to a login account and cannot be deleted'; end if;
+  return old;
+end;
+$$;
+revoke execute on function public.employees_keep_linked() from public, anon, authenticated;
+drop trigger if exists employees_keep_linked on public.employees;
+create trigger employees_keep_linked before delete on public.employees for each row execute function public.employees_keep_linked();
+
 select 'UPDATE 3.0 READY - Purchase Orders' as result;

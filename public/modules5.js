@@ -28,6 +28,7 @@
     if (!$("#poBody")) return;
     if (error) { $("#poBody").innerHTML = notSet(error) ? needUpdate : `<div class="empty">${esc(error.message)}</div>`; return; }
     const all = data || [];
+    expirePhotos(all);
     const waiting = all.filter((p) => ["pending", "negotiation"].includes(p.status) || p.pending_update);
     const approved = all.filter((p) => p.status === "approved"), cancelled = all.filter((p) => p.status === "cancelled");
     const months = [...new Set(approved.map((p) => monthOf(p.approved_at ? E.isoDay?.(new Date(p.approved_at)) || p.po_date : p.po_date)))].sort().reverse();
@@ -168,6 +169,38 @@
     };
   }
 
+  // A small copy of each product photo (JPEG, at most 900 px) kept with the approved purchase order for its PDF; the
+  // full photos are deleted one month after approval and the PDF keeps the small copies.
+  async function printCopies(urls) {
+    const out = [];
+    for (const u of urls) {
+      try {
+        const img = await new Promise((res, rej) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => res(i); i.onerror = rej; i.src = u; });
+        const k = Math.min(1, 900 / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+        const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+        let q = 0.72, d = c.toDataURL("image/jpeg", q);
+        while (d.length > 380000 && q > 0.35) { q -= 0.12; d = c.toDataURL("image/jpeg", q); }
+        out.push(d);
+      } catch (_) { /* a photo that cannot be read is left out */ }
+    }
+    return out;
+  }
+  const keepPrint = async (p, urls) => {
+    if (!isAdmin() || p.status !== "approved" || p.print_photos?.length || !p.photos?.length) return;
+    const copies = await printCopies(p.photos.map((x) => urls.get(x)).filter(Boolean));
+    if (copies.length) { const r = await sb.rpc("purchase_order_photos", { p_id: p.id, p_action: "print", p_print: copies }); if (!r.error) p.print_photos = copies; }
+  };
+  // one month after approval: the full photos are deleted (the PDF keeps the small copies)
+  async function expirePhotos(rows) {
+    if (!isAdmin()) return;
+    const old = rows.filter((p) => p.status === "approved" && p.photos?.length && p.print_photos?.length && Date.now() - new Date(p.approved_at).getTime() > 30 * 86400000);
+    for (const p of old) {
+      const { data: gone } = await sb.rpc("purchase_order_photos", { p_id: p.id, p_action: "expire", p_print: null });
+      if (gone?.length) sb.storage.from("records").remove(gone).then(() => {}, () => {});
+    }
+  }
+
   // ---------- one purchase order ----------
   V.po = async (id) => {
     E.shell("po", "Purchase Order", busy());
@@ -183,7 +216,8 @@
     const lines = (p.items || []).map((l, i) => `<tr><td>${i + 1}</td><td>${esc(l.item)}</td><td>${esc(l.brand || "")}</td><td class="num">${isAdmin() && open ? `<input type="number" class="ngP" data-i="${i}" min="0" step="0.01" value="${l.price}">` : peso(l.price)}</td>
       <td class="num">${qtyText(l.qty)}</td><td>${l.terms === "fixed" ? "Fixed" : "Negotiable"}</td><td>${esc(l.note || "")}</td><td class="num ngA">${peso(l.amount)}</td></tr>`).join("");
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(p.po_no)} · ${esc(p.lot_name)} ${stPill(p)}</div><div class="wbody">
-      ${p.photos?.length ? `<div class="po-hero n${p.photos.length}">${p.photos.map((x) => `<button type="button" class="pp" data-img="${esc(urls.get(x) || "")}"><img src="${esc(urls.get(x) || "")}" alt="Product photo"></button>`).join("")}</div>` : p.status === "cancelled" ? `<small class="muted">The photos were deleted when the purchase order was cancelled.</small>` : ""}
+      ${(() => { const src = p.photos?.length ? p.photos.map((x) => urls.get(x) || "") : p.print_photos || [];
+        return src.length ? `<div class="po-hero n${src.length}">${src.map((u) => `<button type="button" class="pp" data-img="${esc(u)}"><img src="${esc(u)}" alt="Product photo"></button>`).join("")}</div>` : p.status === "cancelled" ? `<small class="muted">The photos were deleted when the purchase order was cancelled.</small>` : ""; })()}
       ${p.status === "negotiation" ? `<div class="banner warn">${ic("bell")} EMON OVERRUNS authority does not agree with that price. Please negotiate the price, then ${mine ? "press <b>Edit</b>, change the details and submit again" : "the maker edits and submits again"}.${p.director_note ? " Note: " + esc(p.director_note) : ""}</div>` : ""}
       ${p.status === "approved" ? `<div class="banner ok">${ic("check")} APPROVED by Director ${esc(p.approved_by_name || "")} · ${esc(E.dateTime(p.approved_at))}. Buy this lot at the approved price.${p.arrived_at ? ` <b>Arrived at the warehouse</b> ${esc(E.dateTime(p.arrived_at))}${p.arrived_by_name ? " · " + esc(p.arrived_by_name) : ""}.` : ""}</div>` : ""}
       ${p.status === "cancelled" ? `<div class="banner closed">CANCELLED by ${esc(p.cancelled_by_name || "")} · ${esc(E.dateTime(p.cancelled_at))}${p.director_note ? " — " + esc(p.director_note) : ""}</div>` : ""}
@@ -256,14 +290,15 @@
         m.close(); toast("Update sent to the Director."); V.po(id);
       };
     };
-    if ($("#poPdf")) $("#poPdf").onclick = async () => { await E.loadSignatures(); E.openPreview(`Purchase Order ${p.po_no}`, [poPage(p, urls)]); };
+    keepPrint(p, urls);
+    if ($("#poPdf")) $("#poPdf").onclick = async () => { await Promise.all([E.loadSignatures(), keepPrint(p, urls)]); E.openPreview(`Purchase Order ${p.po_no}`, [poPage(p, urls)]); };
     E.setRecords(`Purchase order: ${p.po_no}`);
   };
 
   // ---------- the approved purchase order (PDF) ----------
   function poPage(p, urls) {
     const sign = E.approvedBy(p.approved_by, p.approved_by_name, p.approved_at);
-    const pics = (p.photos || []).map((x) => urls.get(x)).filter(Boolean);
+    const pics = p.print_photos?.length ? p.print_photos : (p.photos || []).map((x) => urls.get(x)).filter(Boolean);
     return `${E.printHead("PURCHASE ORDER", `<img src="${E.pdf417DataUrl("EMONPO|" + p.po_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.po_no)}</div>`)}
       ${pics.length ? `<div class="po-print-pics n${pics.length}">${pics.map((u) => `<img src="${esc(u)}" alt="Product photo">`).join("")}</div>` : ""}
       ${E.box("Lot", `<div class="pgrid2">${E.cell("Lot No", p.po_no)}${E.cell("Lot Name", p.lot_name)}${E.cell("Date", mdy(p.po_date))}${E.cell("Processing Time", p.processing_time || "—")}

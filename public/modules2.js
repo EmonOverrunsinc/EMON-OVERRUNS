@@ -171,7 +171,12 @@
         <div data-p="2" hidden><div id="emOrders">${E.ordersGrid(orders, "No orders for this employee.")}</div></div>
         ${isAdmin() ? `<div data-p="3" hidden><fieldset class="opt"><legend>Access &amp; Status</legend><div class="fields wide">${accessFields(em.role, em.modules || [])}
           ${["active", "inactive"].includes(em.status) ? `<label for="emStatus">Login</label><select id="emStatus"><option value="active" ${em.status === "active" ? "selected" : ""}>Active — can sign in</option><option value="inactive" ${em.status === "inactive" ? "selected" : ""}>Inactive — blocked</option></select>` : ""}</div>
-          <div class="btnrow"><button type="button" class="btn primary" id="emSave">Save Access</button></div></fieldset></div>` : ""}
+          <div class="btnrow"><button type="button" class="btn primary" id="emSave">Save Access</button></div></fieldset>
+          <fieldset class="opt"><legend>Login Account</legend>${em.profile_id ? `<p>${ic("check")} Linked to a login account. The link cannot be removed, and this employee cannot be deleted.</p>`
+            : em.status === "terminated" ? `<p class="muted">A terminated employee cannot be linked.</p>`
+            : `<p class="muted" style="margin-top:0">No login yet. Link an existing login account to this employee (once only: the link cannot be removed afterwards).</p>
+            <div class="fields wide"><label for="emLinkSel">Login Account</label><select id="emLinkSel"><option value="">Loading…</option></select></div>
+            <div class="btnrow"><button type="button" class="btn" id="emLink">${ic("key")} Link Login Account</button></div>`}</fieldset></div>` : ""}
         <div data-p="${isAdmin() ? 4 : 3}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Address", em.address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""], ["Created By", em.created_by_name]].map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>${rhBox("employees", em.id)}</div>
       </div>`;
     $$("#emTabs button").forEach((t) => (t.onclick = () => { $$("#emTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#emPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
@@ -182,6 +187,23 @@
     E.bindDocCards($("#main"), () => V.employee(id));
     bindTools($("#main"));
     if ($("#emPay")) $("#emPay").onclick = () => payslipDialog(em, (p) => (location.hash = "payslip/" + p.id));
+    // 3.0: an employee linked to a login account cannot be deleted (no Delete button)
+    if (em.profile_id) $$("[data-rt-del]").forEach((b) => b.remove());
+    if ($("#emLinkSel")) (async () => {
+      const [{ data: pr }, { data: ems }] = await Promise.all([sb.from("profiles").select("id, full_name, email, role, status").neq("role", "admin").order("full_name"),
+        sb.from("employees").select("profile_id").not("profile_id", "is", null)]);
+      const used = new Set((ems || []).map((x) => x.profile_id)), list = (pr || []).filter((x) => !used.has(x.id) && x.status !== "disabled");
+      const sel = $("#emLinkSel"); if (!sel) return;
+      sel.innerHTML = list.length ? `<option value="">— Choose the login account —</option>` + list.map((x) => `<option value="${x.id}">${esc(x.full_name || "")} · ${esc(x.email || "")}</option>`).join("") : `<option value="">No free login account</option>`;
+      $("#emLink").onclick = async () => {
+        const pid = sel.value; if (!pid) return toast("Choose the login account.", true);
+        const x = list.find((y) => y.id === pid);
+        if (!(await E.confirmBox(`Link <b>${esc(fullName(em))}</b> to the login account <b>${esc(x.full_name || "")}</b> (${esc(x.email || "")})?<br><br>This is done once: the link cannot be removed, and the employee can no longer be deleted.`, { ok: "Link Account" }))) return;
+        const { error } = await sb.rpc("link_employee_account", { p_employee: em.id, p_profile: pid });
+        if (error) return fail(error, /link_employee_account/.test(error.message || "") ? "Run the database update 023_purchase_orders.sql first" : "Could not link the account");
+        toast("Login account linked."); V.employee(id);
+      };
+    })();
     if ($("#emSave")) $("#emSave").onclick = async () => {
       const acc = readAccess();
       const { error } = await sb.rpc("set_employee_access", { p_id: id, p_role: acc.role, p_modules: acc.modules, p_status: $("#emStatus") ? $("#emStatus").value : null });
