@@ -3,10 +3,8 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy } = E;
+  const { sb, S, C, esc, peso, isoToday, mdy, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy, num, fullName, bdt } = E;
   const V = window.EO_VIEWS;
-  const num = (v) => Number(v || 0);
-  const fullName = (r) => `${r.first_name || ""} ${r.last_name || ""}`.trim();
   const monthLabel = (iso) => iso ? new Date(String(iso).slice(0, 10) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) : "";
   const tools = (...a) => (E.recordTools ? E.recordTools(...a) : "");
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
@@ -695,7 +693,6 @@
   // 8. Billing — companies, their accounts and payment vouchers. Each company is paid in PHP, in BDT, or in
   // both (PHP × rate = BDT), and all of its records show only that currency.
   // ======================================================================
-  const bdt = (n) => `BDT ${peso(n)}`;
   const RATE_KEY = "eoLastRate";
   const lastRate = () => { try { return localStorage.getItem(RATE_KEY) || ""; } catch (_) { return ""; } };
   const CUR = { PHP: "PHP", BDT: "BDT", BOTH: "PHP, BDT" };

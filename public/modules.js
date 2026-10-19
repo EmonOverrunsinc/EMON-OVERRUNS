@@ -4,17 +4,15 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, isoDay, mdy, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy } = E;
+  const { sb, S, C, esc, peso, isoToday, isoDay, mdy, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy, num, fullName } = E;
   const V = (window.EO_VIEWS = window.EO_VIEWS || {});
 
-  const fullName = (c) => `${c.first_name || ""} ${c.last_name || ""}`.trim();
   const METHOD = { cash: "Cash", bank_transfer: "Bank Transfer", online_transfer: "Online Transfer", deposit: "Bank Deposit" };
   const DEFECT = { fabric_damage: "Fabric Damage (Tears, Holes)", color_issue: "Color Issue", wrong_box: "Wrong Box Delivered", wrong_bundle: "Wrong Bundle", other: "Other" };
   const ACTION = { replacement: "Replacement / Exchange", refund: "Full Refund Transfer", credit: "Credit", discount: "Discount" };
   // The customer's QR code is the Public ID key itself, like a crypto wallet address.
   const custQr = (c) => c.public_id || c.account_no;
   const cleanQ = (q) => String(q || "").replace(/[,%()*\\]/g, " ").trim();
-  const num = (v) => Number(v || 0);
   const myName = () => S.profile.full_name || S.session.user.email;
   // randomUUID needs a secure context; fall back to getRandomValues elsewhere.
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID()

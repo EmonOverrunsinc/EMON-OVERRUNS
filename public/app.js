@@ -19,6 +19,12 @@
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const peso = (n) => Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const pad = (n) => String(n).padStart(2, "0");
+  // 2.9: small helpers shared by every section (they were written again in each file)
+  const num = (v) => Number(v || 0);
+  const fullName = (r) => `${(r && r.first_name) || ""} ${(r && r.last_name) || ""}`.trim();
+  const qtyText = (n) => Number(n || 0).toLocaleString("en-PH", { maximumFractionDigits: 2 });
+  const bdt = (n) => `BDT ${peso(n)}`;
+  const verifyUrl = (code) => `${location.origin}${location.pathname}#verify/${encodeURIComponent(code)}`;
   const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const isoToday = () => isoDay(new Date());
   // Every date shows as MONTH DD YYYY in capitals (AUGUST 01 2026, OCTOBER 09 2026); with the time: OCTOBER 09 2026
@@ -1790,7 +1796,7 @@
   window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words, need };
   // shared with modules.js to modules4.js
   Object.assign(window.EO, {
-    APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, dateTime, fixDates, timeAgo, online, $, $$,
+    APP, VERSION, sb, S, C, esc, peso, pad, num, fullName, qtyText, bdt, verifyUrl, isoToday, isoDay, mdy, stamp, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, 
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, slimFile, scanDialog, openScanned, isCustKey, keepTab, stillHere,

@@ -4,10 +4,8 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy } = E;
+  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy, num, fullName, verifyUrl, qtyText } = E;
   const V = window.EO_VIEWS;
-  const num = (v) => Number(v || 0);
-  const fullName = (r) => `${r.first_name || ""} ${r.last_name || ""}`.trim();
   const meId = () => S.session?.user?.id;
 
   // Large phone photos are resized before upload (max 1600 px, JPEG).
@@ -601,7 +599,6 @@
     : o.customers ? `${o.customers.account_no} ${fullName(o.customers)}` : "";
   const ORDER_LIST = "*, customers(first_name,last_name,account_no,status), employees(first_name,last_name,employee_no,status), pay_companies(name,status), stock_bills(bill_no,status)";
   const ORDER_ALL = "*, customers(*), employees(*), pay_companies(*), stock_bills(id,bill_no,status)";
-  const qtyText = (n) => Number(n || 0).toLocaleString("en-PH", { maximumFractionDigits: 2 });
   const dayOf = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const EVERY = { month: "Every month", "15 days": "Every 15 days", week: "Every week" };
   const CLOSE_REASONS = ["Requested by the customer", "Unpaid balance", "Violation of terms", "Business closed", "Other"];
@@ -1246,7 +1243,6 @@
     Employee: ["employees", "employee_no", "employee"], Project: ["projects", "project_no", "project"], "Project Payment": ["project_payments", "payment_no", "project", "project_id"],
     "E-Bill": ["stock_bills", "bill_no", "stockbill"], "E-Bill Statistics": ["stock_bills", "bill_no", "stockbill"], "Stock-Bill Statistics": ["stock_bills", "bill_no", "stockbill"]
   };
-  const verifyUrl = (no) => `${location.origin}${location.pathname}#verify/${encodeURIComponent(no)}`;
   V.verify = async (code) => {
     const inside = !!(S.session && S.profile?.status === "active");
     const body = `
