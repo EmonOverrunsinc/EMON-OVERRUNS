@@ -8393,7 +8393,7 @@ create table if not exists public.purchase_orders (
   notes text,
   items jsonb not null default '[]'::jsonb,
   total_qty numeric(14,2) not null default 0,
-  total_amount numeric(14,2) not null default 0,
+  total_amount numeric(14,2) not null default 0, -- BDT (taka)
   photos text[] not null default '{}',
   status text not null default 'pending' check (status in ('pending','negotiation','approved','cancelled')),
   director_note text,
@@ -8460,7 +8460,7 @@ begin
             nullif(trim(coalesce(p_data ->> 'notes', '')), ''), it,
             (select sum((x ->> 'qty')::numeric) from jsonb_array_elements(it) x), (select sum((x ->> 'amount')::numeric) from jsonb_array_elements(it) x), me)
     returning * into po;
-    perform public.notify_admins('Purchase order ' || po.po_no || ' to review', po.lot_name || ' [[U+00B7]] PHP ' || to_char(po.total_amount, 'FM999,999,990.00') || ' (from ' || coalesce(me, '') || ')', 'po/' || po.id);
+    perform public.notify_admins('Purchase order ' || po.po_no || ' to review', po.lot_name || ' [[U+00B7]] BDT ' || to_char(po.total_amount, 'FM999,999,990.00') || ' (from ' || coalesce(me, '') || ')', 'po/' || po.id);
     return po;
   end if;
   select * into po from public.purchase_orders where id = p_id for update;

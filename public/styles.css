@@ -548,18 +548,9 @@ main h3 { margin: 14px 0 6px; color: var(--title-2); }
 .cm-rep b { background: #fff4b8; border: 1px solid #c9a400; padding: 2px 10px; font-size: 13px; }
 .cm-rep img { display: block; height: 46px; margin-top: 4px; margin-left: auto; image-rendering: pixelated; }
 
-/* Company seal as a watermark on printed documents only. On an A4 page it stands in the middle of the filled part of
-   the page and is as big as fits there (2.4.2): the preview measures each page and sets --wm-top / --wm-w for the
-   screen and --wm-ptop / --wm-pw for the paper; until then it starts just below the letterhead. On A5 and landscape
-   pages it stands in the middle. */
+/* Printed pages (3.0: no watermark) */
 .page { position: relative; overflow: hidden; }
-.page > .wm {
-  position: absolute; left: 50%; top: var(--wm-top, 42mm); width: var(--wm-w, 62%); max-width: 520px; transform: translateX(-50%);
-  opacity: .09; mix-blend-mode: multiply; pointer-events: none; user-select: none; z-index: 0;
-}
-.page.a5l > .wm, .page.landscape > .wm { top: 50%; transform: translate(-50%, -50%); }
-@media print { .page > .wm { top: var(--wm-ptop, 42mm); width: var(--wm-pw, 62%); } }
-.page > :not(.wm) { position: relative; z-index: 1; }
+.page > * { position: relative; z-index: 1; }
 .page > .rp-stamp { position: relative; }
 /* The date the page was printed, small in the top right corner */
 .page > .pg-date { position: absolute; top: 4.5mm; right: 14mm; font-size: 8.5px; color: #333; }
@@ -1005,7 +996,6 @@ table.ol-sched .num { text-align: right; }
 
 /* A5 landscape pages (openPreview size "a5l") */
 .page.a5l { width: 210mm; min-height: 148mm; padding: 8mm 11mm; page: a5l; }
-.page.a5l > .wm { width: 44%; }
 @page a5l { size: A5 landscape; margin: 0; }
 .page { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
@@ -1436,7 +1426,7 @@ body {
 .band-back:hover { box-shadow: var(--shadow-2); }
 .band-back:active { transform: scale(.92); }
 .band .help { background: #e8e8ed; color: var(--ink-soft); border: 0; box-shadow: none; }
-#main { max-width: 1280px; margin: 0 auto; padding: 8px 18px 28px; }
+#main { max-width: 1280px; margin: 0 auto; padding: 8px 18px calc(56px + env(safe-area-inset-bottom, 0px)); }
 
 /* ---------- cards, panels, hints ---------- */
 .hint { background: #fff; border: 0; border-radius: 12px; padding: 10px 14px; box-shadow: var(--shadow-1); color: #3a3a3c; }
@@ -1572,7 +1562,7 @@ table.grid tfoot td { background: #fafafc; border-top: 1px solid var(--panel-lin
 @media (max-width: 620px) {
   .band { padding: 16px 12px 4px; }
   .band h1 { font-size: 26px; }
-  #main { padding: 6px 12px 24px; }
+  #main { padding: 6px 12px calc(56px + env(safe-area-inset-bottom, 0px)); }
   .home-hero { padding: 18px; gap: 14px; border-radius: 18px; }
   .home-hero .hero-logo { width: 56px; height: 56px; border-radius: 14px; }
   .quick { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

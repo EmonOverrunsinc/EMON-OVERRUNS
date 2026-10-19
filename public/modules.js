@@ -510,12 +510,14 @@
     if (!H("customers") && !H("invoices") && !H("payments")) { E.setRecords("Welcome"); return; }
     const nextMonth = (m) => { const [y, n] = m.split("-").map(Number); return n === 12 ? `${y + 1}-01-01` : `${y}-${String(n + 1).padStart(2, "0")}-01`; };
     // 2.5: only what the dashboard shows is loaded (the 8 newest invoices and payments, this month's payment amounts)
-    const [cust, bal, inv, pay, month] = await Promise.all([
-      sb.from("customers").select("id,first_name,last_name,account_no,application_no,status,application_date,business_name").order("created_at", { ascending: false }).limit(1000),
+    // 3.0: the customers waiting (a short list) and the number of active customers are asked for: not 1000 rows
+    const [cust, bal, inv, pay, month, activeN] = await Promise.all([
+      sb.from("customers").select("id,first_name,last_name,account_no,application_no,status,application_date,business_name").in("status", ["pending", "verified"]).order("created_at", { ascending: false }).limit(50),
       sb.from("customer_balances").select("balance_due"),
       sb.from("invoice_balances").select("id,invoice_no,first_name,last_name,balance,pay_status").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(8),
       sb.from("payments_received").select("id,receipt_no,amount,paid_date,customers(first_name,last_name)").order("created_at", { ascending: false }).limit(8),
-      sb.from("payments_received").select("amount").gte("paid_date", ym + "-01").lt("paid_date", nextMonth(ym))
+      sb.from("payments_received").select("amount").gte("paid_date", ym + "-01").lt("paid_date", nextMonth(ym)),
+      sb.from("customers").select("id", { count: "exact", head: true }).eq("status", "active")
     ]);
     if (cust.error) {
       $("#main").insertAdjacentHTML("afterbegin", `<div class="hint err">The customer database is not set up yet. Ask the Director to run the setup script <b>002_customers_invoices_payments.sql</b>.</div>`);
@@ -526,7 +528,7 @@
     const pays = pay.data || [];
     const monthPaid = (month.data || []).reduce((s, p) => s + num(p.amount), 0);
     const waiting = cs.filter((c) => ["pending", "verified"].includes(c.status));
-    const tiles = [["ok", cs.filter((c) => c.status === "active").length], ["warn", waiting.length], ["", "₱ " + peso(due)], ["ok", "₱ " + peso(monthPaid)]];
+    const tiles = [["ok", activeN.count || 0], ["warn", waiting.length], ["", "₱ " + peso(due)], ["ok", "₱ " + peso(monthPaid)]];
     $$("#dTiles .tile").forEach((t, i) => { t.className = "tile " + tiles[i][0]; $(".v", t).textContent = tiles[i][1]; });
     if ($("#dApps")) {
       $("#dApps").innerHTML = E.grid({ cols: [
@@ -554,7 +556,7 @@
         rows: rp, onRow: true, empty: "No payments yet." });
       E.bindGrid($("#dPay"), rp, (r) => (location.hash = "payment/" + r.id));
     }
-    E.setRecords(`Customers: ${cs.length}`);
+    E.setRecords(`Customers: ${activeN.count || 0}`);
   };
   // 3.0: Purchase Orders on the dashboard: the ones waiting for review, then this month's approved lots with their
   // quantity and average price.
@@ -567,9 +569,9 @@
     const wait = rows.filter((p) => ["pending", "negotiation"].includes(p.status) || p.pending_update);
     const appr = rows.filter((p) => p.status === "approved" && String(p.po_date).slice(0, 7) === m);
     const q = appr.reduce((s, p) => s + num(p.total_qty), 0), a = appr.reduce((s, p) => s + num(p.total_amount), 0);
-    const line = (p) => `<a class="po-rv" href="#po/${p.id}"><b>${esc(p.po_no)}</b><span>${esc(p.lot_name)} · ${Number(p.total_qty).toLocaleString("en-PH")} pcs · avg ₱ ${peso(num(p.total_qty) ? num(p.total_amount) / num(p.total_qty) : 0)}</span>${pill(p.status === "approved" ? "approved" : "pending", p.status === "negotiation" ? "NEGOTIATION" : p.pending_update ? "UPDATE" : p.status.toUpperCase())}</a>`;
+    const line = (p) => `<a class="po-rv" href="#po/${p.id}"><b>${esc(p.po_no)}</b><span>${esc(p.lot_name)} · ${Number(p.total_qty).toLocaleString("en-PH")} pcs · avg BDT ${peso(num(p.total_qty) ? num(p.total_amount) / num(p.total_qty) : 0)}</span>${pill(p.status === "approved" ? "approved" : "pending", p.status === "negotiation" ? "NEGOTIATION" : p.pending_update ? "UPDATE" : p.status.toUpperCase())}</a>`;
     el.innerHTML = `${wait.length ? `<div class="po-dh">${isAdmin() ? "Waiting for your review" : "Purchase order requests"} (${wait.length})</div>${wait.slice(0, 4).map(line).join("")}` : ""}
-      <div class="po-dh">Approved this month · ${appr.length} lot${appr.length === 1 ? "" : "s"} · ${q.toLocaleString("en-PH")} pcs · average ₱ ${peso(q ? a / q : 0)}</div>
+      <div class="po-dh">Approved this month · ${appr.length} lot${appr.length === 1 ? "" : "s"} · ${q.toLocaleString("en-PH")} pcs · average BDT ${peso(q ? a / q : 0)}</div>
       ${appr.length ? appr.slice(0, 5).map(line).join("") : `<div class="empty small">No approved purchase orders this month. <a href="#newpurchase">New Purchase Order</a></div>`}`;
   }
   // Admin to-do: everything waiting for a decision.
@@ -1424,9 +1426,9 @@
     // goods back. The amount is taken off this invoice (the Director's at once, an employee's after approval).
     if ($("#ivReturn")) $("#ivReturn").onclick = () => {
       const left = num(inv.total_amount) - rets.filter((r) => r.status !== "rejected").reduce((a, r) => a + num(r.request_amount), 0);
-      const line = () => `<tr class="rt-line"><td><input type="text" class="rtI" maxlength="60" placeholder="e.g. G2026034G"></td><td><input type="text" class="rtD" maxlength="80" placeholder="e.g. Ladies short pant"></td>
-        <td><input type="number" class="rtB" min="0" step="1" inputmode="numeric"></td><td><input type="number" class="rtP" min="0" step="1" inputmode="numeric"></td>
-        <td><input type="number" class="rtA" min="0" step="0.01" inputmode="decimal"></td><td><button type="button" class="linkbtn del rtX" aria-label="Remove line">${ic("x")}</button></td></tr>`;
+      const line = () => `<tr class="rt-line"><td data-l="Item / Serial No"><input type="text" class="rtI" maxlength="60" placeholder="e.g. G2026034G"></td><td data-l="Description"><input type="text" class="rtD" maxlength="80" placeholder="e.g. Ladies short pant"></td>
+        <td data-l="Boxes"><input type="number" class="rtB" min="0" step="1" inputmode="numeric"></td><td data-l="Pcs"><input type="number" class="rtP" min="0" step="1" inputmode="numeric"></td>
+        <td data-l="Amount (₱)"><input type="number" class="rtA" min="0" step="0.01" inputmode="decimal"></td><td><button type="button" class="linkbtn del rtX" aria-label="Remove line">${ic("x")}</button></td></tr>`;
       const m = E.modal(`Record Return — ${inv.invoice_no}`, `<form id="rtForm" novalidate>
           <div class="fields wide"><span>Kind</span><div class="subj-grid" id="rtKind">${Object.entries(RET_KIND).map(([k, v], i) => `<label class="subj"><input type="radio" name="rtK" value="${k}" ${i ? "" : "checked"}><span>${esc(v)}</span></label>`).join("")}</div>
             <label for="rtDate">Return Date</label><input type="date" id="rtDate" value="${isoToday()}"></div>
@@ -1759,7 +1761,7 @@
         <span>Approved By</span><span>${esc(m.approved_by_name || "—")} ${m.approved_at ? mdy(m.approved_at) : ""}</span>
         <span>Paid / Settled</span><span>${m.paid_at ? `${esc(m.paid_by_name || "")} ${mdy(m.paid_at)}` : "—"}</span></div></div>
       ${m.is_return ? returnBox(m) : ""}
-      <div class="docgrid">${docCard({ key: "memo", title: `${m.is_return ? "Return" : "Credit Memo"} ${m.memo_no}`, tag: m.is_return ? "System Generated" : undefined, sub: `₱ ${peso(m.request_amount)} · ${mdy(m.memo_date)}`, ownerType: "credit_memo", ownerId: m.id, att, print: () => E.openPreview(`${m.is_return ? "Return" : "Credit Memo"} ${m.memo_no}`, [m.is_return ? returnPage(m) : memoPage(m)]),
+      <div class="docgrid">${docCard({ key: "memo", title: `${m.is_return ? "Return" : "Credit Memo"} ${m.memo_no}`, tag: m.is_return ? "System Generated" : undefined, sub: `₱ ${peso(m.request_amount)} · ${mdy(m.memo_date)}`, ownerType: "credit_memo", ownerId: m.id, att, print: () => E.openPreview(`${m.is_return ? "Return" : "Credit Memo"} ${m.memo_no}`, m.is_return ? returnPage(m) : [memoPage(m)]),
         approved: memoApproved(m) ? { name: m.approved_by_name, at: m.approved_at } : null })}</div>
       <div><b>Proof</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No proof uploaded.")}</div>
       ${isAdmin() && ["pending", "approved"].includes(m.status) ? `<fieldset class="opt review"><legend>Director's Decision</legend>
@@ -1802,17 +1804,21 @@
   function returnPage(m) {
     const c = m.customers, ls = retLines(m), sign = memoApproved(m) ? approvedBy(m.approved_by, m.approved_by_name, m.approved_at) : null;
     const wh = m.warehouse_status ? WAREHOUSE[m.warehouse_status] : "NO GOODS RETURNED";
-    return `${printHead("RETURN", `<img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt="" class="ph-bar"><div class="mono">${esc(m.memo_no)}</div>`)}
-      ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(c))}${cell("Account No", c.account_no)}${cell("Invoice No", m.po_number)}${cell("Return Date", mdy(m.memo_date))}</div>`)}
-      ${box("Return", `<div class="pgrid2">${cell("Kind of Return", (RET_KIND[m.return_kind] || "Return of Items").toUpperCase())}${cell("Status", ({ pending: "WAITING FOR APPROVAL", approved: "APPROVED · TAKEN OFF THE INVOICE", paid: "APPROVED · SETTLED", rejected: "NOT APPROVED" }[m.status] || String(m.status).toUpperCase()))}
-        ${cell("Warehouse", wh + (m.warehouse_status === "received" && m.warehouse_at ? ` · ${mdy(m.warehouse_at)}` : ""))}${cell("Recorded By", m.created_by_name || "")}</div>`)}
-      ${box("Returned Items", `<table class="ptl"><thead><tr><th>#</th><th>Item / Serial No</th><th>Description</th><th class="num">Boxes</th><th class="num">Pcs</th><th class="num">Amount (PHP)</th></tr></thead><tbody>
-        ${ls.map((l, i) => `<tr><td>${i + 1}</td><td>${esc(l.item || "")}</td><td>${esc(l.desc || "")}</td><td class="num">${num(l.boxes)}</td><td class="num">${num(l.pcs)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
-        <tr class="ptl-tot"><td colspan="3">TOTAL RETURNS</td><td class="num">${ls.reduce((s, l) => s + num(l.boxes), 0)} BOX</td><td class="num">${ls.reduce((s, l) => s + num(l.pcs), 0)} PCS</td><td class="num">${peso(m.request_amount)}</td></tr></tbody></table>
-        <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(m.request_amount))}</div></div>
-        ${m.inspection_notes ? cell("Note", m.inspection_notes) : ""}`)}
-      <p class="pdecl">The amount above is taken off invoice ${esc(m.po_number || "")} and the customer's balance once approved.${m.warehouse_status ? " The returned items are checked and received at the warehouse." : ""}</p>
-      ${sigs("Received by (Warehouse) &nbsp; / &nbsp; Date", sign ? "Approved by" : "Approved by (Signature) &nbsp; / &nbsp; Date", sign)}`;
+    const sum = (k) => ls.reduce((s2, l) => s2 + num(l[k]), 0);
+    return E.pagedDoc({
+      head: printHead("RETURN", `<img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt="" class="ph-bar"><div class="mono">${esc(m.memo_no)}</div>`),
+      contHead: printHead(`RETURN ${m.memo_no} (CONTINUED)`, ""),
+      top: `${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(c))}${cell("Account No", c.account_no)}${cell("Invoice No", m.po_number)}${cell("Return Date", mdy(m.memo_date))}</div>`)}
+        ${box("Return", `<div class="pgrid2">${cell("Kind of Return", (RET_KIND[m.return_kind] || "Return of Items").toUpperCase())}${cell("Status", ({ pending: "WAITING FOR APPROVAL", approved: "APPROVED · TAKEN OFF THE INVOICE", paid: "APPROVED · SETTLED", rejected: "NOT APPROVED" }[m.status] || String(m.status).toUpperCase()))}
+          ${cell("Warehouse", wh + (m.warehouse_status === "received" && m.warehouse_at ? ` · ${mdy(m.warehouse_at)}` : ""))}${cell("Recorded By", m.created_by_name || "")}</div>`)}`,
+      boxTitle: "Returned Items", thead: `<tr><th>#</th><th>Item / Serial No</th><th>Description</th><th class="num">Boxes</th><th class="num">Pcs</th><th class="num">Amount (PHP)</th></tr>`,
+      rows: ls, rowHtml: (l, i) => `<tr><td>${i + 1}</td><td>${esc(l.item || "")}</td><td>${esc(l.desc || "")}</td><td class="num">${num(l.boxes)}</td><td class="num">${num(l.pcs)}</td><td class="num">${peso(l.amount)}</td></tr>`,
+      totalRow: `<tr class="ptl-tot"><td colspan="3">TOTAL RETURNS</td><td class="num">${sum("boxes")} BOX</td><td class="num">${sum("pcs")} PCS</td><td class="num">${peso(m.request_amount)}</td></tr>`,
+      bottom: `<div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(m.request_amount))}</div></div>${m.inspection_notes ? cell("Note", m.inspection_notes) : ""}
+        <p class="pdecl">The amount above is taken off invoice ${esc(m.po_number || "")} and the customer's balance once approved.${m.warehouse_status ? " The returned items are checked and received at the warehouse." : ""}</p>
+        ${sigs("Received by (Warehouse) &nbsp; / &nbsp; Date", sign ? "Approved by" : "Approved by (Signature) &nbsp; / &nbsp; Date", sign)}`,
+      caps: { single: 12, first: 14, next: 26, last: 12 }
+    });
   }
   // A credit memo the Director approved is printed with the Director's signature on "Approval Signature".
   const memoApproved = (m) => ["approved", "paid"].includes(m.status) && !!(m.approved_by || m.approved_by_name);

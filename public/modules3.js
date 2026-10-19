@@ -1,4 +1,4 @@
-/* EMON OVERRUNS E-PORTAL — job applicant portal, 6 Community, 9 Director Portal (order letters), Verification (public),
+/* EMON OVERRUNS E-PORTAL — job applicant portal, 9 Director Portal (order letters), Verification (public),
    Messages (chat), Corrections, and the Edit / Delete (Director) tools used on every record
    (saved records are never edited; only the Director deletes, permanently). */
 (function () {
@@ -474,90 +474,6 @@
     if ($("#asReq")) $("#asReq").onchange = async (e) => { const here = E.stillHere(), f = await E.uploadRecords("job_application", a.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed to upload.` : "Uploaded.", f > 0); if (here()) applicantStatus(a); };
   }
 
-  // ======================================================================
-  // 6. Community — posts and work photos, removed after 30 days
-  // ======================================================================
-  V.community = async () => {
-    E.shell("community", "Community", `
-      <form class="composer" id="cmpForm">
-        <div class="cmp-av">${E.avatarUrl() ? `<img src="${esc(E.avatarUrl())}" alt="">` : `<span>${esc(E.initials(S.profile.full_name))}</span>`}</div>
-        <div class="cmp-main"><textarea id="cmpText" rows="2" placeholder="Share an update or photos of your work, ${esc((S.profile.full_name || "").split(" ")[0])}…"></textarea>
-          <div class="cmp-prev" id="cmpPrev"></div>
-          <div class="cmp-bar"><label class="btn" for="cmpPhotos">${ic("image")} Photos</label><input type="file" id="cmpPhotos" accept="image/*" multiple hidden>
-            <small class="muted">Posts are removed automatically after 30 days.</small><button type="submit" class="btn primary">${ic("send")} Post</button></div></div>
-      </form>
-      <div id="feed">${busy()}</div>`);
-    let picked = [];
-    const showPicked = () => {
-      $("#cmpPrev").innerHTML = picked.map((f, i) => `<div class="thumb"><img src="${URL.createObjectURL(f)}" alt=""><button type="button" data-rm="${i}" aria-label="Remove photo">×</button></div>`).join("");
-      $$("#cmpPrev [data-rm]").forEach((b) => (b.onclick = () => { picked.splice(Number(b.dataset.rm), 1); showPicked(); }));
-    };
-    $("#cmpPhotos").onchange = (e) => { picked = picked.concat(Array.from(e.target.files)).slice(0, 10); e.target.value = ""; showPicked(); };
-    $("#cmpForm").onsubmit = async (e) => {
-      e.preventDefault();
-      const body = $("#cmpText").value.trim();
-      if (!body && !picked.length) return toast("Write something or add a photo.", true);
-      E.setBusy(e.target, true, "Posting");
-      const id = E.uuid(), photos = [];
-      for (const [i, raw] of picked.entries()) {
-        const f = await shrinkImage(raw);
-        const path = `community/${id}/${i + 1}_${Date.now()}.${E.extOf(f)}`;
-        const up = await sb.storage.from("records").upload(path, f, { contentType: f.type });
-        if (!up.error) photos.push(path); else console.error(up.error);
-      }
-      const { error } = await sb.from("community_posts").insert({ id, body: body || null, photos });
-      E.setBusy(e.target, false);
-      if (error) return fail(error, "Could not post");
-      picked = []; $("#cmpText").value = ""; showPicked();
-      toast("Posted."); loadFeed();
-    };
-    if (isAdmin()) cleanupOld();
-    loadFeed();
-  };
-  async function cleanupOld() {
-    const cutoff = new Date(Date.now() - 30 * 86400000).toISOString();
-    const { data } = await sb.from("community_posts").select("id, photos").lt("created_at", cutoff);
-    if (!data?.length) return;
-    const files = data.flatMap((p) => p.photos || []);
-    if (files.length) await sb.storage.from("records").remove(files);
-    await sb.from("community_posts").delete().in("id", data.map((p) => p.id));
-  }
-  async function loadFeed() {
-    const box = $("#feed"); if (!box) return;
-    const cutoff = new Date(Date.now() - 30 * 86400000).toISOString();
-    const [{ data, error }, people] = await Promise.all([
-      sb.from("community_posts").select("*").gte("created_at", cutoff).order("created_at", { ascending: false }).limit(100),
-      sb.rpc("chat_contacts")
-    ]);
-    if (!$("#feed")) return;
-    if (error) { box.innerHTML = `<div class="empty">Community is not set up yet (run the 1.1 database update).</div>`; return; }
-    const posts = data || [];
-    const who = new Map((people.data || []).map((p) => [p.id, p]));
-    if (S.profile) who.set(S.profile.id, { ...S.profile });
-    const urls = await signedMap(posts.flatMap((p) => p.photos || []));
-    box.innerHTML = posts.length ? posts.map((p) => {
-      const a = who.get(p.author_id) || { full_name: p.author_name };
-      const left = Math.max(0, 30 - Math.floor((Date.now() - new Date(p.created_at).getTime()) / 86400000));
-      const ph = (p.photos || []).map((x) => urls.get(x)).filter(Boolean);
-      return `<article class="post">
-        <header><div class="post-av">${avatarOf(a)}</div>
-          <div class="post-who"><b class="who">${esc(p.author_name || "")}</b><span class="pos">${esc(p.author_position || "")}</span><small>${esc(E.dateTime(p.created_at))} · ${left} day${left === 1 ? "" : "s"} left</small></div>
-          ${p.author_id === meId() || isAdmin() ? `<button type="button" class="iconlink" data-del="${p.id}" title="Delete post" aria-label="Delete post">${ic("trash")}</button>` : ""}</header>
-        ${p.body ? `<p class="post-body">${esc(p.body)}</p>` : ""}
-        ${ph.length ? `<div class="post-photos n${Math.min(ph.length, 4)}">${ph.slice(0, 4).map((u, i) => `<button type="button" class="pp" data-img="${esc(u)}">${`<img src="${esc(u)}" alt="Photo ${i + 1}" loading="lazy">`}${i === 3 && ph.length > 4 ? `<span class="more">+${ph.length - 4}</span>` : ""}</button>`).join("")}</div>` : ""}
-      </article>`;
-    }).join("") : `<div class="empty">No posts in the last 30 days. Be the first to share an update!</div>`;
-    $$("[data-img]", box).forEach((b) => (b.onclick = () => lightbox(b.dataset.img)));
-    $$("[data-del]", box).forEach((b) => (b.onclick = async () => {
-      if (!(await E.confirmBox("Delete this post?", { ok: "Delete", danger: true }))) return;
-      const p = posts.find((x) => x.id === b.dataset.del);
-      const { error: e2 } = await sb.from("community_posts").delete().eq("id", p.id);
-      if (e2) return fail(e2, "Could not delete the post");
-      if (p.photos?.length && isAdmin()) sb.storage.from("records").remove(p.photos).then(() => {}, () => {});
-      toast("Post deleted."); loadFeed();
-    }));
-    E.setRecords(`Posts: ${posts.length}`);
-  }
 
   // ======================================================================
   // 9. Director Portal — order letters for a customer, an employee, a billing company or an e-bill (Released Notice), and

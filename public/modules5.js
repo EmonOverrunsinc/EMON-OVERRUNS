@@ -31,21 +31,19 @@
     expirePhotos(all);
     const waiting = all.filter((p) => ["pending", "negotiation"].includes(p.status) || p.pending_update);
     const approved = all.filter((p) => p.status === "approved"), cancelled = all.filter((p) => p.status === "cancelled");
-    const months = [...new Set(approved.map((p) => monthOf(p.approved_at ? E.isoDay?.(new Date(p.approved_at)) || p.po_date : p.po_date)))].sort().reverse();
     const mOf = (p) => monthOf(p.po_date);
     const t = tab || (isAdmin() && waiting.length ? "requests" : "approved");
     const cols = [
       { label: "Lot No", get: (r) => r.po_no }, { label: "Date", get: (r) => mdy(r.po_date) }, { label: "Lot Name", get: (r) => r.lot_name },
-      { label: "Quantity", num: true, get: (r) => qtyText(r.total_qty) }, { label: "Average Price (₱)", num: true, get: (r) => peso(avg(r)) },
-      { label: "Total (₱)", num: true, get: (r) => peso(r.total_amount) }, { label: "Made By", get: (r) => r.created_by_name || "" }, { label: "Status", html: stPill }];
+      { label: "Quantity", num: true, get: (r) => qtyText(r.total_qty) }, { label: "Average Price (BDT)", num: true, get: (r) => peso(avg(r)) },
+      { label: "Total (BDT)", num: true, get: (r) => peso(r.total_amount) }, { label: "Made By", get: (r) => r.created_by_name || "" }, { label: "Status", html: stPill }];
     const monthRows = [...new Set(approved.map(mOf))].sort().reverse().map((m) => {
       const rs = approved.filter((p) => mOf(p) === m), q = rs.reduce((s, p) => s + num(p.total_qty), 0), a = rs.reduce((s, p) => s + num(p.total_amount), 0);
       return { m, n: rs.length, q, a, avg: q ? a / q : 0 };
     });
-    void months;
     $("#poBody").innerHTML = `
       ${isAdmin() && waiting.length ? `<div class="po-review"><div class="po-review-h">${ic("bell")} <b>Review</b> · ${waiting.length} purchase order${waiting.length === 1 ? "" : "s"} waiting for you</div>
-        ${waiting.slice(0, 6).map((p) => `<a class="po-rv" href="#po/${p.id}"><b>${esc(p.po_no)}</b><span>${esc(p.lot_name)} · ${qtyText(p.total_qty)} pcs · ₱ ${peso(p.total_amount)}</span>${stPill(p)}</a>`).join("")}</div>` : ""}
+        ${waiting.slice(0, 6).map((p) => `<a class="po-rv" href="#po/${p.id}"><b>${esc(p.po_no)}</b><span>${esc(p.lot_name)} · ${qtyText(p.total_qty)} pcs · BDT ${peso(p.total_amount)}</span>${stPill(p)}</a>`).join("")}</div>` : ""}
       <div class="tabs" id="poTabs">${[["requests", `Requests (${waiting.length})`], ["approved", "Approved by Month"], ["cancelled", `Cancelled (${cancelled.length})`]].map(([k, l]) => `<button type="button" data-t="${k}" class="${k === t ? "on" : ""}">${esc(l)}</button>`).join("")}</div>
       <div id="poTab"></div>`;
     const show = (k, m) => {
@@ -57,13 +55,13 @@
         const rs = approved.filter((p) => mOf(p) === m), q = rs.reduce((s, p) => s + num(p.total_qty), 0), a = rs.reduce((s, p) => s + num(p.total_amount), 0);
         box.innerHTML = `<div class="btnrow"><button type="button" class="btn small" id="poBack">${ic("back")} All months</button><b class="po-mh">${esc(monthName(m))}</b></div>
           ${E.grid({ cols, rows: rs, onRow: true, foot: {}, empty: "No approved purchase orders this month." })}
-          <div class="lp-sum"><span>Lots</span><b>${rs.length}</b><span>Total quantity</span><b>${qtyText(q)}</b><span>Average price</span><b>₱ ${peso(q ? a / q : 0)}</b><span>Total</span><b>₱ ${peso(a)}</b></div>`;
+          <div class="lp-sum"><span>Lots</span><b>${rs.length}</b><span>Total quantity</span><b>${qtyText(q)}</b><span>Average price</span><b>BDT ${peso(q ? a / q : 0)}</b><span>Total</span><b>BDT ${peso(a)}</b></div>`;
         E.bindGrid(box, rs, (r) => (location.hash = "po/" + r.id));
         $("#poBack").onclick = () => show("approved");
         return;
       }
       box.innerHTML = E.grid({ cols: [{ label: "Month", get: (r) => monthName(r.m) }, { label: "Approved Lots", num: true, get: (r) => r.n }, { label: "Total Quantity", num: true, get: (r) => qtyText(r.q) },
-        { label: "Average Price (₱)", num: true, get: (r) => peso(r.avg) }, { label: "Total (₱)", num: true, get: (r) => peso(r.a) }], rows: monthRows, onRow: true, empty: "No approved purchase orders yet." });
+        { label: "Average Price (BDT)", num: true, get: (r) => peso(r.avg) }, { label: "Total (BDT)", num: true, get: (r) => peso(r.a) }], rows: monthRows, onRow: true, empty: "No approved purchase orders yet." });
       E.bindGrid(box, monthRows, (r) => show("approved", r.m));
     };
     $$("#poTabs button").forEach((b) => (b.onclick = () => show(b.dataset.t)));
@@ -75,13 +73,13 @@
   const lineRow = (l = {}, i = 0) => `<tr class="po-line"><td class="po-n">${i + 1}</td>
     <td data-l="Item Name"><input type="text" class="pI" maxlength="120" value="${esc(l.item || "")}" placeholder="Item name"></td>
     <td data-l="Brand"><input type="text" class="pB" maxlength="80" value="${esc(l.brand || "")}" placeholder="Brand"></td>
-    <td data-l="Demand Price (₱)"><input type="number" class="pP" min="0" step="0.01" inputmode="decimal" value="${l.price ?? ""}"></td>
+    <td data-l="Demand Price (BDT)"><input type="number" class="pP" min="0" step="0.01" inputmode="decimal" value="${l.price ?? ""}"></td>
     <td data-l="Quantity"><input type="number" class="pQ" min="0" step="1" inputmode="numeric" value="${l.qty ?? ""}"></td>
     <td data-l="Price"><select class="pT"><option value="negotiable" ${l.terms === "fixed" ? "" : "selected"}>Negotiable</option><option value="fixed" ${l.terms === "fixed" ? "selected" : ""}>Fixed</option></select></td>
     <td data-l="Note"><input type="text" class="pN" maxlength="200" value="${esc(l.note || "")}" placeholder="Note"></td>
-    <td class="num pA" data-l="Total (₱)">0.00</td><td><button type="button" class="linkbtn del pX" aria-label="Remove line">${ic("x")}</button></td></tr>`;
+    <td class="num pA" data-l="Total (BDT)">0.00</td><td><button type="button" class="linkbtn del pX" aria-label="Remove line">${ic("x")}</button></td></tr>`;
   function linesEditor(box, items, onChange) {
-    box.innerHTML = `<div class="grid-wrap"><table class="grid po-lines edit"><thead><tr><th>#</th><th>Item Name *</th><th>Brand</th><th class="num">Demand Price (₱)</th><th class="num">Quantity *</th><th>Price</th><th>Note</th><th class="num">Total (₱)</th><th></th></tr></thead>
+    box.innerHTML = `<div class="grid-wrap"><table class="grid po-lines edit"><thead><tr><th>#</th><th>Item Name *</th><th>Brand</th><th class="num">Demand Price (BDT)</th><th class="num">Quantity *</th><th>Price</th><th>Note</th><th class="num">Total (BDT)</th><th></th></tr></thead>
       <tbody>${(items.length ? items : [{}]).map(lineRow).join("")}</tbody>
       <tfoot><tr><td colspan="4"><button type="button" class="btn small po-add">${ic("plus")} Add Item</button> <small class="muted">up to ${MAX_LINES}</small></td><td class="num po-tq">0</td><td colspan="2" class="num po-avg"></td><td class="num po-ta">0.00</td><td></td></tr></tfoot></table></div>`;
     const read = () => $$(".po-line", box).map((tr) => ({ item: $(".pI", tr).value.trim(), brand: $(".pB", tr).value.trim(), price: num($(".pP", tr).value), qty: num($(".pQ", tr).value), terms: $(".pT", tr).value, note: $(".pN", tr).value.trim() }))
@@ -89,7 +87,7 @@
     const sum = () => {
       $$(".po-line", box).forEach((tr, i) => { $(".po-n", tr).textContent = i + 1; $(".pA", tr).textContent = peso(num($(".pP", tr).value) * num($(".pQ", tr).value)); });
       const ls = read(), q = ls.reduce((s, l) => s + l.qty, 0), a = ls.reduce((s, l) => s + l.price * l.qty, 0);
-      $(".po-tq", box).textContent = qtyText(q); $(".po-ta", box).textContent = peso(a); $(".po-avg", box).textContent = q ? `Average ₱ ${peso(a / q)}` : "";
+      $(".po-tq", box).textContent = qtyText(q); $(".po-ta", box).textContent = peso(a); $(".po-avg", box).textContent = q ? `Average BDT ${peso(a / q)}` : "";
       $(".po-add", box).disabled = $$(".po-line", box).length >= MAX_LINES;
       if (onChange) onChange();
     };
@@ -224,12 +222,12 @@
       <div class="formgrid"><div class="fields wide"><span>Lot No</span><b class="mono">${esc(p.po_no)}</b><span>Lot Name</span><b>${esc(p.lot_name)}</b><span>Date</span><span>${mdy(p.po_date)}</span>
         <span>Processing Time</span><span>${esc(p.processing_time || "—")}</span></div>
         <div class="fields wide"><span>Authorized Responsible</span><span>${esc(p.authorized_person || "—")}</span><span>Request Created By</span><span>${esc(p.created_by_name || "")} · ${esc(E.dateTime(p.created_at))}</span>
-        <span>Average Price</span><b>₱ ${peso(avg(p))}</b></div></div>
-      <div class="grid-wrap"><table class="grid po-lines"><thead><tr><th>#</th><th>Item Name</th><th>Brand</th><th class="num">Demand Price (₱)</th><th class="num">Quantity</th><th>Price</th><th>Note</th><th class="num">Total (₱)</th></tr></thead>
-        <tbody>${lines}</tbody><tfoot><tr><td colspan="4">TOTAL</td><td class="num">${qtyText(p.total_qty)}</td><td colspan="2" class="num">Average ₱ <span id="ngAvg">${peso(avg(p))}</span></td><td class="num" id="ngTot">${peso(p.total_amount)}</td></tr></tfoot></table></div>
+        <span>Average Price</span><b>BDT ${peso(avg(p))}</b></div></div>
+      <div class="grid-wrap"><table class="grid po-lines"><thead><tr><th>#</th><th>Item Name</th><th>Brand</th><th class="num">Demand Price (BDT)</th><th class="num">Quantity</th><th>Price</th><th>Note</th><th class="num">Total (BDT)</th></tr></thead>
+        <tbody>${lines}</tbody><tfoot><tr><td colspan="4">TOTAL</td><td class="num">${qtyText(p.total_qty)}</td><td colspan="2" class="num">Average BDT <span id="ngAvg">${peso(avg(p))}</span></td><td class="num" id="ngTot">${peso(p.total_amount)}</td></tr></tfoot></table></div>
       ${p.notes ? `<div class="po-notes"><b>Notes / Details</b><p>${esc(p.notes)}</p></div>` : ""}
       ${p.pending_update ? `<div class="linked-pays"><div class="lp-head"><b>Update asked by ${esc(p.pending_update.by || "")} · ${esc(E.dateTime(p.update_requested_at))}</b></div>
-        ${E.grid({ cols: [{ label: "Item", get: (l) => l.item }, { label: "Brand", get: (l) => l.brand || "" }, { label: "Price (₱)", num: true, get: (l) => peso(l.price) }, { label: "Quantity", num: true, get: (l) => qtyText(l.qty) }, { label: "Total (₱)", num: true, get: (l) => peso(l.amount) }], rows: p.pending_update.items || [] })}
+        ${E.grid({ cols: [{ label: "Item", get: (l) => l.item }, { label: "Brand", get: (l) => l.brand || "" }, { label: "Price (BDT)", num: true, get: (l) => peso(l.price) }, { label: "Quantity", num: true, get: (l) => qtyText(l.qty) }, { label: "Total (BDT)", num: true, get: (l) => peso(l.amount) }], rows: p.pending_update.items || [] })}
         ${isAdmin() ? `<div class="btnrow"><button type="button" class="btn ok" data-up="accept_update">${ic("check")} Approve Update</button><button type="button" class="btn danger" data-up="refuse_update">Refuse</button></div>` : ""}</div>` : ""}
       ${isAdmin() && open ? `<fieldset class="opt review"><legend>Director's Decision</legend><div class="fields wide"><label for="poNote">Note</label><input type="text" id="poNote" placeholder="Optional; sent with a negotiation or a cancel"></div>
         <p class="muted" style="margin:4px 0">To negotiate, change the prices in the table above, then press <b>Negotiate</b>: ${esc(p.created_by_name || "the maker")} is told (notice and message) and submits again.</p>
@@ -291,24 +289,49 @@
       };
     };
     keepPrint(p, urls);
-    if ($("#poPdf")) $("#poPdf").onclick = async () => { await Promise.all([E.loadSignatures(), keepPrint(p, urls)]); E.openPreview(`Purchase Order ${p.po_no}`, [poPage(p, urls)]); };
+    if ($("#poPdf")) $("#poPdf").onclick = async () => { await Promise.all([E.loadSignatures(), keepPrint(p, urls)]); E.openPreview(`Purchase Order ${p.po_no}`, poPage(p, urls)); };
     E.setRecords(`Purchase order: ${p.po_no}`);
   };
+
+  // A document with a long list of lines is split over pages: page 1 has the head and the top part, the next pages a short
+  // head and more lines, the last page the total and the bottom part (declaration, signatures). Never cut off.
+  // caps: single = lines when everything is on one page, first / next = lines on a page when there are more pages, last = lines
+  // on the last page when it also carries the bottom (otherwise the bottom gets a page of its own).
+  function pagedDoc({ head, top = "", contHead, thead, rows, rowHtml, totalRow, boxTitle, bottom, caps }) {
+    const table = (chunk, from, total) => E.box(boxTitle, `<table class="ptl"><thead>${thead}</thead><tbody>${chunk.map((r, i) => rowHtml(r, from + i)).join("")}${total ? totalRow : ""}</tbody></table>`);
+    if (rows.length <= caps.single) return [`${head}${top}${table(rows, 0, true)}${bottom}`];
+    const chunks = [rows.slice(0, caps.first)];
+    for (let i = caps.first; i < rows.length; i += caps.next) chunks.push(rows.slice(i, i + caps.next));
+    const pages = []; let from = 0;
+    chunks.forEach((c, k) => {
+      const last = k === chunks.length - 1, carry = last && c.length <= caps.last;
+      pages.push(`${k ? contHead : head + top}${table(c, from, last)}${carry ? bottom : ""}`);
+      from += c.length;
+    });
+    if (!(chunks[chunks.length - 1].length <= caps.last)) pages.push(`${contHead}${bottom}`);
+    return pages;
+  }
 
   // ---------- the approved purchase order (PDF) ----------
   function poPage(p, urls) {
     const sign = E.approvedBy(p.approved_by, p.approved_by_name, p.approved_at);
     const pics = p.print_photos?.length ? p.print_photos : (p.photos || []).map((x) => urls.get(x)).filter(Boolean);
-    return `${E.printHead("PURCHASE ORDER", `<img src="${E.pdf417DataUrl("EMONPO|" + p.po_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.po_no)}</div>`)}
-      ${pics.length ? `<div class="po-print-pics n${pics.length}">${pics.map((u) => `<img src="${esc(u)}" alt="Product photo">`).join("")}</div>` : ""}
-      ${E.box("Lot", `<div class="pgrid2">${E.cell("Lot No", p.po_no)}${E.cell("Lot Name", p.lot_name)}${E.cell("Date", mdy(p.po_date))}${E.cell("Processing Time", p.processing_time || "—")}
-        ${E.cell("Authorized Responsible", p.authorized_person || "—")}${E.cell("Request Created By", p.created_by_name || "")}</div>`)}
-      ${E.box("Items", `<table class="ptl"><thead><tr><th>#</th><th>Item Name</th><th>Brand</th><th class="num">Price (PHP)</th><th class="num">Qty</th><th>Price</th><th class="num">Total (PHP)</th></tr></thead><tbody>
-        ${(p.items || []).map((l, i) => `<tr><td>${i + 1}</td><td>${esc(l.item)}${l.note ? `<br><small>${esc(l.note)}</small>` : ""}</td><td>${esc(l.brand || "")}</td><td class="num">${peso(l.price)}</td><td class="num">${qtyText(l.qty)}</td><td>${l.terms === "fixed" ? "FIXED" : "NEGOTIABLE"}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
-        <tr class="ptl-tot"><td colspan="4">TOTAL · AVERAGE PRICE PHP ${peso(avg(p))}</td><td class="num">${qtyText(p.total_qty)}</td><td></td><td class="num">${peso(p.total_amount)}</td></tr></tbody></table>
-        ${p.notes ? E.cell("Notes / Details", p.notes) : ""}`)}
-      <p class="pdecl">EMON OVERRUNS authority approved this lot — buy this purchase order immediately at the approved price.</p>
-      <p class="po-warn"><b>Warning:</b> this approval does not mean the products must be bought only at the approved price. Depending on the market, the price of this lot can sometimes be higher or lower. This order is for this lot, and all product designs are APPROVED to buy. For a different price, the person who made the purchase order requests an update, and the new details show here after the EOA approves it.</p>
-      ${E.sigs("Request Created By: " + esc(p.created_by_name || ""), "Approved by", sign)}`;
+    const right = `<img src="${E.pdf417DataUrl("EMONPO|" + p.po_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.po_no)}</div>`;
+    const rows = p.items || [];
+    return pagedDoc({
+      head: E.printHead("PURCHASE ORDER", right), contHead: E.printHead(`PURCHASE ORDER ${p.po_no} (CONTINUED)`, ""),
+      top: `${pics.length ? `<div class="po-print-pics n${pics.length}">${pics.map((u) => `<img src="${esc(u)}" alt="Product photo">`).join("")}</div>` : ""}
+        ${E.box("Lot", `<div class="pgrid2">${E.cell("Lot No", p.po_no)}${E.cell("Lot Name", p.lot_name)}${E.cell("Date", mdy(p.po_date))}${E.cell("Processing Time", p.processing_time || "—")}
+          ${E.cell("Authorized Responsible", p.authorized_person || "—")}${E.cell("Request Created By", p.created_by_name || "")}</div>`)}`,
+      boxTitle: "Items (BDT — taka)", thead: `<tr><th>#</th><th>Item Name</th><th>Brand</th><th class="num">Price (BDT)</th><th class="num">Qty</th><th>Price</th><th class="num">Total (BDT)</th></tr>`,
+      rows, rowHtml: (l, i) => `<tr><td>${i + 1}</td><td>${esc(l.item)}${l.note ? `<br><small>${esc(l.note)}</small>` : ""}</td><td>${esc(l.brand || "")}</td><td class="num">${peso(l.price)}</td><td class="num">${qtyText(l.qty)}</td><td>${l.terms === "fixed" ? "FIXED" : "NEGOTIABLE"}</td><td class="num">${peso(l.amount)}</td></tr>`,
+      totalRow: `<tr class="ptl-tot"><td colspan="4">TOTAL · AVERAGE PRICE BDT ${peso(avg(p))}</td><td class="num">${qtyText(p.total_qty)}</td><td></td><td class="num">${peso(p.total_amount)}</td></tr>`,
+      bottom: `${p.notes ? E.box("Notes / Details", `<div class="pcell"><div class="pv" style="white-space:pre-wrap">${esc(p.notes)}</div></div>`) : ""}
+        <p class="pdecl">EMON OVERRUNS authority approved this lot — buy this purchase order immediately at the approved price.</p>
+        <p class="po-warn"><b>Warning:</b> this approval does not mean the products must be bought only at the approved price. Depending on the market, the price of this lot can sometimes be higher or lower. This order is for this lot, and all product designs are APPROVED to buy. For a different price, the person who made the purchase order requests an update, and the new details show here after the EOA approves it.</p>
+        ${E.sigs("Request Created By: " + esc(p.created_by_name || ""), "Approved by", sign)}`,
+      caps: pics.length ? { single: 5, first: 9, next: 22, last: 11 } : { single: 11, first: 15, next: 22, last: 11 }
+    });
   }
+  E.pagedDoc = pagedDoc;
 })();
