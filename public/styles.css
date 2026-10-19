@@ -1903,3 +1903,42 @@ table.ptl tr.ptl-tot td { font-weight: 700; border-top: 1.5px solid var(--doc, #
 .po-print-pics.n1 img { height: 62mm; }
 .po-warn { margin: 2mm 0; padding: 2mm 3mm; font-size: 9.5px; border: 1px solid #e0a100; background: #fffaf0; }
 .po-lines select { min-width: 118px; }
+
+/* ===================== 3.0: Android phone fixes ===================== */
+html, body { overscroll-behavior-y: contain; -webkit-tap-highlight-color: transparent; }
+button, a, input, select, label.btn { touch-action: manipulation; }
+@supports (height: 100dvh) {
+  .layout { min-height: calc(100dvh - 140px); }
+  .modal .window { max-height: calc(100dvh - 32px); }
+  .viewer .window { max-height: calc(100dvh - 32px); }
+  .viewer-body img { max-height: calc(100dvh - 150px); }
+  .viewer-body iframe { height: calc(100dvh - 150px); }
+  .boot { min-height: 100dvh; }
+  .login { min-height: calc(100dvh - 70px); }
+}
+/* fingers: buttons, fields and tabs are at least 44px high on touch screens */
+@media (pointer: coarse) {
+  .btn, button.btn, a.btn, label.btn { min-height: 44px; }
+  .btn.small, button.small { min-height: 40px; }
+  #main input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]), #main select, .modal input:not([type=checkbox]):not([type=radio]):not([type=file]), .modal select { min-height: 44px; }
+  .tabs button { min-height: 42px; }
+  .linkbtn { padding: 10px 8px; min-height: 40px; }
+  .rt-table input, .po-lines input, .po-lines select { min-height: 44px; }
+}
+/* purchase order and return item lines: one card per line on a phone */
+@media (max-width: 640px) {
+  table.po-lines.edit, .po-lines.edit thead { display: block; }
+  .po-lines thead { display: none; }
+  .po-lines tbody, .po-lines tr.po-line { display: block; }
+  .po-lines tr.po-line { margin: 0 0 12px; padding: 10px; border: 1px solid #e5e5ea; border-radius: 14px; background: #fff; }
+  .po-lines tr.po-line td { display: grid; grid-template-columns: 112px 1fr; align-items: center; gap: 8px; border: 0; padding: 4px 0; white-space: normal; }
+  .po-lines tr.po-line td::before { content: attr(data-l); color: #6e6e73; font-size: 13px; }
+  .po-lines tr.po-line td.po-n { display: block; font-weight: 700; }
+  .po-lines tr.po-line td.po-n::before { content: "Item "; }
+  .po-lines tr.po-line td:last-child { display: block; text-align: right; }
+  .po-lines tr.po-line td:last-child::before { content: none; }
+  .po-lines tr.po-line td.pA { font-weight: 700; }
+  .po-lines tfoot, .po-lines tfoot tr { display: block; }
+  .po-lines tfoot td { display: block; width: 100%; padding: 4px 0; text-align: left; border: 0; background: none; }
+  .po-lines tfoot td:empty { display: none; }
+}

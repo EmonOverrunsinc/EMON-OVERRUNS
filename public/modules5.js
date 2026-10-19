@@ -73,15 +73,15 @@
 
   // ---------- new / edit form ----------
   const lineRow = (l = {}, i = 0) => `<tr class="po-line"><td class="po-n">${i + 1}</td>
-    <td><input type="text" class="pI" maxlength="120" value="${esc(l.item || "")}" placeholder="Item name"></td>
-    <td><input type="text" class="pB" maxlength="80" value="${esc(l.brand || "")}" placeholder="Brand"></td>
-    <td><input type="number" class="pP" min="0" step="0.01" inputmode="decimal" value="${l.price ?? ""}"></td>
-    <td><input type="number" class="pQ" min="0" step="1" inputmode="numeric" value="${l.qty ?? ""}"></td>
-    <td><select class="pT"><option value="negotiable" ${l.terms === "fixed" ? "" : "selected"}>Negotiable</option><option value="fixed" ${l.terms === "fixed" ? "selected" : ""}>Fixed</option></select></td>
-    <td><input type="text" class="pN" maxlength="200" value="${esc(l.note || "")}" placeholder="Note"></td>
-    <td class="num pA">0.00</td><td><button type="button" class="linkbtn del pX" aria-label="Remove line">${ic("x")}</button></td></tr>`;
+    <td data-l="Item Name"><input type="text" class="pI" maxlength="120" value="${esc(l.item || "")}" placeholder="Item name"></td>
+    <td data-l="Brand"><input type="text" class="pB" maxlength="80" value="${esc(l.brand || "")}" placeholder="Brand"></td>
+    <td data-l="Demand Price (₱)"><input type="number" class="pP" min="0" step="0.01" inputmode="decimal" value="${l.price ?? ""}"></td>
+    <td data-l="Quantity"><input type="number" class="pQ" min="0" step="1" inputmode="numeric" value="${l.qty ?? ""}"></td>
+    <td data-l="Price"><select class="pT"><option value="negotiable" ${l.terms === "fixed" ? "" : "selected"}>Negotiable</option><option value="fixed" ${l.terms === "fixed" ? "selected" : ""}>Fixed</option></select></td>
+    <td data-l="Note"><input type="text" class="pN" maxlength="200" value="${esc(l.note || "")}" placeholder="Note"></td>
+    <td class="num pA" data-l="Total (₱)">0.00</td><td><button type="button" class="linkbtn del pX" aria-label="Remove line">${ic("x")}</button></td></tr>`;
   function linesEditor(box, items, onChange) {
-    box.innerHTML = `<div class="grid-wrap"><table class="grid po-lines"><thead><tr><th>#</th><th>Item Name *</th><th>Brand</th><th class="num">Demand Price (₱)</th><th class="num">Quantity *</th><th>Price</th><th>Note</th><th class="num">Total (₱)</th><th></th></tr></thead>
+    box.innerHTML = `<div class="grid-wrap"><table class="grid po-lines edit"><thead><tr><th>#</th><th>Item Name *</th><th>Brand</th><th class="num">Demand Price (₱)</th><th class="num">Quantity *</th><th>Price</th><th>Note</th><th class="num">Total (₱)</th><th></th></tr></thead>
       <tbody>${(items.length ? items : [{}]).map(lineRow).join("")}</tbody>
       <tfoot><tr><td colspan="4"><button type="button" class="btn small po-add">${ic("plus")} Add Item</button> <small class="muted">up to ${MAX_LINES}</small></td><td class="num po-tq">0</td><td colspan="2" class="num po-avg"></td><td class="num po-ta">0.00</td><td></td></tr></tfoot></table></div>`;
     const read = () => $$(".po-line", box).map((tr) => ({ item: $(".pI", tr).value.trim(), brand: $(".pB", tr).value.trim(), price: num($(".pP", tr).value), qty: num($(".pQ", tr).value), terms: $(".pT", tr).value, note: $(".pN", tr).value.trim() }))
