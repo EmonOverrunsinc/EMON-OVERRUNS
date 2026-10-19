@@ -6,8 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "2.8";
-  const BUILD = "2.8.0"; // the same in index.html (?v=) and in version.json
+  const VERSION = "2.9";
+  // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
+  if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
+  const BUILD = "2.9.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -17,6 +19,12 @@
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const peso = (n) => Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const pad = (n) => String(n).padStart(2, "0");
+  // 2.9: small helpers shared by every section (they were written again in each file)
+  const num = (v) => Number(v || 0);
+  const fullName = (r) => `${(r && r.first_name) || ""} ${(r && r.last_name) || ""}`.trim();
+  const qtyText = (n) => Number(n || 0).toLocaleString("en-PH", { maximumFractionDigits: 2 });
+  const bdt = (n) => `BDT ${peso(n)}`;
+  const verifyUrl = (code) => `${location.origin}${location.pathname}#verify/${encodeURIComponent(code)}`;
   const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const isoToday = () => isoDay(new Date());
   // Every date shows as MONTH DD YYYY in capitals (AUGUST 01 2026, OCTOBER 09 2026); with the time: OCTOBER 09 2026
@@ -315,25 +323,40 @@
   // white, or, for a clean PNG scan that JPEG would not make smaller, as a smaller PNG. PDFs and other files are kept as
   // they are, and so is a picture that is already small or would not get smaller.
   const SLIM = { doc: 4.2e6, photo: 1.2e6, avatar: 0.5e6 };
+  // 2.9: a document picture is also made clear: the paper is made white and the ink (handwriting, stamps,
+  // signatures) darker, keeping its colour. Only this clear copy is saved.
+  function clearInk(g, w, h) {
+    const d = g.getImageData(0, 0, w, h), px = d.data, hist = new Uint32Array(256);
+    for (let i = 0; i < px.length; i += 16) hist[(px[i] * 77 + px[i + 1] * 150 + px[i + 2] * 29) >> 8]++;
+    let n = 0; for (const x of hist) n += x;
+    const at = (q) => { let a = 0; for (let v = 0; v < 256; v++) { a += hist[v]; if (a >= n * q) return v; } return 255; };
+    const lo = at(0.01), hi = Math.max(lo + 40, at(0.9));
+    const lut = new Uint8ClampedArray(256);
+    for (let v = 0; v < 256; v++) { const t = Math.min(1, Math.max(0, (v - lo) / (hi - lo))); lut[v] = Math.round(255 * Math.pow(t, 1.35)); }
+    for (let i = 0; i < px.length; i += 4) { px[i] = lut[px[i]]; px[i + 1] = lut[px[i + 1]]; px[i + 2] = lut[px[i + 2]]; }
+    g.putImageData(d, 0, 0);
+  }
   async function slimFile(file, kind = "doc") {
-    if (!file || !/^image\/(jpeg|png|webp|bmp)$/i.test(file.type || "") || file.size < 300 * 1024) return file;
+    if (!file || !/^image\/(jpeg|png|webp|bmp)$/i.test(file.type || "")) return file;
+    if (kind !== "doc" && file.size < 300 * 1024) return file;
     const url = URL.createObjectURL(file);
     try {
       const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
       const w = img.naturalWidth, h = img.naturalHeight;
       if (!w || !h) return file;
       const k = Math.min(1, Math.sqrt((SLIM[kind] || SLIM.doc) / (w * h)));
-      if (k === 1 && /jpeg/i.test(file.type) && file.size <= 1.5 * 1048576) return file; // small enough already
+      if (kind !== "doc" && k === 1 && /jpeg/i.test(file.type) && file.size <= 1.5 * 1048576) return file; // small enough already
       const c = document.createElement("canvas");
       c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
       const g = c.getContext("2d");
       g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
       g.imageSmoothingQuality = "high";
       g.drawImage(img, 0, 0, c.width, c.height);
+      if (kind === "doc") clearInk(g, c.width, c.height);
       const encode = (type, q) => new Promise((res) => c.toBlob(res, type, q));
       let best = await encode("image/jpeg", 0.82);
       if (k < 1 && /png/i.test(file.type)) { const png = await encode("image/png"); if (png && (!best || png.size < best.size)) best = png; }
-      if (!best || best.size >= file.size) return file;
+      if (!best || (kind !== "doc" && best.size >= file.size)) return file;
       const ext = best.type === "image/png" ? ".png" : ".jpg";
       return new File([best], (file.name || "Picture").replace(/\.[^.]*$/, "") + ext, { type: best.type, lastModified: Date.now() });
     } catch (_) {
@@ -412,7 +435,7 @@
           <div class="wtitle">${esc(APP)} — ${esc(title)}</div>
           ${inner}
         </div>
-        <div class="login-below"><a href="#contact" class="verify-link contact-link">${ic("mail")} Contact Us — send us a message</a><a href="#verify" class="verify-link">${ic("shield")} Verify a record — no sign-in needed</a><small class="legal-links"><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> · <a href="/delete-account" target="_blank" rel="noopener">Delete Account</a></small><small>${esc(APP)} · Version ${VERSION}</small></div>
+        <div class="login-below"><a href="#careers" class="verify-link join-link">${ic("users")} Join Us — see open jobs</a><a href="#contact" class="verify-link contact-link">${ic("mail")} Contact Us — send us a message</a><a href="#verify" class="verify-link">${ic("shield")} Verify a record — no sign-in needed</a><small class="legal-links"><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> · <a href="/delete-account" target="_blank" rel="noopener">Delete Account</a></small><small>${esc(APP)} · Version ${VERSION}</small></div>
       </div>`;
   }
   const brandBlock = () => `<div class="brand">${logoHtml("login-logo")}<div><b>${esc(C.company.name)}</b><small>E-PORTAL</small></div></div>`;
@@ -768,7 +791,8 @@
   const MODULE_OF = {
     customers: "customers", newcustomer: "customers", customer: "customers", statements: "customers",
     invoices: "invoices", newinvoice: "invoices", invoice: "invoices",
-    payments: "payments", newpayment: "payments", payment: "payments",
+    // 2.9: staff who record invoices also record payments (the server allows both)
+    payments: ["payments", "invoices"], newpayment: ["payments", "invoices"], payment: ["payments", "invoices"],
     creditmemos: "creditmemos", newcreditmemo: "creditmemos", creditmemo: "creditmemos",
     employees: "employees", newemployee: "employees", employee: "employees", jobapps: "employees", jobapp: "employees", positions: "employees", payroll: "employees",
     projects: "projects", newproject: "projects", project: "projects",
@@ -865,6 +889,9 @@
     // swapped, with a soft fade. The whole frame is drawn again only when the menu or the person changes.
     const frame = [S.session.user.id, who, av, newBuild, items.map((m) => m.k).join(","), OTHER.filter((o) => o[2]()).map((o) => o[0]).join(",")].join("|");
     const content = $(".layout > .content", app);
+    const samePage = app.dataset.page === location.hash;
+    app.dataset.page = location.hash;
+    const slideIn = (el) => { if (!el || samePage) return; el.classList.remove("page-in", "nav-back"); void el.offsetWidth; el.classList.add("page-in"); if (navDir === "back") el.classList.add("nav-back"); };
     if (content && app.dataset.frame === frame) {
       $$("#drawer a").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + cur));
       $$(".pop").forEach((p) => (p.hidden = true));
@@ -874,8 +901,8 @@
       if (sb2[1]) sb2[1].textContent = "Records: –";
       if (sb2[2]) sb2[2].textContent = "Currency: " + currency;
       content.innerHTML = bandHtml + mainHtml;
-      content.classList.remove("page-in"); void content.offsetWidth; content.classList.add("page-in");
-      window.scrollTo({ top: 0 });
+      slideIn(content);
+      if (!samePage) window.scrollTo({ top: 0 });
       bindBack("#dashboard");
       refreshBadges();
       return;
@@ -902,6 +929,7 @@
           <div class="pop-head">${esc(S.profile.full_name || "")}<small>${S.profile.username ? "@" + esc(S.profile.username) + " · " : ""}${esc(S.session.user.email)} · ${esc(personTitle(S.profile.role, S.position).toUpperCase())}</small></div>
           <a href="#profile">${ic("user")} My Profile</a>
           <button type="button" id="chPw">${ic("key")} Change Password</button>
+          ${window.EOApp?.menu ? `<button type="button" id="upAppMenu">${ic("box")} App Menu (scanner, about)</button>` : ""}
           ${newBuild ? updateItem() : ""}
           ${isAdmin() ? `<a href="#settings">${ic("image")} Company Logo</a>` : ""}
           <button type="button" id="signOut">${ic("out")} Sign Out</button>
@@ -918,6 +946,7 @@
         <div class="content">${bandHtml}${mainHtml}</div>
       </div>
       <div class="statusbar"><span>User: ${esc(who)}</span><span id="sbRecords">Records: –</span><span>Currency: ${currency}</span></div>`;
+    slideIn($(".layout > .content", app));
     let saved = null; try { saved = localStorage.getItem("eoDrawer"); } catch (_) {}
     document.body.classList.add("no-anim");
     drawerOpen(isPhone() ? false : saved !== "0");
@@ -929,6 +958,7 @@
     $$("#drawer a").forEach((a) => (a.onclick = () => { if (isPhone()) drawerOpen(false); }));
     $("#signOut").onclick = signOut;
     $("#chPw").onclick = () => renderSetPassword(false);
+    if ($("#upAppMenu")) $("#upAppMenu").onclick = () => { $$(".pop").forEach((p) => (p.hidden = true)); window.EOApp.menu().catch(() => {}); };
     bindUpdate();
     $("#tbSearch").onsubmit = (e) => {
       e.preventDefault();
@@ -1441,7 +1471,7 @@
         <select id="pvZoom" style="width:auto"><option>50</option><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
         <button type="button" class="btn" id="pvClose">Close</button>
       </div>
-      <div class="pv-desk" id="pvDesk">${pages.map((p) => `<div class="page${cls}"><img class="wm" src="${SEAL}" alt="">${dated(p)}${p}${web}</div>`).join("")}</div>
+      <div class="pv-desk" id="pvDesk">${pages.map((p, i) => `<div class="page${cls}"><img class="wm" src="${SEAL}" alt="">${dated(p)}${p}${web}<div class="pg-num">PAGE ${i + 1} OF ${pages.length}</div></div>`).join("")}</div>
       <div class="statusbar"><span id="pvCur">Current Page No: 1</span><span>Total Page No: ${pages.length}</span><span id="pvZf">Zoom Factor: 100%</span></div>`;
     document.body.appendChild(pv);
     placeSeals(pv);
@@ -1661,7 +1691,56 @@
 
   // ---------- router ----------
   const BUILTIN = { forms: viewForms, logins: viewUsers };
+  // 2.9: each page is remembered as it was left (scroll, what was typed or chosen, the open tab). Back slides the page
+  // in from the left (iOS) and puts it back as it was; a new page slides in from the right.
+  let navDir = "fwd", shownHash = null;
+  const trail = [], pageMemo = new Map();
+  const NO_RESTORE = new Set(["rvLoc", "tbQ"]);
+  function memoPage() {
+    const main = $("#main");
+    if (!shownHash || !main) return;
+    const fields = {}, tabs = {};
+    $$("input[id], select[id], textarea[id]", main).forEach((el) => {
+      if (["file", "password", "hidden", "button", "submit"].includes(el.type) || NO_RESTORE.has(el.id) || el.disabled) return;
+      fields[el.id] = el.type === "checkbox" || el.type === "radio" ? el.checked : el.value;
+    });
+    $$(".tabs[id]", main).forEach((t) => { const i = $$("button", t).findIndex((b) => b.classList.contains("on")); if (i > 0) tabs[t.id] = i; });
+    pageMemo.set(shownHash, { y: window.scrollY, fields, tabs });
+    if (pageMemo.size > 40) pageMemo.delete(pageMemo.keys().next().value);
+  }
+  function restorePage(h) {
+    const m = pageMemo.get(h);
+    if (!m) return;
+    for (const [id, v] of Object.entries(m.fields)) {
+      const el = document.getElementById(id);
+      if (!el || !el.closest("#main")) continue;
+      if (typeof v === "boolean") { if (el.checked !== v) { el.checked = v; el.dispatchEvent(new Event("change", { bubbles: true })); } }
+      else if (el.value !== v && (el.tagName === "SELECT" ? [...el.options].some((o) => o.value === v) : true)) {
+        el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }
+    for (const [id, i] of Object.entries(m.tabs)) { const b = $$(`#${CSS.escape(id)} button`)[i]; if (b) b.click(); }
+    // the list may still be loading: wait until the page is long enough, then go back to where it was
+    let tries = 0;
+    const go = () => {
+      if (location.hash !== h) return;
+      if (document.documentElement.scrollHeight - innerHeight >= m.y - 4 || tries++ > 20) window.scrollTo(0, m.y);
+      else setTimeout(go, 100);
+    };
+    requestAnimationFrame(go);
+  }
   async function route() {
+    const h = location.hash || "#dashboard";
+    const back = trail.length > 1 && trail[trail.length - 2] === h;
+    if (h !== shownHash) memoPage();
+    if (back) trail.pop(); else if (trail[trail.length - 1] !== h) { trail.push(h); if (trail.length > 60) trail.shift(); }
+    navDir = back ? "back" : "fwd";
+    await routePage();
+    const again = shownHash === h;
+    shownHash = h;
+    if (back && !again) restorePage(h);
+  }
+  async function routePage() {
     justSaved = null; // a page drawn by the router (Remove, a correction, another page) is not the save's redraw
     takeLinkError();
     closePreview();
@@ -1676,6 +1755,8 @@
       $$(".chat-panel").forEach((x) => x.remove());
       if (key === "verify" && V.verify) return V.verify(arg);
       if (key === "contact" && V.contact) return V.contact();
+      if (key === "careers" && V.careers) return V.careers();
+      if (key === "signup") return renderLogin("signup");
       return renderLogin();
     }
     if (recovering) { recovering = false; return renderSetPassword(true); }
@@ -1691,9 +1772,11 @@
     if (S.profile.status !== "active") {
       if (key === "verify" && V.verify) return V.verify(arg);
       if (key === "contact" && V.contact) return V.contact();
+      if (key === "careers" && V.careers) return V.careers();
       return V.applicant ? V.applicant(key, arg) : renderPending();
     }
     startTimers();
+    if (key === "careers") { location.replace("#" + (isAdmin() ? "positions" : "dashboard")); return; }
     if (!canOpen(key)) { toast("You do not have access to that section. Ask the Director.", true); location.hash = "dashboard"; return; }
     const view = V[key] || BUILTIN[key];
     if (view) return view(arg, extra);
@@ -1729,7 +1812,7 @@
   window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words, need };
   // shared with modules.js to modules4.js
   Object.assign(window.EO, {
-    APP, VERSION, sb, S, C, esc, peso, pad, isoToday, isoDay, mdy, stamp, dateTime, fixDates, timeAgo, online, $, $$,
+    APP, VERSION, sb, S, C, esc, peso, pad, num, fullName, qtyText, bdt, verifyUrl, isoToday, isoDay, mdy, stamp, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, 
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, slimFile, scanDialog, openScanned, isCustKey, keepTab, stillHere,

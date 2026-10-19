@@ -1758,3 +1758,117 @@ html { -webkit-tap-highlight-color: transparent; }
 .post-who .who { background: none; }
 .danger-fill { background: #d70015 !important; border-color: #d70015 !important; }
 .summary-box { background: #f2f7ff; border: 0; border-radius: 12px; padding: 10px 14px; color: #1d1d1f; }
+/* 2.9: Join Us (public open positions) */
+.join-hero .vh-badge { background: #0071e3; }
+.join-empty { max-width: 560px; margin: 8px auto 24px; padding: 28px 22px; text-align: center; background: #fff; border-radius: 20px; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 2px 10px rgba(0,0,0,.04); }
+.join-empty .je-ic { width: 52px; height: 52px; margin: 0 auto 8px; border-radius: 16px; display: grid; place-items: center; background: #eef5ff; color: #0071e3; }
+.join-empty .je-ic .ic { width: 26px; height: 26px; }
+.join-empty h3 { margin: 4px 0 6px; font-size: 19px; }
+.join-empty p { margin: 0 0 14px; color: #6e6e73; }
+.pos-card { border: 0; border-radius: 18px; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 2px 10px rgba(0,0,0,.04); }
+.pos-card h4 { color: #1d1d1f; }
+.verify-link .ic { color: #0071e3; }
+
+/* ===================== 2.9: documents in the company form style (Payment Settlement Schedule) =====================
+   Big blue EMON OVERRUNS letterhead with a thin blue rule, the document title in blue, numbered blue section bars
+   ("SECTION 1: CUSTOMER"), blue grid lines with bold small labels, and a blue foot with PAGE X OF Y. Only colours,
+   borders and type change, so every document keeps its page count. */
+.page { --doc: #1f4fa3; --doc-line: #9db3dc; --doc-soft: #eef3fb; --doc-ok: #7cc242; counter-reset: sec; }
+.page .ph { border-bottom: 2px solid var(--doc); }
+.page .ph-co, .page .cm-co, .page .soa-co { color: var(--doc); font-family: Arial, "Helvetica Neue", "Liberation Sans", sans-serif; font-weight: 900; letter-spacing: .03em; }
+.page .ph-title, .page .rp-title, .page .vt { color: var(--doc); border-top: 0; border-bottom: 0; padding: 2px 0; letter-spacing: .14em; }
+.page .pbox { border: 1px solid var(--doc); }
+.page .pbox-h, .page .ol-sec { background: var(--doc); color: #fff; letter-spacing: .08em; }
+.page .pbox-h::before, .page .ol-sec::before { counter-increment: sec; content: "SECTION " counter(sec) ": "; }
+.page .pcell { border-bottom: 1px solid var(--doc-line); }
+.page .pgrid2 > .pcell:nth-child(odd), .page .pgrid2 > div:nth-child(odd) { border-right-color: var(--doc-line); }
+.page .pl { color: #111; font-weight: 700; letter-spacing: .06em; }
+.page .pv { font-weight: 500; }
+.page .ol-grid th, .page .ol-grid td { border-color: var(--doc); }
+.page .ol-grid th { color: #111; font-weight: 700; font-size: 10.5px; }
+.page table.ol-sched th { background: var(--doc-soft); color: var(--doc); }
+.page table.soa-table th, .page .rp-table th { background: var(--doc); border-color: var(--doc); color: #fff; }
+.page .psig .line, .page .ol-auth .line { border-top-color: #111; }
+/* the declaration above the signatures reads like the green ACKNOWLEDGEMENT section */
+.page .pdecl { font-style: normal; border-left: 4px solid var(--doc-ok); padding: 3px 8px; background: #f4faee; }
+/* foot: blue rule, issued-through line and QR; page number at the bottom right (out of the flow, no extra height) */
+.page > .pg-web { border-top: 3px solid var(--doc); }
+.page > .pg-web .pg-off b { color: var(--doc); }
+.page { position: relative; }
+.page > .pg-num { position: absolute; right: 14mm; bottom: 3.5mm; font: 700 7px/1 Arial, sans-serif; letter-spacing: .12em; color: #6b7a99; }
+.page:has(.soa-pg, .sb-cont, .rp-co) > .pg-num { display: none; }
+.page *, .page *::before { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+/* ===================== 2.9: iOS-style page movement =====================
+   Nothing rises from below any more: a new page slides in from the right, Back slides in from the left, and parts
+   of a page only fade in. */
+@keyframes rise { from { opacity: 0; } to { opacity: 1; } }
+@keyframes riseSoft { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pageIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pushIn { from { opacity: .35; transform: translate3d(36px, 0, 0); } to { opacity: 1; transform: none; } }
+@keyframes pushBack { from { opacity: .35; transform: translate3d(-36px, 0, 0); } to { opacity: 1; transform: none; } }
+#main > *, .content.page-in > .band, .band h1 { animation: none; }
+.content.page-in { animation: pushIn .38s cubic-bezier(.32,.72,0,1) both; }
+.content.page-in.nav-back { animation-name: pushBack; }
+.qa, .tiles .tile, .doccard, .due-card { animation-duration: .3s; }
+@media (prefers-reduced-motion: reduce) { .content.page-in, .content.page-in.nav-back { animation: none !important; } }
+.layout { overflow-x: clip; }
+
+/* 2.9: the Windows app 1.8 has no Windows title bar: the top bar moves the window and leaves room for its buttons */
+html.eo-overlay .topbar { -webkit-app-region: drag; min-height: 54px;
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 150px)) + 10px); }
+html.eo-overlay .topbar :is(button, a, input, select, label, form, .pop, .avatar-btn) { -webkit-app-region: no-drag; }
+html.eo-overlay .login { -webkit-app-region: drag; }
+html.eo-overlay .login :is(.login-card, .login-below, a, button, input) { -webkit-app-region: no-drag; }
+html.eo-overlay .preview .pv-title { -webkit-app-region: drag; padding-right: 160px; min-height: 40px; }
+html.eo-overlay .preview .pv-tools { -webkit-app-region: no-drag; }
+html.eo-overlay .boot { -webkit-app-region: drag; }
+
+/* ===================== 2.9: split payment links, negative balances, the customer's Request menu ===================== */
+.neg { color: #c41e3a; }
+.due-card.credit { box-shadow: inset 4px 0 0 #0071e3, 0 2px 10px rgba(0,0,0,.05); }
+.due-card.credit .v { color: #0058b0; }
+.lp-row span small { display: block; color: #6e6e73; font-size: 12px; }
+.lp-row.lp-off { opacity: .62; }
+.lp-row.lp-off b { text-decoration: line-through; }
+.lp-sum { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 14px; padding-top: 8px; border-top: 1px solid #ececf0; font-size: 13px; }
+.lp-sum span { color: #6e6e73; }
+.lp-opt { cursor: default; }
+.lp-amt { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.lp-amt label { font-size: 12px; color: #6e6e73; }
+.lp-amt input { width: 150px; }
+table.ptl { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 10.5px; }
+table.ptl th, table.ptl td { padding: 2px 6px; border-bottom: 1px solid var(--doc-line, #9db3dc); text-align: left; }
+table.ptl th { color: var(--doc, #1f4fa3); font-weight: 700; letter-spacing: .04em; }
+table.ptl .num { text-align: right; white-space: nowrap; }
+/* the Request menu */
+.rq-list { display: grid; gap: 10px; }
+.rq-opt { display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px 16px; text-align: left; font: inherit; color: inherit; background: #fff;
+  border: 1px solid #e5e5ea; border-radius: 14px; cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .3s cubic-bezier(.2,.8,.2,1); }
+.rq-opt:hover:not(:disabled) { border-color: #0071e3; box-shadow: 0 0 0 4px rgba(0,113,227,.12); }
+.rq-opt:active:not(:disabled) { transform: scale(.98); }
+.rq-opt:disabled { opacity: .5; cursor: not-allowed; }
+.rq-opt > svg { flex: none; width: 26px; height: 26px; padding: 8px; box-sizing: content-box; border-radius: 12px; background: #eef4fd; color: #0071e3; }
+.rq-opt b { display: block; font-size: 15px; }
+.rq-opt small { display: block; color: #6e6e73; margin-top: 2px; }
+.dc-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.dc-pick .subj span { text-align: left; padding: 10px 12px; }
+.dc-pick .subj span small { display: block; font-weight: 400; font-size: 12px; opacity: .8; margin-top: 2px; }
+.dc-pick .subj input:disabled + span { opacity: .45; cursor: not-allowed; }
+.dc-why { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+/* the printed delivery status */
+.dc-head { margin: 4px 0 8px; padding: 7px 10px; text-align: center; border: 2px solid currentColor; border-radius: 4px; }
+.dc-head b { display: block; font: 900 15px/1.25 Arial, sans-serif; letter-spacing: .1em; }
+.dc-head small { display: block; font-size: 10.5px; color: #333; margin-top: 2px; }
+.dc-head.dc-ok { color: #1e7b34; background: #f0f9f1; }
+.dc-head.dc-warn { color: #a35a00; background: #fff7ec; }
+.dc-head.dc-info { color: #1f4fa3; background: #eef3fb; }
+.dc-head.dc-bad { color: #b00020; background: #fdf0f2; }
+.dc-box { display: inline-block; width: 11px; height: 11px; margin-right: 4px; border: 1px solid #111; font-size: 9px; line-height: 11px; text-align: center; vertical-align: -1px; }
+.dc-box.on { font-weight: 900; }
+/* 2.9: the return form's item lines */
+.rt-wrap { margin: 10px 0; }
+.rt-table input { width: 100%; min-width: 70px; }
+.rt-table td:nth-child(2) input { min-width: 140px; }
+.rt-table tfoot td { font-weight: 700; }
+table.ptl tr.ptl-tot td { font-weight: 700; border-top: 1.5px solid var(--doc, #1f4fa3); }

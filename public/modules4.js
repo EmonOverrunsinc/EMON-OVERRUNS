@@ -6,17 +6,13 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, pill, ebillStep, ebillPill, toast, fail, words, ic, busy } = E;
+  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, pill, ebillStep, ebillPill, toast, fail, words, ic, busy, num, qtyText, bdt, verifyUrl } = E;
   const V = window.EO_VIEWS;
-  const num = (v) => Number(v || 0);
   const tools = (...a) => (E.recordTools ? E.recordTools(...a) : "");
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
   const rhBox = (t, id) => (E.rhBox ? E.rhBox(t, id) : "");
-  const bdt = (n) => `BDT ${peso(n)}`;
-  const qtyText = (n) => Number(n || 0).toLocaleString("en-PH", { maximumFractionDigits: 2 });
   const signed = (n) => (num(n) < 0 ? "−" : "") + peso(Math.abs(num(n)));
   const cap = (s) => String(s || "").replace(/^./, (x) => x.toUpperCase());
-  const verifyUrl = (code) => `${location.origin}${location.pathname}#verify/${encodeURIComponent(code)}`;
 
   // the steps: 1 SHIP, 2 RELEASED, 3 SALES, 4 PAID (an e-bill marked "arrived" before Update 2.0 is still at SHIP)
   const STATUS = ["shipped", "released", "sold", "paid"];

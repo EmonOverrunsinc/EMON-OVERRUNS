@@ -15,6 +15,12 @@ const SITE = new URL(HOME).origin;
 // itself (window.EMON_CONFIG.supabaseUrl) each time a page of the E-Portal loads, so a new server needs no new app (1.5.2).
 let FILES = "";
 const ICON = path.join(__dirname, "icon.png");
+// 1.8: the E-Portal's own light background (no white flash while a page loads) and its frosted top bar in place of the
+// Windows title bar: the minimize / maximize / close buttons sit in the E-Portal top bar, like an iPad or Mac app.
+const BG = "#f5f5f7";
+const TITLE_BAR = { color: "#fbfbfd", symbolColor: "#1d1d1f", height: 54 };
+app.commandLine.appendSwitch("enable-smooth-scrolling");
+app.commandLine.appendSwitch("enable-gpu-rasterization");
 
 const originOf = (u) => { try { return new URL(u).origin; } catch { return ""; } };
 const inApp = (u) => { const o = originOf(u); return !!o && (o === SITE || o === FILES); };
@@ -51,7 +57,7 @@ function wire(win) {
   // Pages of the E-Portal and uploaded files open in a new app window; anything else in the browser.
   wc.setWindowOpenHandler(({ url }) => {
     if (inApp(url)) {
-      return { action: "allow", overrideBrowserWindowOptions: { width: 1100, height: 800, icon: ICON, autoHideMenuBar: true, backgroundColor: "#ffffff" } };
+      return { action: "allow", overrideBrowserWindowOptions: { width: 1100, height: 800, icon: ICON, autoHideMenuBar: true, backgroundColor: BG } };
     }
     openOutside(url);
     return { action: "deny" };
@@ -81,6 +87,9 @@ function wire(win) {
     }
     if (p.linkURL && /^https?:/.test(p.linkURL)) items.push({ label: "Copy Link", click: () => clipboard.writeText(p.linkURL) });
     if (p.mediaType === "image" && p.srcURL) items.push({ label: "Save Image As…", click: () => wc.downloadURL(p.srcURL) });
+    // 1.8: the app menu (scanner, view, help) is here now that the window has no menu bar
+    const appMenu = Menu.getApplicationMenu();
+    if (appMenu) { if (items.length) items.push({ type: "separator" }); items.push({ label: "E-Portal App", submenu: appMenu }); }
     if (items.length) Menu.buildFromTemplate(items).popup({ window: win });
   });
 }
@@ -92,8 +101,10 @@ function createWindow() {
     minWidth: 360, minHeight: 480,
     title: "EMON OVERRUNS E-Portal",
     icon: ICON,
-    backgroundColor: "#ffffff",
+    backgroundColor: BG,
     autoHideMenuBar: true,
+    titleBarStyle: "hidden",
+    titleBarOverlay: TITLE_BAR,
     show: false,
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true, preload: path.join(__dirname, "preload.js") },
   });
@@ -408,6 +419,14 @@ function scanPercent(stage, ms, expected) {
     default: return null; // the scanner window or a window of the scanner is open: no number
   }
 }
+
+// 1.8: the E-Portal page opens the app menu (its profile menu has "App Menu")
+ipcMain.handle("eo-menu", (e) => {
+  if (!inApp(e.senderFrame ? e.senderFrame.url : "")) return false;
+  const win = BrowserWindow.fromWebContents(e.sender), m = Menu.getApplicationMenu();
+  if (win && m) m.popup({ window: win });
+  return true;
+});
 
 let scan = null; // the scan (or the scanner choice) that is running: { cancel }
 ipcMain.handle("eo-scan", async (e, opts) => {

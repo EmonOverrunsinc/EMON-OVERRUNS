@@ -4,6 +4,9 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("EOApp", {
   windows: true,
+  // 1.8: the window has no Windows title bar; its buttons sit in the E-Portal top bar (the page leaves room for them)
+  overlay: true,
+  menu: () => ipcRenderer.invoke("eo-menu"),
   // Scan one page with the scanner of this computer (an HP printer and others, through Windows). dialog: true opens
   // the scanner window, where the scanner, colour and size can be chosen. onProgress (1.5) gets { stage, text, pct }
   // while it runs (pct is null while the scanner window is open). Gives back { ok, name, type, data (base64) },
