@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "2.9";
+  const VERSION = "3.0";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "2.9.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.0.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -781,7 +781,7 @@
     { k: "payments", icon: "wallet", label: "Payment" },
     { k: "creditmemos", icon: "tag", label: "Credit Memo" },
     { k: "employees", icon: "users", label: "Employee" },
-    { k: "community", icon: "chat", label: "Community" },
+    { k: "purchase", icon: "order", label: "Purchase Order" },
     { k: "projects", icon: "folder", label: "Project" },
     { k: "billing", icon: "building", label: "Billing" },
     { k: "orders", icon: "stamp", label: "Director Portal" },
@@ -813,9 +813,9 @@
     ["logins", "Login Accounts", () => isAdmin(), "key"],
     ["forms", "Download Forms", () => true, "download"]
   ];
-  const ACTIVE_OF = { orders: "orders", neworder: "orders", editorder: "orders", order: "orders", payslip: "employees", ebill: "inventory", find: "", profile: "", settings: "" };
+  const ACTIVE_OF = { newpurchase: "purchase", po: "purchase", editpo: "purchase", orders: "orders", neworder: "orders", editorder: "orders", order: "orders", payslip: "employees", ebill: "inventory", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
-  const ALIAS = { users: "employees", userres: "employees", resolutions: "community", resolution: "community", verification: "verify", supplier: "billing", newsupplier: "billing", search: "dashboard" };
+  const ALIAS = { users: "employees", userres: "employees", resolutions: "purchase", resolution: "purchase", community: "purchase", verification: "verify", supplier: "billing", newsupplier: "billing", search: "dashboard" };
   const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);
   const initials = (name) => String(name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
   const isPhone = () => window.innerWidth < 900;
@@ -877,7 +877,7 @@
 
   function shell(key, title, body, hint) {
     const cur = ACTIVE_OF[key] ?? (Array.isArray(MODULE_OF[key]) ? MODULE_OF[key][0] : MODULE_OF[key]) ?? key;
-    const items = MENU.filter((m) => m.k === "dashboard" || m.k === "community" || hasModule(m.k));
+    const items = MENU.filter((m) => m.k === "dashboard" || (m.k === "purchase" ? isStaff() : hasModule(m.k)));
     const main = items.map((m, i) => `<a href="#${m.k}" style="--i:${i}" class="${m.k === cur ? "active" : ""}"><span class="num">${ic(m.icon)}</span><span class="lbl">${esc(m.label)}</span></a>`).join("");
     const other = OTHER.filter((o) => o[2]()).map(([k, label, , icon], j) => `<a href="#${k}" style="--i:${items.length + j + 1}" class="sub ${k === cur ? "active" : ""}"><span class="num">${ic(icon)}</span><span class="lbl">${esc(label)}</span></a>`).join("");
     const av = avatarUrl();

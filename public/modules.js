@@ -286,7 +286,7 @@
     const q = $(".pk-q", holder), list = $(".pk-list", holder), chosen = $(".pk-chosen", holder);
     let timer = null;
     const choose = (c) => {
-      list.hidden = true; q.value = "";
+      list.hidden = true; q.value = fullName(c); // 2.9: the chosen name stays in the box
       chosen.innerHTML = `<div class="chosen"><b>${esc(fullName(c))}</b> <span class="mono">${esc(c.account_no)}</span> ${pill(c.status)}
         ${c.business_name ? `<small>${esc(c.business_name)}</small>` : ""}</div>`;
       onPick(c);
@@ -296,12 +296,18 @@
       if (t.length < 2) { list.hidden = true; return; }
       list.hidden = false;
       list.innerHTML = busy("Searching");
-      const w = t.split(/\s+/)[0];
-      let qq = sb.from("customers").select("*").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,account_no.ilike.%${w}%,business_name.ilike.%${w}%,phone.ilike.%${w}%`).limit(20);
+      // 2.9: every typed word (its first 2-3 letters are enough) must start a word of the name, account no, business
+      // or phone; first-name matches come first, then last-name matches, then the rest
+      const words2 = t.toLowerCase().split(/\s+/).filter(Boolean);
+      const w = words2.slice().sort((a, b) => b.length - a.length)[0];
+      let qq = sb.from("customers").select("*").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,account_no.ilike.%${w}%,business_name.ilike.%${w}%,phone.ilike.%${w}%`).limit(60);
       if (statuses) qq = qq.in("status", statuses);
       const { data } = await qq;
-      const words2 = t.toLowerCase().split(/\s+/);
-      const rows = (data || []).filter((c) => words2.every((x) => `${fullName(c)} ${c.account_no || ""} ${c.business_name || ""} ${c.phone || ""}`.toLowerCase().includes(x)));
+      if (cleanQ(q.value) !== t) return; // newer typing is already searching
+      const starts = (txt, x) => String(txt || "").toLowerCase().split(/[\s\-.,/]+/).some((y) => y.startsWith(x));
+      const rank = (c) => (starts(c.first_name, words2[0]) ? 0 : starts(c.last_name, words2[0]) ? 1 : 2);
+      const rows = (data || []).filter((c) => words2.every((x) => starts(`${fullName(c)} ${c.business_name || ""}`, x) || String(c.account_no || "").toLowerCase().includes(x) || String(c.phone || "").includes(x)))
+        .sort((a, b) => rank(a) - rank(b) || fullName(a).localeCompare(fullName(b))).slice(0, 20);
       list.innerHTML = rows.length ? rows.map((c, i) => `<button type="button" data-i="${i}"><b>${esc(fullName(c))}</b> <span class="mono">${esc(c.account_no)}</span> ${pill(c.status)}</button>`).join("")
         : `<div class="empty">No ${statuses ? statuses.join(" / ") + " " : ""}customer matches.</div>`;
       $$("button", list).forEach((b) => (b.onclick = () => choose(rows[Number(b.dataset.i)])));
@@ -470,7 +476,7 @@
       [E.canWrite("creditmemos"), "#newcreditmemo", "Credit Memo", "tag", "orange"],
       [["orders", "customers", "employees", "billing"].some(E.canWrite), "#neworder", "Request Order", "order", "purple"],
       [E.canWrite("billing"), "#newvoucher", "Payment Voucher", "receipt", "teal"],
-      [true, "#community", "Community", "users", "pink"],
+      [isStaff(), "#newpurchase", "Purchase Order", "order", "pink"],
       [true, "#verify", "Verify a Record", "shield", "gray"]
     ].filter((q) => q[0]);
     const today = `${new Date().toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(isoToday())}`;
@@ -489,7 +495,7 @@
       <div class="quick">${quick.map((q) => `<a class="qa qa-${q[4]}" href="${q[1]}"><span class="qa-ic">${ic(q[3])}</span><span class="qa-l">${esc(q[2])}</span></a>`).join("")}</div>
       <div class="cols">
         ${H("customers") ? `<div class="box"><h3>Applications Waiting for Review</h3><div class="in" id="dApps">${busy()}</div></div>` : ""}
-        <div class="box"><h3>Community <a href="#community" class="box-link">Open</a></h3><div class="in" id="dComm">${busy()}</div></div>
+        ${isStaff() ? `<div class="box"><h3>Purchase Orders <a href="#purchase" class="box-link">Open</a></h3><div class="in" id="dComm">${busy()}</div></div>` : ""}
       </div>
       ${H("invoices") || H("payments") ? `<div class="cols" style="margin-top:10px">
         ${H("invoices") ? `<div class="box"><h3>Invoices <a href="#invoices" class="box-link">Open</a></h3><div class="in">
@@ -550,33 +556,38 @@
     }
     E.setRecords(`Customers: ${cs.length}`);
   };
+  // 3.0: Purchase Orders on the dashboard: the ones waiting for review, then this month's approved lots with their
+  // quantity and average price.
   async function loadCommunityBox() {
-    const { data, error } = await sb.from("community_posts").select("*").order("created_at", { ascending: false }).limit(4);
+    const el0 = $("#dComm"); if (!el0) return;
+    const { data, error } = await sb.from("purchase_orders").select("id, po_no, lot_name, status, total_qty, total_amount, po_date, pending_update").order("created_at", { ascending: false }).limit(300);
     const el = $("#dComm"); if (!el) return;
-    if (error) { el.innerHTML = `<div class="empty small">Community is not set up yet.</div>`; return; }
-    const rows = data || [];
-    const thumbs = await Promise.all(rows.map((p) => (p.photos?.[0] ? signedUrl(p.photos[0], 1800) : "")));
-    el.innerHTML = rows.length ? rows.map((p, i) => `<a class="mini-post" href="#community">
-        ${thumbs[i] ? `<img src="${esc(thumbs[i])}" alt="">` : ""}
-        <div><b class="who">${esc(p.author_name || "")}</b> <span class="pos">${esc(p.author_position || "")}</span><small>${esc(E.timeAgo(p.created_at))}</small>
-        <p>${esc((p.body || (p.photos?.length ? "Shared photos" : "")).slice(0, 140))}${(p.body || "").length > 140 ? "…" : ""}</p></div></a>`).join("")
-      : `<div class="empty small">No posts yet. <a href="#community">Share the first update</a>.</div>`;
+    if (error) { el.innerHTML = `<div class="empty small">Purchase Orders need the database update 023_purchase_orders.sql.</div>`; return; }
+    const rows = data || [], m = isoToday().slice(0, 7);
+    const wait = rows.filter((p) => ["pending", "negotiation"].includes(p.status) || p.pending_update);
+    const appr = rows.filter((p) => p.status === "approved" && String(p.po_date).slice(0, 7) === m);
+    const q = appr.reduce((s, p) => s + num(p.total_qty), 0), a = appr.reduce((s, p) => s + num(p.total_amount), 0);
+    const line = (p) => `<a class="po-rv" href="#po/${p.id}"><b>${esc(p.po_no)}</b><span>${esc(p.lot_name)} · ${Number(p.total_qty).toLocaleString("en-PH")} pcs · avg ₱ ${peso(num(p.total_qty) ? num(p.total_amount) / num(p.total_qty) : 0)}</span>${pill(p.status === "approved" ? "approved" : "pending", p.status === "negotiation" ? "NEGOTIATION" : p.pending_update ? "UPDATE" : p.status.toUpperCase())}</a>`;
+    el.innerHTML = `${wait.length ? `<div class="po-dh">${isAdmin() ? "Waiting for your review" : "Purchase order requests"} (${wait.length})</div>${wait.slice(0, 4).map(line).join("")}` : ""}
+      <div class="po-dh">Approved this month · ${appr.length} lot${appr.length === 1 ? "" : "s"} · ${q.toLocaleString("en-PH")} pcs · average ₱ ${peso(q ? a / q : 0)}</div>
+      ${appr.length ? appr.slice(0, 5).map(line).join("") : `<div class="empty small">No approved purchase orders this month. <a href="#newpurchase">New Purchase Order</a></div>`}`;
   }
   // Admin to-do: everything waiting for a decision.
   async function loadTodo() {
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
-    const [apps, jobs, orders, changes, memos, contacts, copies] = await Promise.all([
+    const [apps, jobs, orders, changes, memos, contacts, copies, pos] = await Promise.all([
       cnt(sb.from("customers").select("id", head).in("status", ["pending", "verified"])),
       cnt(sb.from("job_applications").select("id", head).eq("status", "submitted")),
       cnt(sb.from("order_letters").select("id", head).eq("status", "pending")),
       cnt(sb.from("change_requests").select("id", head).eq("status", "pending")),
       cnt(sb.from("credit_memos").select("id", head).eq("status", "pending")),
       cnt(sb.from("contact_messages").select("id", head).eq("status", "new")),
-      sb.from("attachments").select("owner_type, owner_id").eq("pending", true).order("created_at").limit(50).then((r) => r.data || [], () => [])
+      sb.from("attachments").select("owner_type, owner_id").eq("pending", true).order("created_at").limit(50).then((r) => r.data || [], () => []),
+      cnt(sb.from("purchase_orders").select("id", head).eq("status", "pending"))
     ]);
     const el = $("#dTodo"); if (!el) return;
-    const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [orders, "Orders to approve", "#orders"], [changes, "Corrections", "#changes"], [memos, "Credit memos", "#creditmemos"], [contacts, "Contact messages", "#contacts"]];
+    const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [orders, "Orders to approve", "#orders"], [changes, "Corrections", "#changes"], [memos, "Credit memos", "#creditmemos"], [contacts, "Contact messages", "#contacts"], [pos, "Purchase orders", "#purchase"]];
     if (copies.length) items.push([copies.length, "Paper copy updates", `#${copies[0].owner_type}/${copies[0].owner_id}`]);
     el.innerHTML = `<span class="todo-h">Waiting for you:</span>` + items.map(([n, label, href]) => `<a class="todo-chip ${n ? "hot" : ""}" href="${href}"><b>${n}</b> ${esc(label)}</a>`).join("");
   }
@@ -606,6 +617,8 @@
       const ws = t.toLowerCase().split(/\s+/).filter(Boolean);
       const rows = (data || []).filter((c) => ws.every((x) => `${fullName(c)} ${c.account_no || ""} ${c.business_name || ""} ${c.phone || ""} ${c.public_id}`.toLowerCase().includes(x)))
         .map((c) => ({ ...c, due: num(bm.get(c.id)?.balance_due) }));
+      // 2.9: names that start with what was typed come first (first name, then last name)
+      if (ws.length) { const st0 = (v) => String(v || "").toLowerCase().startsWith(ws[0]); const rk = (c) => (st0(c.first_name) ? 0 : st0(c.last_name) ? 1 : 2); rows.sort((a, b) => rk(a) - rk(b)); }
       $("#cuRes").innerHTML = E.grid({ cols: [
         { label: "Account No", get: (r) => r.account_no }, { label: "Name", html: (r) => `${esc(fullName(r))}${r.status === "closed" ? ' <span class="closed-mark">CLOSED</span>' : ""}` },
         { label: "Business", get: (r) => r.business_name || "" }, { label: "Phone", get: (r) => r.phone || "" },
