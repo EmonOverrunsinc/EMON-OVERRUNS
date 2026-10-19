@@ -1685,5 +1685,5 @@
     if (CH.tick % 4 === 0) loadContacts();
   }
 
-  Object.assign(E, { recordTools, bindRecordTools, correctRecord, deleteRecord, rhBox, fieldLabel, ordersGrid, printOrder, openChat, closeChat, shrinkImage, signedMap, lightbox, customerRequest });
+  Object.assign(E, { showVal, recordTools, bindRecordTools, correctRecord, deleteRecord, rhBox, fieldLabel, ordersGrid, printOrder, openChat, closeChat, shrinkImage, signedMap, lightbox, customerRequest });
 })();

@@ -14,7 +14,10 @@
   const ST = { pending: "WAITING FOR REVIEW", negotiation: "PRICE NEGOTIATION", approved: "APPROVED", cancelled: "CANCELLED" };
   const stPill = (p) => `${pill(p.status === "negotiation" ? "pending" : p.status, ST[p.status])}${p.arrived_at ? " " + pill("active", "ARRIVED") : ""}${p.pending_update ? " " + pill("pending", "UPDATE WAITING") : ""}`;
   const avg = (p) => (num(p.total_qty) ? num(p.total_amount) / num(p.total_qty) : 0);
-  const qtyText = E.qtyText || ((n) => Number(n || 0).toLocaleString("en-PH"));
+  // The big total: everything included (all item lines), in BDT with the amount in words
+  const netBox = (p) => `<div class="po-net"><small>TOTAL NET COST · ALL ITEMS INCLUDED</small><b>BDT ${peso(p.total_amount)}</b>
+    <span>${esc(E.words(p.total_amount, "TAKA"))}</span><span class="po-net-s">${qtyText(p.total_qty)} pcs · ${(p.items || []).length} item${(p.items || []).length === 1 ? "" : "s"} · average BDT ${peso(avg(p))} each</span></div>`;
+  const qtyText = E.qtyText;
   const monthOf = (d) => String(d || "").slice(0, 7);
   const monthName = (m) => new Date(m + "-01T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase();
   const notSet = (e) => /purchase_orders|save_purchase_order|schema cache/i.test(e?.message || "");
@@ -290,6 +293,7 @@
         <span>Average Price</span><b>BDT ${peso(avg(p))}</b></div></div>
       <div class="grid-wrap"><table class="grid po-lines"><thead><tr><th>#</th><th>Item Name</th><th>Brand</th><th class="num">Demand Price (BDT)</th><th class="num">Quantity</th><th>Price</th><th>Note</th><th class="num">Total (BDT)</th></tr></thead>
         <tbody>${lines}</tbody><tfoot><tr><td colspan="4">TOTAL</td><td class="num">${qtyText(p.total_qty)}</td><td colspan="2" class="num">Average BDT <span id="ngAvg">${peso(avg(p))}</span></td><td class="num" id="ngTot">${peso(p.total_amount)}</td></tr></tfoot></table></div>
+      ${netBox(p)}
       ${p.voices?.length ? `<div class="po-notes po-voices"><b>${ic("mic")} Voice notes (${p.voices.length})</b>${p.voices.map((v, i) => `<div class="vo-row"><b>Voice ${i + 1}</b><audio controls preload="metadata" src="${esc(vurls.get(v) || "")}"></audio></div>`).join("")}
         <small class="muted">${isAdmin() ? "Listen before you decide. The voice notes are deleted from the server when you approve." : "They are deleted from the server when the Director approves."}</small></div>` : ""}
       ${p.notes ? `<div class="po-notes"><b>Notes / Details</b><p>${esc(p.notes)}</p></div>` : ""}
@@ -393,7 +397,7 @@
       boxTitle: "Items (BDT — taka)", thead: `<tr><th>#</th><th>Item Name</th><th>Brand</th><th class="num">Price (BDT)</th><th class="num">Qty</th><th>Price</th><th class="num">Total (BDT)</th></tr>`,
       rows, rowHtml: (l, i) => `<tr><td>${i + 1}</td><td>${esc(l.item)}${l.note ? `<br><small>${esc(l.note)}</small>` : ""}</td><td>${esc(l.brand || "")}</td><td class="num">${peso(l.price)}</td><td class="num">${qtyText(l.qty)}</td><td>${l.terms === "fixed" ? "FIXED" : "NEGOTIABLE"}</td><td class="num">${peso(l.amount)}</td></tr>`,
       totalRow: `<tr class="ptl-tot"><td colspan="4">TOTAL · AVERAGE PRICE BDT ${peso(avg(p))}</td><td class="num">${qtyText(p.total_qty)}</td><td></td><td class="num">${peso(p.total_amount)}</td></tr>`,
-      bottom: `${p.notes ? E.box("Notes / Details", `<div class="pcell"><div class="pv" style="white-space:pre-wrap">${esc(p.notes)}</div></div>`) : ""}
+      bottom: `${netBox(p)}${p.notes ? E.box("Notes / Details", `<div class="pcell"><div class="pv" style="white-space:pre-wrap">${esc(p.notes)}</div></div>`) : ""}
         <p class="pdecl">EMON OVERRUNS authority approved this lot — buy this purchase order immediately at the approved price.</p>
         <p class="po-warn"><b>Warning:</b> this approval does not mean the products must be bought only at the approved price. Depending on the market, the price of this lot can sometimes be higher or lower. This order is for this lot, and all product designs are APPROVED to buy. For a different price, the person who made the purchase order requests an update, and the new details show here after the EOA approves it.</p>
         ${E.sigs("Request Created By: " + esc(p.created_by_name || ""), "Approved by", sign)}`,

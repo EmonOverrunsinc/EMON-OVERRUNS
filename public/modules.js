@@ -838,26 +838,26 @@
   // Record numbers and codes in a typewriter font; names, dates and amounts in the normal font.
   const idBox = (label, value) => `<div class="idbox"><small>${esc(label)}</small><b class="${/^[A-Z0-9][A-Z0-9-]*\d[A-Z0-9-]*$/i.test(String(value || "")) ? "mono" : ""}">${esc(value || "—")}</b></div>`;
   const fieldLabel = (table, k) => (E.fieldLabel ? E.fieldLabel(table, k) : k.replace(/_/g, " "));
-  const showVal = (v) => (v === null || v === undefined || v === "" ? "(empty)" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? JSON.stringify(v)
-    : /^\d{4}-\d\d-\d\d$/.test(v) ? mdy(v) : String(v));
+  const showVal = (v) => E.showVal(v);
   const changeText = (r) => Object.keys(r.changes || r.previous || {}).map((k) => `${fieldLabel(r.target_table, k)}: ${showVal(r.previous?.[k])} → ${showVal(r.changes?.[k])}`).join("; ");
 
   V.customer = async (id, extra) => {
     E.shell("customer", "Customer Profile", busy());
-    const c = await getCustomer(id);
+    // 3.0: the customer and everything on the page are asked for at the same time (all need only the id)
+    const [c, att, bal, invs, pays, memos, ev, secret, ords, chg] = await Promise.all([
+      getCustomer(id),
+      attachmentsOf("customer", id),
+      sb.from("customer_balances").select("*").eq("customer_id", id).maybeSingle(),
+      sb.from("invoice_balances").select("*").eq("customer_id", id).order("invoice_date", { ascending: false }),
+      sb.from("payments_received").select("*").eq("customer_id", id).order("paid_date", { ascending: false }),
+      sb.from("credit_memos").select("*").eq("customer_id", id).order("memo_date", { ascending: false }),
+      sb.from("customer_events").select("*").eq("customer_id", id).order("created_at"),
+      isAdmin() ? sb.from("customer_secrets").select("private_code").eq("customer_id", id).maybeSingle() : Promise.resolve({ data: null }),
+      sb.from("order_letters").select("*").eq("customer_id", id).order("created_at", { ascending: false }),
+      sb.from("record_changes").select("*").eq("target_table", "customers").eq("target_id", id).order("created_at")
+    ]);
     if (!c) { $("#main").innerHTML = `<div class="empty">Customer not found. <a href="#customers">Back to Customers</a></div>`; return; }
     if (extra === "submitted") return renderSubmitted(c);
-    const [att, bal, invs, pays, memos, ev, secret, ords, chg] = await Promise.all([
-      attachmentsOf("customer", c.id),
-      sb.from("customer_balances").select("*").eq("customer_id", c.id).maybeSingle(),
-      sb.from("invoice_balances").select("*").eq("customer_id", c.id).order("invoice_date", { ascending: false }),
-      sb.from("payments_received").select("*").eq("customer_id", c.id).order("paid_date", { ascending: false }),
-      sb.from("credit_memos").select("*").eq("customer_id", c.id).order("memo_date", { ascending: false }),
-      sb.from("customer_events").select("*").eq("customer_id", c.id).order("created_at"),
-      isAdmin() ? sb.from("customer_secrets").select("private_code").eq("customer_id", c.id).maybeSingle() : Promise.resolve({ data: null }),
-      sb.from("order_letters").select("*").eq("customer_id", c.id).order("created_at", { ascending: false }),
-      sb.from("record_changes").select("*").eq("target_table", "customers").eq("target_id", c.id).order("created_at")
-    ]);
     const b = bal.data || { total_invoiced: 0, total_paid: 0, total_credits: 0, balance_due: 0, total_charges: 0, total_settlement: 0 };
     const photoUrl = c.photo_path ? await signedUrl(c.photo_path) : "";
     const signed = att.filter((a) => a.kind === "signed_form" || a.kind === "application");

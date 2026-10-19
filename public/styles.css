@@ -1941,3 +1941,15 @@ button, a, input, select, label.btn { touch-action: manipulation; }
 .vo-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px; border: 1px solid #ececf0; border-radius: 12px; background: #fff; }
 .vo-row audio { flex: 1 1 220px; min-width: 0; height: 40px; }
 .po-voices { display: grid; gap: 6px; }
+
+/* 3.0: the big total of a purchase order */
+.po-net { margin: 12px 0; padding: 16px 18px; border-radius: 16px; background: #eef4fd; border: 2px solid #0071e3; text-align: center; }
+.po-net small { display: block; font-weight: 700; letter-spacing: .08em; color: #0058b0; }
+.po-net b { display: block; margin: 4px 0; font-size: 38px; line-height: 1.1; letter-spacing: -.01em; color: #0b2a57; font-variant-numeric: tabular-nums; }
+.po-net span { display: block; font-size: 13px; color: #333; }
+.po-net .po-net-s { margin-top: 4px; color: #555; }
+.page .po-net { margin: 3mm 0; padding: 3mm 4mm; border-radius: 0; border: 1.5px solid var(--doc, #1f4fa3); background: var(--doc-soft, #eef3fb); }
+.page .po-net b { font-size: 26px; color: var(--doc, #1f4fa3); }
+.page .po-net small { color: var(--doc, #1f4fa3); font-size: 9px; }
+.page .po-net span { font-size: 9.5px; }
+@media (max-width: 480px) { .po-net b { font-size: 30px; } }
