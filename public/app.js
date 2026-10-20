@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.8";
+  const VERSION = "3.9";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.8.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.9.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -1375,7 +1375,7 @@
     // the barcodes are drawn first: a print made while the barcode maker was still loading opens when it is there
     if (!window.bwipjs) { need("bwip").then(() => openPreview(title, pages, opts), (e) => toast(e.message, true)); return; }
     pages = pages.map(fillCodes);
-    const { landscape = false, size = "", undated = false } = opts;
+    const { landscape = false, size = "", undated = false, bare = false } = opts; // bare: only the page itself (no date, no website footer, no page number)
     closePreview();
     const cls = size ? " " + size : landscape ? " landscape" : "";
     // Every printed page shows the date it was printed (report listings and statements already carry their own);
@@ -1398,7 +1398,7 @@
         <select id="pvZoom" style="width:auto"><option>50</option><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
         <button type="button" class="btn" id="pvClose">Close</button>
       </div>
-      <div class="pv-desk" id="pvDesk">${pages.map((p, i) => `<div class="page${cls}">${dated(p)}${p}${web}<div class="pg-num">PAGE ${i + 1} OF ${pages.length}</div></div>`).join("")}</div>
+      <div class="pv-desk" id="pvDesk">${pages.map((p, i) => (bare ? `<div class="page${cls} bare">${p}</div>` : `<div class="page${cls}">${dated(p)}${p}${web}<div class="pg-num">PAGE ${i + 1} OF ${pages.length}</div></div>`)).join("")}</div>
       <div class="statusbar"><span id="pvCur">Current Page No: 1</span><span>Total Page No: ${pages.length}</span><span id="pvZf">Zoom Factor: 100%</span></div>`;
     document.body.appendChild(pv);
     // 3.0: no watermark (company seal) on printed pages

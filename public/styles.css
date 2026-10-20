@@ -2099,7 +2099,6 @@ input.wz-bad, select.wz-bad, textarea.wz-bad { outline: 2px solid #c41e3a; backg
 .qc-find input { flex: 1 1 auto; min-width: 0; }
 .qc-ptl .qc-failc { text-align: center; width: 40mm; white-space: nowrap; }
 .qc-need { padding: 3px 7px 5px; font-size: 9.5px; font-style: italic; }
-.qc-ghost { visibility: hidden; }
 /* the result card (also the box sticker): the same size empty and filled, so a second print lands in the same place */
 .qc-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; margin: 5mm 0 3mm; }
 .qc-card { border: 1.4px solid #000; border-radius: 2mm; font-size: 10px; break-inside: avoid; background: #fff; }
@@ -2117,9 +2116,18 @@ input.wz-bad, select.wz-bad, textarea.wz-bad { outline: 2px solid #c41e3a; backg
 .qc-verdict:empty { border-color: transparent; }
 .qc-verdict.fail { background: #000; color: #fff; }
 .qc-cards.qc-sticker { margin: 0; }
-.qc-cut { margin-top: 5mm; font-size: 9px; color: #444; }
 @media (max-width: 560px) {
   .qc-row.pf { grid-template-columns: 24px 1fr auto; }
   .qc-row.pf .qc-num { grid-column: 2 / -1; grid-row: 2; width: 100%; }
   .qc-find { flex-wrap: wrap; }
 }
+
+/* 3.9: the plain sticker page (only the 2 stickers) and the PASS / FAIL banner on the QC page */
+.page.bare { padding-top: 16mm; }
+.qc-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 0 0 10px; padding: 10px 14px; border-radius: 14px; color: #fff; }
+.qc-banner.pass { background: #1e9e4a; }
+.qc-banner.fail { background: #c41e3a; }
+.qc-banner b { font-size: 30px; letter-spacing: .12em; }
+.qc-banner span { font-size: 16px; font-weight: 700; }
+.qc-banner small { margin-left: auto; font-size: 12px; opacity: .92; }
+@media (max-width: 560px) { .qc-banner small { margin-left: 0; flex-basis: 100%; } }
