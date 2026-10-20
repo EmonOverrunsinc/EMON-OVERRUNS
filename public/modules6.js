@@ -35,10 +35,10 @@
   // ======================================================================
   // The pages of EO-Office: QC Test and Collection Voucher (this page), Job Applications, Job Positions, Credit Memo and Project
   const eoTabs = (on) => `<nav class="subnav">${[["eooffice", "EO-Office", "eooffice"], ["jobapps", "Job Applications", "employees"], ["positions", "Job Positions", "employees"], ["creditmemos", "Credit Memo", "creditmemos"], ["projects", "Project", "projects"]]
-    .filter((x) => E.hasModule(x[2])).map(([k, l]) => `<a href="#${k}" class="${k === on ? "on" : ""}">${l}</a>`).join("")}</nav>`;
+    .filter((x) => E.hasModule(x[2]) && (x[0] !== "eooffice" || E.isStaff())).map(([k, l]) => `<a href="#${k}" class="${k === on ? "on" : ""}">${l}</a>`).join("")}</nav>`;
   V.eooffice = async (tab, month) => {
     E.shell("eooffice", "EO-Office", `${eoTabs("eooffice")}<div id="eoBody">${busy()}</div>`, "QC Test forms and Collection Vouchers. Job Applications, Job Positions, Credit Memo and Project are here too.");
-    if (!E.hasModule("eooffice")) { $("#eoBody").innerHTML = `<div class="empty">Choose Job Applications, Job Positions, Credit Memo or Project above.</div>`; return; }
+    if (!E.hasModule("eooffice") || !E.isStaff()) { $("#eoBody").innerHTML = `<div class="empty">Choose Job Applications, Job Positions, Credit Memo or Project above.</div>`; return; }
     const here = E.stillHere();
     const [qc, cv] = await Promise.all([
       sb.from("qc_tests").select("*").order("created_at", { ascending: false }).limit(2000),
@@ -52,7 +52,7 @@
     const byMonth = new Map();
     vouchers.forEach((v) => { const m = monthOf(v.cv_date); if (!byMonth.has(m)) byMonth.set(m, []); byMonth.get(m).push(v); });
     const monthRows = [...byMonth.keys()].sort().reverse().map((m) => ({ m, n: byMonth.get(m).length, total: sum(byMonth.get(m)) }));
-    const qNow = tests.filter((t) => monthOf(t.created_at) === now), scored = qNow.filter((t) => t.score != null);
+    const qNow = tests.filter((t) => monthOf(E.isoDay(new Date(t.created_at))) === now), scored = qNow.filter((t) => t.score != null);
     const avgScore = scored.length ? Math.round(scored.reduce((s, t) => s + t.score, 0) / scored.length) : null;
     const six = Array.from({ length: 6 }, (_, i) => prevMonth(now, 5 - i)).map((m) => ({ m, total: sum(byMonth.get(m) || []) }));
     const top = Math.max(1, ...six.map((x) => x.total));
@@ -69,7 +69,7 @@
       </div>
       <div class="tabs" id="eoTabs"><button type="button" data-t="qc" class="${t === "qc" ? "on" : ""}">QC Test</button><button type="button" data-t="cv" class="${t === "cv" ? "on" : ""}">Collection Voucher</button></div>
       <div id="eoTab"></div>`;
-    const qcCols = [{ label: "QC No", get: (r) => r.qc_no }, { label: "Date", get: (r) => mdy(r.created_at.slice(0, 10)) }, { label: "Serial No", get: (r) => r.serial_no || "" },
+    const qcCols = [{ label: "QC No", get: (r) => r.qc_no }, { label: "Date", get: (r) => mdy(r.created_at) }, { label: "Serial No", get: (r) => r.serial_no || "" },
       { label: "Item", get: (r) => r.item }, { label: "Brand", get: (r) => r.brand || "" }, { label: "Batch", get: (r) => r.batch || "" }, { label: "CTN", get: (r) => r.ctn || "" },
       { label: "Score", num: true, get: (r) => (r.score == null ? "—" : `${r.score} / 100`) }, { label: "Status", html: (r) => pill(r.status === "done" ? "approved" : "pending", r.status === "done" ? "TESTED" : "NOT TESTED YET") }];
     const cvCols = [{ label: "Voucher No", get: (r) => r.cv_no }, { label: "Date", get: (r) => mdy(r.cv_date) }, { label: "Received From", get: (r) => r.received_from },
@@ -144,7 +144,7 @@
     const rows = CHECKS.map(([k, label, hint], i) => `<tr><td>${i + 1}</td><td><b>${esc(label)}</b>${k === "mending" ? " PCS" : ""}${hint ? `<br><small>(${esc(hint)})</small>` : ""}</td>
       <td class="qc-pcs"><span class="qc-line">${r ? esc(String(numOf(r, k))) : ""}</span></td><td class="qc-tickc">${boxTick(r && r.checks?.[k])}</td></tr>`).join("");
     return `${E.printHead("QC TEST FORM", right)}
-      ${E.box("Goods", `<div class="pgrid2">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at.slice(0, 10)))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item)}
+      ${E.box("Goods", `<div class="pgrid2">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item)}
         ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}${E.cell("Form Made By", t.created_by_name || "")}</div>`)}
       ${E.box("Quality Check — tick each problem found and write the number of pieces", `<table class="ptl qc-ptl"><thead><tr><th>#</th><th>Check</th><th class="qc-pcs">Pcs</th><th class="qc-tickc">Problem Found</th></tr></thead><tbody>${rows}</tbody></table>`)}
       ${E.box("Result", `<div class="pgrid2">${E.cell("Problems Found", r ? String(found) : "")}${E.cell("Total Score", r ? `${t.score ?? 100 - found * 10} / 100` : "          / 100", "hl")}</div>
@@ -169,18 +169,20 @@
   };
 
   function draw(t, r) {
+    const here = E.stillHere();
+    let busyUp = false; // a paper copy is being uploaded
     const checks = { ...(r.checks || {}) }, docs = [...(r.docs || [])];
     const sugg = (n) => 100 - 10 * n;
     let manual = t.score != null && t.score !== sugg(Object.values(checks).filter(Boolean).length);
-    const head = `<div class="pgrid2 qc-head">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at.slice(0, 10)))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item)}
+    const head = `<div class="pgrid2 qc-head">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item)}
       ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}${E.cell("Form Made By", t.created_by_name || "")}</div>`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(t.qc_no)} · ${esc(t.item)} ${pill(t.status === "done" ? "approved" : "pending", t.status === "done" ? "TESTED" : "NOT TESTED YET")}</div><div class="wbody">
       ${head}
       <p class="muted" style="margin:4px 0 8px">Print the form, check the goods on the paper, then tick the problems found here, write the number of pieces and the total.</p>
       <fieldset class="opt"><legend>Quality Check</legend><div class="qc-list" id="qcList">${CHECKS.map(([k, label, hint], i) => `<label class="qc-row"><span class="qc-n">${i + 1}</span>
         <span class="qc-t"><b>${esc(label)}${k === "mending" ? " PCS" : ""}</b>${hint ? `<small>${esc(hint)}</small>` : ""}</span>
-        <input type="text" class="qc-num" data-n="${k}" inputmode="numeric" maxlength="12" placeholder="Pcs" value="${esc(String(numOf(r, k)))}" aria-label="${esc(label)} pieces">
-        <input type="checkbox" data-k="${k}" ${checks[k] ? "checked" : ""} aria-label="${esc(label)} found"></label>`).join("")}</div>
+        <input type="checkbox" data-k="${k}" ${checks[k] ? "checked" : ""} aria-label="${esc(label)} found">
+        <input type="text" class="qc-num" data-n="${k}" inputmode="numeric" maxlength="12" placeholder="Pcs" value="${esc(String(numOf(r, k)))}" aria-label="${esc(label)} pieces"></label>`).join("")}</div>
         <div class="qc-score"><label for="qcTotal">Total Score</label><input type="number" id="qcTotal" min="0" max="100" step="1" inputmode="numeric" value="${t.score ?? 100}"><span class="qc-big">/ 100</span>
           <small class="muted" id="qcHint"></small></div></fieldset>
       <fieldset class="opt"><legend>Remarks</legend><textarea id="qcRem" rows="3" maxlength="1000">${esc(r.remarks || "")}</textarea></fieldset>
@@ -205,9 +207,12 @@
     $("#qcSave").onclick = async (e) => {
       const v = read(); const s = Number(v.score);
       if (v.score === "" || !Number.isInteger(s) || s < 0 || s > 100) return toast("Write the total score from 0 to 100.", true);
-      e.currentTarget.disabled = true;
+      if (busyUp) return toast("Wait until the paper copy is uploaded.", true);
+      v.score = s; // a whole number
+      const btn = e.currentTarget; btn.disabled = true;
       const { data: d, error } = await sb.rpc("qc_save", { p_id: t.id, p_data: v });
-      if (error) { $("#qcSave").disabled = false; return fail(error, /qc_save|schema cache/i.test(error.message) ? "Run the database update 025_qc_simple.sql first" : "Could not save the result"); }
+      if (error) { btn.disabled = false; return fail(error, /qc_save|schema cache/i.test(error.message) ? "Run the database update 025_qc_simple.sql first" : "Could not save the result"); }
+      if (!here()) return; // the person went to another page while it was saved
       toast(`Saved. Total score ${d.score} / 100.`);
       t.status = "done"; t.score = d.score; t.found_count = d.found_count; t.tested_at = new Date().toISOString(); t.tested_by_name = S.profile?.full_name || "";
       draw(t, { ...r, checks: v.checks, numbers: v.numbers, remarks: v.remarks, docs });
@@ -224,17 +229,19 @@
       $$("#qcDocs .qc-doc-rm").forEach((b) => (b.onclick = async () => {
         if (!(await E.confirmBox(`Remove this paper copy of <b>${esc(t.qc_no)}</b>? You can upload it again.`, { ok: "Remove", danger: true }))) return;
         const keep = docs.filter((_, i) => i !== Number(b.dataset.r));
+        if (busyUp) return toast("Wait until the paper copy is uploaded.", true);
         const { data: d, error } = await sb.rpc("qc_set_docs", { p_id: t.id, p_docs: keep });
         if (error) return fail(error, "Could not remove the file");
         docs.splice(0, docs.length, ...keep);
         if (d.removed?.length) sb.storage.from("records").remove(d.removed).then(() => {}, () => {});
-        paintDocs();
+        if (here()) paintDocs();
       }));
     };
     paintDocs();
     $("#qcUp").onchange = async (e) => {
       const picked = Array.from(e.target.files).slice(0, 6 - docs.length); e.target.value = "";
-      if (!picked.length) return;
+      if (!picked.length || busyUp) return;
+      busyUp = true; $("#qcSave").disabled = true;
       const lab = $("#qcUpL"); lab.classList.add("disabled");
       const added = [];
       for (const raw of picked) {
@@ -245,13 +252,14 @@
         if (up.error) { toast("A file could not be uploaded: " + up.error.message, true); continue; }
         added.push(path);
       }
-      lab.classList.remove("disabled");
-      if (!added.length) return;
+      const finish = () => { busyUp = false; if (here() && $("#qcSave")) { $("#qcSave").disabled = false; lab.classList.remove("disabled"); } };
+      if (!added.length) return finish();
       const { error } = await sb.rpc("qc_set_docs", { p_id: t.id, p_docs: [...docs, ...added] });
-      if (error) { sb.storage.from("records").remove(added).then(() => {}, () => {}); return fail(error, "Could not save the paper copy"); }
+      if (error) { sb.storage.from("records").remove(added).then(() => {}, () => {}); finish(); return fail(error, "Could not save the paper copy"); }
       docs.push(...added);
+      finish();
       toast("Paper copy saved.");
-      paintDocs();
+      if (here()) paintDocs();
     };
     if ($("#qcDel")) $("#qcDel").onclick = async () => {
       if (!(await E.confirmBox(`Delete QC form <b>${esc(t.qc_no)}</b> with its result and paper copies? This cannot be undone.`, { ok: "Delete", danger: true }))) return;
@@ -279,17 +287,19 @@
       const g = cv.getContext("2d", { willReadFrequently: true }); g.drawImage(img, 0, 0, w, h);
       const px = g.getImageData(0, 0, w, h).data, lum = new Uint8Array(w * h), hist = new Uint32Array(256);
       for (let i = 0; i < w * h; i++) { const v = (px[i * 4] * 299 + px[i * 4 + 1] * 587 + px[i * 4 + 2] * 114) / 1000 | 0; lum[i] = v; hist[v]++; }
-      let acc = 0, paper = 255; for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= w * h * 0.85) { paper = v; break; } }
+      let acc = 0, paper = 255; for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= w * h * 0.95) { paper = v; break; } }
       if (paper < 120) return file; // a dark picture: nothing to cut
       const rowCov = (mask, x0, x1, y) => { let n = 0; for (let x = x0; x <= x1; x++) if (mask(lum[y * w + x])) n++; return n / (x1 - x0 + 1); };
       const colCov = (mask, y0, y1, x) => { let n = 0; for (let y = y0; y <= y1; y++) if (mask(lum[y * w + x])) n++; return n / (y1 - y0 + 1); };
       // 1. the paper: bright rows and columns (a dark table around it is cut)
       const bright = (v) => v >= paper - 45;
       let y0 = 0, y1 = h - 1, x0 = 0, x1 = w - 1;
-      while (y0 < y1 && rowCov(bright, 0, w - 1, y0) < 0.35) y0++;
-      while (y1 > y0 && rowCov(bright, 0, w - 1, y1) < 0.35) y1--;
+      // (a narrow receipt strip is a small part of a row, so a row counts when 12% of it is paper)
+      while (y0 < y1 && rowCov(bright, 0, w - 1, y0) < 0.12) y0++;
+      while (y1 > y0 && rowCov(bright, 0, w - 1, y1) < 0.12) y1--;
       while (x0 < x1 && colCov(bright, y0, y1, x0) < 0.35) x0++;
       while (x1 > x0 && colCov(bright, y0, y1, x1) < 0.35) x1--;
+      if (y1 - y0 < h * 0.25 || x1 - x0 < w * 0.1) return file; // no paper found: keep the picture
       // 2. the writing: dark rows and columns inside the paper; the blank paper around it is cut
       const ink = (v) => v < paper - 40;
       const minI = (len) => Math.max(2 / len, 0.004);
@@ -302,6 +312,7 @@
       const padY = Math.round((b - a) * 0.03) + 6, padX = Math.round((d - c) * 0.03) + 6;
       a = Math.max(y0, a - padY); b = Math.min(y1, b + padY); c = Math.max(x0, c - padX); d = Math.min(x1, d + padX);
       if ((d - c + 1) * (b - a + 1) > w * h * 0.97) return file; // nothing worth cutting
+      if (d - c < w * 0.1 || b - a < h * 0.1) return file; // too small to be a receipt: keep the picture
       const out = document.createElement("canvas"), sx = W / w, sy = H / h;
       const L = Math.max(1, Math.round((d - c + 1) * sx)), T = Math.max(1, Math.round((b - a + 1) * sy));
       out.width = L; out.height = T;
@@ -314,7 +325,9 @@
   V.newcollection = () => cvForm(null);
   V.editcollection = async (id) => {
     E.shell("editcollection", "Edit Collection Voucher", busy());
+    const here = E.stillHere();
     const { data: v } = await sb.from("collection_vouchers").select("*").eq("id", id).maybeSingle();
+    if (!here()) return;
     if (!v) { $("#main").innerHTML = `<div class="empty">Collection voucher not found.</div>`; return; }
     cvForm(v);
   };
@@ -323,7 +336,7 @@
   async function cvForm(v) {
     if (!canW()) { location.hash = "eooffice"; return; }
     E.shell(v ? "editcollection" : "newcollection", v ? `Edit ${v.cv_no}` : "New Collection Voucher", `
-      <form class="window" id="cvForm" novalidate><div class="wtitle">${v ? `Collection Voucher ${esc(v.cv_no)}` : "Collection Voucher"}</div><div class="wbody">
+      <form class="window" id="cvoForm" novalidate><div class="wtitle">${v ? `Collection Voucher ${esc(v.cv_no)}` : "Collection Voucher"}</div><div class="wbody">
         <fieldset class="opt"><legend>Collection</legend><div class="fields wide">
           <label for="cvDate">Date</label><input type="date" id="cvDate" value="${esc(v?.cv_date || isoToday())}">
           <label for="cvFrom">Received From *</label><input type="text" id="cvFrom" maxlength="120" value="${esc(v?.received_from || "")}" placeholder="Name of the customer or person">
@@ -334,36 +347,48 @@
         <fieldset class="opt"><legend>Receipt Picture</legend>
           <p class="muted" style="margin-top:0">Take or choose a picture of the receipt. The empty area around it is cut off and the paper is made clear before it is saved.</p>
           <div class="cv-prev" id="cvPrev"></div>
-          <div class="btnrow"><label class="btn primary" for="cvFile">${ic("camera")} ${v?.receipt_path ? "Change Receipt" : "Add Receipt"}</label><input type="file" id="cvFile" hidden accept="image/*,application/pdf">
+          <div class="btnrow"><label class="btn primary" for="cvoFile">${ic("camera")} ${v?.receipt_path ? "Change Receipt" : "Add Receipt"}</label><input type="file" id="cvoFile" hidden accept="image/*,application/pdf">
             <label class="chk" id="cvWholeL" hidden><input type="checkbox" id="cvWhole"> Keep the whole picture (do not cut)</label></div></fieldset>
       </div><div class="wfoot"><button type="button" class="btn" id="cvCancel">Cancel</button><button type="submit" class="btn primary">${v ? "Save" : "Save Collection Voucher"}</button></div></form>`);
+    const here = E.stillHere();
     if (v && !canChange(v)) { toast("Only the Director can change this voucher now.", true); location.hash = "collection/" + v.id; return; }
-    let orig = null, ready = null; // the picture chosen, and the cleaned copy to save
+    let orig = null, ready = null, pending = null, token = 0, shownUrl = ""; // the picture chosen, the cleaned copy to save, the cleaning that is running
     const oldUrl = v?.receipt_path ? (await E.signedMap([v.receipt_path])).get(v.receipt_path) : "";
-    const paint = (src, note = "") => { $("#cvPrev").innerHTML = src ? `<img src="${esc(src)}" alt="Receipt">${note ? `<small>${esc(note)}</small>` : ""}` : ""; };
+    if (!here() || !$("#cvPrev")) return;
+    const paint = (src, note = "") => { const el = $("#cvPrev"); if (!el) return; el.innerHTML = src ? `<img src="${esc(src)}" alt="Receipt">${note ? `<small>${esc(note)}</small>` : ""}` : ""; };
     paint(oldUrl, oldUrl ? "Receipt on file" : "");
-    const prepare = async () => {
-      if (!orig) return;
-      $("#cvPrev").innerHTML = busy("Cleaning the picture");
-      const f = $("#cvWhole").checked ? orig : await cutEmpty(orig);
-      ready = await E.slimFile(f, "doc");
-      paint(URL.createObjectURL(ready), ready === orig || ready.size === orig.size && $("#cvWhole").checked ? "Whole picture" : "The empty area was cut off. This is the picture that will be saved.");
+    // The newest choice wins; Save waits for the cleaning to finish.
+    const prepare = () => {
+      if (!orig) return Promise.resolve();
+      const mine = ++token, whole = $("#cvWhole").checked, pic = orig;
+      if ($("#cvPrev")) $("#cvPrev").innerHTML = busy("Cleaning the picture");
+      pending = (async () => {
+        const cut = whole ? pic : await cutEmpty(pic);
+        const out = await E.slimFile(cut, "doc");
+        if (mine !== token) return; // another picture was chosen meanwhile
+        ready = out;
+        if (shownUrl) URL.revokeObjectURL(shownUrl);
+        shownUrl = URL.createObjectURL(out);
+        paint(shownUrl, whole ? "Whole picture. This is the picture that will be saved." : cut === pic ? "Nothing to cut. This is the picture that will be saved." : "The empty area was cut off. This is the picture that will be saved.");
+      })();
+      return pending;
     };
-    $("#cvFile").onchange = async (e) => {
+    $("#cvoFile").onchange = async (e) => {
       const f = e.target.files[0]; e.target.value = "";
       if (!f) return;
-      orig = f; $("#cvWholeL").hidden = !/^image\//.test(f.type);
-      if (!/^image\//.test(f.type)) { ready = f; paint("", ""); $("#cvPrev").innerHTML = `<div class="empty small">${esc(f.name)}</div>`; return; }
+      orig = f; ready = null; $("#cvWholeL").hidden = !/^image\//.test(f.type);
+      if (!/^image\//.test(f.type)) { token++; ready = f; paint("", ""); $("#cvPrev").innerHTML = `<div class="empty small">${esc(f.name)}</div>`; return; }
       await prepare();
     };
     $("#cvWhole").onchange = prepare;
     $("#cvCancel").onclick = () => history.back();
-    $("#cvForm").onsubmit = async (e) => {
+    $("#cvoForm").onsubmit = async (e) => {
       e.preventDefault();
       const from = $("#cvFrom").value.trim(), amt = num($("#cvAmt").value);
       if (!from) return toast("Write who the money was collected from.", true);
       if (!(amt > 0)) return toast("Write the amount collected.", true);
       E.setBusy(e.target, true, "Saving");
+      if (pending) await pending.catch(() => {}); // the receipt picture is ready before it is saved
       const { data: row, error } = await sb.rpc("save_collection", { p_id: v?.id || null, p_data: { cv_date: $("#cvDate").value || null, received_from: from, amount: amt,
         method: $("#cvMethod").value, reference_no: $("#cvRef").value, note: $("#cvNote").value } });
       if (error) { E.setBusy(e.target, false); return fail(error, notSet(error) ? "Run the database update 024_eo_office.sql first" : "Could not save the voucher"); }
