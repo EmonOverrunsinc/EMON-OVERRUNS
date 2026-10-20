@@ -30,13 +30,13 @@
   // ======================================================================
   // 5. Employee
   // ======================================================================
-  const empTabs = (on) => `<nav class="subnav">${[["employees", "Employees"], ["jobapps", "Job Applications"], ["positions", "Job Positions"], ["payroll", "Payroll"]]
+  const empTabs = (on) => `<nav class="subnav">${[["employees", "Employees"], ["payroll", "Payroll"]]
     .map(([k, l]) => `<a href="#${k}" class="${k === on ? "on" : ""}">${l}</a>`).join("")}</nav>`;
 
   V.employees = async () => {
     E.shell("employees", "Employee", `${empTabs("employees")}
       <div class="tabs" id="emF"><button type="button" class="on" data-f="current">Current</button><button type="button" data-f="terminated">Terminated</button><button type="button" data-f="">All</button></div>
-      <div class="btnrow">${isAdmin() ? `<a class="btn primary" href="#newemployee">+ New Employee</a>` : ""}<a class="btn" href="#jobapps">Job Applications</a></div>
+      <div class="btnrow">${isAdmin() ? `<a class="btn primary" href="#newemployee">+ New Employee</a>` : ""}</div>
       <div id="emRes">${busy()}</div>`,
       "Employees come from approved job applications, or the Director adds them here. Open an employee to record salary or advance payments, change access, or terminate them.");
     const [{ data, error }, att] = await Promise.all([
@@ -390,7 +390,7 @@
 
   // ---------- job positions ----------
   V.positions = async () => {
-    E.shell("positions", "Job Positions", `${empTabs("positions")}
+    E.shell("positions", "Job Positions", `${E.eoTabs("positions")}
       ${isAdmin() ? `<form class="window" id="poForm" novalidate style="margin-bottom:10px"><div class="wtitle">New Job Position</div><div class="wbody"><div class="formgrid">
         <div class="fields wide"><label for="poTitle">Position Title *</label><input type="text" id="poTitle" placeholder="e.g. Warehouse Supervisor">
           <label for="poCo">Company Name</label><input type="text" id="poCo" value="${esc(C.company.name)}">
@@ -436,7 +436,7 @@
     { label: "Status", html: (r) => pill(r.status) }, { label: "Approval No", get: (r) => r.approval_no || "" }
   ];
   V.jobapps = async () => {
-    E.shell("jobapps", "Job Applications", `${empTabs("jobapps")}
+    E.shell("jobapps", "Job Applications", `${E.eoTabs("jobapps")}
       <div class="tabs" id="jaF"><button type="button" class="on" data-f="submitted">Waiting for Review</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div id="jaRes">${busy()}</div>`, "People who created an account and applied for a job. Open one, print the form, have the applicant sign it, upload the signed copy, choose the access and approve. Your signature is printed on the form when you approve.");
     const run = async (f) => {
@@ -557,7 +557,7 @@
   // A budget line's qty is optional: empty when it was left out.
   const qtyOf = (l) => (l.qty == null ? "" : Number(l.qty).toLocaleString("en-PH", { maximumFractionDigits: 2 }));
   V.projects = async () => {
-    E.shell("projects", "Project", `
+    E.shell("projects", "Project", `${E.eoTabs("projects")}
       <div class="tabs" id="pjTabs"><button type="button" class="on" data-f="approved">Approved</button><button type="button" data-f="pending">Waiting for Approval</button><button type="button" data-f="completed">Completed</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${E.canWrite("projects") ? `<a class="btn primary" href="#newproject">+ New Project Application</a>` : ""}</div><div id="pjRes">${busy()}</div>`,
       "Submit a project with its budget: each line with its amount (the qty is optional). Once the Director approves it, the project moves to <b>Approved</b> and payments can be recorded against its total cost.");

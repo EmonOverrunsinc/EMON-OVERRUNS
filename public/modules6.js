@@ -33,8 +33,12 @@
   // ======================================================================
   // EO-Office page: mini dashboard, QC Test tab, Collection Voucher tab
   // ======================================================================
+  // The pages of EO-Office: QC Test and Collection Voucher (this page), Job Applications, Job Positions, Credit Memo and Project
+  const eoTabs = (on) => `<nav class="subnav">${[["eooffice", "EO-Office", "eooffice"], ["jobapps", "Job Applications", "employees"], ["positions", "Job Positions", "employees"], ["creditmemos", "Credit Memo", "creditmemos"], ["projects", "Project", "projects"]]
+    .filter((x) => E.hasModule(x[2])).map(([k, l]) => `<a href="#${k}" class="${k === on ? "on" : ""}">${l}</a>`).join("")}</nav>`;
   V.eooffice = async (tab, month) => {
-    E.shell("eooffice", "EO-Office", `<div id="eoBody">${busy()}</div>`, "QC Test forms and Collection Vouchers.");
+    E.shell("eooffice", "EO-Office", `${eoTabs("eooffice")}<div id="eoBody">${busy()}</div>`, "QC Test forms and Collection Vouchers. Job Applications, Job Positions, Credit Memo and Project are here too.");
+    if (!E.hasModule("eooffice")) { $("#eoBody").innerHTML = `<div class="empty">Choose Job Applications, Job Positions, Credit Memo or Project above.</div>`; return; }
     const here = E.stillHere();
     const [qc, cv] = await Promise.all([
       sb.from("qc_tests").select("*").order("created_at", { ascending: false }).limit(2000),
@@ -498,5 +502,5 @@
       caps: { single: 22, first: 26, next: 32, last: 16 } });
   }
 
-  Object.assign(E, { cutEmpty });
+  Object.assign(E, { cutEmpty, eoTabs });
 })();
