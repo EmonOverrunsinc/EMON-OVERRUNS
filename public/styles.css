@@ -2076,3 +2076,4 @@ input.wz-bad, select.wz-bad, textarea.wz-bad { outline: 2px solid #c41e3a; backg
 .credit-note { margin: 0 0 10px; padding: 10px 14px; border-radius: 12px; background: #e9f8ee; border: 1px solid #9ad9ae; color: #0b5a2a; }
 .credit-note b { font-variant-numeric: tabular-nums; }
 .pay-free { margin: 0 0 8px; padding: 8px 12px; border-radius: 10px; background: #eef4fd; border: 1px solid #b9d3f6; color: #0b2a57; }
+.rn-calc { margin-top: 10px; padding: 10px 14px; border-radius: 12px; background: #eef4fd; border: 1px solid #b9d3f6; color: #0b2a57; line-height: 1.6; }
