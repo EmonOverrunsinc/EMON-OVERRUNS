@@ -10,7 +10,7 @@
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
   const rhBox = (t, id) => (E.rhBox ? E.rhBox(t, id) : "");
   // Menu access an employee can be given (Community, Verification and Download Forms are open to everyone).
-  const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["employees", "5 Employee (HR)"], ["projects", "7 Project"], ["billing", "8 Billing"], ["orders", "9 Director Portal"], ["inventory", "10 E-Bill"], ["eooffice", "11 EO-Office"]];
+  const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["employees", "5 Employee (HR)"], ["projects", "7 Project"], ["billing", "8 Billing"], ["inventory", "10 E-Bill"], ["eooffice", "11 EO-Office"]];
   const accessText = (role, mods) => {
     if (role === "admin") return "Everything (Director)";
     const list = (mods || []).map((m) => (MODULES.find((x) => x[0] === m) || [m, m])[1]).join(", ") || "Dashboard and Community";
@@ -120,16 +120,12 @@
     E.shell("employee", "Employee", busy());
     const { data: em } = await sb.from("employees").select("*").eq("id", id).maybeSingle();
     if (!em) { $("#main").innerHTML = `<div class="empty">Employee not found. <a href="#employees">Back</a></div>`; return; }
-    const [att, ps, ja, ol] = await Promise.all([
+    const [att, ps, ja] = await Promise.all([
       E.attachmentsOf("employee", id),
       sb.from("payslips").select("*").eq("employee_id", id).order("pay_date", { ascending: false }),
-      em.job_application_id ? sb.from("job_applications").select("*").eq("id", em.job_application_id).maybeSingle() : Promise.resolve({ data: null }),
-      sb.from("order_letters").select("*").eq("employee_id", id).order("created_at", { ascending: false })
+      em.job_application_id ? sb.from("job_applications").select("*").eq("id", em.job_application_id).maybeSingle() : Promise.resolve({ data: null })
     ]);
     const slips = ps.data || [];
-    const orders = ol.data || [];
-    // Orders for an employee: suspension, reactivation, termination or a memo (never for your own record).
-    const canOrder = E.canWrite("employees") && em.profile_id !== S.profile.id;
     const app = ja.data;
     const photo = em.photo_path ? await E.signedUrl(em.photo_path) : "";
     if (location.hash !== "#employee/" + id) return; // another page was opened while this one loaded
@@ -152,13 +148,12 @@
       <div class="actionbar">
         ${canPay ? `<button type="button" class="btn primary" id="emPay">${ic("plus")} Record Salary / Advance</button>` : ""}
         <button type="button" class="btn" id="emPrint">${ic("print")} Print Employee Record</button>
-        ${canOrder ? `<a class="btn" href="#neworder/employee/${em.id}">${ic("doc")} ${em.status === "suspended" ? "Reactivate Employee" : "Request Order"}</a>` : ""}
         ${isAdmin() && em.status !== "terminated" && em.profile_id !== S.profile.id ? `<button type="button" class="btn danger" id="emTerm">Terminate</button>` : ""}
         ${isAdmin() && em.status === "terminated" ? `<button type="button" class="btn ok" id="emRehire">Re-hire</button>` : ""}
         <span class="grow"></span>
         ${tools("employees", em, `${em.employee_no} ${fullName(em)}`, { reload: () => V.employee(id), afterDelete: () => (location.hash = "employees") })}
       </div>
-      <div class="tabs" id="emTabs">${[`Payslips (${slips.length})`, "Documents", `Orders (${orders.length})`, ...(isAdmin() ? ["Access & Status"] : []), "Details"].map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
+      <div class="tabs" id="emTabs">${[`Payslips (${slips.length})`, "Documents", ...(isAdmin() ? ["Access & Status"] : []), "Details"].map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes" id="emPanes">
         <div data-p="0"><div id="emSlips">${E.grid({ cols: SLIP_COLS, rows: slips, onRow: true, foot: { net_pay: peso(paid) }, empty: "No salary or advance payments recorded yet." })}</div></div>
         <div data-p="1" hidden>
@@ -168,8 +163,7 @@
           ${E.filesHtml(att, "No documents uploaded.")}
           ${isAdmin() ? `<div class="fields wide" style="margin-top:8px">${E.fileField("emSig", "Upload Signature Form", 'accept="image/*,application/pdf" data-save-now')}${E.fileField("emApp", "Upload Application Form", 'multiple accept="image/*,application/pdf" data-save-now')}</div>` : ""}
         </div>
-        <div data-p="2" hidden><div id="emOrders">${E.ordersGrid(orders, "No orders for this employee.")}</div></div>
-        ${isAdmin() ? `<div data-p="3" hidden><fieldset class="opt"><legend>Access &amp; Status</legend><div class="fields wide">${accessFields(em.role, em.modules || [])}
+        ${isAdmin() ? `<div data-p="2" hidden><fieldset class="opt"><legend>Access &amp; Status</legend><div class="fields wide">${accessFields(em.role, em.modules || [])}
           ${["active", "inactive"].includes(em.status) ? `<label for="emStatus">Login</label><select id="emStatus"><option value="active" ${em.status === "active" ? "selected" : ""}>Active — can sign in</option><option value="inactive" ${em.status === "inactive" ? "selected" : ""}>Inactive — blocked</option></select>` : ""}</div>
           <div class="btnrow"><button type="button" class="btn primary" id="emSave">Save Access</button></div></fieldset>
           <fieldset class="opt"><legend>Login Account</legend>${em.profile_id ? `<p>${ic("check")} Linked to a login account. The link cannot be removed, and this employee cannot be deleted.</p>`
@@ -177,12 +171,11 @@
             : `<p class="muted" style="margin-top:0">No login yet. Link an existing login account to this employee (once only: the link cannot be removed afterwards).</p>
             <div class="fields wide"><label for="emLinkSel">Login Account</label><select id="emLinkSel"><option value="">Loading…</option></select></div>
             <div class="btnrow"><button type="button" class="btn" id="emLink">${ic("key")} Link Login Account</button></div>`}</fieldset></div>` : ""}
-        <div data-p="${isAdmin() ? 4 : 3}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Address", em.address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""], ["Created By", em.created_by_name]].map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>${rhBox("employees", em.id)}</div>
+        <div data-p="${isAdmin() ? 3 : 2}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Address", em.address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""], ["Created By", em.created_by_name]].map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>${rhBox("employees", em.id)}</div>
       </div>`;
     $$("#emTabs button").forEach((t) => (t.onclick = () => { $$("#emTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#emPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
     E.keepTab("#emTabs", "employee:" + id);
     E.bindGrid($("#emSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
-    E.bindGrid($("#emOrders"), orders, (r) => (location.hash = "order/" + r.id));
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), () => V.employee(id));
     bindTools($("#main"));
@@ -807,17 +800,16 @@
 
   V.paycompany = async (id) => {
     E.shell("paycompany", "Billing — Company", busy());
-    const [co, accs, vs, ol] = await Promise.all([
+    const [co, accs, vs] = await Promise.all([
       sb.from("pay_company_totals").select("*").eq("id", id).maybeSingle(),
       sb.from("pay_accounts").select("*").eq("company_id", id).order("account_name"),
-      sb.from("pay_vouchers").select("*, pay_accounts(account_name,account_number,bank_name,branch_name)").eq("company_id", id).order("pay_date", { ascending: false }).order("voucher_no", { ascending: false }),
-      sb.from("order_letters").select("*").eq("company_id", id).order("created_at", { ascending: false })
+      sb.from("pay_vouchers").select("*, pay_accounts(account_name,account_number,bank_name,branch_name)").eq("company_id", id).order("pay_date", { ascending: false }).order("voucher_no", { ascending: false })
     ]);
     const c = co.data;
     const photo = c?.photo_path ? await E.signedUrl(c.photo_path) : "";
     if (location.hash !== "#paycompany/" + id) return; // another page was opened while this one loaded
     if (!c) { $("#main").innerHTML = `<div class="empty">Company not found. <a href="#billing">Back</a></div>`; return; }
-    const accounts = accs.data || [], vouchers = vs.data || [], orders = ol.data || [];
+    const accounts = accs.data || [], vouchers = vs.data || [];
     const w = E.canWrite("billing");
     const suspended = c.status === "suspended";
     const cur = curOf(c);
@@ -839,9 +831,8 @@
           ${w ? `<div class="btnrow"><label class="btn small" for="pcPhoto">${ic("camera")} ${photo ? "Change Photo" : "Add Photo"}</label><input type="file" id="pcPhoto" accept="image/*" hidden></div>` : ""}</div></section>
       <div class="tiles">${tiles.map(([k, l, v]) => `<div class="tile ${k}"><div class="k">${l}</div><div class="v">${v}</div></div>`).join("")}</div>
       <div class="actionbar">${w && !suspended ? `<a class="btn primary" href="#newvoucher/${c.id}">${ic("plus")} New Payment</a>` : ""}<button type="button" class="btn" id="pcRecord">${ic("download")} Download Payment Record</button>
-        ${w ? `<a class="btn" href="#neworder/company/${c.id}">${ic("doc")} ${suspended ? "Reactivate Company" : "Request Order"}</a>` : ""}
         <span class="grow"></span>${tools("pay_companies", c, c.name, { reload: () => V.paycompany(id), afterDelete: () => (location.hash = "billing") })}</div>
-      <div class="tabs" id="pcTabs"><button type="button" class="on" data-t="0">Payment Vouchers (${vouchers.length})</button><button type="button" data-t="1">Monthly Records (${months.length})</button><button type="button" data-t="2">Accounts (${accounts.length})</button><button type="button" data-t="3">Orders (${orders.length})</button></div>
+      <div class="tabs" id="pcTabs"><button type="button" class="on" data-t="0">Payment Vouchers (${vouchers.length})</button><button type="button" data-t="1">Monthly Records (${months.length})</button><button type="button" data-t="2">Accounts (${accounts.length})</button></div>
       <div class="tabpanes" id="pcPanes">
         <div data-p="0"><div id="pcVouchers">${E.grid({ cols: voucherCols(cur), rows: vouchers, onRow: true, foot: { amount_php: peso(c.total_php), amount_bdt: `<b class="bdt">${peso(c.total_bdt)}</b>` }, empty: "No payments yet." })}</div></div>
         <div data-p="1" hidden><div id="pcMonths">${E.grid({ cols: [{ label: "Month", get: (r) => monthLabel(r.month) }, { label: "Vouchers", num: true, get: (r) => r.count },
@@ -857,13 +848,11 @@
             ...(showBdt(cur) ? [{ label: "Paid (BDT)", num: true, html: (r) => `<b class="bdt">${peso((accTotals.get(r.id) || [0, 0])[1])}</b>` }] : []),
             { label: "", html: (r) => tools("pay_accounts", r, `${r.account_name} (${c.name})`, { reload: () => V.paycompany(id) }) }], rows: accounts, empty: "No accounts yet." })}</div>
         </div>
-        <div data-p="3" hidden><div id="pcOrders">${E.ordersGrid(orders, "No orders for this company.")}</div></div>
       </div>${rhBox("pay_companies", c.id)}`;
     $$("#pcTabs button").forEach((t) => (t.onclick = () => { $$("#pcTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#pcPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
     E.keepTab("#pcTabs", "paycompany:" + id);
     E.bindGrid($("#pcVouchers"), vouchers, (r) => (location.hash = "voucher/" + r.id));
     E.bindGrid($("#pcMonths"), months, (r) => printRecord(c, r.list, `For the month of ${monthLabel(r.month)}`));
-    E.bindGrid($("#pcOrders"), orders, (r) => (location.hash = "order/" + r.id));
     bindTools($("#main"));
     $("#pcRecord").onclick = () => printRecord(c, vouchers, "All payments");
     if ($("#pcPhoto")) $("#pcPhoto").onchange = async (e) => {
