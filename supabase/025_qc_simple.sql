@@ -18,7 +18,12 @@ drop function if exists public.qc_make_code();
 drop function if exists public.qc_norm(text);
 drop function if exists public.create_qc(jsonb);
 
-alter table public.qc_results alter column code_hash drop not null;
+-- (the column may already be gone if 026 was run before; then there is nothing to loosen)
+do $$ begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'qc_results' and column_name = 'code_hash') then
+    alter table public.qc_results alter column code_hash drop not null;
+  end if;
+end $$;
 alter table public.qc_results add column if not exists numbers jsonb not null default '{}'::jsonb;
 -- the result is read by staff with EO-Office access (changes only through the functions below)
 grant select on public.qc_results to authenticated;
