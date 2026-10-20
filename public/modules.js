@@ -765,12 +765,11 @@
   function applicationPage(c, photoUrl, reqs, sign = null) {
     const qr = E.qrDataUrl(custQr(c));
     const bar = E.pdf417DataUrl(c.application_no);
-    return `${printHead("CUSTOMER ACCOUNT APPLICATION", `<div class="ph-codes">
-        <div><img src="${bar}" alt="Application number barcode" class="ph-bar"><div class="mono">${esc(c.application_no)}</div></div>
-        <div><img src="${qr}" alt="Customer QR code" class="ph-qr"><div class="mono key">${esc(c.public_id)}</div></div></div>`)}
+    // 3.2: no photo box; the customer's QR code with the public key stands in that place (left of the customer details)
+    return `${printHead("CUSTOMER ACCOUNT APPLICATION", `<img src="${bar}" alt="Application number barcode" class="ph-bar"><div class="mono">${esc(c.application_no)}</div>`)}
       <div class="prow3">${cell("Application No", c.application_no)}${cell("Account No", c.account_no)}${cell("Application Date", mdy(c.application_date))}</div>
       ${box("Customer Information", `<div class="pgrid">
-        <div class="pphoto">${photoUrl ? `<img src="${esc(photoUrl)}" alt="">` : "PHOTO"}</div>
+        <div class="pphoto pqr"><img src="${qr}" alt="Customer QR code"><div class="mono key">${esc(c.public_id)}</div></div>
         <div class="pgrid2">${cell("First Name", c.first_name)}${cell("Last Name", c.last_name)}
           ${cell("Phone Number", c.phone)}${cell("Email Address", c.email)}
           ${cell("Full Address", c.address, "span2")}</div></div>`)}
@@ -797,8 +796,7 @@
   }
   async function printApplication(c) {
     const [att, ok] = await Promise.all([attachmentsOf("customer", c.id), accountApproval(c), loadSignatures()]);
-    const photoUrl = c.photo_path ? await signedUrl(c.photo_path, 900) : "";
-    const pages = [applicationPage(c, photoUrl, att.filter((a) => a.kind === "requirement"), ok ? approvedBy(ok.id, ok.name, ok.at) : null)];
+    const pages = [applicationPage(c, null, att.filter((a) => a.kind === "requirement"), ok ? approvedBy(ok.id, ok.name, ok.at) : null)];
     // an approved account: page 2 is the Record Validation (verified / approved by, E-Portal record date, paper copy)
     if (ok) pages.push(await validationPage(c, att));
     E.openPreview(`Application ${c.application_no}`, pages);
