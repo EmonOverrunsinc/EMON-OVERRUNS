@@ -474,7 +474,6 @@
       [E.canWrite("invoices"), "#newinvoice", "Record Invoice", "doc", "indigo"],
       [E.canWrite("payments") || E.canWrite("invoices"), "#newpayment", "Record Payment", "wallet", "green"],
       [E.canWrite("creditmemos"), "#newcreditmemo", "Credit Memo", "tag", "orange"],
-      [["orders", "customers", "employees", "billing"].some(E.canWrite), "#neworder", "Request Order", "order", "purple"],
       [E.canWrite("billing"), "#newvoucher", "Payment Voucher", "receipt", "teal"],
       [isStaff(), "#newpurchase", "Purchase Order", "order", "pink"],
       [true, "#verify", "Verify a Record", "shield", "gray"]
@@ -578,10 +577,9 @@
   async function loadTodo() {
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
-    const [apps, jobs, orders, changes, memos, contacts, copies, pos] = await Promise.all([
+    const [apps, jobs, changes, memos, contacts, copies, pos] = await Promise.all([
       cnt(sb.from("customers").select("id", head).in("status", ["pending", "verified"])),
       cnt(sb.from("job_applications").select("id", head).eq("status", "submitted")),
-      cnt(sb.from("order_letters").select("id", head).eq("status", "pending")),
       cnt(sb.from("change_requests").select("id", head).eq("status", "pending")),
       cnt(sb.from("credit_memos").select("id", head).eq("status", "pending")),
       cnt(sb.from("contact_messages").select("id", head).eq("status", "new")),
@@ -589,7 +587,7 @@
       cnt(sb.from("purchase_orders").select("id", head).eq("status", "pending"))
     ]);
     const el = $("#dTodo"); if (!el) return;
-    const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [orders, "Orders to approve", "#orders"], [changes, "Corrections", "#changes"], [memos, "Credit memos", "#creditmemos"], [contacts, "Contact messages", "#contacts"], [pos, "Purchase orders", "#purchase"]];
+    const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [changes, "Corrections", "#changes"], [memos, "Credit memos", "#creditmemos"], [contacts, "Contact messages", "#contacts"], [pos, "Purchase orders", "#purchase"]];
     if (copies.length) items.push([copies.length, "Paper copy updates", `#${copies[0].owner_type}/${copies[0].owner_id}`]);
     el.innerHTML = `<span class="todo-h">Waiting for you:</span>` + items.map(([n, label, href]) => `<a class="todo-chip ${n ? "hot" : ""}" href="${href}"><b>${n}</b> ${esc(label)}</a>`).join("");
   }
@@ -823,8 +821,8 @@
 
   // Suspended / closed accounts are marked for everyone who opens them.
   function statusBanner(c) {
-    if (c.status === "closed") return `<div class="banner closed">${ic("x")} CLOSED ACCOUNT — new invoices cannot be recorded; payments can still be recorded. It can be reopened only with an approved order letter.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
-    if (c.status === "suspended") return `<div class="banner warn">⚠ SUSPENDED ACCOUNT — new invoices are blocked until the account is reactivated with an approved order letter; payments can still be recorded.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
+    if (c.status === "closed") return `<div class="banner closed">${ic("x")} CLOSED ACCOUNT — new invoices cannot be recorded; payments can still be recorded. ${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
+    if (c.status === "suspended") return `<div class="banner warn">⚠ SUSPENDED ACCOUNT — new invoices are blocked while the account is suspended; payments can still be recorded.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
     if (c.status === "rejected") return `<div class="banner closed">REJECTED APPLICATION${c.status_note ? " — " + esc(c.status_note) : ""}</div>`;
     return "";
   }
@@ -858,9 +856,6 @@
     const canInvoice = c.status === "active" && E.canWrite("invoices");
     const canPay = ["active", "suspended", "closed"].includes(c.status) && (E.canWrite("payments") || E.canWrite("invoices"));
     const canMemo = ["active", "suspended"].includes(c.status) && E.canWrite("creditmemos");
-    const canOrder = ["active", "suspended", "closed"].includes(c.status) && (E.canWrite("orders") || E.canWrite("customers"));
-    // Active accounts get order requests; a suspended account only a reactivation, a closed one only a reopening.
-    const orderBtn = { active: "Request Order", suspended: "Reactivate Account", closed: "Reopen Account" }[c.status];
     const history = [
       ...(ev.data || []).map((r) => ({ at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
       ...(chg.data || []).map((r) => r.action === "correction" ? { at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }
@@ -868,7 +863,7 @@
           by: r.actor_name || "", note: `${Object.keys(r.changes || {}).map((k) => fieldLabel("customers", k)).join(", ")}${r.requested_by_name ? ` · asked by ${r.requested_by_name}` : ""}` }
         : { at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.action === "file removed" ? r.previous?.file || "" : changeText(r) })
     ].sort((x, y) => String(x.at).localeCompare(String(y.at)));
-    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Orders (${orders.length})`, `Documents (${att.length})`, "History"];
+    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Documents (${att.length})`, "History"];
     $(".band h1").textContent = `Customer — ${fullName(c)}`;
     $("#main").innerHTML = `
       ${statusBanner(c)}
@@ -886,13 +881,12 @@
         <div class="ch-qr"><canvas id="pfQr" aria-label="Customer QR code"></canvas><small>Public ID</small><b class="mono key" id="pfKey">${esc(c.public_id || "")}</b><button type="button" class="linkbtn" id="pfCopy">${ic("copy")} Copy</button></div>
       </section>
       <div class="due-card ${num(b.balance_due) > 0 ? "warn" : num(b.balance_due) < 0 ? "credit" : "ok"}"><div><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
-        <small>${num(b.balance_due) > 0 ? "Amount the customer still owes" : num(b.balance_due) < 0 ? `Overpaid · the customer has paid ₱ ${peso(-num(b.balance_due))} more than owed` : "Nothing due · fully paid"} · see Details for the full summary</small></div>
+        <small>${num(b.balance_due) > 0 ? "Amount the customer still owes" : num(b.balance_due) < 0 ? `Overpaid · ₱ ${peso(-num(b.balance_due))} is ready for the customer's next invoice (it is used by itself)` : "Nothing due · fully paid"} · see Details for the full summary</small></div>
       <div class="actionbar">
         ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">${ic("plus")} Record Invoice</a>` : ""}
         ${canPay ? `<a class="btn" href="#newpayment/${c.id}">${ic("plus")} Record Payment</a>` : ""}
         ${canMemo ? `<a class="btn" href="#newcreditmemo/${c.id}">${ic("plus")} Credit Memo</a>` : ""}
-        ${canOrder ? `<a class="btn" href="#neworder/${c.id}">${ic("doc")} ${orderBtn}</a>` : ""}
-        ${isApprovedAccount(c) && isStaff() && E.customerRequest ? `<button type="button" class="btn" id="pfRequest">${ic("stamp")} Request</button>` : ""}
+        ${isApprovedAccount(c) && isStaff() ? `<button type="button" class="btn" id="pfGate">${ic("check")} Gate Pass</button>` : ""}
         <span class="grow"></span>
         ${tools("customers", c, `${c.account_no || c.application_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers") })}
       </div>
@@ -905,11 +899,10 @@
         <div data-p="0">${detailsTable(c, b)}${rhBox("customers", c.id)}</div>
         <div data-p="1" hidden id="pfSoa">${busy("Loading statements")}</div>
         <div data-p="2" hidden>${E.grid({ cols: INV_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: invs.data || [], onRow: true, empty: "No invoices yet." })}</div>
-        <div data-p="3" hidden>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
+        <div data-p="3" hidden><div id="pfFree"></div>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
         <div data-p="4" hidden>${E.grid({ cols: MEMO_COLS.filter((x) => x.label !== "Customer"), rows: memos.data || [], onRow: true, empty: "No credit memos." })}</div>
-        <div data-p="5" hidden>${E.grid({ cols: [{ label: "Order No", get: (r) => r.order_no }, { label: "Date", get: (r) => mdy(r.order_date) }, { label: "Subject", get: (r) => r.subject }, { label: "Type", get: (r) => r.subject_type.replace(/_/g, " ").toUpperCase() }, { label: "Status", html: (r) => pill(r.status) }, { label: "Result", get: (r) => r.applied_result || "" }], rows: orders, onRow: true, empty: "No orders for this account." })}</div>
-        <div data-p="6" hidden>${filesHtml(att.map((a) => a.kind === "signed_form" ? { ...a, kind: "application" } : a), "No documents yet.")}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple data-save-now")}</div>` : ""}</div>
-        <div data-p="7" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
+        <div data-p="5" hidden>${filesHtml(att.map((a) => a.kind === "signed_form" ? { ...a, kind: "application" } : a), "No documents yet.")}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple data-save-now")}</div>` : ""}</div>
+        <div data-p="6" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
     if ($("#pfLoc")) $("#pfLoc").onchange = (e) => setLocation(c, e.target.value);
@@ -947,14 +940,19 @@
     E.keepTab("#pfTabs", "customer:" + c.id);
     E.bindGrid($('[data-p="2"]'), invs.data || [], (r) => (location.hash = "invoice/" + r.id));
     E.bindGrid($('[data-p="3"]'), pays.data || [], (r) => (location.hash = "payment/" + r.id));
+    // payments with money not yet linked to an invoice, and the credit (overpaid) that is ready for other invoices
+    sb.from("payment_available").select("receipt_no, available").eq("customer_id", c.id).gt("available", 0.004).then(({ data, error }) => {
+      const el = $("#pfFree"); if (!el || error || !data?.length) return;
+      const sum = data.reduce((t, r) => t + num(r.available), 0);
+      el.innerHTML = `<div class="pay-free">${data.length} payment${data.length === 1 ? "" : "s"} not linked to an invoice yet: <b>₱ ${peso(sum)}</b> (${data.slice(0, 6).map((r) => esc(r.receipt_no || "")).join(", ")}${data.length > 6 ? " …" : ""}). They pay the oldest invoices first, or link them on an invoice (Link a Payment).${num(b.balance_due) < 0 ? ` Overpaid credit ready for other invoices: <b>₱ ${peso(-num(b.balance_due))}</b>.` : ""}</div>`;
+    }, () => {});
     E.bindGrid($('[data-p="4"]'), memos.data || [], (r) => (location.hash = "creditmemo/" + r.id));
-    E.bindGrid($('[data-p="5"]'), orders, (r) => (location.hash = "order/" + r.id));
     if (!["pending", "verified", "rejected"].includes(c.status)) renderSoaTab(c, invs.data || [], pays.data || [], memos.data || [], orders);
     else $("#pfSoa").innerHTML = `<div class="empty">Statements start after the account is approved.</div>`;
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.customer(c.id));
     bindTools($("#main"));
-    if ($("#pfRequest")) $("#pfRequest").onclick = () => E.customerRequest(c, { b, invs: invs.data || [], pays: pays.data || [], orders });
+    if ($("#pfGate")) $("#pfGate").onclick = () => E.gatePass(c, { b, invs: invs.data || [] });
     if ($("#pvShow")) $("#pvShow").onclick = () => { const el = $("#pvCode"); const hidden = el.textContent.startsWith("•"); el.textContent = hidden ? el.dataset.code || "(none)" : "••••••••"; $("#pvShow").textContent = hidden ? "Hide" : "Show"; };
     if ($("#pfAdd")) $("#pfAdd").onchange = async (e) => { const here = E.stillHere(), f = await uploadRecords("customer", c.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed to upload.` : "Uploaded.", f > 0); if (here()) V.customer(c.id); };
     if (isAdmin() && ["pending", "verified"].includes(c.status)) bindReview(c);
@@ -1291,7 +1289,7 @@
       <form class="window" id="niForm" novalidate>
         <div class="wtitle">Record Invoice</div>
         <div class="wbody">
-          <fieldset class="opt"><legend>Customer (ACTIVE accounts only)</legend><div id="niCust"></div></fieldset>
+          <fieldset class="opt"><legend>Customer (ACTIVE accounts only)</legend><div id="niCust"></div><div id="niCredit"></div></fieldset>
           <fieldset class="opt"><legend>Invoice</legend><div class="formgrid">
             <div class="fields wide">
               <label for="niDate">Invoice Date</label><input type="date" id="niDate" value="${isoToday()}" max="${isoToday()}">
@@ -1317,7 +1315,14 @@
         <div class="wfoot"><button type="button" class="btn" id="niCancel">Cancel</button><button type="submit" class="btn primary">Submit Invoice</button></div>
       </form>`, "The invoice is saved to the customer's account and added to their balance due. Choose its <b>Terms of Payment</b>: the due date follows from it.");
     let cust = null;
-    customerPicker($("#niCust"), { statuses: ["active"], onPick: (c) => (cust = c), preset: (await getCustomer(custId)) || undefined });
+    const showCredit = async (c) => {
+      const el = $("#niCredit"); if (!el) return;
+      el.innerHTML = "";
+      const { data } = await sb.from("customer_balances").select("balance_due").eq("customer_id", c.id).maybeSingle();
+      if (cust?.id !== c.id || !el.isConnected) return;
+      if (data && num(data.balance_due) < 0) el.innerHTML = `<div class="credit-note">${fullName(c)} has overpaid: <b>₱ ${peso(-num(data.balance_due))}</b> is ready for this invoice. It is used by itself, oldest invoice first.</div>`;
+    };
+    customerPicker($("#niCust"), { statuses: ["active"], onPick: (c) => { cust = c; showCredit(c); }, preset: (await getCustomer(custId)) || undefined });
     if (cust && cust.status !== "active") { toast(`${fullName(cust)}'s account is ${cust.status.toUpperCase()} — invoices are blocked.`, true); cust = null; $("#niCust .pk-chosen").innerHTML = ""; }
     $("#niAmt").oninput = () => ($("#niWords").textContent = words($("#niAmt").value));
     // the terms chosen (OTHER: the terms typed, in capitals) and the due date that follows
@@ -1483,6 +1488,7 @@
       const opts = av || [];
       const m = E.modal(`Link a Payment — ${inv.invoice_no}`, opts.length
         ? `<p class="muted" style="margin-top:0">Choose the payment of ${esc(fullName(inv))} that paid this invoice. It still needs <b>₱ ${peso(need)}</b> from a linked payment; only that is taken and the rest of the payment stays available.</p>
+          <div class="pay-free">All payments of this customer with money left (any date): ${opts.length} · <b>₱ ${peso(opts.reduce((t, r) => t + num(r.available), 0))}</b> ready for invoices.</div>
           <div class="lp-pick">${opts.map((p) => `<div class="lp-opt" data-pay="${p.id}"><b>${esc(p.receipt_no || "")}</b><span>${mdy(p.paid_date)}</span><b>₱ ${peso(p.amount)}</b>
             <small>Available to link: <b>₱ ${peso(p.available)}</b>${num(p.linked) > 0 ? ` (₱ ${peso(p.linked)} already linked to other invoices)` : ""}</small>
             <div class="lp-amt"><label for="lpA${p.id}">Amount to link (₱)</label><input type="number" id="lpA${p.id}" min="0.01" step="0.01" inputmode="decimal" value="${Math.min(num(p.available), need).toFixed(2)}">
@@ -1850,11 +1856,10 @@
     const H = E.hasModule;
     const none = Promise.resolve({ data: [] });
     if (/^EMONQCK?\|/i.test(t) && (await E.openScanned(t)) !== false) { done(); return; } // a QC form code opens that form (if there is none, the search goes on) // a typed or pasted QC form code opens the (locked) QC form
-    const [cs, iv, py, ol, vo, em, qc, cv] = await Promise.all([
+    const [cs, iv, py, vo, em, qc, cv] = await Promise.all([
       H("customers") ? sb.from("customers").select("*").neq("status", "closed").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,account_no.ilike.%${w}%,public_id.ilike.%${w}%,business_name.ilike.%${w}%,phone.ilike.%${w}%`).limit(100) : none,
       H("invoices") ? sb.from("invoice_balances").select("*").neq("customer_status", "closed").or(`invoice_no.ilike.%${w}%,po_number.ilike.%${w}%`).limit(50) : none,
       H("payments") ? sb.from("payments_received").select("*, customers(first_name,last_name,account_no,status)").or(`receipt_no.ilike.%${w}%,reference_no.ilike.%${w}%`).limit(50) : none,
-      E.canOpen("orders") || H("employees") || H("billing") ? sb.from("order_letters").select("*, customers(first_name,last_name,account_no), employees(first_name,last_name,employee_no), pay_companies(name)").or(`order_no.ilike.%${w}%,subject.ilike.%${w}%`).limit(30) : none,
       H("billing") ? sb.from("pay_vouchers").select("*, pay_companies(name)").or(`voucher_no.ilike.%${w}%,reference_no.ilike.%${w}%,purpose.ilike.%${w}%`).limit(30) : none,
       H("employees") ? sb.from("employees").select("*").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,employee_no.ilike.%${w}%,email.ilike.%${w}%`).limit(30) : none,
       isStaff() && H("eooffice") ? sb.from("qc_tests").select("*").or(`qc_no.ilike.%${w}%,serial_no.ilike.%${w}%,item.ilike.%${w}%,brand.ilike.%${w}%,batch.ilike.%${w}%`).limit(30) : none,
@@ -1869,8 +1874,6 @@
     if (H("customers")) sections.push(["Customers", custs, [{ label: "Account No", get: (r) => r.account_no }, { label: "Name", get: fullName }, { label: "Business", get: (r) => r.business_name || "" }, { label: "Phone", get: (r) => r.phone || "" }, { label: "Status", html: (r) => pill(r.status) }], (r) => "customer/" + r.id]);
     if (H("invoices")) sections.push(["Invoices", iv.data || [], INV_COLS, (r) => "invoice/" + r.id]);
     if (H("payments")) sections.push(["Payments", pays, PAY_COLS, (r) => "payment/" + r.id]);
-    const orderFor = (r) => r.employees ? `Employee: ${fullName(r.employees)}` : r.pay_companies ? `Company: ${r.pay_companies.name}` : r.customers ? `Customer: ${fullName(r.customers)}` : "";
-    if ((ol.data || []).length) sections.push(["Orders", ol.data, [{ label: "Order No", get: (r) => r.order_no }, { label: "For", get: orderFor }, { label: "Subject", get: (r) => r.subject }, { label: "Status", html: (r) => pill(r.status) }], (r) => "order/" + r.id]);
     if ((vo.data || []).length) sections.push(["Payment Vouchers", vo.data, [{ label: "Voucher No", get: (r) => r.voucher_no }, { label: "Company", get: (r) => r.pay_companies?.name || "" }, { label: "Date", get: (r) => mdy(r.pay_date) }, { label: "PHP", num: true, get: (r) => r.amount_php == null ? "—" : peso(r.amount_php) }, { label: "BDT", num: true, get: (r) => r.amount_bdt == null ? "—" : peso(r.amount_bdt) }], (r) => "voucher/" + r.id]);
     if ((em.data || []).length) sections.push(["Employees", em.data, [{ label: "Employee No", get: (r) => r.employee_no }, { label: "Name", get: fullName }, { label: "Position", get: (r) => r.position || "" }, { label: "Status", html: (r) => pill(r.status) }], (r) => "employee/" + r.id]);
     if ((qc.data || []).length) sections.push(["QC Forms", qc.data, [{ label: "QC No", get: (r) => r.qc_no }, { label: "Serial No", get: (r) => r.serial_no || "" }, { label: "Item", get: (r) => r.item }, { label: "Brand", get: (r) => r.brand || "" },
@@ -1967,8 +1970,6 @@
     const sp = S.profile, myPic = await signaturePic(sp.signature_path);
     const { data: emp } = await sb.from("employees").select("*").eq("profile_id", S.profile.id).maybeSingle();
     const slips = emp ? (await sb.from("payslips").select("*").eq("employee_id", emp.id).order("pay_date", { ascending: false })).data || [] : [];
-    // Approved orders about me (memo, suspension, reactivation): tap one to see and print the letter.
-    const myOrders = emp ? (await sb.from("order_letters").select("*").eq("employee_id", emp.id).in("status", ["approved", "applied"]).order("created_at", { ascending: false })).data || [] : [];
     const netTotal = slips.reduce((s, p) => s + num(p.net_pay), 0);
     $("#main").innerHTML = `
       <section class="me-card">
@@ -1990,7 +1991,7 @@
       <fieldset class="opt sigset" id="mpSigBox"><legend>My Signature</legend>
         ${myPic ? `<div class="sig-show"><img src="${esc(myPic)}" alt="My signature"></div><div class="sig-st">${sigPill(sp.signature_status)}${sp.signature_status === "approved" && sp.signature_approved_by_name ? ` <small>by ${esc(sp.signature_approved_by_name)} on ${mdy(sp.signature_approved_at)}</small>` : ""}</div>` : `<p><b>No signature yet.</b></p>`}
         ${sp.signature_status === "rejected" && sp.signature_note ? `<div class="hint err">Not approved: ${esc(sp.signature_note)}. Upload a clearer signature.</div>` : ""}
-        <p class="muted">${isAdmin() ? "Your signature is printed by itself on every document you approve (order letters, applications, credit memos, projects and signature forms)."
+        <p class="muted">${isAdmin() ? "Your signature is printed by itself on every document you approve (applications, credit memos, projects and signature forms)."
           : "Upload your signature; the Director approves it, then your Signature Verification Form is ready."} Sign on white paper with dark ink, take a clear photo and upload it: the white paper is taken away for you.</p>
         <div class="btnrow"><label class="btn primary" for="mpSig">${ic("upload")} ${myPic ? "Change Signature" : "Upload Signature"}</label><input type="file" id="mpSig" accept="image/*" hidden data-save-now="preview">
           ${sp.signature_path ? `<button type="button" class="btn" id="mpSigForm">${ic("print")} Signature Verification Form</button><button type="button" class="btn danger" id="mpSigRm">${ic("trash")} Remove</button>`
@@ -2004,10 +2005,8 @@
         <div id="mpDelDone"></div></fieldset>`}
       ${emp ? `<h3>My Payslip History</h3>
         <div class="tiles"><div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div><div class="tile ok"><div class="k">Total Received (₱)</div><div class="v">₱ ${peso(netTotal)}</div></div></div>
-        <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}
-      ${myOrders.length ? `<h3>My Orders</h3><div id="mpOrders">${E.ordersGrid(myOrders, "")}</div>` : ""}`;
+        <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}`;
     if (emp) E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
-    if (myOrders.length) E.bindGrid($("#mpOrders"), myOrders, (r) => E.printOrder(r.id));
     $("#mpPw").onclick = () => E.changePassword();
     // 2.4: the request goes to the Director's Contact Messages, who then deletes the account on Login Accounts
     if ($("#mpDel")) $("#mpDel").onclick = async () => {

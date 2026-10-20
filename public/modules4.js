@@ -22,6 +22,10 @@
   const ENTRY = { sales: "Net Sales", eoo_fee: "EOO Fee", fee: "Other Fee", penalty: "Penalty" };
   const MAX_COLS = 10;
   const isOpen = (st) => st === "shipped" || st === "arrived";
+  // The Released Notice of an e-bill: older ones are order letters; since 3.7 it is written on the e-bill itself.
+  const noticesOf = (b, orders) => (orders && orders.length ? orders : b.release_bdt != null
+    ? [{ id: "bill", order_no: b.release_order_no, order_date: b.released_at || b.release_date, release_date: b.release_date, status: "applied", release_bdt: b.release_bdt, release_php: b.release_php,
+      price_per_box: b.release_price_per_box, exchange_rate: b.release_exchange_rate, shipping_cost: b.shipping_cost, shipping_bill_no: b.shipping_bill_no, approved_by_name: "", created_by_name: "" }] : []);
   const isNum = (c) => c.type !== "text";
   const colHead = (c) => c.name + (c.type === "price" || c.type === "total" ? " (BDT)" : "");
   const cellText = (c, v) => (c.type === "qty" ? qtyText(v) : c.type === "price" || c.type === "total" ? peso(v) : String(v ?? ""));
@@ -52,11 +56,11 @@
     const w = E.canWrite("inventory");
     E.shell("inventory", "E-Bill", `
       <div class="tiles" id="ivTiles">${["E-Bills", "At SHIP (Not Released)", "Total Cost (BDT)", "Balance (BDT)", "Net Profit / Loss — Paid (BDT)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>
-      <div class="btnrow">${w ? `<a class="btn primary" href="#newstockbill">${ic("plus")} Add E-Bill</a><a class="btn" href="#neworder/stock_bill">${ic("doc")} Released Notice</a>` : ""}</div>
+      <div class="btnrow">${w ? `<a class="btn primary" href="#newstockbill">${ic("plus")} Add E-Bill</a>` : ""}</div>
       <div class="tabs" id="ivF"><button type="button" class="on" data-f="">All</button>${STATUS.map((s) => `<button type="button" data-f="${s}">${STATUS_NAME[s].toUpperCase()}</button>`).join("")}</div>
       <div class="inv-find"><input type="search" id="ivQ" placeholder="Search by e-bill no, company, batch no, bill no, system record no or shipping company" aria-label="Search e-bills"></div>
       <div id="ivRes">${busy()}</div>`,
-      "E-bills of the goods bought, in BDT. <b>Add E-Bill</b> records the bill with its items. The <b>Released Notice</b> (an order letter, found by the batch no) releases it and adds the released charge and the shipping fee; then add the <b>Sales Report</b>. A memo in the Director Portal pays an e-bill. The profit or loss shows after the Director marks it <b>PAID</b>.");
+      "E-bills of the goods bought, in BDT. <b>Add E-Bill</b> records the bill with its items. Add the <b>Sales Report</b>, then the Director marks it <b>PAID</b>: the profit or loss shows after that.");
     const { data, error } = await sb.from("stock_bill_totals")
       .select("id, bill_no, bill_date, company_name, supplier_bill_no, batch_no, shipment_no, shipment_date, total_boxes, total_qty, total_cost, release_bdt, shipping_cost, paid_bdt, status, profit, shipping_company, shipping_company_code, created_at")
       .order("created_at", { ascending: false }).limit(2000);
@@ -248,30 +252,26 @@
 
   V.stockbill = async (id) => {
     E.shell("stockbill", "E-Bill", busy());
-    const [bq, eq, pq, vq, oq, mq, evq] = await Promise.all([
+    const [bq, eq, pq, vq, oq, evq] = await Promise.all([
       sb.from("stock_bill_totals").select("*").eq("id", id).maybeSingle(),
       sb.from("stock_bill_entries").select("*").eq("stock_bill_id", id).order("entry_date").order("created_at"),
       sb.from("stock_bill_payments").select("*").eq("stock_bill_id", id).order("pay_date").order("created_at"),
       // payment vouchers linked to the e-bill in Billing before 2.1
       sb.from("pay_vouchers").select("id, voucher_no, pay_date, amount_bdt, purpose, method, reference_no").eq("stock_bill_id", id).order("pay_date").order("voucher_no"),
       sb.from("order_letters").select("*").eq("stock_bill_id", id).order("created_at", { ascending: false }),
-      // memos waiting for approval that will pay this e-bill (seen by the Director and Billing)
-      sb.from("order_letters").select("id, order_no, order_date, subject, amount, exchange_rate, amount_bdt, created_by_name").eq("memo_bill_id", id).eq("status", "pending").order("created_at"),
       sb.from("stock_bill_events").select("*").eq("stock_bill_id", id).order("created_at", { ascending: false }).order("id", { ascending: false })
     ]);
     const b = bq.data;
     if (location.hash !== "#stockbill/" + id) return; // another page was opened while this one loaded
     if (!b) { $("#main").innerHTML = `<div class="empty">E-bill not found. <a href="#inventory">Back</a></div>`; return; }
-    const entries = eq.data || [], pays = pq.data || [], vouchers = vq.data || [], orders = oq.data || [], waiting = mq.data || [], events = evq.data || [];
-    const files = await billFiles(b, entries, orders, vouchers);
+    const entries = eq.data || [], pays = pq.data || [], vouchers = vq.data || [], orders = noticesOf(b, oq.data || []), events = evq.data || [];
+    const files = await billFiles(b, entries, orders.filter((o) => o.id !== "bill"), vouchers);
     if (location.hash !== "#stockbill/" + id) return;
     const w = E.canWrite("inventory"), admin = isAdmin(), st = b.status;
-    const pending = orders.find((o) => o.status === "pending");
     const paid = num(b.paid_bdt), balance = totalCost(b) - paid;
     const reload = () => V.stockbill(id);
     $(".band h1").textContent = `E-Bill ${b.bill_no}`;
-    const banner = st === "paid" ? `<div class="banner ok">✔ PAID — marked by ${esc(b.paid_by_name || "")} on ${mdy(b.paid_at)}. The profit or loss and the secret code are on the E-Bill. More sales reports can still be added.</div>`
-      : pending ? `<div class="banner warn">Released Notice <a href="#order/${pending.id}">${esc(pending.order_no)}</a> is waiting for the Director's approval.</div>` : "";
+    const banner = st === "paid" ? `<div class="banner ok">✔ PAID — marked by ${esc(b.paid_by_name || "")} on ${mdy(b.paid_at)}. The profit or loss and the secret code are on the E-Bill. More sales reports can still be added.</div>` : "";
     const profitTile = st === "paid"
       ? [profitOf(b) < 0 ? "bad" : "ok", profitOf(b) < 0 ? "Net Loss (BDT)" : "Net Profit (BDT)", peso(Math.abs(profitOf(b)))]
       : ["muted", "Net Profit / Loss", "Shown after PAID"];
@@ -280,14 +280,13 @@
       ["ok", "Paid (BDT)", peso(paid)], [balance > 0 ? "warn" : "ok", "Balance (BDT)", peso(balance)],
       ["warn", "Fees and Penalties (BDT)", peso(feesOf(b))], ["ok", "Net Sales (BDT)", peso(b.net_sales)], profitTile];
     const acts = [];
-    if (w && isOpen(st) && !pending) acts.push(`<a class="btn primary" href="#neworder/stock_bill/${b.id}">${ic("doc")} Released Notice</a>`);
+    if (w && isOpen(st)) acts.push(`<button type="button" class="btn primary" id="sbRelease">${ic("doc")} Released Notice</button>`);
+    if (admin && st === "released" && !entries.some((x) => x.entry_type === "sales") && b.release_order_no) acts.push(`<button type="button" class="btn danger" id="sbUnrelease">${ic("back")} Undo Released Notice</button>`);
     // sales reports, fees and penalties can still be added after PAID
     if (w && !isOpen(st)) acts.push(`<button type="button" class="btn primary" id="sbSales">${ic("plus")} Add Sales Report</button>`);
     if (w) acts.push(`<button type="button" class="btn" id="sbFee">${ic("plus")} Add Fee / Penalty</button>`);
     if (w && st === "released") acts.push(`<button type="button" class="btn" id="sbSold">${ic("check")} Mark as SALES</button>`);
     if (admin && st === "sold") acts.push(`<button type="button" class="btn ok" id="sbPaid">${ic("check")} Mark as PAID</button>`);
-    // a memo in the Director Portal pays the e-bill
-    if (E.canWrite("billing")) acts.push(`<a class="btn" href="#neworder/memo/${b.id}">${ic("plus")} Memo Payment</a>`);
     const entryFile = (r) => files.find((a) => a.owner_type === "stock_bill_entry" && a.owner_id === r.id);
     const receiptCell = (r) => {
       const f = entryFile(r);
@@ -301,9 +300,8 @@
       { label: "Amount (BDT)", num: true, html: (r) => `<b>${peso(r.amount)}</b>` }, { label: "Receipt", html: receiptCell }, { label: "Added By", get: (r) => r.created_by_name || "" },
       { label: "", html: (r) => tools("stock_bill_entries", r, `${ENTRY[r.entry_type] || ""} ${bdt(r.amount)} on ${b.bill_no}`, { reload }) }
     ];
-    // Payments: the memos approved in the Director Portal (and payment vouchers linked in Billing before 2.1)
+    // Payments: the memos paid before 3.5 (and payment vouchers linked in Billing before 2.1)
     const payRows = payRowsOf(pays, vouchers);
-    const openMemo = admin || E.canOpen("billing");
     const payCols = [{ label: "Date", get: (r) => mdy(r.date) }, { label: "Memo No", get: (r) => r.no }, { label: "Subject", get: (r) => r.what },
       { label: "Amount (PHP)", num: true, get: (r) => (r.php == null ? "" : peso(r.php)) }, { label: "Rate", num: true, get: (r) => (r.rate == null ? "" : rate(r.rate)) },
       { label: "Amount (BDT)", key: "a", num: true, html: (r) => `<b class="bdt">${peso(r.bdt)}</b>` }, { label: "Approved By", get: (r) => r.by || "" }];
@@ -327,13 +325,12 @@
         <div data-p="0">${itemsGrid(b)}${b.notes ? `<p class="muted"><b>Notes:</b> ${esc(b.notes)}</p>` : ""}</div>
         <div data-p="1" hidden><div class="sb-sum">${sum4.map(([k, v, c]) => `<div class="${c || ""}"><small>${k} (BDT)</small><b>${peso(v)}</b></div>`).join("")}</div>
           <div id="sbEntries">${E.grid({ cols: entryCols, rows: entries, empty: isOpen(st) ? "No sales report yet. Net sales can be added after the e-bill is released; EOO fees, other fees and penalties at any time." : "No sales report yet." })}</div></div>
-        <div data-p="2" hidden><div id="sbOrders">${E.ordersGrid ? E.ordersGrid(orders, "No Released Notice yet.") : ""}</div>
-          ${w && isOpen(st) && !pending ? `<div class="btnrow"><a class="btn primary" href="#neworder/stock_bill/${b.id}">${ic("doc")} Released Notice</a></div>` : ""}</div>
+        <div data-p="2" hidden><div id="sbOrders">${E.grid({ cols: [{ label: "Notice No", get: (r) => r.order_no }, { label: "Date", get: (r) => mdy(r.order_date) }, { label: "Released", get: (r) => mdy(r.release_date) },
+          { label: "Charge (BDT)", num: true, get: (r) => (r.release_bdt == null ? "" : peso(r.release_bdt)) }, { label: "Shipping (BDT)", num: true, get: (r) => (r.shipping_cost == null ? "" : peso(r.shipping_cost)) }], rows: orders, empty: "No Released Notice yet. Press Released Notice to write it." })}</div>
+          ${orders.length ? `<div class="btnrow"><button type="button" class="btn" id="sbNoticePrint">${ic("print")} Print Released Notice</button></div>` : w && isOpen(st) ? `<div class="btnrow"><button type="button" class="btn primary" data-release>${ic("doc")} Released Notice</button></div>` : ""}</div>
         <div data-p="3" hidden><div class="due-info">Total Cost: <b>${bdt(totalCost(b))}</b> · Paid: <b>${bdt(paid)}</b> · Balance: <b>${bdt(balance)}</b></div>
-          ${waiting.length ? `<div class="banner warn">Waiting for the Director's approval: ${waiting.map((o) => `<a href="#order/${o.id}">${esc(o.order_no)}</a> (₱ ${peso(o.amount)} × ${esc(rate(o.exchange_rate))} = ${esc(bdt(o.amount_bdt))})`).join(", ")}</div>` : ""}
-          <div id="sbPays">${E.grid({ cols: payCols, rows: payRows, onRow: openMemo || E.canOpen("voucher"), foot: { a: `<b class="bdt">${peso(paid)}</b>` },
-            empty: `No payments yet. A memo to ${b.company_name || "the company"} in the Director Portal pays this e-bill: write the amount in PESOS and choose this e-bill. Once the Director approves it, the BDT amount is paid here.` })}</div>
-          ${E.canWrite("billing") ? `<div class="btnrow"><a class="btn primary" href="#neworder/memo/${b.id}">${ic("plus")} Memo Payment</a></div>` : ""}</div>
+          <div id="sbPays">${E.grid({ cols: payCols, rows: payRows, onRow: E.canOpen("voucher"), foot: { a: `<b class="bdt">${peso(paid)}</b>` },
+            empty: "No payments yet." })}</div></div>
         <div data-p="4" hidden>${E.filesHtml(files, "No files uploaded.")}
           ${w ? `<div class="sb-up"><label for="sbUpKind">Add File</label><select id="sbUpKind">${[["bill", "E-Bill Copy"], ["shipping_bill", "Shipping Fee Receipt"], ["sales_report", "Sales Report"], ["receipt", "Receipt"], ["other", "Other"]].map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>
             <label class="btn" for="sbUpFile">${ic("upload")} Choose File</label><input type="file" id="sbUpFile" hidden multiple accept="image/*,application/pdf" data-save-now></div>` : ""}</div>
@@ -342,13 +339,19 @@
     $$("#sbTabs button").forEach((t) => (t.onclick = () => { $$("#sbTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#sbPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
     E.keepTab("#sbTabs", "ebill:" + id);
     E.bindGrid($("#sbPays"), payRows, (r) => {
-      if (r.oid && openMemo) location.hash = "order/" + r.oid;
-      else if (r.vid && E.canOpen("voucher")) location.hash = "voucher/" + r.vid;
+      if (r.vid && E.canOpen("voucher")) location.hash = "voucher/" + r.vid;
     });
-    E.bindGrid($("#sbOrders"), orders, (r) => (location.hash = "order/" + r.id));
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), reload);
     bindTools($("#main"));
+    $$("#sbRelease, [data-release]").forEach((x) => (x.onclick = () => releaseDialog(b, reload)));
+    if ($("#sbUnrelease")) $("#sbUnrelease").onclick = async () => {
+      if (!(await E.confirmBox(`Undo the Released Notice <b>${esc(b.release_order_no)}</b> of <b>${esc(b.bill_no)}</b>? The e-bill goes back to SHIP and the released charge and shipping fee are taken off.`, { ok: "Undo", danger: true }))) return;
+      const { error } = await sb.rpc("unrelease_stock_bill", { p_id: b.id });
+      if (error) return fail(error, "Could not undo the Released Notice");
+      toast("Released Notice undone. The e-bill is at SHIP again."); reload();
+    };
+    if ($("#sbNoticePrint")) $("#sbNoticePrint").onclick = () => E.openPreview(`Released Notice ${orders[0]?.order_no || b.bill_no}`, [noticePage(b, orders[0])]);
     if ($("#sbSold")) $("#sbSold").onclick = () => statusDialog(b, "sold", reload);
     if ($("#sbPaid")) $("#sbPaid").onclick = () => statusDialog(b, "paid", reload);
     if ($("#sbSales")) $("#sbSales").onclick = () => salesDialog(b, reload);
@@ -375,6 +378,57 @@
   ].sort((x, y) => String(x.date).localeCompare(String(y.date)));
 
   // Mark as SALES (inventory) or PAID (the Director), with an optional note.
+  // Released Notice: written on the e-bill. price per box x total boxes = PHP; x exchange rate = released charge (BDT); + shipping fee.
+  function releaseDialog(b, reload) {
+    const boxes = num(b.total_boxes);
+    const m = E.modal(`Released Notice — ${b.batch_no || b.bill_no}`, `
+      <div class="summary-box"><div class="fields wide"><span>E-Bill</span><b>${esc(b.bill_no)}${b.batch_no ? " · batch " + esc(b.batch_no) : ""}</b><span>Company</span><b>${esc(b.company_name || "")}</b>
+        <span>Total Boxes</span><b>${boxes}</b><span>Bill Cost (BDT)</span><b>${peso(b.total_cost)}</b></div></div>
+      <div class="fields wide" style="margin-top:10px">
+        <label for="rnDate">Released Date *</label><input type="date" id="rnDate" value="${isoToday()}">
+        <label for="rnPrice">Price per Box (PHP) *</label><input type="number" id="rnPrice" min="0" step="0.01" inputmode="decimal">
+        <label for="rnRate">Exchange Rate (BDT for 1 PHP) *</label><input type="number" id="rnRate" min="0" step="0.0001" inputmode="decimal">
+        <label for="rnShip">Shipping Fee (BDT) *</label><input type="number" id="rnShip" min="0" step="0.01" inputmode="decimal" placeholder="0 if none">
+        <label for="rnBill">Shipping Bill No</label><input type="text" id="rnBill" maxlength="60" placeholder="Optional"></div>
+      <div class="rn-calc" id="rnCalc"></div>`,
+      `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>Release E-Bill</button>`, { wide: true });
+    const calc = () => {
+      const price = num($("#rnPrice", m.el).value), rt = num($("#rnRate", m.el).value), ship = num($("#rnShip", m.el).value);
+      const php = Math.round(price * boxes * 100) / 100, chg = Math.round(php * rt * 100) / 100;
+      $("#rnCalc", m.el).innerHTML = price > 0 && rt > 0 ? `${boxes} boxes × PHP ${peso(price)} = <b>PHP ${peso(php)}</b> × ${rate(rt)} = <b>BDT ${peso(chg)}</b> released charge<br>+ shipping fee BDT ${peso(ship)}
+        → total cost <b>BDT ${peso(num(b.total_cost) + chg + ship)}</b>` : `<span class="muted">Write the price per box and the exchange rate: the released charge is worked out here.</span>`;
+    };
+    $$("input", m.el).forEach((i) => (i.oninput = calc)); calc();
+    $("[data-x]", m.el).onclick = m.close;
+    $("[data-ok]", m.el).onclick = async () => {
+      const g = (id) => $("#" + id, m.el).value;
+      if (!g("rnDate")) return toast("Enter the released date.", true);
+      if (!(num(g("rnPrice")) > 0)) return toast("Enter the price per box (PHP).", true);
+      if (!(num(g("rnRate")) > 0)) return toast("Enter the exchange rate (BDT for 1 PHP).", true);
+      if (g("rnShip") === "") return toast("Enter the shipping fee (0 if there is none).", true);
+      const btn = $("[data-ok]", m.el); btn.disabled = true;
+      const { data, error } = await sb.rpc("release_stock_bill", { p_id: b.id, p_data: { release_date: g("rnDate"), price_per_box: num(g("rnPrice")), exchange_rate: num(g("rnRate")), shipping_cost: num(g("rnShip")), shipping_bill_no: g("rnBill") } });
+      btn.disabled = false;
+      if (error) return fail(error, /release_stock_bill|schema cache/i.test(error.message || "") ? "Run the database update 027_ebill_release.sql first" : "Could not release the e-bill");
+      m.close(); toast(`${b.bill_no} is RELEASED (${data.release_order_no}). The released charge and the shipping fee are added to its total cost.`); await reload();
+    };
+  }
+  // The Released Notice on paper.
+  function noticePage(b, n) {
+    const row = (k, v) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`;
+    return `${E.printHead("RELEASED NOTICE", `<img src="${E.pdf417DataUrl("EMONRN|" + (n?.order_no || b.bill_no))}" alt="" class="ph-bar"><div class="mono">${esc(n?.order_no || "")}</div>`)}
+      <div class="cert-no"><span>Notice No: <b>${esc(n?.order_no || "")}</b></span><span>Released Date: <b>${esc(mdy(n?.release_date || b.release_date))}</b></span></div>
+      <div class="ol-sec">E-BILL</div>
+      <table class="ol-grid"><tbody>${row("E-Bill No", esc(b.bill_no))}${row("Batch No", esc(b.batch_no || "—"))}${row("Company", esc(b.company_name || "—"))}${row("Shipment", esc([b.shipment_no, b.shipment_date ? mdy(b.shipment_date) : ""].filter(Boolean).join(" · ") || "—"))}
+        ${row("Total Boxes", String(num(b.total_boxes)))}${row("Bill Cost (BDT)", peso(b.total_cost))}</tbody></table>
+      <div class="ol-sec">RELEASED CHARGE</div>
+      <table class="ol-grid"><tbody>${row("Price per Box (PHP)", peso(n?.price_per_box))}${row("Total (PHP)", `${num(b.total_boxes)} boxes × ${peso(n?.price_per_box)} = <b>${peso(n?.release_php)}</b>`)}
+        ${row("Exchange Rate (BDT for 1 PHP)", rate(n?.exchange_rate))}${row("Released Charge (BDT)", `<b>${peso(n?.release_bdt)}</b>`)}${row("Shipping Fee (BDT)", peso(n?.shipping_cost))}
+        ${n?.shipping_bill_no ? row("Shipping Bill No", esc(n.shipping_bill_no)) : ""}${row("Total Cost (BDT)", `<b>${peso(num(b.total_cost) + num(n?.release_bdt) + num(n?.shipping_cost))}</b>`)}</tbody></table>
+      <p class="pdecl">The released charge and the shipping fee are added to the total cost of this e-bill.</p>
+      ${E.sigs("Prepared by", "Approved by")}`;
+  }
+
   function statusDialog(b, action, reload) {
     const what = { sold: "SALES", paid: "PAID" }[action];
     const p = profitOf(b), bal = totalCost(b) - num(b.paid_bdt);
@@ -562,8 +616,8 @@
     ]);
     const b = bq.data;
     if (!b) return toast("This e-bill could not be opened.", true);
-    const entries = eq.data || [], pays = pq.data || [], vouchers = vq.data || [], orders = oq.data || [], events = evq.data || [];
-    const [files, co] = await Promise.all([billFiles(b, entries, orders, vouchers), companyOf(b)]);
+    const entries = eq.data || [], pays = pq.data || [], vouchers = vq.data || [], orders = noticesOf(b, oq.data || []), events = evq.data || [];
+    const [files, co] = await Promise.all([billFiles(b, entries, orders.filter((o) => o.id !== "bill"), vouchers), companyOf(b)]);
     const imgs = files.filter((f) => E.isImage(f));
     const urls = await Promise.all(imgs.map((f) => E.signedUrl(f.storage_path, 3600)));
     E.openPreview(`E-Bill ${b.batch_no || b.bill_no}`, ebillPages(b, { co, entries, pays, vouchers, orders, events, files,
