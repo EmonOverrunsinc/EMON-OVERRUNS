@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.0";
+  const VERSION = "3.1";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.0.4"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.1.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -785,6 +785,7 @@
     { k: "creditmemos", icon: "tag", label: "Credit Memo" },
     { k: "employees", icon: "users", label: "Employee" },
     { k: "purchase", icon: "order", label: "Purchase Order" },
+    { k: "eooffice", icon: "shield", label: "EO-Office" },
     { k: "projects", icon: "folder", label: "Project" },
     { k: "billing", icon: "building", label: "Billing" },
     { k: "orders", icon: "stamp", label: "Director Portal" },
@@ -802,7 +803,8 @@
     billing: "billing", newpaycompany: "billing", paycompany: "billing", newvoucher: "billing", voucher: "billing", ebill: ["billing", "inventory"],
     orders: ["orders", "customers"], neworder: ["orders", "customers", "employees", "billing", "inventory"], order: ["orders", "customers", "employees", "billing", "inventory"],
     editorder: ["orders", "customers", "employees", "billing", "inventory"],
-    inventory: "inventory", newstockbill: "inventory", stockbill: "inventory"
+    inventory: "inventory", newstockbill: "inventory", stockbill: "inventory",
+    eooffice: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice"
   };
   // Admins see everything; NULL modules = all (older accounts).
   const hasModule = (m) => !m || isAdmin() || !S.profile?.modules || S.profile.modules.includes(m);
@@ -816,7 +818,7 @@
     ["logins", "Login Accounts", () => isAdmin(), "key"],
     ["forms", "Download Forms", () => true, "download"]
   ];
-  const ACTIVE_OF = { newpurchase: "purchase", po: "purchase", editpo: "purchase", orders: "orders", neworder: "orders", editorder: "orders", order: "orders", payslip: "employees", ebill: "inventory", find: "", profile: "", settings: "" };
+  const ACTIVE_OF = { newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", orders: "orders", neworder: "orders", editorder: "orders", order: "orders", payslip: "employees", ebill: "inventory", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
   const ALIAS = { users: "employees", userres: "employees", resolutions: "purchase", resolution: "purchase", community: "purchase", verification: "verify", supplier: "billing", newsupplier: "billing", search: "dashboard" };
   const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);
@@ -880,7 +882,7 @@
 
   function shell(key, title, body, hint) {
     const cur = ACTIVE_OF[key] ?? (Array.isArray(MODULE_OF[key]) ? MODULE_OF[key][0] : MODULE_OF[key]) ?? key;
-    const items = MENU.filter((m) => m.k === "dashboard" || (m.k === "purchase" ? isStaff() : hasModule(m.k)));
+    const items = MENU.filter((m) => m.k === "dashboard" || (m.k === "purchase" ? isStaff() : m.k === "eooffice" ? isStaff() && hasModule(m.k) : hasModule(m.k)));
     const main = items.map((m, i) => `<a href="#${m.k}" style="--i:${i}" class="${m.k === cur ? "active" : ""}"><span class="num">${ic(m.icon)}</span><span class="lbl">${esc(m.label)}</span></a>`).join("");
     const other = OTHER.filter((o) => o[2]()).map(([k, label, , icon], j) => `<a href="#${k}" style="--i:${items.length + j + 1}" class="sub ${k === cur ? "active" : ""}"><span class="num">${ic(icon)}</span><span class="lbl">${esc(label)}</span></a>`).join("");
     const av = avatarUrl();
@@ -1067,6 +1069,15 @@
       const { data } = await (key ? q.ilike("public_id", t) : q.eq("account_no", t.split("|")[2] || "")).maybeSingle();
       if (data && canOpen("customer")) { location.hash = "customer/" + data.id; return; }
       if (key) { location.hash = "verify/" + encodeURIComponent(t); return; }
+    }
+    // 3.1: a QC form barcode opens the (locked) QC form; the private QR on the paper form also unlocks it
+    const qc = /^EMONQC(K?)\|(QC-\d{4}-\d+)(?:\|([0-9A-Za-z-]+))?$/i.exec(t);
+    if (qc && canOpen("qc")) {
+      const { data } = await sb.from("qc_tests").select("id").eq("qc_no", qc[2].toUpperCase()).maybeSingle();
+      if (!data) { toast("No QC form found for that code.", true); return; }
+      window.EO.qcPending = qc[1] && qc[3] ? { id: data.id, code: qc[3] } : null;
+      if (location.hash === "#qc/" + data.id) route(); else location.hash = "qc/" + data.id; // the same page: draw it again with the code
+      return;
     }
     if (/^EMON[A-Z]*\|/.test(t)) { location.hash = "verify/" + encodeURIComponent(t); return; }
     location.hash = "find/" + encodeURIComponent(t);
