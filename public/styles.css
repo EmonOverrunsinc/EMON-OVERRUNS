@@ -2032,3 +2032,13 @@ table.ptl.qc-ptl td { padding-top: 3.2px; padding-bottom: 3.2px; font-size: 11px
 /* 3.2.3: requirements on the account application: a green check for each one submitted */
 .pv.preq { padding: 6px; }
 .pv.preq .ok-mark { display: inline-block; width: 15px; height: 15px; line-height: 15px; margin-right: 4px; border-radius: 50%; background: #1e9e4a; color: #fff; font-size: 11px; font-weight: 700; text-align: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+/* 3.3: QC Test made simple: a tick and a number for each problem, the total written by the person */
+.qc-row { grid-template-columns: 28px 1fr 84px 28px; }
+.qc-row .qc-num { width: 84px; text-align: center; }
+.qc-score { gap: 8px 12px; }
+.qc-score label { font-weight: 700; letter-spacing: .04em; }
+.qc-score input { width: 96px; font-size: 26px; font-weight: 700; text-align: center; }
+.qc-score .qc-big { margin-left: 0; font-size: 20px; }
+.qc-score small { flex-basis: 100%; }
+.qc-ptl .qc-pcs { text-align: center; width: 26mm; }
+@media (max-width: 560px) { .qc-row { grid-template-columns: 24px 1fr 70px 26px; } .qc-row .qc-num { width: 70px; } }

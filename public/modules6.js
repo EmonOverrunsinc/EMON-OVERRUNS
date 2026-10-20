@@ -1,8 +1,8 @@
-/* EMON OVERRUNS E-PORTAL — EO-Office (3.1): QC Test and Collection Voucher.
-   QC TEST: a quality-check form with a header (serial no, item, brand, batch, CTN) and 10 problems to look for; every
-   problem found takes 10 points off 100. The form gets a number QC-YYYY-#### with a PDF417 barcode and a PRIVATE CODE
-   printed on the blank form. The server keeps only a scrambled copy of the code and the form stays LOCKED: whoever scans
-   the barcode sees the empty form only. The result, the uploaded paper copy and the PDF copy need the private code.
+/* EMON OVERRUNS E-PORTAL — EO-Office (3.1, QC Test made simple in 3.3): QC Test and Collection Voucher.
+   QC TEST: a ticket. The form (serial no, item, brand, batch, CTN) gets a number QC-YYYY-#### and a PDF417 barcode; print it, check the
+   goods on the paper, then open it (scan the barcode or search the number) and update: a tick and a number of pieces for each of the 10
+   problems, the total score (suggested as 100 minus 10 for each tick, written by the person), remarks and the paper copy (shown only as
+   the form logo, press to open). No lock and no private code.
    COLLECTION VOUCHER: money collected, recorded month by month, with the receipt picture; the empty paper around the
    receipt is cut off before it is saved. The EO-Office page opens with a mini dashboard of both. */
 (() => {
@@ -71,7 +71,7 @@
       <div id="eoTab"></div>`;
     const qcCols = [{ label: "QC No", get: (r) => r.qc_no }, { label: "Date", get: (r) => mdy(r.created_at.slice(0, 10)) }, { label: "Serial No", get: (r) => r.serial_no || "" },
       { label: "Item", get: (r) => r.item }, { label: "Brand", get: (r) => r.brand || "" }, { label: "Batch", get: (r) => r.batch || "" }, { label: "CTN", get: (r) => r.ctn || "" },
-      { label: "Score", num: true, get: (r) => (r.score == null ? "—" : `${r.score} / 100`) }, { label: "Status", html: (r) => pill(r.status === "done" ? "approved" : "pending", r.status === "done" ? "TESTED" : "LOCKED · NOT TESTED") }];
+      { label: "Score", num: true, get: (r) => (r.score == null ? "—" : `${r.score} / 100`) }, { label: "Status", html: (r) => pill(r.status === "done" ? "approved" : "pending", r.status === "done" ? "TESTED" : "NOT TESTED YET") }];
     const cvCols = [{ label: "Voucher No", get: (r) => r.cv_no }, { label: "Date", get: (r) => mdy(r.cv_date) }, { label: "Received From", get: (r) => r.received_from },
       { label: "Method", get: (r) => METHODS[r.method] || r.method }, { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) },
       { label: "Receipt", html: (r) => (r.receipt_path ? pill("approved", "ON FILE") : pill("pending", "NO RECEIPT")) }, { label: "Made By", get: (r) => r.created_by_name || "" }];
@@ -80,7 +80,7 @@
       const box = $("#eoTab");
       if (k === "qc") {
         box.innerHTML = `${canW() ? `<div class="btnrow"><a class="btn primary" href="#newqc">${ic("plus")} New QC Test</a></div>` : ""}
-          <p class="muted" style="margin:4px 0 8px">Every problem found takes 10 points off 100. Scan the barcode of a form to open it; the result and the paper copy need its private code.</p>
+          <p class="muted" style="margin:4px 0 8px">Print the form, check the goods on the paper, then open it (scan its barcode or search the number) and update the result.</p>
           ${E.grid({ cols: qcCols, rows: tests, onRow: true, empty: "No QC tests yet." })}`;
         E.bindGrid(box, tests, (r) => (location.hash = "qc/" + r.id));
         return;
@@ -108,19 +108,19 @@
   };
 
   // ======================================================================
-  // QC Test
+  // QC Test — a ticket: make it, print it, check the goods on the paper, then update it here
   // ======================================================================
   V.newqc = () => {
     if (!canW()) { location.hash = "eooffice"; return; }
     E.shell("newqc", "New QC Test", `<form class="window" id="qcForm" novalidate><div class="wtitle">QC Test Form</div><div class="wbody">
-      <p class="muted" style="margin-top:0">Write the details of the goods. The form gets a number (QC-${new Date().getFullYear()}-0001, 0002 …) and a PRIVATE CODE that is printed on the blank form. Print the form, test the goods on the paper, then unlock the form with the private code to save the result.</p>
+      <p class="muted" style="margin-top:0">Write the details of the goods. The form gets a number (QC-${new Date().getFullYear()}-0001, 0002 …) and a barcode. Print it, check the goods on the paper, then open it again here (scan the barcode or search the number) and update the result.</p>
       <fieldset class="opt"><legend>Goods</legend><div class="fields wide">
         <label for="qcSerial">Serial No</label><input type="text" id="qcSerial" maxlength="60">
         <label for="qcItem">Item *</label><input type="text" id="qcItem" maxlength="120" placeholder="e.g. Jeans">
         <label for="qcBrand">Brand</label><input type="text" id="qcBrand" maxlength="80">
         <label for="qcBatch">Batch</label><input type="text" id="qcBatch" maxlength="60">
         <label for="qcCtn">CTN</label><input type="text" id="qcCtn" maxlength="60" placeholder="Carton number"></div></fieldset>
-      </div><div class="wfoot"><button type="button" class="btn" id="qcCancel">Cancel</button><button type="submit" class="btn primary">Create QC Form</button></div></form>`);
+      </div><div class="wfoot"><button type="button" class="btn" id="qcCancel">Cancel</button><button type="submit" class="btn primary">Create and Print</button></div></form>`);
     $("#qcCancel").onclick = () => history.back();
     $("#qcForm").onsubmit = async (e) => {
       e.preventDefault();
@@ -128,145 +128,92 @@
       if (!item) return toast("Write the item.", true);
       E.setBusy(e.target, true, "Creating");
       const { data, error } = await sb.rpc("create_qc", { p_data: { serial_no: $("#qcSerial").value, item, brand: $("#qcBrand").value, batch: $("#qcBatch").value, ctn: $("#qcCtn").value } });
-      if (error) { E.setBusy(e.target, false); return fail(error, notSet(error) ? "Run the database update 024_eo_office.sql first" : "Could not create the QC form"); }
-      FRESH.set(data.id, data.code);
+      if (error) { E.setBusy(e.target, false); return fail(error, notSet(error) ? "Run the database update 025_qc_simple.sql first" : "Could not create the QC form"); }
+      FRESH.add(data.id); // the blank form opens for printing
       location.hash = "qc/" + data.id;
     };
   };
-
-  const FRESH = new Map(); // id -> private code, shown once after the form is made
-  const UN = new Map();    // id -> { code, data }: forms unlocked on this screen (forgotten when the person leaves the QC page)
-  addEventListener("hashchange", () => { if (!/^#qc\//.test(location.hash)) UN.clear(); });
+  const FRESH = new Set();
 
   const boxTick = (on) => `<span class="qc-box${on ? " on" : ""}"></span>`;
-  // The QC form on paper. o.code: the blank form to print (with the private code); o.result: the filled form.
-  function qcPage(t, o = {}) {
-    const r = o.result, found = r ? CHECKS.filter(([k]) => r.checks?.[k]).length : null;
+  const numOf = (r, k) => (r?.numbers?.[k] ?? (k === "mending" ? r?.mending_limit : "") ?? "");
+  // The QC form on paper: blank to write on, or with the result.
+  function qcPage(t, r = null) {
+    const found = r ? CHECKS.filter(([k]) => r.checks?.[k]).length : null;
     const right = `<img src="${E.pdf417DataUrl("EMONQC|" + t.qc_no)}" alt="" class="ph-bar"><div class="mono">${esc(t.qc_no)}</div>`;
-    const rows = CHECKS.map(([k, label, hint], i) => `<tr><td>${i + 1}</td><td><b>${esc(label)}</b>${k === "mending" ? ` <span class="qc-line">${r ? esc(r.mending_limit || "") : ""}</span> PCS` : ""}${hint ? `<br><small>(${esc(hint)})</small>` : ""}</td>
-      <td class="num">−10</td><td class="qc-tickc">${boxTick(r && r.checks?.[k])}</td></tr>`).join("");
+    const rows = CHECKS.map(([k, label, hint], i) => `<tr><td>${i + 1}</td><td><b>${esc(label)}</b>${k === "mending" ? " PCS" : ""}${hint ? `<br><small>(${esc(hint)})</small>` : ""}</td>
+      <td class="qc-pcs"><span class="qc-line">${r ? esc(String(numOf(r, k))) : ""}</span></td><td class="qc-tickc">${boxTick(r && r.checks?.[k])}</td></tr>`).join("");
     return `${E.printHead("QC TEST FORM", right)}
       ${E.box("Goods", `<div class="pgrid2">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at.slice(0, 10)))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item)}
         ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}${E.cell("Form Made By", t.created_by_name || "")}</div>`)}
-      ${E.box("Quality Check — each problem found takes 10 points off 100", `<table class="ptl qc-ptl"><thead><tr><th>#</th><th>Check</th><th class="num">Points</th><th class="qc-tickc">Problem Found</th></tr></thead><tbody>${rows}</tbody></table>`)}
-      ${E.box("Result", `<div class="pgrid2">${E.cell("Problems Found", r ? String(found) : "")}${E.cell("Points Taken Off (10 each)", r ? String(found * 10) : "")}
-        ${E.cell("Score (100 − points taken off)", r ? `${100 - found * 10} / 100` : "          / 100", "hl")}${E.cell("Tested By / Date", r ? `${t.tested_by_name || ""} · ${t.tested_at ? mdy(t.tested_at.slice(0, 10)) : ""}` : "")}</div>
+      ${E.box("Quality Check — tick each problem found and write the number of pieces", `<table class="ptl qc-ptl"><thead><tr><th>#</th><th>Check</th><th class="qc-pcs">Pcs</th><th class="qc-tickc">Problem Found</th></tr></thead><tbody>${rows}</tbody></table>`)}
+      ${E.box("Result", `<div class="pgrid2">${E.cell("Problems Found", r ? String(found) : "")}${E.cell("Total Score", r ? `${t.score ?? 100 - found * 10} / 100` : "          / 100", "hl")}</div>
         <div class="pcell"><div class="pl">Remarks</div><div class="pv qc-rem">${r ? esc(r.remarks || "") || "&nbsp;" : "&nbsp;<br>&nbsp;"}</div></div>`)}
-      ${o.code ? E.box("Private Code — keep this page private", `<div class="qc-codebox"><div><div class="qc-code">${esc(o.code)}</div>
-          <p class="pdecl">To open this form on the portal: scan the barcode at the top, then scan the QR code beside this text or type the private code. Without the private code the form stays locked and only the empty form can be seen.
-          The server keeps only a scrambled copy of the code.</p></div><img src="${E.qrDataUrl("EMONQCK|" + t.qc_no + "|" + o.code)}" alt="Private code QR" class="qc-qr"></div>`) : ""}
       ${E.sigs("Tested by", "Checked by")}`;
   }
-
-  // The result as read from the server; the paper copy is added with the private code.
-  async function tryOpen(t, code) {
-    const { data, error } = await sb.rpc("qc_open", { p_id: t.id, p_code: code });
-    if (error) { fail(error, "Could not open the form"); return { ok: false, state: "error" }; }
-    if (data.ok) UN.set(t.id, { code, data });
-    return data;
-  }
-  const badMsg = (d) => d.state === "locked" ? "Too many wrong codes. This form is locked. Ask the Director for a new private code." : d.state === "wrong" ? `That private code is wrong. ${d.left} ${d.left === 1 ? "try" : "tries"} left.` : "Could not open the form.";
 
   V.qc = async (id) => {
     E.shell("qc", "QC Test", busy());
     const here = E.stillHere();
-    const { data: t, error } = await sb.from("qc_tests").select("*").eq("id", id).maybeSingle();
+    const [tq, rq] = await Promise.all([sb.from("qc_tests").select("*").eq("id", id).maybeSingle(), sb.from("qc_results").select("*").eq("qc_id", id).maybeSingle()]);
     if (!here()) return;
-    if (error && notSet(error)) { $("#main").innerHTML = needUpdate; return; }
+    if (tq.error && notSet(tq.error)) { $("#main").innerHTML = needUpdate; return; }
+    const t = tq.data;
     if (!t) { $("#main").innerHTML = `<div class="empty">QC form not found. <a href="#eooffice">Back to EO-Office</a></div>`; return; }
-    let msg = "";
-    // a private code scanned from the paper (QR) opens the form at once
-    const pend = E.qcPending; E.qcPending = null;
-    if (!UN.has(id) && pend && pend.id === id) { const d = await tryOpen(t, pend.code); if (!here()) return; if (!d.ok) msg = badMsg(d); }
+    if (rq.error && /qc_results|permission/i.test(rq.error.message || "")) { $("#main").innerHTML = `<div class="empty">QC Test needs the database update <b>025_qc_simple.sql</b>. Run it in the Supabase SQL Editor.</div>`; return; }
+    const r = rq.data || { checks: {}, numbers: {}, docs: [] };
     $(".band h1") && ($(".band h1").textContent = `QC Test — ${t.qc_no}`);
-    draw(t, UN.get(id), msg);
-    if (FRESH.has(id)) { const code = FRESH.get(id); FRESH.delete(id); created(t, code); }
+    draw(t, r);
+    if (FRESH.delete(id)) E.openPreview(`QC Form ${t.qc_no}`, [qcPage(t)]);
     E.setRecords(`QC test: ${t.qc_no}`);
   };
 
-  // After a form is made (or a new code given): the private code is shown once, with the blank form to print.
-  function created(t, code, again = false) {
-    const m = E.modal(again ? `New Private Code — ${t.qc_no}` : `QC Form ${t.qc_no} Created`, `
-      <p style="margin-top:0">${again ? "The old private code no longer works." : "The form is locked on the server."} Print the blank form now: the private code is printed on it and <b>is not shown again</b>.</p>
-      <div class="qc-codebig">${esc(code)}</div>
-      <p class="muted">Write it down or print the form, then keep the paper private.</p>`,
-      `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn primary" data-pr>${ic("print")} Print Blank Form</button>`);
-    $("[data-x]", m.el).onclick = m.close;
-    $("[data-pr]", m.el).onclick = () => E.openPreview(`QC Form ${t.qc_no}`, [qcPage(t, { code })]);
-  }
-
-  function draw(t, open, msg = "") {
-    const mine = t.created_by === meId();
-    const scoreLine = t.score != null ? `<span>Score <b>${t.score} / 100</b> · tested by ${esc(t.tested_by_name || "")} on ${esc(mdy((t.tested_at || "").slice(0, 10)))}</span>` : `<span>Not tested yet</span>`;
+  function draw(t, r) {
+    const checks = { ...(r.checks || {}) }, docs = [...(r.docs || [])];
+    const sugg = (n) => 100 - 10 * n;
+    let manual = t.score != null && t.score !== sugg(Object.values(checks).filter(Boolean).length);
     const head = `<div class="pgrid2 qc-head">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at.slice(0, 10)))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item)}
       ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}${E.cell("Form Made By", t.created_by_name || "")}</div>`;
-    const code = (isAdmin() || (mine && t.status === "locked")) ? `<button type="button" class="btn" id="qcNew">${ic("key")} New Private Code</button>` : "";
-    const del = isAdmin() ? `<button type="button" class="btn danger" id="qcDel">${ic("trash")} Delete</button>` : "";
-    if (!open) {
-      $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(t.qc_no)} · ${esc(t.item)} ${pill(t.status === "done" ? "approved" : "pending", t.status === "done" ? "TESTED" : "NOT TESTED")}</div><div class="wbody">
-        <div class="qc-lock">${ic("shield")}<div><b>THIS FORM IS LOCKED</b><span>Only the empty form is shown. Scan the PRIVATE CODE printed on the paper form (or type it) to unlock the result, the paper copy and the PDF.</span></div></div>
-        ${head}<div class="qc-sub">${scoreLine}</div>
-        <fieldset class="opt"><legend>Quality Check</legend><div class="qc-list locked">${CHECKS.map(([, label], i) => `<div class="qc-row"><span class="qc-n">${i + 1}</span><b>${esc(label)}</b><span class="qc-pts">−10</span>${boxTick(false)}</div>`).join("")}</div></fieldset>
-        <fieldset class="opt"><legend>Unlock with the Private Code</legend>
-          <div class="qc-unlock"><input type="text" id="qcCode" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX" aria-label="Private code">
-            <button type="button" class="btn primary" id="qcGo">${ic("key")} Unlock</button><button type="button" class="btn" id="qcScan">${ic("scan")} Scan Private Code</button></div>
-          <div class="qc-msg" id="qcMsg" role="status">${esc(msg)}</div></fieldset>
-      </div><div class="wfoot">${code}${del}<a class="btn" href="#eooffice">Close</a></div></div>`;
-      const go = async (c) => {
-        if (!String(c).trim()) return toast("Write or scan the private code.", true);
-        $("#qcGo").disabled = true;
-        const d = await tryOpen(t, c);
-        if (d.ok) { toast("Unlocked."); return draw(t, UN.get(t.id)); }
-        if ($("#qcGo")) { $("#qcGo").disabled = false; $("#qcMsg").textContent = badMsg(d); }
-      };
-      $("#qcGo").onclick = () => go($("#qcCode").value);
-      $("#qcCode").onkeydown = (e) => { if (e.key === "Enter") go($("#qcCode").value); };
-      $("#qcScan").onclick = () => E.scanDialog((text) => {
-        const m = /^EMONQCK\|([^|]+)\|(.+)$/i.exec(String(text).trim());
-        if (m && m[1].toUpperCase() !== t.qc_no) return toast("That private code belongs to another form.", true);
-        const c = m ? m[2] : String(text).trim();
-        $("#qcCode").value = c; go(c);
-      }, { title: "Scan the Private Code", hint: "Point the camera at the QR code in the Private Code box of the paper form." });
-      bindActions(t);
-      return;
-    }
-    const { code: pc, data } = open;
-    const checks = { ...(data.checks || {}) };
-    const docs = [...(data.docs || [])];
-    $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(t.qc_no)} · ${esc(t.item)} ${pill("active", "UNLOCKED")}</div><div class="wbody">
+    $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(t.qc_no)} · ${esc(t.item)} ${pill(t.status === "done" ? "approved" : "pending", t.status === "done" ? "TESTED" : "NOT TESTED YET")}</div><div class="wbody">
       ${head}
-      <fieldset class="opt"><legend>Quality Check — tick a row when the problem is found (−10 points)</legend><div class="qc-list" id="qcList">${CHECKS.map(([k, label, hint], i) => `<label class="qc-row"><span class="qc-n">${i + 1}</span>
-        <span class="qc-t"><b>${esc(label)}</b>${k === "mending" ? ` <input type="text" id="qcMend" class="qc-mend" maxlength="20" inputmode="numeric" value="${esc(data.mending_limit || "")}" placeholder="__" aria-label="Mending more than how many pieces"> PCS` : ""}${hint ? `<small>${esc(hint)}</small>` : ""}</span>
-        <span class="qc-pts">−10</span><input type="checkbox" data-k="${k}" ${checks[k] ? "checked" : ""}></label>`).join("")}</div>
-        <div class="qc-score" id="qcScore"></div></fieldset>
-      <fieldset class="opt"><legend>Remarks</legend><textarea id="qcRem" rows="3" maxlength="1000">${esc(data.remarks || "")}</textarea></fieldset>
+      <p class="muted" style="margin:4px 0 8px">Print the form, check the goods on the paper, then tick the problems found here, write the number of pieces and the total.</p>
+      <fieldset class="opt"><legend>Quality Check</legend><div class="qc-list" id="qcList">${CHECKS.map(([k, label, hint], i) => `<label class="qc-row"><span class="qc-n">${i + 1}</span>
+        <span class="qc-t"><b>${esc(label)}${k === "mending" ? " PCS" : ""}</b>${hint ? `<small>${esc(hint)}</small>` : ""}</span>
+        <input type="text" class="qc-num" data-n="${k}" inputmode="numeric" maxlength="12" placeholder="Pcs" value="${esc(String(numOf(r, k)))}" aria-label="${esc(label)} pieces">
+        <input type="checkbox" data-k="${k}" ${checks[k] ? "checked" : ""} aria-label="${esc(label)} found"></label>`).join("")}</div>
+        <div class="qc-score"><label for="qcTotal">Total Score</label><input type="number" id="qcTotal" min="0" max="100" step="1" inputmode="numeric" value="${t.score ?? 100}"><span class="qc-big">/ 100</span>
+          <small class="muted" id="qcHint"></small></div></fieldset>
+      <fieldset class="opt"><legend>Remarks</legend><textarea id="qcRem" rows="3" maxlength="1000">${esc(r.remarks || "")}</textarea></fieldset>
       <fieldset class="opt"><legend>Paper Copy of the Filled Form</legend>
-        <p class="muted" style="margin-top:0">Upload the filled paper (a photo or a scan, up to 6). The pictures are kept private: only the form logo is shown; press it to open.</p>
+        <p class="muted" style="margin-top:0">Upload the filled paper (a photo or a scan, up to 6). Only the form logo is shown; press it to open.</p>
         <div class="qc-docs" id="qcDocs"></div>
         <div class="btnrow"><label class="btn primary" for="qcUp" id="qcUpL">${ic("upload")} Upload Paper Copy</label><input type="file" id="qcUp" hidden multiple accept="image/*,application/pdf" data-save-now></div></fieldset>
-    </div><div class="wfoot"><button type="button" class="btn primary" id="qcSave">${ic("check")} Save Result</button><button type="button" class="btn" id="qcPdf">${ic("print")} PDF Copy</button>
-      <button type="button" class="btn" id="qcLock">${ic("shield")} Lock Again</button>${code}${del}<a class="btn" href="#eooffice">Close</a></div></div>`;
-    const score = () => {
-      const n = $$("#qcList input[data-k]").filter((i) => i.checked).length;
-      $("#qcScore").innerHTML = `<span>Problems found <b>${n}</b></span><span>Points taken off <b>${n * 10}</b></span><span class="qc-big">SCORE <b>${100 - n * 10}</b> / 100</span>`;
+    </div><div class="wfoot"><button type="button" class="btn primary" id="qcSave">${ic("check")} ${t.status === "done" ? "Update" : "Save"}</button><button type="button" class="btn" id="qcBlank">${ic("print")} Print Blank Form</button>
+      <button type="button" class="btn" id="qcPdf">${ic("print")} PDF Copy</button>${isAdmin() ? `<button type="button" class="btn danger" id="qcDel">${ic("trash")} Delete</button>` : ""}<a class="btn" href="#eooffice">Close</a></div></div>`;
+    const ticks = () => $$("#qcList input[data-k]").filter((i) => i.checked).length;
+    const hint = () => { $("#qcHint").textContent = manual ? "" : `Suggested: 100 − 10 for each tick (${ticks()} ticked). You can write another total.`; };
+    const sync = () => { if (!manual) $("#qcTotal").value = sugg(ticks()); hint(); };
+    $$("#qcList input[data-k]").forEach((i) => (i.onchange = sync));
+    $("#qcTotal").oninput = () => { manual = true; hint(); };
+    hint();
+    const read = () => {
+      const c = {}, n = {};
+      $$("#qcList input[data-k]").forEach((i) => { c[i.dataset.k] = i.checked; });
+      $$("#qcList input[data-n]").forEach((i) => { if (i.value.trim()) n[i.dataset.n] = i.value.trim(); });
+      return { checks: c, numbers: n, score: $("#qcTotal").value, remarks: $("#qcRem").value.trim() };
     };
-    $$("#qcList input[data-k]").forEach((i) => (i.onchange = score));
-    score();
-    const read = () => { const c = {}; $$("#qcList input[data-k]").forEach((i) => { c[i.dataset.k] = i.checked; }); return { checks: c, mending_limit: $("#qcMend").value.trim(), remarks: $("#qcRem").value.trim() }; };
-    const relock = (d) => { UN.delete(t.id); draw(t, null, badMsg(d)); };
     $("#qcSave").onclick = async (e) => {
-      e.target.disabled = true;
-      const { data: d, error } = await sb.rpc("qc_save", { p_id: t.id, p_code: pc, p_data: read() });
-      e.target.disabled = false;
-      if (error) return fail(error, "Could not save the result");
-      if (!d.ok) return relock(d);
-      toast(`Result saved: ${d.score} / 100.`);
-      Object.assign(data, read());
+      const v = read(); const s = Number(v.score);
+      if (v.score === "" || !Number.isInteger(s) || s < 0 || s > 100) return toast("Write the total score from 0 to 100.", true);
+      e.currentTarget.disabled = true;
+      const { data: d, error } = await sb.rpc("qc_save", { p_id: t.id, p_data: v });
+      if (error) { $("#qcSave").disabled = false; return fail(error, /qc_save|schema cache/i.test(error.message) ? "Run the database update 025_qc_simple.sql first" : "Could not save the result"); }
+      toast(`Saved. Total score ${d.score} / 100.`);
       t.status = "done"; t.score = d.score; t.found_count = d.found_count; t.tested_at = new Date().toISOString(); t.tested_by_name = S.profile?.full_name || "";
-      draw(t, UN.get(t.id));
+      draw(t, { ...r, checks: v.checks, numbers: v.numbers, remarks: v.remarks, docs });
     };
-    $("#qcPdf").onclick = () => E.openPreview(`QC Test ${t.qc_no}`, [qcPage(t, { result: { ...read(), checks: read().checks } })]);
-    $("#qcLock").onclick = () => { UN.delete(t.id); draw(t, null); };
+    $("#qcBlank").onclick = () => E.openPreview(`QC Form ${t.qc_no}`, [qcPage(t)]);
+    $("#qcPdf").onclick = () => { const v = read(); E.openPreview(`QC Test ${t.qc_no}`, [qcPage({ ...t, score: Number(v.score) }, { checks: v.checks, numbers: v.numbers, remarks: v.remarks })]); };
     // paper copies: only the form logo is shown, press to open
     const paintDocs = () => {
       $("#qcDocs").innerHTML = docs.length ? docs.map((p, i) => `<div class="qc-doc"><button type="button" class="qc-doc-open" data-i="${i}" aria-label="Open the paper copy ${i + 1}">${E.logoHtml("qc-doc-logo")}
@@ -277,9 +224,8 @@
       $$("#qcDocs .qc-doc-rm").forEach((b) => (b.onclick = async () => {
         if (!(await E.confirmBox(`Remove this paper copy of <b>${esc(t.qc_no)}</b>? You can upload it again.`, { ok: "Remove", danger: true }))) return;
         const keep = docs.filter((_, i) => i !== Number(b.dataset.r));
-        const { data: d, error } = await sb.rpc("qc_set_docs", { p_id: t.id, p_code: pc, p_docs: keep });
+        const { data: d, error } = await sb.rpc("qc_set_docs", { p_id: t.id, p_docs: keep });
         if (error) return fail(error, "Could not remove the file");
-        if (!d.ok) return relock(d);
         docs.splice(0, docs.length, ...keep);
         if (d.removed?.length) sb.storage.from("records").remove(d.removed).then(() => {}, () => {});
         paintDocs();
@@ -301,29 +247,18 @@
       }
       lab.classList.remove("disabled");
       if (!added.length) return;
-      const { data: d, error } = await sb.rpc("qc_set_docs", { p_id: t.id, p_code: pc, p_docs: [...docs, ...added] });
-      if (error || !d.ok) { sb.storage.from("records").remove(added).then(() => {}, () => {}); return error ? fail(error, "Could not save the paper copy") : relock(d); }
+      const { error } = await sb.rpc("qc_set_docs", { p_id: t.id, p_docs: [...docs, ...added] });
+      if (error) { sb.storage.from("records").remove(added).then(() => {}, () => {}); return fail(error, "Could not save the paper copy"); }
       docs.push(...added);
-      toast("Paper copy saved. It is kept private.");
+      toast("Paper copy saved.");
       paintDocs();
-    };
-    bindActions(t);
-  }
-
-  function bindActions(t) {
-    if ($("#qcNew")) $("#qcNew").onclick = async () => {
-      if (!(await E.confirmBox(`Give <b>${esc(t.qc_no)}</b> a new private code? The old code stops working.`, { ok: "New Code" }))) return;
-      const { data: code, error } = await sb.rpc("qc_new_code", { p_id: t.id });
-      if (error) return fail(error, "Could not give a new code");
-      UN.delete(t.id);
-      created(t, code, true);
     };
     if ($("#qcDel")) $("#qcDel").onclick = async () => {
       if (!(await E.confirmBox(`Delete QC form <b>${esc(t.qc_no)}</b> with its result and paper copies? This cannot be undone.`, { ok: "Delete", danger: true }))) return;
       const { data: gone, error } = await sb.rpc("delete_qc", { p_id: t.id });
       if (error) return fail(error, "Could not delete");
       if (gone?.length) sb.storage.from("records").remove(gone).then(() => {}, () => {});
-      UN.delete(t.id); toast("Deleted."); location.hash = "eooffice";
+      toast("Deleted."); location.hash = "eooffice";
     };
   }
 
