@@ -772,13 +772,8 @@
         <div class="pphoto pqr"><img src="${qr}" alt="Customer QR code"><div class="mono key">${esc(c.public_id)}</div></div>
         <div class="pgrid2">${cell("First Name", c.first_name)}${cell("Last Name", c.last_name)}
           ${cell("Phone Number", c.phone)}${cell("Email Address", c.email)}
-          ${cell("Full Address", c.address, "span2")}</div></div>`)}
-      ${box("Business & Facebook", `<div class="pgrid2">
-        ${cell("Business Start Date", mdy(c.business_start_date), "span2")}
-        ${cell("Facebook Name", c.facebook_name, "span2")}
-        ${c.facebook_link ? cell("Facebook Account Link", c.facebook_link, "span2") : ""}
-        ${c.has_extra_facebook ? cell("Additional Facebook", "YES — " + (c.extra_facebook_name || ""), "span2") : ""}</div>`)}
-      ${box("Requirements Submitted", `<div class="pv" style="padding:6px">${reqs.length ? reqs.map((r) => "☑ " + esc(r.file_name)).join("<br>") : "None uploaded yet"}</div>`)}
+          ${cell("Delivery Address", c.address, "span2")}</div></div>`)}
+      ${box("Requirements Submitted", `<div class="pv preq">${reqs.length ? reqs.map((r) => `<div><span class="ok-mark">✔</span> ${esc(r.file_name)}</div>`).join("") : "None uploaded yet"}</div>`)}
       ${box("For Office Use", `<div class="pgrid2">${cell("Issued By", c.issued_by_name)}${cell("Status", c.status.toUpperCase())}
         ${cell("Credit Limit (PHP)", c.credit_limit != null ? peso(c.credit_limit) : "")}
         ${cell("Opening Balance (PHP)", peso(c.opening_balance))}</div>`)}
