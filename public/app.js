@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.2";
+  const VERSION = "3.3";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.2.3"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.3.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -1069,13 +1069,12 @@
       if (data && canOpen("customer")) { location.hash = "customer/" + data.id; return; }
       if (key) { location.hash = "verify/" + encodeURIComponent(t); return; }
     }
-    // 3.1: a QC form barcode opens the (locked) QC form; the private QR on the paper form also unlocks it
-    const qc = /^EMONQC(K?)\|(QC-\d{4}-\d+)(?:\|([0-9A-Za-z-]+))?$/i.exec(t);
+    // 3.1: a QC form barcode opens that QC form
+    const qc = /^EMONQCK?\|(QC-\d{4}-\d+)/i.exec(t);
     if (qc && canOpen("qc")) {
-      const { data } = await sb.from("qc_tests").select("id").eq("qc_no", qc[2].toUpperCase()).maybeSingle();
+      const { data } = await sb.from("qc_tests").select("id").eq("qc_no", qc[1].toUpperCase()).maybeSingle();
       if (!data) { toast("No QC form found for that code.", true); return; }
-      window.EO.qcPending = qc[1] && qc[3] ? { id: data.id, code: qc[3] } : null;
-      if (location.hash === "#qc/" + data.id) route(); else location.hash = "qc/" + data.id; // the same page: draw it again with the code
+      location.hash = "qc/" + data.id;
       return;
     }
     if (/^EMON[A-Z]*\|/.test(t)) { location.hash = "verify/" + encodeURIComponent(t); return; }
