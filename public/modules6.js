@@ -185,10 +185,10 @@
     return `${E.printHead("QC TEST", right)}
       ${E.box("Goods", `<div class="pgrid2">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item || "")}
         ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}</div>`)}
-      ${E.box("Quality Check — tick Pass or Fail for each check; for a Fail write the number of pieces", `<table class="ptl qc-ptl"><thead><tr><th>#</th><th>Check</th><th class="qc-failc">Fail · Pcs</th><th class="qc-tickc">Pass</th></tr></thead><tbody>${rows}</tbody></table>`)}
+      ${E.box("Quality Check — tick Pass or Fail for each check; for a Fail write the Qty Found (pieces)", `<table class="ptl qc-ptl"><thead><tr><th>#</th><th>Check</th><th class="qc-failc">Fail · Qty Found</th><th class="qc-tickc">Pass</th></tr></thead><tbody>${rows}</tbody></table>`)}
       ${E.box("Result", `<div class="pgrid2">${E.cell("Pass", T && !T.open ? String(T.pass) : "")}${E.cell("Fail", T && !T.open ? String(T.fail) : "")}
-        ${E.cell("QC Test Result (Total Score)", res ? `${res.score} / 100` : "          / 100", "hl")}${E.cell("Result", res ? res.verdict : "")}
-        ${E.cell("Checked By", res ? res.by : "")}${E.cell("Checked Date", res ? mdy(res.when) : "")}</div>
+        ${E.cell("Qty Found (total pieces of the Fails)", res ? String(res.qty) : "")}${E.cell("QC Test Result (Total Score)", res ? `${res.score} / 100` : "          / 100", "hl")}
+        ${E.cell("Result", res ? res.verdict : "")}${E.cell("Checked By", res ? res.by : "")}${E.cell("Checked Date", res ? mdy(res.when) : "")}</div>
         <div class="qc-need">Requirement to pass the QC test: a total score of ${PASS_MARK} or more.</div>`)}`;
   }
   // The 2 stickers on plain paper: nothing else on the page (no heading, no footer, no date).
@@ -221,15 +221,15 @@
     const head = `<div class="pgrid2 qc-head">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item || "")}
       ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}</div>`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(t.qc_no)}${t.item ? ` · ${esc(t.item)}` : ""} ${pill(done ? "approved" : "pending", done ? "TESTED" : "NOT TESTED YET")}</div><div class="wbody">
-      ${res ? `<div class="qc-banner ${res.verdict.toLowerCase()}"><b>${res.verdict}</b><span>${res.score} / 100 · Pass ${res.pass} · Fail ${res.fail}</span><small>Checked ${esc(mdy(res.when))}${res.by ? ` by ${esc(res.by)}` : ""}</small></div>` : ""}
+      ${res ? `<div class="qc-banner ${res.verdict.toLowerCase()}"><b>${res.verdict}</b><span>${res.score} / 100 · Pass ${res.pass} · Fail ${res.fail}${res.fail ? ` · Qty Found ${res.qty}` : ""}</span><small>Checked ${esc(mdy(res.when))}${res.by ? ` by ${esc(res.by)}` : ""}</small></div>` : ""}
       ${head}
       <fieldset class="opt"><legend>Quality Check</legend>
-        <p class="muted" style="margin-top:0">Print the form, check the goods on the paper, then choose Pass or Fail for each check here. For a Fail write the number of pieces. When you press Save, the 2 stickers open to print.</p>
+        <p class="muted" style="margin-top:0">Print the form, check the goods on the paper, then choose Pass or Fail for each check here. For a Fail write the Qty Found (how many pieces); the Qty Found is added up. When you press Save, the 2 stickers open to print.</p>
         <div class="btnrow" style="margin:0 0 8px"><button type="button" class="btn small" id="qcAllPass">${ic("check")} All Pass</button><span class="qc-tally" id="qcTally"></span></div>
         <div class="qc-list" id="qcList">${CHECKS.map(([k, label], i) => `<div class="qc-row pf" data-k="${k}"><span class="qc-n">${i + 1}</span>
           <span class="qc-t"><b>${esc(label)}${k === "mending" ? " PCS" : ""}</b></span>
           <span class="qc-pf" role="radiogroup" aria-label="${esc(label)}"><label class="qc-pass"><input type="radio" name="qc_${k}" value="pass"${start[k] === "pass" ? " checked" : ""}><span>Pass</span></label><label class="qc-fail"><input type="radio" name="qc_${k}" value="fail"${start[k] === "fail" ? " checked" : ""}><span>Fail</span></label></span>
-          <input type="text" class="qc-num" data-n="${k}" inputmode="numeric" maxlength="12" placeholder="Pcs" value="${esc(String(numOf(r, k)))}" aria-label="${esc(label)} pieces"${start[k] === "fail" ? "" : " hidden"}></div>`).join("")}</div>
+          <input type="text" class="qc-num" data-n="${k}" inputmode="numeric" maxlength="9" placeholder="Qty found" value="${esc(String(numOf(r, k)))}" aria-label="${esc(label)} Qty Found"${start[k] === "fail" ? "" : " hidden"}></div>`).join("")}</div>
         <div class="qc-score"><label for="qcTotal">Total Score</label><input type="number" id="qcTotal" min="0" max="100" step="1" inputmode="numeric" value="${t.score ?? 100}"><span class="qc-big">/ 100</span>
           <span class="qc-verd" id="qcVerd"></span><small class="muted" id="qcHint"></small></div></fieldset>
       <fieldset class="opt"><legend>Scan the Filled Form</legend>
@@ -245,11 +245,11 @@
       return { choice: pick, checks, numbers, score: $("#qcTotal").value };
     };
     const refresh = () => {
-      let pass = 0, fail = 0;
-      for (const [k] of CHECKS) { const v = choice(k); if (v === "pass") pass++; else if (v === "fail") fail++; $(`#qcList input[data-n="${k}"]`).hidden = v !== "fail"; }
+      let pass = 0, fail = 0, qty = 0;
+      for (const [k] of CHECKS) { const v = choice(k), box = $(`#qcList input[data-n="${k}"]`); if (v === "pass") pass++; else if (v === "fail") { fail++; qty += parseInt(box.value, 10) || 0; } box.hidden = v !== "fail"; }
       const open = CHECKS.length - pass - fail;
       if (!manual) $("#qcTotal").value = 100 - 10 * fail;
-      $("#qcTally").innerHTML = `Pass <b>${pass}</b> · Fail <b>${fail}</b>${open ? ` · Not checked <b>${open}</b>` : ""}`;
+      $("#qcTally").innerHTML = `Pass <b>${pass}</b> · Fail <b>${fail}</b>${fail ? ` · Qty Found <b>${qty}</b>` : ""}${open ? ` · Not checked <b>${open}</b>` : ""}`;
       const v = open || $("#qcTotal").value === "" ? "" : verdict($("#qcTotal").value);
       $("#qcVerd").textContent = v; $("#qcVerd").className = `qc-verd ${v.toLowerCase()}`;
       $("#qcHint").textContent = manual ? `To pass: ${PASS_MARK} or more.` : `Suggested: 100 − 10 for each Fail. You can write another total. To pass: ${PASS_MARK} or more.`;
@@ -259,6 +259,7 @@
       refresh();
       if (e.target.value === "fail") $(`#qcList input[data-n="${e.target.name.slice(3)}"]`)?.focus();
     };
+    $("#qcList").oninput = (e) => { if (e.target.classList.contains("qc-num")) { e.target.value = e.target.value.replace(/\D/g, ""); refresh(); } }; // the Qty Found is a whole number
     $("#qcTotal").oninput = () => { manual = true; refresh(); };
     $("#qcAllPass").onclick = () => { for (const [k] of CHECKS) { if (!choice(k)) $(`#qcList input[name="qc_${k}"][value="pass"]`).checked = true; } refresh(); };
     refresh();
@@ -268,6 +269,8 @@
       const v = read(); const s = Number(v.score);
       const open = CHECKS.filter(([k]) => !v.choice[k]);
       if (open.length) { $(`#qcList [data-k="${open[0][0]}"]`)?.scrollIntoView({ block: "center" }); return toast(`Choose Pass or Fail for every check (${open.length} not checked).`, true); }
+      const noQty = CHECKS.find(([k]) => v.choice[k] === "fail" && !(parseInt(v.numbers[k], 10) > 0));
+      if (noQty) { const box = $(`#qcList input[data-n="${noQty[0]}"]`); box.scrollIntoView({ block: "center" }); box.focus(); return toast(`Write the Qty Found for: ${noQty[1]}.`, true); }
       if (v.score === "" || !Number.isInteger(s) || s < 0 || s > 100) return toast("Write the total score from 0 to 100.", true);
       if (busyUp) return toast("Wait until the paper copy is uploaded.", true);
       const btn = e.currentTarget; btn.disabled = true;

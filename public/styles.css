@@ -2131,3 +2131,6 @@ input.wz-bad, select.wz-bad, textarea.wz-bad { outline: 2px solid #c41e3a; backg
 .qc-banner span { font-size: 16px; font-weight: 700; }
 .qc-banner small { margin-left: auto; font-size: 12px; opacity: .92; }
 @media (max-width: 560px) { .qc-banner small { margin-left: 0; flex-basis: 100%; } }
+/* 3.9.1: the Qty Found box of a Fail */
+.qc-row.pf { grid-template-columns: 28px 1fr auto 96px; }
+.qc-row.pf .qc-num { width: 96px; font-size: 14px; }
