@@ -161,15 +161,18 @@
     const score = t.score != null ? Number(t.score) : open ? null : 100 - 10 * fail;
     return { pass, fail, open, score, verdict: verdict(score) };
   };
+  // QTY FOUND (on the sticker only): the pieces written for the Fail checks, added together
+  const qtyFound = (t, r) => CHECKS.reduce((n, [k]) => n + (choiceOf(t, r, k) === "fail" ? parseInt(String(r?.numbers?.[k] ?? "").replace(/[^\d]/g, ""), 10) || 0 : 0), 0);
   // What the stickers and the Result box say: once every check is decided (nothing before that)
   const resultOf = (t, r) => {
     const T = r ? tally(t, r) : null;
-    return T && !T.open && T.score != null ? { ...T, when: t.tested_at || new Date().toISOString(), by: t.tested_by_name || S.profile?.full_name || "" } : null;
+    return T && !T.open && T.score != null ? { ...T, qty: qtyFound(t, r), when: t.tested_at || new Date().toISOString(), by: t.tested_by_name || S.profile?.full_name || "" } : null;
   };
-  // The result sticker: the logo, the barcode with the QC number, the date, the result and who checked it.
+  // The result sticker: the logo, the barcode with the QC number, the date, the pieces found, the result and who checked it.
   const qcCard = (t, res) => `<div class="qc-card"><div class="qc-card-h">${E.logoHtml("qc-card-logo")}<b>QC TEST RESULT</b></div>
     <div class="qc-card-code"><img src="${E.pdf417DataUrl("EMONQC|" + t.qc_no)}" alt="" class="ph-bar"><div class="mono">${esc(t.qc_no)}</div></div>
     <div class="qc-card-row"><span>Checked Date</span><b>${res ? esc(mdy(res.when)) : ""}</b></div>
+    <div class="qc-card-row"><span>Qty Found</span><b>${res ? res.qty : ""}</b></div>
     <div class="qc-card-row"><span>Result</span><b class="qc-res">${res ? `${res.score} / 100` : ""}</b><b class="qc-verdict${res?.verdict === "FAIL" ? " fail" : ""}">${res ? res.verdict : ""}</b></div>
     <div class="qc-card-row"><span>Check By</span><b>${res ? esc(res.by) : ""}</b></div></div>`;
   // The QC form on paper: blank to write on (the form made when the QC test is created), or with the result.
