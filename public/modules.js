@@ -1656,7 +1656,7 @@
     { label: "Amount (₱)", key: "request_amount", num: true, get: (r) => peso(r.request_amount) }, { label: "Status", html: (r) => pill(r.status) }
   ];
   V.creditmemos = async () => {
-    E.shell("creditmemos", "Credit Memo", `
+    E.shell("creditmemos", "Credit Memo", `${E.eoTabs("creditmemos")}
       <div class="btnrow">${E.canWrite("creditmemos") ? `<a class="btn primary" href="#newcreditmemo">+ New Credit Memo</a>` : ""}</div><div id="cmRes">${busy()}</div>`,
       "Customer complaints and defect claims. Approved <b>Credit</b> and <b>Discount</b> memos reduce the customer's balance due.");
     const { data, error } = await sb.from("credit_memos").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).limit(2000);
@@ -1856,13 +1856,16 @@
     const w = t.split(/\s+/)[0];
     const H = E.hasModule;
     const none = Promise.resolve({ data: [] });
-    const [cs, iv, py, ol, vo, em] = await Promise.all([
+    if (/^EMONQCK?\|/i.test(t)) { done(); return E.openScanned(t); } // a typed or pasted QC form code opens the (locked) QC form
+    const [cs, iv, py, ol, vo, em, qc, cv] = await Promise.all([
       H("customers") ? sb.from("customers").select("*").neq("status", "closed").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,account_no.ilike.%${w}%,public_id.ilike.%${w}%,business_name.ilike.%${w}%,phone.ilike.%${w}%`).limit(100) : none,
       H("invoices") ? sb.from("invoice_balances").select("*").neq("customer_status", "closed").or(`invoice_no.ilike.%${w}%,po_number.ilike.%${w}%`).limit(50) : none,
       H("payments") ? sb.from("payments_received").select("*, customers(first_name,last_name,account_no,status)").or(`receipt_no.ilike.%${w}%,reference_no.ilike.%${w}%`).limit(50) : none,
       E.canOpen("orders") || H("employees") || H("billing") ? sb.from("order_letters").select("*, customers(first_name,last_name,account_no), employees(first_name,last_name,employee_no), pay_companies(name)").or(`order_no.ilike.%${w}%,subject.ilike.%${w}%`).limit(30) : none,
       H("billing") ? sb.from("pay_vouchers").select("*, pay_companies(name)").or(`voucher_no.ilike.%${w}%,reference_no.ilike.%${w}%,purpose.ilike.%${w}%`).limit(30) : none,
-      H("employees") ? sb.from("employees").select("*").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,employee_no.ilike.%${w}%,email.ilike.%${w}%`).limit(30) : none
+      H("employees") ? sb.from("employees").select("*").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,employee_no.ilike.%${w}%,email.ilike.%${w}%`).limit(30) : none,
+      isStaff() && H("eooffice") ? sb.from("qc_tests").select("*").or(`qc_no.ilike.%${w}%,serial_no.ilike.%${w}%,item.ilike.%${w}%,brand.ilike.%${w}%,batch.ilike.%${w}%`).limit(30) : none,
+      isStaff() && H("eooffice") ? sb.from("collection_vouchers").select("*").or(`cv_no.ilike.%${w}%,received_from.ilike.%${w}%,reference_no.ilike.%${w}%`).limit(30) : none
     ]);
     done();
     if (!$("#fdRes")) return; // navigated away
@@ -1877,6 +1880,10 @@
     if ((ol.data || []).length) sections.push(["Orders", ol.data, [{ label: "Order No", get: (r) => r.order_no }, { label: "For", get: orderFor }, { label: "Subject", get: (r) => r.subject }, { label: "Status", html: (r) => pill(r.status) }], (r) => "order/" + r.id]);
     if ((vo.data || []).length) sections.push(["Payment Vouchers", vo.data, [{ label: "Voucher No", get: (r) => r.voucher_no }, { label: "Company", get: (r) => r.pay_companies?.name || "" }, { label: "Date", get: (r) => mdy(r.pay_date) }, { label: "PHP", num: true, get: (r) => r.amount_php == null ? "—" : peso(r.amount_php) }, { label: "BDT", num: true, get: (r) => r.amount_bdt == null ? "—" : peso(r.amount_bdt) }], (r) => "voucher/" + r.id]);
     if ((em.data || []).length) sections.push(["Employees", em.data, [{ label: "Employee No", get: (r) => r.employee_no }, { label: "Name", get: fullName }, { label: "Position", get: (r) => r.position || "" }, { label: "Status", html: (r) => pill(r.status) }], (r) => "employee/" + r.id]);
+    if ((qc.data || []).length) sections.push(["QC Forms", qc.data, [{ label: "QC No", get: (r) => r.qc_no }, { label: "Serial No", get: (r) => r.serial_no || "" }, { label: "Item", get: (r) => r.item }, { label: "Brand", get: (r) => r.brand || "" },
+      { label: "Batch", get: (r) => r.batch || "" }, { label: "Score", num: true, get: (r) => (r.score == null ? "—" : `${r.score} / 100`) }], (r) => "qc/" + r.id]);
+    if ((cv.data || []).length) sections.push(["Collection Vouchers", cv.data, [{ label: "Voucher No", get: (r) => r.cv_no }, { label: "Date", get: (r) => mdy(r.cv_date) }, { label: "Received From", get: (r) => r.received_from },
+      { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) }], (r) => "collection/" + r.id]);
     const total = sections.reduce((s, x) => s + x[1].length, 0);
     $("#main").innerHTML = `<div class="find-sum">${total ? `${ic("search")} ${total} record(s) found for “${esc(t)}”` : `${ic("search")} Nothing found for “${esc(t)}”. Try a different spelling, or <a href="#verify/${encodeURIComponent(t)}">verify it as a record number</a>.`}</div>`
       + sections.map(([title, rows], i) => `<h3>${esc(title)} (${rows.length})</h3><div id="fd${i}"></div>`).join("");
