@@ -1,8 +1,8 @@
 -- =====================================================================
--- EMON OVERRUNS E-PORTAL - updates 3.1 to 3.7 in ONE paste: EO-Office (QC Test, Collection Voucher), QC made simple,
--- EO-Office fixes, and the Released Notice on the E-Bill.
+-- EMON OVERRUNS E-PORTAL - updates 3.1 to 3.8 in ONE paste: EO-Office (QC Test, Collection Voucher), QC made simple,
+-- EO-Office fixes, the Released Notice on the E-Bill, and the name "E-PORTAL SYSTEM" changed to "E-PORTAL".
 -- Paste ALL of this into the Supabase SQL Editor and press Run once. It is safe to run again.
--- (It is the same as running 024, 025, 026 and 027 one after the other.)
+-- (It is the same as running 024, 025, 026, 027 and 028 one after the other.)
 -- =====================================================================
 
 -- >>>>>>>>>> 024_eo_office.sql <<<<<<<<<<
@@ -536,4 +536,32 @@ grant execute on function public.unrelease_stock_bill(uuid) to authenticated;
 
 select 'UPDATE 3.7 READY - E-Bill Released Notice' as result;
 
-select 'ALL DONE - updates 3.1 to 3.7 are in' as result;
+-- >>>>>>>>>> 028_eportal_name.sql <<<<<<<<<<
+-- =====================================================================
+-- EMON OVERRUNS E-PORTAL - Update 3.8: "E-PORTAL SYSTEM" (or "E-PORTAL SYSTEMS") becomes "E-PORTAL"
+-- Wherever a saved name is exactly "E-Portal System" / "E-Portal Systems" (any capitals): the name of an account, "made by",
+-- "prepared by", "issued by", "checked by" ... on the saved records. Only a whole name is changed; written notes and
+-- messages are not touched. Nothing else is changed. Run once in the Supabase SQL Editor. It is safe to run again.
+-- =====================================================================
+do $$
+declare c record; n bigint; total bigint := 0;
+begin
+  perform public.allow_record_change(); -- saved records are normally add-only; this one name change is allowed
+  for c in
+    select col.table_name, col.column_name
+    from information_schema.columns col
+    join information_schema.tables t on t.table_schema = col.table_schema and t.table_name = col.table_name
+    where col.table_schema = 'public' and t.table_type = 'BASE TABLE' and col.data_type = 'text' and col.is_generated = 'NEVER'
+    order by col.table_name, col.column_name
+  loop
+    execute format('update public.%I set %I = %L where regexp_replace(upper(btrim(%I)), %L, %L, %L) in (%L, %L)',
+      c.table_name, c.column_name, 'E-PORTAL', c.column_name, '\s+', ' ', 'g', 'E-PORTAL SYSTEM', 'E-PORTAL SYSTEMS');
+    get diagnostics n = row_count;
+    total := total + n;
+  end loop;
+  perform set_config('eo.renamed', total::text, false);
+end $$;
+
+select 'UPDATE 3.8 READY - E-PORTAL name: ' || current_setting('eo.renamed', true) || ' saved name(s) changed' as result;
+
+select 'ALL DONE - updates 3.1 to 3.8 are in' as result;
