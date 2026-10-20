@@ -2042,3 +2042,6 @@ table.ptl.qc-ptl td { padding-top: 3.2px; padding-bottom: 3.2px; font-size: 11px
 .qc-score small { flex-basis: 100%; }
 .qc-ptl .qc-pcs { text-align: center; width: 26mm; }
 @media (max-width: 560px) { .qc-row { grid-template-columns: 24px 1fr 70px 26px; } .qc-row .qc-num { width: 70px; } }
+/* 3.4: the tick box is the first control of a QC row (a tap on the row ticks it); the grid puts it at the right */
+.qc-row input[type=checkbox] { grid-column: 4; grid-row: 1; }
+.qc-row .qc-num { grid-column: 3; grid-row: 1; }

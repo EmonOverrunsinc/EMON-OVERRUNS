@@ -1849,7 +1849,7 @@
     const w = t.split(/\s+/)[0];
     const H = E.hasModule;
     const none = Promise.resolve({ data: [] });
-    if (/^EMONQCK?\|/i.test(t)) { done(); return E.openScanned(t); } // a typed or pasted QC form code opens the (locked) QC form
+    if (/^EMONQCK?\|/i.test(t) && (await E.openScanned(t)) !== false) { done(); return; } // a QC form code opens that form (if there is none, the search goes on) // a typed or pasted QC form code opens the (locked) QC form
     const [cs, iv, py, ol, vo, em, qc, cv] = await Promise.all([
       H("customers") ? sb.from("customers").select("*").neq("status", "closed").or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,account_no.ilike.%${w}%,public_id.ilike.%${w}%,business_name.ilike.%${w}%,phone.ilike.%${w}%`).limit(100) : none,
       H("invoices") ? sb.from("invoice_balances").select("*").neq("customer_status", "closed").or(`invoice_no.ilike.%${w}%,po_number.ilike.%${w}%`).limit(50) : none,

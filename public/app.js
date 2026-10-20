@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.3";
+  const VERSION = "3.4";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.3.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.4.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -881,7 +881,7 @@
 
   function shell(key, title, body, hint) {
     const cur = ACTIVE_OF[key] ?? (Array.isArray(MODULE_OF[key]) ? MODULE_OF[key][0] : MODULE_OF[key]) ?? key;
-    const items = MENU.filter((m) => m.k === "dashboard" || (m.k === "purchase" ? isStaff() : m.k === "eooffice" ? isStaff() && EO_MODULES.some(hasModule) : hasModule(m.k)));
+    const items = MENU.filter((m) => m.k === "dashboard" || (m.k === "purchase" ? isStaff() : m.k === "eooffice" ? EO_MODULES.filter((x) => isStaff() || x !== "eooffice").some(hasModule) : hasModule(m.k)));
     const main = items.map((m, i) => `<a href="#${m.k}" style="--i:${i}" class="${m.k === cur ? "active" : ""}"><span class="num">${ic(m.icon)}</span><span class="lbl">${esc(m.label)}</span></a>`).join("");
     const other = OTHER.filter((o) => o[2]()).map(([k, label, , icon], j) => `<a href="#${k}" style="--i:${items.length + j + 1}" class="sub ${k === cur ? "active" : ""}"><span class="num">${ic(icon)}</span><span class="lbl">${esc(label)}</span></a>`).join("");
     const av = avatarUrl();
@@ -1073,9 +1073,9 @@
     const qc = /^EMONQCK?\|(QC-\d{4}-\d+)/i.exec(t);
     if (qc && canOpen("qc")) {
       const { data } = await sb.from("qc_tests").select("id").eq("qc_no", qc[1].toUpperCase()).maybeSingle();
-      if (!data) { toast("No QC form found for that code.", true); return; }
+      if (!data) { toast("No QC form found for that code.", true); return false; }
       location.hash = "qc/" + data.id;
-      return;
+      return true;
     }
     if (/^EMON[A-Z]*\|/.test(t)) { location.hash = "verify/" + encodeURIComponent(t); return; }
     location.hash = "find/" + encodeURIComponent(t);
@@ -1135,7 +1135,7 @@
   // saved at once and the screen shows it. In a form that is saved with its Submit button, the scanned pages are listed
   // under the upload with Preview and Delete, and are saved with the form. Photos, barcode pictures and chat files have
   // no Scan.
-  const SCAN_SKIP = new Set(["scImg", "vfImg", "cvFile"]);
+  const SCAN_SKIP = new Set(["scImg", "vfImg", "cvFile", "cvoFile"]);
   const SCAN_IMAGES = new Set(["sgFile", "mpSig"]); // signatures on paper are scanned too
   const scanFits = (inp) => !SCAN_SKIP.has(inp.id) && (!inp.accept || /pdf/.test(inp.accept) || SCAN_IMAGES.has(inp.id));
   // An upload marked data-save-now saves the file at once (data-save-now="preview": a preview opens first, as for a
