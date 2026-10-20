@@ -1,8 +1,9 @@
-/* EMON OVERRUNS E-PORTAL — EO-Office (3.1, QC Test made simple in 3.3): QC Test and Collection Voucher.
+/* EMON OVERRUNS E-PORTAL — EO-Office (3.1, QC Test made simple in 3.3, Pass / Fail and result cards in 3.8): QC Test and Collection Voucher.
    QC TEST: a ticket. The form (serial no, item, brand, batch, CTN) gets a number QC-YYYY-#### and a PDF417 barcode; print it, check the
-   goods on the paper, then open it (scan the barcode or search the number) and update: a tick and a number of pieces for each of the 10
-   problems, the total score (suggested as 100 minus 10 for each tick, written by the person), remarks and the paper copy (shown only as
-   the form logo, press to open). No lock and no private code.
+   goods on the paper, then open it (scan the barcode or search the number) and update: Pass or Fail for each of the 10 checks (a number of
+   pieces for each Fail) and the total score (suggested as 100 minus 10 for each Fail, written by the person). The result needs a total of
+   80 to pass. Then the two result cards print on the same paper again (only the cards, the top stays), the 2 pages are scanned together,
+   and the 2 box stickers unlock. No lock and no private code to open a QC form.
    COLLECTION VOUCHER: money collected, recorded month by month, with the receipt picture; the empty paper around the
    receipt is cut off before it is saved. The EO-Office page opens with a mini dashboard of both. */
 (() => {
@@ -23,12 +24,13 @@
   const rand = () => Math.random().toString(36).slice(2, 8);
   const METHODS = { cash: "Cash", bank: "Bank Transfer / Deposit", gcash: "GCash / Online", check: "Check", other: "Other" };
 
-  // The 10 problems; each one found takes 10 points off 100. The first two are found when NOT equal.
+  // The 10 checks, each one Pass or Fail. A Fail takes 10 points off 100 (the person may write another total).
   const CHECKS = [
-    ["colors", "COLORS EQUALLY", "tick when the colors are not equal"], ["sizes", "SIZES EQUALLY", "tick when the sizes are not equal"],
-    ["bundle_colors", "UNFULFILLED BUNDLE COLORS", ""], ["wrong_bundle", "WRONG BUNDLE", ""], ["stain", "STAIN", ""],
-    ["missing_label", "MISSING LABEL", ""], ["missing_tag", "MISSING TAG", ""], ["mistake_package", "MISTAKE PACKAGE", ""],
-    ["mending", "MENDING MORE THAN", ""], ["label_info", "LABEL INFORMATION INCORRECT", ""]];
+    ["colors", "COLORS EQUAL"], ["sizes", "SIZES EQUAL"], ["bundle_colors", "BUNDLE COLORS COMPLETE"], ["wrong_bundle", "BUNDLE CORRECT"], ["stain", "NO STAIN"],
+    ["missing_label", "LABEL PRESENT"], ["missing_tag", "TAG PRESENT"], ["mistake_package", "PACKAGE CORRECT"],
+    ["mending", "MENDING NOT MORE THAN"], ["label_info", "LABEL INFORMATION CORRECT"]];
+  const PASS_MARK = 80; // the requirement to pass the QC test: a total score of 80 or more
+  const verdict = (score) => (score == null || score === "" ? "" : Number(score) >= PASS_MARK ? "PASS" : "FAIL");
 
   // ======================================================================
   // EO-Office page: mini dashboard, QC Test tab, Collection Voucher tab
@@ -60,7 +62,7 @@
     $("#eoBody").innerHTML = `
       <div class="eo-mini">
         <div class="tiles">
-          <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">QC Tests This Month</div><div class="v">${qNow.length}</div><small>${avgScore == null ? "No result yet" : `Average score ${avgScore} / 100`}</small></div>
+          <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">QC Tests This Month</div><div class="v">${qNow.length}</div><small>${avgScore == null ? "No result yet" : `${scored.filter((t) => verdict(t.score) === "PASS").length} pass · ${scored.filter((t) => verdict(t.score) === "FAIL").length} fail · average ${avgScore} / 100`}</small></div>
           <div class="tile"><span class="tile-ic">${ic("wallet")}</span><div class="k">Collection This Month (₱)</div><div class="v">${peso(sum(byMonth.get(now) || []))}</div><small>${(byMonth.get(now) || []).length} voucher(s)</small></div>
           <div class="tile"><span class="tile-ic">${ic("wallet")}</span><div class="k">Collection Last Month (₱)</div><div class="v">${peso(sum(byMonth.get(last) || []))}</div><small>${monthName(last)}</small></div>
         </div>
@@ -71,7 +73,8 @@
       <div id="eoTab"></div>`;
     const qcCols = [{ label: "QC No", get: (r) => r.qc_no }, { label: "Date", get: (r) => mdy(r.created_at) }, { label: "Serial No", get: (r) => r.serial_no || "" },
       { label: "Item", get: (r) => r.item }, { label: "Brand", get: (r) => r.brand || "" }, { label: "Batch", get: (r) => r.batch || "" }, { label: "CTN", get: (r) => r.ctn || "" },
-      { label: "Score", num: true, get: (r) => (r.score == null ? "—" : `${r.score} / 100`) }, { label: "Status", html: (r) => pill(r.status === "done" ? "approved" : "pending", r.status === "done" ? "TESTED" : "NOT TESTED YET") }];
+      { label: "Score", num: true, get: (r) => (r.score == null ? "—" : `${r.score} / 100`) },
+      { label: "Result", html: (r) => (r.score == null ? "" : pill(verdict(r.score) === "PASS" ? "approved" : "rejected", verdict(r.score))) }, { label: "Status", html: (r) => pill(r.status === "done" ? "approved" : "pending", r.status === "done" ? "TESTED" : "NOT TESTED YET") }];
     const cvCols = [{ label: "Voucher No", get: (r) => r.cv_no }, { label: "Date", get: (r) => mdy(r.cv_date) }, { label: "Received From", get: (r) => r.received_from },
       { label: "Method", get: (r) => METHODS[r.method] || r.method }, { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) },
       { label: "Receipt", html: (r) => (r.receipt_path ? pill("approved", "ON FILE") : pill("pending", "NO RECEIPT")) }, { label: "Made By", get: (r) => r.created_by_name || "" }];
@@ -81,8 +84,22 @@
       if (k === "qc") {
         box.innerHTML = `${canW() ? `<div class="btnrow"><a class="btn primary" href="#newqc">${ic("plus")} New QC Test</a></div>` : ""}
           <p class="muted" style="margin:4px 0 8px">Print the form, check the goods on the paper, then open it (scan its barcode or search the number) and update the result.</p>
-          ${E.grid({ cols: qcCols, rows: tests, onRow: true, empty: "No QC tests yet." })}`;
-        E.bindGrid(box, tests, (r) => (location.hash = "qc/" + r.id));
+          <div class="qc-find"><input type="search" id="qcFind" placeholder="Search: QC No, serial, item, brand, batch, CTN — or scan the barcode" aria-label="Search QC tests" autocomplete="off">
+            <button type="button" class="btn" id="qcScan">${ic("scan")} Scan</button></div>
+          <div id="qcGrid"></div>`;
+        // a barcode (typed by a scanner, or the QC number) opens that QC test at once; any other words filter the list
+        const norm = (q) => { const m = /EMONQCK?\|\s*(QC-\d{4}-\d+)/i.exec(q); return (m ? m[1] : q).trim().toLowerCase(); };
+        let shown = tests;
+        const paint = () => {
+          const w = norm($("#qcFind").value);
+          shown = w ? tests.filter((r) => [r.qc_no, r.serial_no, r.item, r.brand, r.batch, r.ctn].some((x) => String(x || "").toLowerCase().includes(w))) : tests;
+          $("#qcGrid").innerHTML = E.grid({ cols: qcCols, rows: shown, onRow: true, empty: w ? "No QC test matches that." : "No QC tests yet." });
+          E.bindGrid($("#qcGrid"), shown, (r) => (location.hash = "qc/" + r.id));
+        };
+        $("#qcFind").oninput = paint;
+        $("#qcFind").onkeydown = (e) => { if (e.key === "Enter" && shown.length === 1) { e.preventDefault(); location.hash = "qc/" + shown[0].id; } };
+        $("#qcScan").onclick = () => E.scanDialog((text) => E.openScanned(text));
+        paint();
         return;
       }
       if (m) {
@@ -137,20 +154,46 @@
 
   const boxTick = (on) => `<span class="qc-box${on ? " on" : ""}"></span>`;
   const numOf = (r, k) => (r?.numbers?.[k] ?? (k === "mending" ? r?.mending_limit : "") ?? "");
-  // The QC form on paper: blank to write on, or with the result.
-  function qcPage(t, r = null) {
-    const found = r ? CHECKS.filter(([k]) => r.checks?.[k]).length : null;
+  // One check is "fail" (ticked), "pass" or "" (not checked yet). A saved test has every check decided, so a check that is not a
+  // fail is a pass; r.choice (the screen before it is saved) says it directly.
+  const choiceOf = (t, r, k) => (r?.choice ? r.choice[k] || "" : r?.checks?.[k] ? "fail" : t.status === "done" ? "pass" : "");
+  const tally = (t, r) => {
+    let pass = 0, fail = 0, open = 0;
+    for (const [k] of CHECKS) { const c = choiceOf(t, r, k); if (c === "fail") fail++; else if (c === "pass") pass++; else open++; }
+    const score = t.score != null ? Number(t.score) : open ? null : 100 - 10 * fail;
+    return { pass, fail, open, score, verdict: verdict(score) };
+  };
+  // What the result cards, the stickers and the Result box say: once every check is decided (nothing before that)
+  const resultOf = (t, r) => {
+    const T = r ? tally(t, r) : null;
+    return T && !T.open && T.score != null ? { ...T, when: t.tested_at || new Date().toISOString(), by: t.tested_by_name || S.profile?.full_name || "" } : null;
+  };
+  // The result card (the same card is the box sticker): empty on the blank form, filled when the test is complete.
+  const qcCard = (t, res) => `<div class="qc-card"><div class="qc-card-h">${E.logoHtml("qc-card-logo")}<b>QC TEST RESULT</b></div>
+    <div class="qc-card-code"><img src="${E.pdf417DataUrl("EMONQC|" + t.qc_no)}" alt="" class="ph-bar"><div class="mono">${esc(t.qc_no)}</div></div>
+    <div class="qc-card-row"><span>Checked Date</span><b>${res ? esc(mdy(res.when)) : ""}</b></div>
+    <div class="qc-card-row"><span>Result</span><b class="qc-res">${res ? `${res.score} / 100` : ""}</b><b class="qc-verdict${res?.verdict === "FAIL" ? " fail" : ""}">${res ? res.verdict : ""}</b></div>
+    <div class="qc-card-row"><span>Check By</span><b>${res ? esc(res.by) : ""}</b></div></div>`;
+  const qcCards = (t, res, cls = "") => `<div class="qc-cards${cls}">${qcCard(t, res)}${qcCard(t, res)}</div>`;
+  // The QC form on paper: blank to write on, or with the result. ghost: the same page, but only the top and the two cards print;
+  // the middle keeps its place and stays blank (to print the cards on the same paper again).
+  function qcPage(t, r = null, opt = {}) {
+    const T = r ? tally(t, r) : null, res = resultOf(t, r);
     const right = `<img src="${E.pdf417DataUrl("EMONQC|" + t.qc_no)}" alt="" class="ph-bar"><div class="mono">${esc(t.qc_no)}</div>`;
-    const rows = CHECKS.map(([k, label, hint], i) => `<tr><td>${i + 1}</td><td><b>${esc(label)}</b>${k === "mending" ? " PCS" : ""}${hint ? `<br><small>(${esc(hint)})</small>` : ""}</td>
-      <td class="qc-pcs"><span class="qc-line">${r ? esc(String(numOf(r, k))) : ""}</span></td><td class="qc-tickc">${boxTick(r && r.checks?.[k])}</td></tr>`).join("");
-    return `${E.printHead("QC TEST FORM", right)}
-      ${E.box("Goods", `<div class="pgrid2">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item)}
-        ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}${E.cell("Form Made By", t.created_by_name || "")}</div>`)}
-      ${E.box("Quality Check — tick each problem found and write the number of pieces", `<table class="ptl qc-ptl"><thead><tr><th>#</th><th>Check</th><th class="qc-pcs">Pcs</th><th class="qc-tickc">Problem Found</th></tr></thead><tbody>${rows}</tbody></table>`)}
-      ${E.box("Result", `<div class="pgrid2">${E.cell("Problems Found", r ? String(found) : "")}${E.cell("Total Score", r ? `${t.score ?? 100 - found * 10} / 100` : "          / 100", "hl")}</div>
-        <div class="pcell"><div class="pl">Remarks</div><div class="pv qc-rem">${r ? esc(r.remarks || "") || "&nbsp;" : "&nbsp;<br>&nbsp;"}</div></div>`)}
-      ${E.sigs("Tested by", "Checked by")}`;
+    const rows = CHECKS.map(([k, label], i) => { const c = r ? choiceOf(t, r, k) : "";
+      return `<tr><td>${i + 1}</td><td><b>${esc(label)}</b>${k === "mending" ? " PCS" : ""}</td>
+        <td class="qc-failc"><span class="qc-line">${c === "fail" ? esc(String(numOf(r, k))) : ""}</span> ${boxTick(c === "fail")}</td><td class="qc-tickc">${boxTick(c === "pass")}</td></tr>`; }).join("");
+    const body = `${E.box("Goods", `<div class="pgrid2">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item)}
+        ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}</div>`)}
+      ${E.box("Quality Check — tick Pass or Fail for each check; for a Fail write the number of pieces", `<table class="ptl qc-ptl"><thead><tr><th>#</th><th>Check</th><th class="qc-failc">Fail · Pcs</th><th class="qc-tickc">Pass</th></tr></thead><tbody>${rows}</tbody></table>`)}
+      ${E.box("Result", `<div class="pgrid2">${E.cell("Pass", T && !T.open ? String(T.pass) : "")}${E.cell("Fail", T && !T.open ? String(T.fail) : "")}
+        ${E.cell("QC Test Result (Total Score)", res ? `${res.score} / 100` : "          / 100", "hl")}${E.cell("Result", res ? res.verdict : "")}
+        ${E.cell("Checked By", res ? res.by : "")}${E.cell("Checked Date", res ? mdy(res.when) : "")}</div>
+        <div class="qc-need">Requirement to pass the QC test: a total score of ${PASS_MARK} or more.</div>`)}`;
+    return `${E.printHead("QC TEST", right)}${opt.ghost ? `<div class="qc-ghost">${body}</div>` : body}${qcCards(t, res)}`;
   }
+  // The two box stickers: the same card twice; one goes on the box, the other is kept.
+  const stickerPage = (t, res) => `${qcCards(t, res, " qc-sticker")}<div class="qc-cut">Cut out the two stickers. Stick one on the box and keep the other.</div>`;
 
   V.qc = async (id) => {
     E.shell("qc", "QC Test", busy());
@@ -171,54 +214,99 @@
   function draw(t, r) {
     const here = E.stillHere();
     let busyUp = false; // a paper copy is being uploaded
-    const checks = { ...(r.checks || {}) }, docs = [...(r.docs || [])];
-    const sugg = (n) => 100 - 10 * n;
-    let manual = t.score != null && t.score !== sugg(Object.values(checks).filter(Boolean).length);
+    let dirty = false;  // something on the screen is not saved yet
+    const docs = [...(r.docs || [])];
+    const start = Object.fromEntries(CHECKS.map(([k]) => [k, choiceOf(t, r, k)]));
+    let manual = t.score != null && t.score !== 100 - 10 * Object.values(start).filter((c) => c === "fail").length;
     const head = `<div class="pgrid2 qc-head">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item)}
-      ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}${E.cell("Form Made By", t.created_by_name || "")}</div>`;
+      ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}</div>`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(t.qc_no)} · ${esc(t.item)} ${pill(t.status === "done" ? "approved" : "pending", t.status === "done" ? "TESTED" : "NOT TESTED YET")}</div><div class="wbody">
       ${head}
-      <p class="muted" style="margin:4px 0 8px">Print the form, check the goods on the paper, then tick the problems found here, write the number of pieces and the total.</p>
-      <fieldset class="opt"><legend>Quality Check</legend><div class="qc-list" id="qcList">${CHECKS.map(([k, label, hint], i) => `<label class="qc-row"><span class="qc-n">${i + 1}</span>
-        <span class="qc-t"><b>${esc(label)}${k === "mending" ? " PCS" : ""}</b>${hint ? `<small>${esc(hint)}</small>` : ""}</span>
-        <input type="checkbox" data-k="${k}" ${checks[k] ? "checked" : ""} aria-label="${esc(label)} found">
-        <input type="text" class="qc-num" data-n="${k}" inputmode="numeric" maxlength="12" placeholder="Pcs" value="${esc(String(numOf(r, k)))}" aria-label="${esc(label)} pieces"></label>`).join("")}</div>
+      <fieldset class="opt"><legend>Step 1 · Quality Check</legend>
+        <p class="muted" style="margin-top:0">Print the form, check the goods on the paper, then choose Pass or Fail for each check. For a Fail write the number of pieces.</p>
+        <div class="btnrow" style="margin:0 0 8px"><button type="button" class="btn small" id="qcAllPass">${ic("check")} All Pass</button><span class="qc-tally" id="qcTally"></span></div>
+        <div class="qc-list" id="qcList">${CHECKS.map(([k, label], i) => `<div class="qc-row pf" data-k="${k}"><span class="qc-n">${i + 1}</span>
+          <span class="qc-t"><b>${esc(label)}${k === "mending" ? " PCS" : ""}</b></span>
+          <span class="qc-pf" role="radiogroup" aria-label="${esc(label)}"><label class="qc-pass"><input type="radio" name="qc_${k}" value="pass"${start[k] === "pass" ? " checked" : ""}><span>Pass</span></label><label class="qc-fail"><input type="radio" name="qc_${k}" value="fail"${start[k] === "fail" ? " checked" : ""}><span>Fail</span></label></span>
+          <input type="text" class="qc-num" data-n="${k}" inputmode="numeric" maxlength="12" placeholder="Pcs" value="${esc(String(numOf(r, k)))}" aria-label="${esc(label)} pieces"${start[k] === "fail" ? "" : " hidden"}></div>`).join("")}</div>
         <div class="qc-score"><label for="qcTotal">Total Score</label><input type="number" id="qcTotal" min="0" max="100" step="1" inputmode="numeric" value="${t.score ?? 100}"><span class="qc-big">/ 100</span>
-          <small class="muted" id="qcHint"></small></div></fieldset>
-      <fieldset class="opt"><legend>Remarks</legend><textarea id="qcRem" rows="3" maxlength="1000">${esc(r.remarks || "")}</textarea></fieldset>
-      <fieldset class="opt"><legend>Paper Copy of the Filled Form</legend>
-        <p class="muted" style="margin-top:0">Upload the filled paper (a photo or a scan, up to 6). Only the form logo is shown; press it to open.</p>
+          <span class="qc-verd" id="qcVerd"></span><small class="muted" id="qcHint"></small></div></fieldset>
+      <fieldset class="opt"><legend>Step 2 · Result Cards</legend>
+        <p class="muted" style="margin-top:0">After the result is saved, put the same paper in the printer again and print. Only the two result cards print (in the empty boxes at the bottom); the top stays the same.</p>
+        <div class="btnrow"><button type="button" class="btn primary" id="qcCards">${ic("print")} Print Result Cards</button><span class="muted" id="qcCardsHint"></span></div></fieldset>
+      <fieldset class="opt"><legend>Step 3 · Scan the 2 Pages <span class="qc-pagen" id="qcPageN"></span></legend>
+        <p class="muted" style="margin-top:0">Scan both pages together: the checked form and the page with the result cards (up to 6 files). Only the form logo is shown; press it to open.</p>
         <div class="qc-docs" id="qcDocs"></div>
         <div class="btnrow"><label class="btn primary" for="qcUp" id="qcUpL">${ic("upload")} Upload Paper Copy</label><input type="file" id="qcUp" hidden multiple accept="image/*,application/pdf" data-save-now></div></fieldset>
+      <fieldset class="opt"><legend>Step 4 · Box Stickers</legend>
+        <p class="muted" style="margin-top:0" id="qcStHint"></p>
+        <div class="btnrow"><button type="button" class="btn primary" id="qcSticker">${ic("print")} Print 2 Stickers</button></div></fieldset>
     </div><div class="wfoot"><button type="button" class="btn primary" id="qcSave">${ic("check")} ${t.status === "done" ? "Update" : "Save"}</button><button type="button" class="btn" id="qcBlank">${ic("print")} Print Blank Form</button>
-      <button type="button" class="btn" id="qcPdf">${ic("print")} PDF Copy</button>${isAdmin() ? `<button type="button" class="btn danger" id="qcDel">${ic("trash")} Delete</button>` : ""}<a class="btn" href="#eooffice">Close</a></div></div>`;
-    const ticks = () => $$("#qcList input[data-k]").filter((i) => i.checked).length;
-    const hint = () => { $("#qcHint").textContent = manual ? "" : `Suggested: 100 − 10 for each tick (${ticks()} ticked). You can write another total.`; };
-    const sync = () => { if (!manual) $("#qcTotal").value = sugg(ticks()); hint(); };
-    $$("#qcList input[data-k]").forEach((i) => (i.onchange = sync));
-    $("#qcTotal").oninput = () => { manual = true; hint(); };
-    hint();
+      <button type="button" class="btn" id="qcPdf">${ic("print")} Print Filled Form</button>${isAdmin() ? `<button type="button" class="btn danger" id="qcDel">${ic("trash")} Delete</button>` : ""}<a class="btn" href="#eooffice">Close</a></div></div>`;
+    const choice = (k) => $(`#qcList input[name="qc_${k}"]:checked`)?.value || "";
     const read = () => {
-      const c = {}, n = {};
-      $$("#qcList input[data-k]").forEach((i) => { c[i.dataset.k] = i.checked; });
-      $$("#qcList input[data-n]").forEach((i) => { if (i.value.trim()) n[i.dataset.n] = i.value.trim(); });
-      return { checks: c, numbers: n, score: $("#qcTotal").value, remarks: $("#qcRem").value.trim() };
+      const pick = {}, checks = {}, numbers = {};
+      for (const [k] of CHECKS) { const v = choice(k); pick[k] = v; checks[k] = v === "fail"; const n = $(`#qcList input[data-n="${k}"]`).value.trim(); if (v === "fail" && n) numbers[k] = n; }
+      return { choice: pick, checks, numbers, score: $("#qcTotal").value };
     };
+    const refresh = () => {
+      let pass = 0, fail = 0;
+      for (const [k] of CHECKS) { const v = choice(k); if (v === "pass") pass++; else if (v === "fail") fail++; $(`#qcList input[data-n="${k}"]`).hidden = v !== "fail"; }
+      const open = CHECKS.length - pass - fail;
+      if (!manual) $("#qcTotal").value = 100 - 10 * fail;
+      $("#qcTally").innerHTML = `Pass <b>${pass}</b> · Fail <b>${fail}</b>${open ? ` · Not checked <b>${open}</b>` : ""}`;
+      const v = open || $("#qcTotal").value === "" ? "" : verdict($("#qcTotal").value);
+      $("#qcVerd").textContent = v; $("#qcVerd").className = `qc-verd ${v.toLowerCase()}`;
+      $("#qcHint").textContent = manual ? `To pass: ${PASS_MARK} or more.` : `Suggested: 100 − 10 for each Fail. You can write another total. To pass: ${PASS_MARK} or more.`;
+    };
+    $("#qcList").onchange = (e) => {
+      if (e.target.type !== "radio") return;
+      dirty = true; refresh();
+      if (e.target.value === "fail") $(`#qcList input[data-n="${e.target.name.slice(3)}"]`)?.focus();
+    };
+    $("#qcList").oninput = (e) => { if (e.target.classList.contains("qc-num")) dirty = true; };
+    $("#qcTotal").oninput = () => { manual = true; dirty = true; refresh(); };
+    $("#qcAllPass").onclick = () => { for (const [k] of CHECKS) { if (!choice(k)) $(`#qcList input[name="qc_${k}"][value="pass"]`).checked = true; } dirty = true; refresh(); };
+    refresh();
+
     $("#qcSave").onclick = async (e) => {
       const v = read(); const s = Number(v.score);
+      const open = CHECKS.filter(([k]) => !v.choice[k]);
+      if (open.length) { $(`#qcList [data-k="${open[0][0]}"]`)?.scrollIntoView({ block: "center" }); return toast(`Choose Pass or Fail for every check (${open.length} not checked).`, true); }
       if (v.score === "" || !Number.isInteger(s) || s < 0 || s > 100) return toast("Write the total score from 0 to 100.", true);
       if (busyUp) return toast("Wait until the paper copy is uploaded.", true);
-      v.score = s; // a whole number
       const btn = e.currentTarget; btn.disabled = true;
-      const { data: d, error } = await sb.rpc("qc_save", { p_id: t.id, p_data: v });
+      const { data: d, error } = await sb.rpc("qc_save", { p_id: t.id, p_data: { checks: v.checks, numbers: v.numbers, score: s, remarks: r.remarks || "" } });
       if (error) { btn.disabled = false; return fail(error, /qc_save|schema cache/i.test(error.message) ? "Run the database update 025_qc_simple.sql first" : "Could not save the result"); }
       if (!here()) return; // the person went to another page while it was saved
-      toast(`Saved. Total score ${d.score} / 100.`);
+      toast(`Saved. Total score ${d.score} / 100 — ${verdict(d.score)}.`);
       t.status = "done"; t.score = d.score; t.found_count = d.found_count; t.tested_at = new Date().toISOString(); t.tested_by_name = S.profile?.full_name || "";
-      draw(t, { ...r, checks: v.checks, numbers: v.numbers, remarks: v.remarks, docs });
+      draw(t, { ...r, checks: Object.fromEntries(Object.entries(v.checks).filter(([, x]) => x)), numbers: v.numbers, docs });
     };
     $("#qcBlank").onclick = () => E.openPreview(`QC Form ${t.qc_no}`, [qcPage(t)]);
-    $("#qcPdf").onclick = () => { const v = read(); E.openPreview(`QC Test ${t.qc_no}`, [qcPage({ ...t, score: Number(v.score) }, { checks: v.checks, numbers: v.numbers, remarks: v.remarks })]); };
+    $("#qcPdf").onclick = () => { const v = read(); E.openPreview(`QC Test ${t.qc_no}`, [qcPage({ ...t, score: v.score === "" ? null : Number(v.score) }, { choice: v.choice, numbers: v.numbers })]); };
+    // step 2: the same page, only the top and the two filled cards print (undated: the top must be the same as on the first print)
+    $("#qcCards").onclick = () => {
+      if (dirty) return toast("Press Save first: the cards print the saved result.", true);
+      E.openPreview(`QC Result Cards ${t.qc_no}`, [qcPage(t, r, { ghost: true })], { undated: true });
+    };
+    // step 4: the stickers unlock when the result is saved and both pages are uploaded
+    $("#qcSticker").onclick = () => {
+      if (!ready()) return;
+      if (dirty) return toast("Press Save first: the stickers print the saved result.", true);
+      E.openPreview(`QC Stickers ${t.qc_no}`, [stickerPage(t, resultOf(t, r))], { undated: true });
+    };
+    const ready = () => t.status === "done" && docs.length >= 2;
+    const paintLock = () => {
+      const ok = ready(), b = $("#qcSticker");
+      if (!b) return;
+      b.disabled = !ok; b.innerHTML = ok ? `${ic("print")} Print 2 Stickers` : `${ic("shield")} Locked`;
+      $("#qcStHint").textContent = ok ? "Ready. Print, cut out the two stickers, stick one on the box and keep the other. The box then shows that its QC test is complete and the result."
+        : t.status !== "done" ? "Locked. Save the result first, then upload the 2 pages." : `Locked. Upload the 2 pages first (${docs.length} of 2).`;
+      $("#qcPageN").textContent = `· ${Math.min(docs.length, 2)} of 2`;
+      $("#qcCards").disabled = t.status !== "done";
+      $("#qcCardsHint").textContent = t.status === "done" ? "" : "Save the result first.";
+    };
     // paper copies: only the form logo is shown, press to open
     const paintDocs = () => {
       $("#qcDocs").innerHTML = docs.length ? docs.map((p, i) => `<div class="qc-doc"><button type="button" class="qc-doc-open" data-i="${i}" aria-label="Open the paper copy ${i + 1}">${E.logoHtml("qc-doc-logo")}
@@ -234,8 +322,9 @@
         if (error) return fail(error, "Could not remove the file");
         docs.splice(0, docs.length, ...keep);
         if (d.removed?.length) sb.storage.from("records").remove(d.removed).then(() => {}, () => {});
-        if (here()) paintDocs();
+        if (here()) { paintDocs(); }
       }));
+      paintLock();
     };
     paintDocs();
     $("#qcUp").onchange = async (e) => {
@@ -462,5 +551,5 @@
       caps: { single: 22, first: 26, next: 32, last: 16 } });
   }
 
-  Object.assign(E, { cutEmpty, eoTabs });
+  Object.assign(E, { cutEmpty, eoTabs, qcVerdict: verdict });
 })();
