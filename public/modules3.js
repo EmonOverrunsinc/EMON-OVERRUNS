@@ -128,7 +128,7 @@
   // An employee asks for a correction: the Director approves it, and the employee is told who approved it (2.9). No reason
   // is needed; an employee may add a note for the Director. A decided correction keeps no old details: the record shows only which details were changed and by whom.
   const correctsAtOnce = (table) => (table === "customers" ? !!S.mainDirector : isAdmin());
-  function correctRecord(table, row, label, reload) {
+  function correctRecord(table, row, label, reload, opts = {}) {
     const fields = FIELDS[table];
     if (!fields) return toast("This record cannot be corrected.", true);
     const admin = correctsAtOnce(table), boss = table === "customers" ? "main Director" : "Director";
@@ -152,7 +152,9 @@
       }
       m.close();
       toast(admin ? "Saved — the record shows the new details." : `Correction ${data.request_no} sent to the ${boss} for approval. You will be told when it is approved.`);
-      if (reload) reload();
+      // 3.11: the customer's Update Information request prints the update form after the page is drawn again
+      if (reload) await reload();
+      opts.onSaved?.({ req: data, changes, previous: row, atOnce: admin });
     };
   }
   // The Director deletes a record permanently, with its files. Nothing of it is shown afterwards.
@@ -177,7 +179,7 @@
   function recordTools(table, row, label, opts = {}) {
     if (!S.profile || !row) return "";
     const admin = isAdmin();
-    const fix = !!FIELDS[table], del = admin && DELETABLE.includes(table);
+    const fix = !!FIELDS[table] && !opts.noFix, del = admin && DELETABLE.includes(table);
     if (!fix && !del) return "";
     if (RT.size > 300) RT.clear();
     const id = "rt" + Math.random().toString(36).slice(2, 9);

@@ -454,15 +454,20 @@
       <div class="ph-right">${rightHtml}</div></div>
       <div class="ph-title">${esc(title)}</div>`;
   }
+  const val = (v) => (v === "" || v == null ? "&nbsp;" : esc(v)); // an empty value keeps its line on paper
+  const cell = (label, value, cls = "") => `<div class="pcell ${cls}"><div class="pl">${esc(label)}</div><div class="pv">${val(value)}</div></div>`;
   const box = (title, inner) => `<div class="pbox"><div class="pbox-h">${esc(title)}</div>${inner}</div>`;
-  const cell = (label, value, cls = "") => `<div class="pcell ${cls}"><div class="pl">${esc(label)}</div><div class="pv">${value === "" || value == null ? "&nbsp;" : esc(value)}</div></div>`;
-  const radio = (on, label) => `<div class="pradio"><span class="dot ${on ? "on" : ""}"></span>${esc(label)}</div>`;
+
   // Two signature lines. sign (approvedBy): the Director approved the document, so the Director's signature picture stands
   // on the right line, with the name and the date under it.
   const sigCol = (label, sign) => sign
     ? `<div class="sig-on">${sign.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="line"></div>${label}${sign.name ? `: <b class="nw">${esc(sign.name)}</b>` : ""}${sign.at ? ` &nbsp;·&nbsp; <span class="nw">${esc(mdy(sign.at))}</span>` : ""}</div>`
     : `<div><div class="line"></div>${label}</div>`;
   const sigs = (left, right, sign = null) => `<div class="psig">${sigCol(left)}${sigCol(right, sign)}</div>`;
+  // 3.17 certificate style: a top row (left · centre number · right), a thin section title and "Label : value" lines
+  const cxTop = (items) => `<div class="cx-top">${items.map(([k, v]) => `<div><small>${esc(k)}</small><b>${val(v)}</b></div>`).join("")}</div>`;
+  const cxSec = (title, note = "") => `<div class="cx-sec">${esc(title)}${note ? `<small>${esc(note)}</small>` : ""}</div>`;
+  const cxKv = (pairs) => `<div class="cx-kv">${pairs.map(([k, v, cls = ""]) => `<div class="cx-r ${cls}"><span>${esc(k)}</span><i>:</i><b>${val(v)}</b></div>`).join("")}</div>`;
 
   // ======================================================================
   // Dashboard
@@ -513,7 +518,7 @@
     const [cust, bal, inv, pay, month, activeN] = await Promise.all([
       sb.from("customers").select("id,first_name,last_name,account_no,application_no,status,application_date,business_name").in("status", ["pending", "verified"]).order("created_at", { ascending: false }).limit(50),
       sb.from("customer_balances").select("balance_due"),
-      sb.from("invoice_balances").select("id,invoice_no,first_name,last_name,balance,pay_status").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(8),
+      sb.from("invoice_balances").select("id,invoice_no,first_name,last_name,balance,pay_status,due_date").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(8),
       sb.from("payments_received").select("id,receipt_no,amount,paid_date,customers(first_name,last_name)").order("created_at", { ascending: false }).limit(8),
       sb.from("payments_received").select("amount").gte("paid_date", ym + "-01").lt("paid_date", nextMonth(ym)),
       sb.from("customers").select("id", { count: "exact", head: true }).eq("status", "active")
@@ -543,7 +548,7 @@
       $("#dInv").innerHTML = E.grid({ cols: [
         { label: "Invoice / Customer", html: (r) => `<b>${esc(r.invoice_no)}</b><br><small>${esc(fullName(r))}</small>` },
         { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) },
-        { label: "Status", html: (r) => pill(r.pay_status) }],
+        { label: "Status", html: payPill }],
         rows, onRow: true, empty: "No invoices yet." });
       E.bindGrid($("#dInv"), rows, (r) => (location.hash = "invoice/" + r.id));
     }
@@ -840,7 +845,7 @@
       attachmentsOf("customer", id),
       sb.from("customer_balances").select("*").eq("customer_id", id).maybeSingle(),
       sb.from("invoice_balances").select("*").eq("customer_id", id).order("invoice_date", { ascending: false }),
-      sb.from("payments_received").select("*").eq("customer_id", id).order("paid_date", { ascending: false }),
+      sb.from("payments_received").select("*, payment_links(invoice_id, amount, removed_at)").eq("customer_id", id).order("paid_date", { ascending: false }),
       sb.from("credit_memos").select("*").eq("customer_id", id).order("memo_date", { ascending: false }),
       sb.from("customer_events").select("*").eq("customer_id", id).order("created_at"),
       isAdmin() ? sb.from("customer_secrets").select("private_code").eq("customer_id", id).maybeSingle() : Promise.resolve({ data: null }),
@@ -857,13 +862,16 @@
     const canPay = ["active", "suspended", "closed"].includes(c.status) && (E.canWrite("payments") || E.canWrite("invoices"));
     const canMemo = ["active", "suspended"].includes(c.status) && E.canWrite("creditmemos");
     const history = [
-      ...(ev.data || []).map((r) => ({ at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
-      ...(chg.data || []).map((r) => r.action === "correction" ? { at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }
+      ...(ev.data || []).map((r) => ({ src: "event", id: r.id, at: r.created_at, action: E.gateEventLabel?.(r) || r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
+      ...(chg.data || []).map((r) => ({ src: "change", id: r.id, ...(r.action === "correction" ? { at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }
         : r.action === "edited" || r.action === "correction approved" ? { at: r.created_at, action: r.action === "edited" ? "EDITED BY DIRECTOR" : `CORRECTION APPROVED BY DIRECTOR${r.request_no ? " (" + r.request_no + ")" : ""}`,
           by: r.actor_name || "", note: `${Object.keys(r.changes || {}).map((k) => fieldLabel("customers", k)).join(", ")}${r.requested_by_name ? ` · asked by ${r.requested_by_name}` : ""}` }
-        : { at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.action === "file removed" ? r.previous?.file || "" : changeText(r) })
+        : { at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.action === "file removed" ? r.previous?.file || "" : changeText(r) }) }))
     ].sort((x, y) => String(x.at).localeCompare(String(y.at)));
-    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Documents (${att.length})`, "History"];
+    const overdue = (invs.data || []).filter(isOverdue).sort((x, y) => String(x.due_date).localeCompare(String(y.due_date)));
+    const rets = [], cms = [];
+    for (const m of memos.data || []) (m.is_return ? rets : cms).push(m);
+    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${cms.length})`, `Documents (${att.length})`, "History", `Overdue (${overdue.length})`, `Returns (${rets.length})`, `Gate Pass (${E.gateHistoryRows ? E.gateHistoryRows(orders, ev.data || []).length : 0})`];
     $(".band h1").textContent = `Customer — ${fullName(c)}`;
     $("#main").innerHTML = `
       ${statusBanner(c)}
@@ -871,7 +879,7 @@
         <div class="ch-pic"><div class="ch-photo">${photoUrl ? `<img src="${esc(photoUrl)}" alt="Photo of ${esc(fullName(c))}">` : `<span>${esc(((c.first_name || "")[0] || "") + ((c.last_name || "")[0] || ""))}</span>`}</div>
           ${E.canWrite("customers") ? `<div class="ch-pic-tools"><label class="linkbtn" for="pfPhotoFile">${c.photo_path ? "Change" : "Add Photo"}</label><input type="file" id="pfPhotoFile" accept="image/*" hidden>${c.photo_path ? `<button type="button" class="linkbtn del" id="pfPhotoDel">Remove</button>` : ""}</div>` : ""}</div>
         <div class="ch-main">
-          <div class="ch-name"><h2>${esc(fullName(c))}</h2>${pill(c.status)}</div>
+          <div class="ch-name"><h2>${esc(fullName(c))}</h2>${pill(c.status)}${isApprovedAccount(c) && isStaff() ? `<span id="pfStanding"></span>` : ""}</div>
           <div class="ch-sub">${[c.business_name, c.phone, c.email].filter(Boolean).map(esc).join(" · ") || "—"}</div>
           <div class="ch-ids">
             ${idBox("Account No", c.account_no)}${idBox("Application No", c.application_no)}${idBox("Opened", mdy(c.application_date))}${c.credit_limit != null ? idBox("Credit Limit", "₱ " + peso(c.credit_limit)) : ""}
@@ -888,7 +896,7 @@
         ${canMemo ? `<a class="btn" href="#newcreditmemo/${c.id}">${ic("plus")} Credit Memo</a>` : ""}
         ${isApprovedAccount(c) && isStaff() ? `<button type="button" class="btn" id="pfRequest">${ic("stamp")} Request</button>` : ""}
         <span class="grow"></span>
-        ${tools("customers", c, `${c.account_no || c.application_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers") })}
+        ${tools("customers", c, `${c.account_no || c.application_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers"), noFix: isApprovedAccount(c) && isStaff() && !S.mainDirector })}
       </div>
       ${isApprovedAccount(c) && isStaff() ? E.requestsHtml(c, orders) : ""}
       <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", tag: "System Generated", sub: `${c.application_no} · made by the E-Portal · print it for the customer to sign`, ownerType: "customer", ownerId: c.id, att, kind: "__system", canUpload: false, print: () => printApplication(c),
@@ -901,9 +909,13 @@
         <div data-p="1" hidden id="pfSoa">${busy("Loading statements")}</div>
         <div data-p="2" hidden>${E.grid({ cols: INV_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: invs.data || [], onRow: true, empty: "No invoices yet." })}</div>
         <div data-p="3" hidden><div id="pfFree"></div>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
-        <div data-p="4" hidden>${E.grid({ cols: MEMO_COLS.filter((x) => x.label !== "Customer"), rows: memos.data || [], onRow: true, empty: "No credit memos." })}</div>
+        <div data-p="4" hidden>${cms.length ? `<div class="btnrow"><button type="button" class="btn small" data-hprint="cm">${ic("print")} Print</button></div>` : ""}${E.grid({ cols: CM_HIST, rows: cms, onRow: true, empty: "No credit memos." })}</div>
         <div data-p="5" hidden>${filesHtml(att.map((a) => a.kind === "signed_form" ? { ...a, kind: "application" } : a), "No documents yet.")}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple data-save-now")}</div>` : ""}</div>
-        <div data-p="6" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
+        <div data-p="7" hidden>${overdue.length ? `<div class="btnrow"><button type="button" class="btn small" data-hprint="od">${ic("print")} Print</button></div>` : ""}${E.grid({ cols: OD_HIST, rows: overdue, onRow: true, empty: "No overdue invoice." })}</div>
+        <div data-p="8" hidden>${rets.length ? `<div class="btnrow"><button type="button" class="btn small" data-hprint="rt">${ic("print")} Print</button></div>` : ""}${E.grid({ cols: RET_HIST, rows: rets, onRow: true, empty: "No returns." })}</div>
+        <div data-p="9" hidden>${E.gateHistoryHtml ? E.gateHistoryHtml(orders, ev.data || []) : ""}</div>
+        <div data-p="6" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note },
+          ...(isAdmin() ? [{ label: "", html: (r) => `<button type="button" class="btn small danger" data-hdel="${r.src}:${r.id}" aria-label="Delete this history line">${ic("trash")}</button>` }] : [])], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
     if ($("#pfLoc")) $("#pfLoc").onchange = (e) => setLocation(c, e.target.value);
@@ -947,14 +959,36 @@
       const sum = data.reduce((t, r) => t + num(r.available), 0);
       el.innerHTML = `<div class="pay-free">${data.length} payment${data.length === 1 ? "" : "s"} not linked to an invoice yet: <b>₱ ${peso(sum)}</b> (${data.slice(0, 6).map((r) => esc(r.receipt_no || "")).join(", ")}${data.length > 6 ? " …" : ""}). They pay the oldest invoices first, or link them on an invoice (Link a Payment).${num(b.balance_due) < 0 ? ` Overpaid credit ready for other invoices: <b>₱ ${peso(-num(b.balance_due))}</b>.` : ""}</div>`;
     }, () => {});
-    E.bindGrid($('[data-p="4"]'), memos.data || [], (r) => (location.hash = "creditmemo/" + r.id));
+    E.bindGrid($('[data-p="4"]'), cms, (r) => (location.hash = "creditmemo/" + r.id));
+    E.bindGrid($('[data-p="7"]'), overdue, (r) => (location.hash = "invoice/" + r.id));
+    E.bindGrid($('[data-p="8"]'), rets, (r) => (location.hash = "creditmemo/" + r.id));
+    // 3.13: print the Overdue, Returns or Credit Memo history of this customer
+    $$("[data-hprint]").forEach((b) => (b.onclick = () => {
+      const k = b.dataset.hprint, set = { od: ["Overdue Invoices", OD_HIST, overdue], rt: ["Return History", RET_HIST, rets], cm: ["Credit Memo History", CM_HIST, cms] }[k];
+      const total = k === "od" ? set[2].reduce((t, r) => t + num(r.balance), 0) : set[2].reduce((t, r) => t + num(r.request_amount), 0);
+      E.openPreview(`${set[0]} ${c.account_no || ""}`, E.listingPages({ title: set[0], range: `${esc(fullName(c))} · Account No ${esc(c.account_no || "")} · as of ${mdy(isoToday())}`, logo: true,
+        cols: set[1].filter((x) => !x.html).concat(set[1].filter((x) => x.html).map((x) => ({ label: x.label, get: x.text }))), rows: set[2],
+        summary: { title: "Summary", cols: ["", "Count", k === "od" ? "Balance Overdue (₱)" : "Total Amount (₱)"], rows: [], total: ["Total:", String(set[2].length), peso(total)] },
+        criteria: `Customer: ${fullName(c)} (${c.account_no || ""})` }));
+    }));
     if (!["pending", "verified", "rejected"].includes(c.status)) renderSoaTab(c, invs.data || [], pays.data || [], memos.data || [], orders);
     else $("#pfSoa").innerHTML = `<div class="empty">Statements start after the account is approved.</div>`;
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.customer(c.id));
     bindTools($("#main"));
-    if ($("#pfRequest")) $("#pfRequest").onclick = () => E.customerRequest(c, { b, invs: invs.data || [], orders });
-    E.bindRequests(c, orders);
+    const gctx = { b, invs: invs.data || [], pays: pays.data || [], memos: memos.data || [], orders };
+    if ($("#pfRequest")) $("#pfRequest").onclick = () => E.customerRequest(c, gctx);
+    E.bindRequests(c, orders, gctx);
+    E.standingBadge($("#pfStanding"), c, gctx);
+    // 3.12: the Director deletes a history line
+    $$("[data-hdel]").forEach((b) => (b.onclick = async () => {
+      const [src, hid] = b.dataset.hdel.split(":");
+      const row = history.find((h) => h.src === src && String(h.id) === hid);
+      if (!(await E.confirmBox(`Delete this history line?<br><b>${esc(row?.action || "")}</b> ${esc(row?.note || "")}<br>It cannot be brought back.`, { ok: "Delete", danger: true }))) return;
+      const { error } = await sb.rpc("delete_history_line", { p_source: src, p_id: Number(hid) });
+      if (error) return fail(error, /delete_history_line|schema cache/i.test(error.message || "") ? "Run the database update 030_delete_history.sql first" : "Could not delete the history line");
+      toast("History line deleted."); V.customer(c.id);
+    }));
     if ($("#pvShow")) $("#pvShow").onclick = () => { const el = $("#pvCode"); const hidden = el.textContent.startsWith("•"); el.textContent = hidden ? el.dataset.code || "(none)" : "••••••••"; $("#pvShow").textContent = hidden ? "Hide" : "Show"; };
     if ($("#pfAdd")) $("#pfAdd").onchange = async (e) => { const here = E.stillHere(), f = await uploadRecords("customer", c.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed to upload.` : "Uploaded.", f > 0); if (here()) V.customer(c.id); };
     if (isAdmin() && ["pending", "verified"].includes(c.status)) bindReview(c);
@@ -1249,6 +1283,11 @@
   // ======================================================================
   // 2. Invoice
   // ======================================================================
+  // 3.13: an invoice not fully paid after its due date is OVERDUE (what is paid comes from invoice_balances: a payment not
+  // linked to an invoice pays the oldest invoices first by itself)
+  const isOverdue = (r) => r.pay_status !== "paid" && num(r.balance) > 0.004 && r.due_date && r.due_date < isoToday();
+  const daysOver = (r) => Math.max(0, Math.floor((new Date(isoToday() + "T00:00:00") - new Date(r.due_date + "T00:00:00")) / 86400000));
+  const payPill = (r) => `${pill(r.pay_status)}${isOverdue(r) ? ` ${pill("overdue")}` : ""}`;
   const INV_COLS = [
     { label: "Invoice No", get: (r) => r.invoice_no }, { label: "Date", get: (r) => mdy(r.invoice_date) },
     { label: "Terms", get: (r) => r.payment_terms || "" }, { label: "Due Date", get: (r) => mdy(r.due_date) },
@@ -1258,12 +1297,12 @@
     { label: "Returned (₱)", key: "amount_returned", num: true, get: (r) => (num(r.amount_returned) ? peso(r.amount_returned) : "") },
     { label: "Paid (₱)", key: "amount_paid", num: true, get: (r) => peso(r.amount_paid) },
     { label: "Balance (₱)", key: "balance", num: true, get: (r) => peso(r.balance) },
-    { label: "Status", html: (r) => pill(r.pay_status) }
+    { label: "Status", html: payPill }
   ];
   // 2.4.3: the tabs are All, Unpaid, Partial Payment and Paid. What is paid comes from the database (invoice_balances): everything paid to the customer's account pays the oldest
   // invoices first (payments are never for one invoice).
-  const INV_TABS = [["", "All"], ["unpaid", "Unpaid"], ["partial", "Partial Payment"], ["paid", "Paid"]];
-  const invPick = (all, f) => (f ? all.filter((r) => r.pay_status === f) : all);
+  const INV_TABS = [["", "All"], ["unpaid", "Unpaid"], ["partial", "Partial Payment"], ["overdue", "Overdue"], ["paid", "Paid"]];
+  const invPick = (all, f) => (f === "overdue" ? all.filter(isOverdue) : f ? all.filter((r) => r.pay_status === f) : all);
   V.invoices = async () => {
     E.shell("invoices", "Invoice", `
       <div class="tabs" id="ivTabs">${INV_TABS.map(([f, l], i) => `<button type="button" class="${i ? "" : "on"}" data-f="${f}">${l} <span data-n="${f}"></span></button>`).join("")}</div>
@@ -1374,13 +1413,15 @@
     const [ib, att, rt, lk] = await Promise.all([
       sb.from("invoice_balances").select("*").eq("id", id).maybeSingle(),
       attachmentsOf("invoice", id),
-      sb.from("credit_memos").select("*").eq("invoice_id", id).eq("is_return", true).order("memo_date"),
+      sb.from("credit_memos").select("*").eq("invoice_id", id).order("memo_date"),
       sb.from("payment_links").select("*, payments_received(receipt_no, paid_date, amount)").eq("invoice_id", id).order("linked_at")
     ]);
     if (!here()) return;
     const inv = ib.data;
     if (!inv) { $("#main").innerHTML = `<div class="empty">Invoice not found. <a href="#invoices">Back to Invoices</a></div>`; return; }
-    const rets = rt.data || [];
+    const rets = (rt.data || []).filter((m) => m.is_return);
+    // 3.14: what was taken off this invoice: approved returns and credit / discount memos of this invoice
+    const deds = (rt.data || []).filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action));
     const linksOn = !lk.error, links = lk.data || [], active = links.filter((l) => !l.removed_at);
     const canReturn = E.canWrite("invoices") || E.canWrite("creditmemos");
     const canLink = linksOn && (E.canWrite("payments") || E.canWrite("invoices"));
@@ -1388,7 +1429,7 @@
     // what the invoice still needs from linked payments (other payments pay it only through the oldest-first order)
     const need = num(inv.total_amount) - returned - active.reduce((s, l) => s + num(l.amount), 0);
     $(".band h1").textContent = `Invoice — ${inv.invoice_no}`;
-    $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${pill(inv.pay_status)}</div><div class="wbody">
+    $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${payPill(inv)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>
@@ -1398,7 +1439,7 @@
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
         <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b>${returned > 0 ? `<span>Returned</span><b>− ₱ ${peso(returned)}</b>` : ""}<span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b>
         <span>Balance</span><b class="${bal < 0 ? "neg" : ""}">₱ ${peso(bal)}</b>
-        <span>Payment Status</span><span>${pill(inv.pay_status)}${bal < 0 ? ` <small class="muted">overpaid ₱ ${peso(-bal)}</small>` : ""}</span></div></div>
+        <span>Payment Status</span><span>${payPill(inv)}${isOverdue(inv) ? ` <small class="muted">${daysOver(inv)} day(s) overdue</small>` : ""}${bal < 0 ? ` <small class="muted">overpaid ₱ ${peso(-bal)}</small>` : ""}</span></div></div>
       <small class="muted">A payment linked to this invoice pays it first; only what the invoice needs is taken, the rest of the payment stays available for another invoice. Other payments, discounts and orders pay the customer's oldest invoices first.${bal < 0 ? " A negative balance means the customer has paid more than everything owed." : ""}</small>
       <div class="linked-pays"><div class="lp-head"><b>Returns</b>${canReturn ? `<button type="button" class="btn small" id="ivReturn">${ic("back")} Record Return</button>` : ""}</div>
         ${rets.length ? rets.map((r) => `<div class="lp-row lp-ret"><a href="#creditmemo/${r.id}"><b>${esc(r.memo_no || "")}</b></a><span>${mdy(r.memo_date)} · ${esc(r.serial_no || "")}${r.qty ? ` · ${r.qty} pcs` : ""}</span><b>− ₱ ${peso(r.request_amount)}</b>
@@ -1411,7 +1452,7 @@
             <b>₱ ${peso(l.amount)}</b>${l.removed_at ? `<span class="pill rejected">UNLINKED</span>` : canLink ? `<button type="button" class="linkbtn" data-unlink="${l.id}">Unlink</button>` : `<span class="pill active">LINKED</span>`}</div>`).join("")
           : `<div class="empty small">No payment is linked to this invoice.</div>`}
         ${linksOn && active.length ? `<div class="lp-sum"><span>Linked to this invoice</span><b>₱ ${peso(active.reduce((s, l) => s + num(l.amount), 0))}</b>${need > 0.004 ? `<span>Still needed from a payment</span><b>₱ ${peso(need)}</b>` : ""}</div>` : ""}</div>
-      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, active)]) })}
+      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}${deds.length ? ` · CORRECTED: ₱ ${peso(num(inv.total_amount) - deds.reduce((t, m) => t + num(m.request_amount), 0))}` : ""}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, active, deds)]) })}
         ${copyCard({ key: "invcopy", title: `Invoice ${inv.invoice_no}`, tag: "Paper Copy", sub: "Scan or upload the paper invoice", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}</div>
       <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
       ${rhBox("customer_invoices", inv.id)}</div>
@@ -1510,15 +1551,23 @@
     E.setRecords(`Invoice: ${inv.invoice_no}`);
   };
   // The invoice print. links: the payments linked to it (2.9), listed with the amount each one paid.
-  function invoicePage(inv, links = []) {
+  function invoicePage(inv, links = [], deds = []) {
     const bal = num(inv.balance);
-    return `${printHead("INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
+    const off = deds.reduce((t, m) => t + num(m.request_amount), 0), corrected = Math.max(0, num(inv.total_amount) - off);
+    // 3.14: a return or credit memo taken off this invoice: the invoice shows what was taken off and the corrected amount
+    const fix = deds.length ? box("Corrected Invoice", `<table class="ptl"><thead><tr><th>Taken Off By</th><th>Date</th><th>Type</th><th class="num">Amount (₱)</th></tr></thead><tbody>
+        <tr><td colspan="3"><b>Original Invoice Amount</b></td><td class="num"><b>${peso(inv.total_amount)}</b></td></tr>
+        ${deds.map((m) => `<tr><td>${esc(m.memo_no || "")}</td><td>${esc(mdy(m.approved_at || m.memo_date))}</td><td>${m.is_return ? "RETURN" : m.requested_action === "discount" ? "DISCOUNT" : "CREDIT MEMO"}</td><td class="num">− ${peso(m.request_amount)}</td></tr>`).join("")}
+        <tr><td colspan="3"><b>Corrected Invoice Amount</b></td><td class="num"><b>${peso(corrected)}</b></td></tr></tbody></table>
+        <div class="pcell"><div class="pl">Corrected Amount in Words</div><div class="pv words">${esc(words(corrected))}</div></div>`) : "";
+    return `${printHead(deds.length ? "INVOICE (CORRECTED)" : "INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
       ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}</div>`)}
       ${box("Invoice", `<div class="prow3">${cell("Invoice No", inv.invoice_no)}${cell("Invoice Date", mdy(inv.invoice_date))}${cell("Total Boxes", inv.total_boxes)}</div>
         <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Terms of Payment", inv.payment_terms || "—")}${cell("Due Date", mdy(inv.due_date) || "—")}</div>
         ${inv.po_number ? `<div class="pcell"><div class="pl">PO Number</div><div class="pv">${esc(inv.po_number)}</div></div>` : ""}
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
-      ${box("Payment", `<div class="pgrid2">${cell("Payment Status", ({ paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase()) + (bal < 0 ? " (OVERPAID)" : ""))}${cell("Total Amount (₱)", peso(inv.total_amount))}${num(inv.amount_returned) > 0 ? cell("Returned (₱)", peso(inv.amount_returned)) : ""}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(bal))}</div>
+      ${fix}
+      ${box("Payment", `<div class="pgrid2">${cell("Payment Status", ({ paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase()) + (isOverdue(inv) ? ` · OVERDUE ${daysOver(inv)} DAY(S)` : "") + (bal < 0 ? " (OVERPAID)" : ""))}${cell("Total Amount (₱)", peso(inv.total_amount))}${num(inv.amount_returned) > 0 ? cell("Returned (₱)", peso(inv.amount_returned)) : ""}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(bal))}</div>
         ${links.length ? `<table class="ptl"><thead><tr><th>Linked Payment (Receipt No)</th><th>Date Paid</th><th class="num">Amount Linked (₱)</th></tr></thead><tbody>
           ${links.map((l) => `<tr><td>${esc(l.payments_received?.receipt_no || "")}</td><td>${mdy(l.payments_received?.paid_date)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}</tbody></table>` : ""}`)}
       ${sigs("Received by (Customer Signature) / Date", `Prepared by: ${esc(inv.created_by_name || "")}`)}`;
@@ -1656,6 +1705,17 @@
     { label: "Defect", get: (r) => (r.is_return ? "Return" : DEFECT[r.defect_category] || "") }, { label: "Request", get: (r) => (r.is_return ? `Return · ${r.po_number || ""}` : ACTION[r.requested_action] || "") },
     { label: "Amount (₱)", key: "request_amount", num: true, get: (r) => peso(r.request_amount) }, { label: "Status", html: (r) => pill(r.status) }
   ];
+  // 3.13: the customer's Overdue, Returns and Credit Memo histories (screen and print); text: the status in words for the print
+  const memoState = (m) => (m.status === "pending" ? "WAITING FOR APPROVAL" : m.status === "rejected" ? "REJECTED" : m.status === "paid" ? "PAID" : "APPROVED");
+  const MEMO_STATUS_COL = { label: "Status", html: (r) => pill(r.status === "pending" ? "pending" : r.status === "rejected" ? "rejected" : "approved", memoState(r)), text: memoState };
+  const OD_HIST = [{ label: "Invoice No", get: (r) => r.invoice_no }, { label: "Invoice Date", get: (r) => mdy(r.invoice_date) }, { label: "Due Date", get: (r) => mdy(r.due_date) },
+    { label: "Days Overdue", num: true, get: (r) => String(daysOver(r)) }, { label: "Amount (₱)", num: true, get: (r) => peso(r.total_amount) }, { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) }];
+  const RET_HIST = [{ label: "Date", get: (r) => mdy(r.memo_date) }, { label: "Return No", get: (r) => r.memo_no }, { label: "Invoice No", get: (r) => r.po_number || "" },
+    { label: "Qty Box", num: true, get: (r) => String(retLines(r).reduce((t, l) => t + num(l.boxes), 0)) }, { label: "Total Amount (₱)", num: true, get: (r) => peso(r.request_amount) },
+    MEMO_STATUS_COL];
+  const CM_HIST = [{ label: "Date", get: (r) => mdy(r.memo_date) }, { label: "Report No", get: (r) => r.memo_no }, { label: "Request", get: (r) => ACTION[r.requested_action] || "" },
+    { label: "Invoice No", get: (r) => r.po_number || "" }, { label: "Amount (₱)", num: true, get: (r) => peso(r.request_amount) },
+    MEMO_STATUS_COL];
   V.creditmemos = async () => {
     E.shell("creditmemos", "Credit Memo", `${E.eoTabs("creditmemos")}
       <div class="btnrow">${E.canWrite("creditmemos") ? `<a class="btn primary" href="#newcreditmemo">+ New Credit Memo</a>` : ""}</div><div id="cmRes">${busy()}</div>`,
@@ -1688,10 +1748,11 @@
             </div>
             <div class="fields wide">
               <label for="cmBatch">Batch Number</label><input type="text" id="cmBatch">
-              <label for="cmSerial">Serial Number</label><input type="text" id="cmSerial">
               <label for="cmQty">Qty</label><input type="number" id="cmQty" min="0" step="1" value="0">
               <label for="cmPDate">Purchase Date</label><input type="date" id="cmPDate">
             </div></div></fieldset>
+          <fieldset class="opt"><legend>Serial No of Issue Boxes (up to ${SN_MAX})</legend>
+            <div class="sn-grid">${Array.from({ length: SN_MAX }, (_, i) => `<label><small>Box ${i + 1}</small><input type="text" class="cm-sn" maxlength="40" aria-label="Serial No of box ${i + 1}"></label>`).join("")}</div></fieldset>
           <fieldset class="opt"><legend>Defect Parameters &amp; Customer Request</legend><div class="formgrid">
             <div><b>Defect Category</b>${Object.entries(DEFECT).map(([k, v], i) => `<label class="rline"><input type="radio" name="cmDef" value="${k}" ${i ? "" : "checked"}> ${v}</label>`).join("")}
               <div class="fields wide"><label for="cmDefD">Details</label><input type="text" id="cmDefD" placeholder="e.g. DOMINANT 60% GREEN"></div></div>
@@ -1727,7 +1788,7 @@
       E.setBusy(e.target, true, "Submitting");
       const { data: m, error } = await sb.from("credit_memos").insert({
         customer_id: cust.id, memo_date: v("cmDate") || isoToday(), payment_ref: v("cmPay") || null, po_number: v("cmPo") || null,
-        article: v("cmArt") || null, brand: v("cmBrand") || null, style: v("cmStyle") || null, batch_no: v("cmBatch") || null, serial_no: v("cmSerial") || null,
+        article: v("cmArt") || null, brand: v("cmBrand") || null, style: v("cmStyle") || null, batch_no: v("cmBatch") || null, serial_no: $$(".cm-sn").map((x) => x.value.trim().replace(/,/g, " ")).filter(Boolean).join(", ") || null,
         qty: Math.max(0, Math.floor(num(v("cmQty")))), purchase_date: v("cmPDate") || null,
         defect_category: $("input[name=cmDef]:checked").value, defect_detail: v("cmDefD") || null,
         requested_action: $("input[name=cmAct]:checked").value, rate: num(v("cmRate")), request_amount: num(v("cmAmt")),
@@ -1823,24 +1884,26 @@
   }
   // A credit memo the Director approved is printed with the Director's signature on "Approval Signature".
   const memoApproved = (m) => ["approved", "paid"].includes(m.status) && !!(m.approved_by || m.approved_by_name);
+  // 3.18: the serial numbers of the issue boxes (up to SN_MAX) are kept in serial_no, separated by commas
+  const SN_MAX = 20;
+  const serialsOf = (m) => String(m.serial_no || "").split(/\s*,\s*/).filter(Boolean);
   function memoPage(m) {
     const c = m.customers;
     const sign = memoApproved(m) ? approvedBy(m.approved_by, m.approved_by_name, m.approved_at) : null;
-    return `<div class="cm-head"><div><div class="cm-co">${esc(C.company.name)}</div><div class="cm-date">${esc(mdy(m.memo_date))}</div></div>
-        <div class="cm-rep"><div><span>REPORT:</span> <b>${esc(m.memo_no)}</b></div><img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt=""></div></div>
-      <div class="ph-title" style="text-align:left">CUSTOMER COMPLAINT</div>
-      ${box("Customer / Buyer Information", `<div class="pgrid2">${cell("Customer Name", fullName(c).toUpperCase(), "hl")}${cell("Account No", c.account_no, "hl")}
-        ${cell("Payment Reference", m.payment_ref)}${cell("Purchase Order", m.po_number)}</div>`)}
-      ${box("Garment & Order Details", `<div class="pgrid4">${cell("Garment Description / Article", m.article, "span2 hl")}${cell("Brand", m.brand)}${cell("Style", m.style)}
-        ${cell("Batch Number", m.batch_no, "hl")}${cell("Serial Number", m.serial_no)}${cell("Qty", m.qty, "hl")}${cell("Purchase Date", mdy(m.purchase_date), "hl")}</div>`)}
-      ${box("Defect Parameters & Customer Request", `<div class="pgrid2"><div class="pcell"><div class="pl">Defect Category</div>
-          ${Object.entries(DEFECT).map(([k, v]) => radio(m.defect_category === k, k === m.defect_category && m.defect_detail ? `${v}: ${m.defect_detail}`.toUpperCase() : v)).join("")}</div>
-        <div class="pcell"><div class="pl">Requested Action</div>${Object.entries(ACTION).map(([k, v]) => radio(m.requested_action === k, k === "discount" && m.rate > 0 ? `${v} ${peso(m.rate)} PHP` : v)).join("")}</div></div>
-        ${cell("Requested Amount", (m.rate > 0 ? `${m.qty} × ${peso(m.rate)} = ` : "") + peso(m.request_amount) + " PHP", "hl")}`)}
-      ${box("Warehouse Verification (Internal Office Use) — " + C.company.name, `<div class="pgrid2">
-        <div>${cell("Assigned By", m.assigned_by)}${cell("Inspection Notes", m.inspection_notes)}</div>
-        <div class="pcell"><div class="pl">Status</div><div class="pv" style="white-space:pre-wrap;font-weight:bold">${esc((m.factory_status || "").toUpperCase())}</div>
-</div></div>`)}
+    const sns = serialsOf(m);
+    const tick = (on, label) => `<div class="cx-tick"><span class="qc-box${on ? " on" : ""}"></span>${esc(label)}</div>`;
+    const ticks = (map, key, text) => Object.entries(map).map(([k, v]) => tick(key === k, key === k ? text(k, v) : v)).join("");
+    return `${printHead("CREDIT MEMO", `<img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt="" class="ph-bar"><div class="mono">${esc(m.memo_no)}</div>`)}
+      ${cxTop([["Memo Date", mdy(m.memo_date)], ["Credit Memo No", m.memo_no], ["Purchase Date", mdy(m.purchase_date)]])}
+      ${cxSec("Customer")}${cxKv([["Customer Name", fullName(c).toUpperCase()], ["Account No", c.account_no], ["Purchase Order", m.po_number], ["Payment Reference", m.payment_ref]])}
+      ${cxSec("Goods")}${cxKv([["Article", m.article], ["Brand", m.brand], ["Style", m.style], ["Batch No", m.batch_no], ["Qty", m.qty]])}
+      ${sns.length ? `${cxSec("Issue Boxes · Serial No", `${sns.length} box${sns.length === 1 ? "" : "es"}`)}<div class="cx-sn">${Array.from({ length: Math.ceil(sns.length / 5) * 5 }, (_, i) => `<div><small>${i + 1}</small><b>${val(sns[i])}</b></div>`).join("")}</div>` : ""}
+      ${cxSec("Customer Complaint")}
+      <div class="cx-ticks"><div><small>Defect</small>${ticks(DEFECT, m.defect_category, (k, v) => (m.defect_detail ? `${v}: ${m.defect_detail}`.toUpperCase() : v))}</div>
+        <div><small>Customer Request</small>${ticks(ACTION, m.requested_action, (k, v) => (k === "discount" && m.rate > 0 ? `${v} ${peso(m.rate)} PHP` : v))}</div></div>
+      <div class="cx-amt"><div><small>Credit Amount (PHP)</small><b>${esc(peso(m.request_amount))}</b>${m.rate > 0 ? `<span>${esc(`${m.qty} × ${peso(m.rate)}`)}</span>` : ""}</div>
+        <div><small>Amount in Words</small><span class="words">${esc(words(m.request_amount))}</span></div></div>
+      ${cxSec("Warehouse Check", "Office use only")}${cxKv([["Assigned By", m.assigned_by], ["Status", (m.factory_status || "").toUpperCase()], ["Inspection Notes", m.inspection_notes, "wide"]])}
       ${sigs("Customer Signature &nbsp; Date: ____________", sign ? "Approval Signature" : "Approval Signature &nbsp; Date: ____________", sign)}`;
   }
 
@@ -2072,7 +2135,7 @@
   // shared with modules2.js and modules3.js
   Object.assign(E, {
     extOf, viewFile, latestSigned, uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, isImage,
-    docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, uuid, cleanQ, idBox, METHOD,
+    docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, cxTop, cxSec, cxKv, uuid, cleanQ, idBox, METHOD,
     loadSignatures, approvedBy, signaturePic, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm, editCustomer
   });
 })();

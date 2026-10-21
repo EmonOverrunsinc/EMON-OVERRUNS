@@ -55,6 +55,7 @@
     vouchers.forEach((v) => { const m = monthOf(v.cv_date); if (!byMonth.has(m)) byMonth.set(m, []); byMonth.get(m).push(v); });
     const monthRows = [...byMonth.keys()].sort().reverse().map((m) => ({ m, n: byMonth.get(m).length, total: sum(byMonth.get(m)) }));
     const qNow = tests.filter((t) => monthOf(E.isoDay(new Date(t.created_at))) === now), scored = qNow.filter((t) => t.score != null);
+    const passNow = scored.filter((t) => verdict(t.score) === "PASS").length;
     const avgScore = scored.length ? Math.round(scored.reduce((s, t) => s + t.score, 0) / scored.length) : null;
     const six = Array.from({ length: 6 }, (_, i) => prevMonth(now, 5 - i)).map((m) => ({ m, total: sum(byMonth.get(m) || []) }));
     const top = Math.max(1, ...six.map((x) => x.total));
@@ -62,7 +63,7 @@
     $("#eoBody").innerHTML = `
       <div class="eo-mini">
         <div class="tiles">
-          <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">QC Tests This Month</div><div class="v">${qNow.length}</div><small>${avgScore == null ? "No result yet" : `${scored.filter((t) => verdict(t.score) === "PASS").length} pass · ${scored.filter((t) => verdict(t.score) === "FAIL").length} fail · average ${avgScore} / 100`}</small></div>
+          <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">QC Tests This Month</div><div class="v">${qNow.length}</div><small>${avgScore == null ? "No result yet" : `${passNow} pass · ${scored.length - passNow} fail · average ${avgScore} / 100`}</small></div>
           <div class="tile"><span class="tile-ic">${ic("wallet")}</span><div class="k">Collection This Month (₱)</div><div class="v">${peso(sum(byMonth.get(now) || []))}</div><small>${(byMonth.get(now) || []).length} voucher(s)</small></div>
           <div class="tile"><span class="tile-ic">${ic("wallet")}</span><div class="k">Collection Last Month (₱)</div><div class="v">${peso(sum(byMonth.get(last) || []))}</div><small>${monthName(last)}</small></div>
         </div>
@@ -74,7 +75,7 @@
     const qcCols = [{ label: "QC No", get: (r) => r.qc_no }, { label: "Date", get: (r) => mdy(r.created_at) }, { label: "Serial No", get: (r) => r.serial_no || "" },
       { label: "Item", get: (r) => r.item || "" }, { label: "Brand", get: (r) => r.brand || "" }, { label: "Batch", get: (r) => r.batch || "" }, { label: "CTN", get: (r) => r.ctn || "" },
       { label: "Score", num: true, get: (r) => (r.score == null ? "—" : `${r.score} / 100`) },
-      { label: "Result", html: (r) => (r.score == null ? "" : pill(verdict(r.score) === "PASS" ? "approved" : "rejected", verdict(r.score))) }, { label: "Status", html: (r) => pill(r.status === "done" ? "approved" : "pending", r.status === "done" ? "TESTED" : "NOT TESTED YET") }];
+      { label: "Result", html: (r) => { const v = verdict(r.score); return v ? pill(v === "PASS" ? "approved" : "rejected", v) : ""; } }, { label: "Status", html: (r) => pill(r.status === "done" ? "approved" : "pending", r.status === "done" ? "TESTED" : "NOT TESTED YET") }];
     const cvCols = [{ label: "Voucher No", get: (r) => r.cv_no }, { label: "Date", get: (r) => mdy(r.cv_date) }, { label: "Received From", get: (r) => r.received_from },
       { label: "Method", get: (r) => METHODS[r.method] || r.method }, { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) },
       { label: "Receipt", html: (r) => (r.receipt_path ? pill("approved", "ON FILE") : pill("pending", "NO RECEIPT")) }, { label: "Made By", get: (r) => r.created_by_name || "" }];
@@ -89,10 +90,14 @@
           <div id="qcGrid"></div>`;
         // a barcode (typed by a scanner, or the QC number) opens that QC test at once; any other words filter the list
         const norm = (q) => { const m = /EMONQCK?\|\s*(QC-\d{4}-\d+)/i.exec(q); return (m ? m[1] : q).trim().toLowerCase(); };
-        let shown = tests;
+        // the words of each test, made once (the list is filtered on every key)
+        const hay = tests.map((r) => [r.qc_no, r.serial_no, r.item, r.brand, r.batch, r.ctn].map((x) => String(x || "").toLowerCase()));
+        let shown = tests, lastW = null;
         const paint = () => {
           const w = norm($("#qcFind").value);
-          shown = w ? tests.filter((r) => [r.qc_no, r.serial_no, r.item, r.brand, r.batch, r.ctn].some((x) => String(x || "").toLowerCase().includes(w))) : tests;
+          if (w === lastW) return;
+          lastW = w;
+          shown = w ? tests.filter((r, i) => hay[i].some((x) => x.includes(w))) : tests;
           $("#qcGrid").innerHTML = E.grid({ cols: qcCols, rows: shown, onRow: true, empty: w ? "No QC test matches that." : "No QC tests yet." });
           E.bindGrid($("#qcGrid"), shown, (r) => (location.hash = "qc/" + r.id));
         };
@@ -173,23 +178,27 @@
     <div class="qc-card-code"><img src="${E.pdf417DataUrl("EMONQC|" + t.qc_no)}" alt="" class="ph-bar"><div class="mono">${esc(t.qc_no)}</div></div>
     <div class="qc-card-row"><span>Checked Date</span><b>${res ? esc(mdy(res.when)) : ""}</b></div>
     <div class="qc-card-row"><span>Qty Found</span><b>${res ? res.qty : ""}</b></div>
-    <div class="qc-card-row"><span>Result</span><b class="qc-res">${res ? `${res.score} / 100` : ""}</b><b class="qc-verdict${res?.verdict === "FAIL" ? " fail" : ""}">${res ? res.verdict : ""}</b></div>
+    <div class="qc-card-row"><span>Result</span><b class="qc-res">${res ? `Pass ${res.pass} · Fail ${res.fail}` : ""}</b><b class="qc-verdict${res?.verdict === "FAIL" ? " fail" : ""}">${res ? res.verdict : ""}</b></div>
     <div class="qc-card-row"><span>Check By</span><b>${res ? esc(res.by) : ""}</b></div></div>`;
   // The QC form on paper: blank to write on (the form made when the QC test is created), or with the result.
   function qcPage(t, r = null) {
     const T = r ? tally(t, r) : null, res = resultOf(t, r);
     const right = `<img src="${E.pdf417DataUrl("EMONQC|" + t.qc_no)}" alt="" class="ph-bar"><div class="mono">${esc(t.qc_no)}</div>`;
     const rows = CHECKS.map(([k, label], i) => { const c = r ? choiceOf(t, r, k) : "";
-      return `<tr><td>${i + 1}</td><td><b>${esc(label)}</b>${k === "mending" ? " PCS" : ""}</td>
-        <td class="qc-failc"><span class="qc-line">${c === "fail" ? esc(String(numOf(r, k))) : ""}</span> ${boxTick(c === "fail")}</td><td class="qc-tickc">${boxTick(c === "pass")}</td></tr>`; }).join("");
+      return `<tr><td class="qx-n">${i + 1}</td><td class="qx-c">${esc(label)}${k === "mending" ? " ___ PCS" : ""}</td>
+        <td class="qx-b">${boxTick(c === "pass")}</td><td class="qx-b">${boxTick(c === "fail")}</td><td class="qx-q"><span class="qc-line">${c === "fail" ? esc(String(numOf(r, k))) : ""}</span></td></tr>`; }).join("");
+    const sum = (k, v) => `<div class="qx-sum"><small>${esc(k)}</small><b>${v ? esc(v) : "&nbsp;"}</b></div>`;
+    // 3.17: certificate style: date · QC no · checks across the top, the goods as "Label : value" lines, the 10 checks with PASS / FAIL / QTY FOUND, the result strip and the signature lines
     return `${E.printHead("QC TEST", right)}
-      ${E.box("Goods", `<div class="pgrid2">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item || "")}
-        ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}</div>`)}
-      ${E.box("Quality Check — tick Pass or Fail for each check; for a Fail write the Qty Found (pieces)", `<table class="ptl qc-ptl"><thead><tr><th>#</th><th>Check</th><th class="qc-failc">Fail · Qty Found</th><th class="qc-tickc">Pass</th></tr></thead><tbody>${rows}</tbody></table>`)}
-      ${E.box("Result", `<div class="pgrid2">${E.cell("Pass", T && !T.open ? String(T.pass) : "")}${E.cell("Fail", T && !T.open ? String(T.fail) : "")}
-        ${E.cell("Qty Found (total pieces of the Fails)", res ? String(res.qty) : "")}${E.cell("QC Test Result (Total Score)", res ? `${res.score} / 100` : "          / 100", "hl")}
-        ${E.cell("Result", res ? res.verdict : "")}${E.cell("Checked By", res ? res.by : "")}${E.cell("Checked Date", res ? mdy(res.when) : "")}</div>
-        <div class="qc-need">Requirement to pass the QC test: a total score of ${PASS_MARK} or more.</div>`)}`;
+      ${E.cxTop([["Date", mdy(t.created_at)], ["QC No", t.qc_no], ["Checks", "10"]])}
+      ${E.cxSec("Goods")}${E.cxKv([["Item", t.item || ""], ["Brand", t.brand || ""], ["Serial No", t.serial_no || ""], ["Batch", t.batch || ""], ["CTN", t.ctn || ""]])}
+      <div class="qx-h">QUALITY CHECK <small>Tick PASS or FAIL for each check. For a FAIL write the Qty Found (pieces).</small></div>
+      <table class="qx-t"><thead><tr><th class="qx-n">#</th><th class="qx-c">Check</th><th class="qx-b">Pass</th><th class="qx-b">Fail</th><th class="qx-q">Qty Found</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="qx-h">RESULT</div>
+      <div class="qx-res">${sum("Total Pass", T && !T.open ? String(T.pass) : "")}${sum("Total Fail", T && !T.open ? String(T.fail) : "")}${sum("Qty Found", res ? String(res.qty) : "")}
+        <div class="qx-sum qx-verdict"><small>QC Result</small><span>${boxTick(res?.verdict === "PASS")} PASS</span><span>${boxTick(res?.verdict === "FAIL")} FAIL</span></div></div>
+      <p class="qx-need">To PASS the QC test the score must be ${PASS_MARK} or more. Each FAIL takes 10 points off.</p>
+      <div class="qx-sign"><div><b>${res ? esc(res.by) : "&nbsp;"}</b><span>Checked By · Signature over Printed Name</span></div><div><b>${res ? esc(mdy(res.when)) : "&nbsp;"}</b><span>Checked Date</span></div></div>`;
   }
   // The 2 stickers on plain paper: nothing else on the page (no heading, no footer, no date).
   const stickerPage = (t, res) => `<div class="qc-cards qc-sticker">${qcCard(t, res)}${qcCard(t, res)}</div>`;
