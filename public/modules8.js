@@ -9,7 +9,7 @@
 (() => {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, isStaff, toast, fail, ic, num, fullName, verifyUrl } = E;
+  const { sb, S, C, esc, peso, isoToday, isoDay, mdy, $, $$, isAdmin, isStaff, toast, fail, ic, num, fullName, verifyUrl } = E;
   const V = window.EO_VIEWS;
 
   // What the records say today: cleared or not, and why not.
@@ -53,12 +53,36 @@
     const g = gateCheck(c, ctx), today = g.today;
     const invs = [...(ctx.invs || [])].sort((x, y) => String(x.invoice_date).localeCompare(String(y.invoice_date)) || String(x.invoice_no).localeCompare(String(y.invoice_no)));
     const pays = [...(ctx.pays || [])].sort((x, y) => String(x.paid_date).localeCompare(String(y.paid_date)));
-    // when each invoice was fully paid: payments pay the oldest invoices first (as the account does)
-    const q = pays.map((p) => ({ d: p.paid_date, left: num(p.amount) }));
+    // when each invoice was fully paid, in the account's order (invoice_balances): a payment linked to an invoice pays that
+    // invoice; the rest of the money (unlinked payments, what a link leaves over, credits not on an invoice, reduce
+    // adjustments) pays the opening balance first and then the oldest invoices
+    const mine = new Set(invs.map((i) => i.id)), direct = {}, q = [];
+    for (const p of pays) {
+      let left = num(p.amount);
+      for (const l of p.payment_links || []) if (!l.removed_at && mine.has(l.invoice_id)) { (direct[l.invoice_id] ||= []).push({ d: p.paid_date, amt: num(l.amount) }); left -= num(l.amount); }
+      if (left > 0.004) q.push({ d: p.paid_date, left });
+    }
+    for (const m of ctx.memos || []) if (["approved", "paid"].includes(m.status) && (m.off_balance ?? ["credit", "discount"].includes(m.requested_action)) && !mine.has(m.invoice_id) && m.approved_at) q.push({ d: isoDay(new Date(m.approved_at)), left: num(m.request_amount) });
+    for (const o of ctx.orders || []) if (o.status === "applied" && o.subject_type === "settlement" && o.adjust_type === "reduce" && o.applied_at) q.push({ d: isoDay(new Date(o.applied_at)), left: num(o.amount) });
     let qi = 0;
-    const rows = invs.map((i) => {
+    const pay = (need, last) => {
+      while (need > 0.004 && qi < q.length) { const take = Math.min(need, q[qi].left); if (take > 0) { need -= take; q[qi].left -= take; if (!last || q[qi].d > last) last = q[qi].d; } if (q[qi].left <= 0.004) qi++; }
+      return [need, last];
+    };
+    // linked payments first (what a link leaves over joins the rest), then the opening balance, then the oldest invoices
+    const start = invs.map((i) => {
       let need = num(i.total_amount) - num(i.amount_returned), last = null;
-      while (need > 0.004 && qi < q.length) { const take = Math.min(need, q[qi].left); need -= take; q[qi].left -= take; last = q[qi].d; if (q[qi].left <= 0.004) qi++; }
+      for (const x of direct[i.id] || []) {
+        const take = Math.max(0, Math.min(need, x.amt)); if (take > 0) { need -= take; if (!last || x.d > last) last = x.d; }
+        if (x.amt - take > 0.004) q.push({ d: x.d, left: x.amt - take });
+      }
+      return [need, last];
+    });
+    q.sort((x, y) => String(x.d).localeCompare(String(y.d)));
+    pay(Math.max(0, num(c.opening_balance)), null);
+    const rows = invs.map((i, k) => {
+      let [need, last] = start[k];
+      [need, last] = pay(need, last);
       // paid or not comes from the server (invoice_balances); the payments only date it
       const paidOn = i.pay_status === "paid" ? (need <= 0.004 ? last || i.invoice_date : pays.length ? pays[pays.length - 1].paid_date : i.invoice_date) : null;
       return { i, paidOn, days: paidOn ? Math.max(0, dayDiff(i.invoice_date, paidOn)) : null, late: paidOn && i.due_date && paidOn > i.due_date ? dayDiff(i.due_date, paidOn) : 0 };

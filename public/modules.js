@@ -518,7 +518,7 @@
     const [cust, bal, inv, pay, month, activeN] = await Promise.all([
       sb.from("customers").select("id,first_name,last_name,account_no,application_no,status,application_date,business_name").in("status", ["pending", "verified"]).order("created_at", { ascending: false }).limit(50),
       sb.from("customer_balances").select("balance_due"),
-      sb.from("invoice_balances").select("id,invoice_no,first_name,last_name,balance,pay_status").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(8),
+      sb.from("invoice_balances").select("id,invoice_no,first_name,last_name,balance,pay_status,due_date").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(8),
       sb.from("payments_received").select("id,receipt_no,amount,paid_date,customers(first_name,last_name)").order("created_at", { ascending: false }).limit(8),
       sb.from("payments_received").select("amount").gte("paid_date", ym + "-01").lt("paid_date", nextMonth(ym)),
       sb.from("customers").select("id", { count: "exact", head: true }).eq("status", "active")
@@ -845,7 +845,7 @@
       attachmentsOf("customer", id),
       sb.from("customer_balances").select("*").eq("customer_id", id).maybeSingle(),
       sb.from("invoice_balances").select("*").eq("customer_id", id).order("invoice_date", { ascending: false }),
-      sb.from("payments_received").select("*").eq("customer_id", id).order("paid_date", { ascending: false }),
+      sb.from("payments_received").select("*, payment_links(invoice_id, amount, removed_at)").eq("customer_id", id).order("paid_date", { ascending: false }),
       sb.from("credit_memos").select("*").eq("customer_id", id).order("memo_date", { ascending: false }),
       sb.from("customer_events").select("*").eq("customer_id", id).order("created_at"),
       isAdmin() ? sb.from("customer_secrets").select("private_code").eq("customer_id", id).maybeSingle() : Promise.resolve({ data: null }),
@@ -966,7 +966,7 @@
     $$("[data-hprint]").forEach((b) => (b.onclick = () => {
       const k = b.dataset.hprint, set = { od: ["Overdue Invoices", OD_HIST, overdue], rt: ["Return History", RET_HIST, rets], cm: ["Credit Memo History", CM_HIST, cms] }[k];
       const total = k === "od" ? set[2].reduce((t, r) => t + num(r.balance), 0) : set[2].reduce((t, r) => t + num(r.request_amount), 0);
-      E.openPreview(`${set[0]} ${c.account_no || ""}`, E.listingPages({ title: set[0], range: `${fullName(c)} · Account No ${c.account_no || ""} · as of ${mdy(isoToday())}`, logo: true,
+      E.openPreview(`${set[0]} ${c.account_no || ""}`, E.listingPages({ title: set[0], range: `${esc(fullName(c))} · Account No ${esc(c.account_no || "")} · as of ${mdy(isoToday())}`, logo: true,
         cols: set[1].filter((x) => !x.html).concat(set[1].filter((x) => x.html).map((x) => ({ label: x.label, get: x.text }))), rows: set[2],
         summary: { title: "Summary", cols: ["", "Count", k === "od" ? "Balance Overdue (₱)" : "Total Amount (₱)"], rows: [], total: ["Total:", String(set[2].length), peso(total)] },
         criteria: `Customer: ${fullName(c)} (${c.account_no || ""})` }));
