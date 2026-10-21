@@ -2134,3 +2134,17 @@ input.wz-bad, select.wz-bad, textarea.wz-bad { outline: 2px solid #c41e3a; backg
 /* 3.9.1: the Qty Found box of a Fail */
 .qc-row.pf { grid-template-columns: 28px 1fr auto 96px; }
 .qc-row.pf .qc-num { width: 96px; font-size: 14px; }
+/* 3.10: the customer's Request menu and the requests waiting for the Director */
+.rq-list { display: grid; gap: 8px; }
+.rq-opt { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 12px 14px; border: 1px solid #d6d6dc; border-radius: 14px; background: #fff; text-align: left; font: inherit; cursor: pointer; }
+.rq-opt:hover:not(:disabled), .rq-opt:focus-visible { border-color: #0071e3; box-shadow: 0 2px 10px rgba(0,113,227,.15); }
+.rq-opt:disabled { opacity: .55; cursor: not-allowed; }
+.rq-opt > svg { flex: none; width: 24px; height: 24px; margin-top: 2px; color: #0071e3; }
+.rq-opt b { display: block; font-size: 15px; }
+.rq-opt small { display: block; margin-top: 2px; color: var(--ink-soft); font-size: 12.5px; line-height: 1.35; }
+.rq-wait { display: grid; gap: 8px; margin: 0 0 12px; }
+.rq-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border-radius: 14px; background: #fff7e3; border: 1px solid #f0cf86; }
+.rq-item > span svg { width: 22px; height: 22px; color: #8a5a00; }
+.rq-item > div { flex: 1 1 260px; min-width: 0; }
+.rq-item b { display: block; color: #6b4500; }
+.rq-item small { display: block; color: #5c4400; }
