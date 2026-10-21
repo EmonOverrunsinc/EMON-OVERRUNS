@@ -45,6 +45,8 @@
   // prints (cleared by the Director); rejected = HOLD FOR DELIVERY, with the Director's note. Every request is kept.
   // ----------------------------------------------------------------------
   const GATE = "Gate Pass Clearance";
+  // the trusted-customer rule (3.16): every line must be met
+  const TRUST = { months: 6, activeMonths: 3, paidInvoices: 5, lastPayDays: 45, overdueDays: 30, limitPct: 150 };
   const isGate = (o) => o.subject_type === "other" && String(o.subject || "").startsWith(GATE);
   const dayDiff = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
   function analyse(c, ctx) {
@@ -78,7 +80,23 @@
     if (!late.length && paid.length) notes.push(`Every invoice was paid on or before its due date (${paid.length} paid).`);
     if (sinceLast > 60) notes.push(`No payment for ${sinceLast} days (last payment ${mdy(lastPay)}).`);
     if (retApproved > 0) notes.push(`Returns approved: ₱ ${peso(retApproved)}.`);
-    return { ...g, invs, pays, rows, paid, late, avgDays, onTime, gaps, avgGap, lastPay, sinceLast, cms, rets, cmApproved, retApproved, overdueNow, rating, notes,
+    // 3.16: a trusted customer (old, buys regularly, keeps paying) is cleared by itself even with a recent overdue or over the
+    // credit limit; a new account never is (it goes to the Director)
+    const since = [c.application_date, invs[0]?.invoice_date].filter(Boolean).sort()[0] || today;
+    const months = Math.floor(dayDiff(since, today) / 30.4);
+    const recentMonths = new Set(invs.filter((i) => dayDiff(i.invoice_date, today) <= 183).map((i) => String(i.invoice_date).slice(0, 7))).size;
+    const oldestOver = overdueNow.reduce((m, x) => Math.max(m, x.days), 0);
+    const trust = [
+      [`Business with us for ${TRUST.months} months or more`, months >= TRUST.months, `since ${mdy(since)} (${months} month${months === 1 ? "" : "s"})`],
+      [`Buys regularly (invoices in ${TRUST.activeMonths} of the last 6 months)`, recentMonths >= TRUST.activeMonths, `${recentMonths} of 6 months`],
+      [`At least ${TRUST.paidInvoices} invoices paid`, paid.length >= TRUST.paidInvoices, `${paid.length} paid`],
+      [`Paid in the last ${TRUST.lastPayDays} days`, sinceLast != null && sinceLast <= TRUST.lastPayDays, lastPay ? `last payment ${mdy(lastPay)}` : "no payment yet"],
+      [`Overdue not older than ${TRUST.overdueDays} days`, oldestOver <= TRUST.overdueDays, overdueNow.length ? `oldest ${oldestOver} days` : "nothing overdue"],
+      [`Balance not above ${TRUST.limitPct}% of the credit limit`, g.limit == null || g.bal <= (g.limit * TRUST.limitPct) / 100 + 0.004, g.limit == null ? "no limit set" : `balance ₱ ${peso(g.bal)} · limit ₱ ${peso(g.limit)}`]
+    ].map(([label, ok, why]) => ({ label, ok, why }));
+    const trusted = c.status === "active" && trust.every((x) => x.ok);
+    return { ...g, ok: g.ok || trusted, byTrust: !g.ok && trusted, trust, trusted, since, months,
+      invs, pays, rows, paid, late, avgDays, onTime, gaps, avgGap, lastPay, sinceLast, cms, rets, cmApproved, retApproved, overdueNow, rating, notes,
       invoiced: invs.reduce((t, i) => t + num(i.total_amount), 0), paidTotal: pays.reduce((t, p) => t + num(p.amount), 0) };
   }
   const tile = (k, v, small = "") => `<div class="ga-tile"><small>${esc(k)}</small><b>${v}</b>${small ? `<span>${small}</span>` : ""}</div>`;
@@ -91,6 +109,8 @@
         ${tile("Average Gap Between Payments", daysTxt(a.avgGap))}${tile("Last Payment", a.lastPay ? esc(mdy(a.lastPay)) : "—", a.lastPay ? `${a.sinceLast} days ago` : "")}
         ${tile("Balance Due", `₱ ${peso(a.bal)}`, a.limit != null ? `limit ₱ ${peso(a.limit)}` : "no credit limit")}
         ${tile("Credit Memos", String(a.cms.length), `₱ ${peso(a.cmApproved)} approved`)}${tile("Returns", String(a.rets.length), `₱ ${peso(a.retApproved)} approved`)}</div>
+      <div class="ga-h">Trusted Customer Check ${a.trusted ? `<span class="pill approved">TRUSTED CUSTOMER</span>` : `<span class="pill pending">NOT YET</span>`}</div>
+      <ul class="ga-trust">${a.trust.map((t) => `<li class="${t.ok ? "ok" : "no"}"><b>${t.ok ? "✔" : "✖"}</b> ${esc(t.label)} <small>${esc(t.why)}</small></li>`).join("")}</ul>
       ${a.notes.length ? `<ul class="ga-notes">${a.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
       ${a.overdueNow.length ? `<div class="ga-h">Overdue Invoices</div><table class="ga-t"><thead><tr><th>Invoice No</th><th>Due Date</th><th class="num">Days Overdue</th><th class="num">Balance (₱)</th></tr></thead><tbody>
         ${a.overdueNow.map((x) => `<tr><td>${esc(x.i.invoice_no)}</td><td>${esc(mdy(x.i.due_date))}</td><td class="num">${x.days}</td><td class="num">${peso(x.i.balance)}</td></tr>`).join("")}</tbody></table>` : ""}
@@ -104,10 +124,10 @@
   function gatePage(c, no, a, approved = null) {
     return `${E.printHead("GATE PASS CLEARANCE FOR DELIVERY", codes(c, no))}
       <div class="cert-no"><span>Gate Pass No: <b>${esc(no)}</b></span><span>Date Issued: <b>${esc(E.dateTime(new Date().toISOString()))}</b></span></div>
-      <div class="dc-head gp-clear"><b>CLEARED FOR DELIVERY</b><small>${approved ? `Cleared by the Director's approval of request ${esc(approved.order_no)}${approved.review_note ? ": " + esc(approved.review_note) : "."}` : "This account is open, within its credit limit and has no overdue invoice."}</small></div>
+      <div class="dc-head gp-clear"><b>CLEARED FOR DELIVERY</b><small>${approved ? `Cleared by the Director's approval of request ${esc(approved.order_no)}${approved.review_note ? ": " + esc(approved.review_note) : "."}` : a.byTrust ? `Cleared as a trusted customer: business since ${esc(mdy(a.since))}, buys regularly and keeps paying.` : "This account is open, within its credit limit and has no overdue invoice."}</small></div>
       <p class="cert-to">TO WHOM IT MAY CONCERN:</p>
       <p class="cert-body">This is to certify that the account of <b>${esc(fullName(c).toUpperCase())}</b>, Account No <b class="nw">${esc(c.account_no || "")}</b>, was checked by ${esc(C.company.name)}
-        on <span class="nw">${esc(mdy(a.today))}</span>${approved ? " and the delivery was approved by the Director" : `. The account is <b>ACTIVE</b>, ${a.limit != null ? "within its credit limit, " : ""}and every invoice is paid on or before its due date`}.
+        on <span class="nw">${esc(mdy(a.today))}</span>${approved ? " and the delivery was approved by the Director" : a.byTrust ? ". The account is <b>ACTIVE</b> and is cleared as a <b>TRUSTED CUSTOMER</b> (an old account that buys regularly and keeps paying)" : `. The account is <b>ACTIVE</b>, ${a.limit != null ? "within its credit limit, " : ""}and every invoice is paid on or before its due date`}.
         This gate pass clears the delivery of goods to this account on <span class="nw">${esc(mdy(a.today))}</span> only.</p>
       <div class="ol-sec">ACCOUNT</div>
       <table class="ol-grid"><tbody>${tr2("Name of Customer", esc(fullName(c)))}${tr2("Account No", esc(c.account_no || "—"))}${c.business_name ? tr2("Business Name", esc(c.business_name)) : ""}
@@ -116,7 +136,8 @@
       <div class="ol-sec">PAYMENT RECORD</div>
       <table class="ol-grid"><tbody>${tr2("Rating", esc(a.rating))}${tr2("Invoices / Paid", `${a.invs.length} / ${a.paid.length}`)}${tr2("Average Days to Pay", a.avgDays == null ? "—" : `${a.avgDays} days`)}
         ${tr2("Paid on Time", a.onTime == null ? "—" : `${a.onTime}%${a.late.length ? ` (${a.late.length} late)` : ""}`)}${tr2("Average Gap Between Payments", a.avgGap == null ? "—" : `${a.avgGap} days`)}
-        ${tr2("Last Payment", a.lastPay ? esc(mdy(a.lastPay)) : "—")}</tbody></table>
+        ${tr2("Last Payment", a.lastPay ? esc(mdy(a.lastPay)) : "—")}${tr2("Business With Us Since", `${esc(mdy(a.since))} (${a.months} months)`)}
+        ${a.byTrust ? tr2("Cleared As", "<b>TRUSTED CUSTOMER</b>") : ""}</tbody></table>
       <p class="pdecl">A new gate pass is issued for each delivery day. The warehouse releases the goods only against a gate pass of the day of delivery.</p>
       ${issuerBlock()}
       <div class="rp-foot"><span>Scan the QR code to check this account online.</span><span>${esc(no)}</span></div>`;
@@ -124,7 +145,7 @@
   async function issueGate(c, a, approved = null) {
     await E.loadSignatures().catch(() => {});
     const no = stampNo(c);
-    issueDoc(c, "Gate Pass", no, gatePage(c, no, a, approved), approved ? `Cleared by the Director (${approved.order_no})` : `Cleared for delivery · balance PHP ${peso(a.bal)}`);
+    issueDoc(c, "Gate Pass", no, gatePage(c, no, a, approved), approved ? `Cleared by the Director (${approved.order_no})` : `${a.byTrust ? "Cleared as a trusted customer" : "Cleared for delivery"} · balance PHP ${peso(a.bal)}`);
   }
 
   async function gatePass(c, ctx) {
@@ -146,7 +167,7 @@
     $("#gaRun", m.el).hidden = true;
     const out = $("#gaOut", m.el); out.hidden = false;
     out.innerHTML = `<div class="gp-verdict ${a.ok ? "ok" : "no"}"><span>${ic(a.ok ? "check" : "x")}</span><div><b>${a.ok ? "CLEARED FOR DELIVERY" : "NOT CLEARED FOR DELIVERY"}</b>
-        <small>${a.ok ? "The account is open, within its credit limit and has no overdue invoice." : "Why the gate pass is not issued:"}</small></div></div>
+        <small>${a.byTrust ? "Cleared as a TRUSTED CUSTOMER (old, buys regularly, keeps paying). Open items allowed:" : a.ok ? "The account is open, within its credit limit and has no overdue invoice." : "Why the gate pass is not issued:"}</small></div></div>
       ${a.reasons.length ? `<ul class="gp-why">${a.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
       ${analysisHtml(a)}
       ${!a.ok ? (wait ? `<div class="rq-item"><span>${ic("clock")}</span><div><b>Request for Clearance · ${esc(wait.order_no)}</b><small>Sent by ${esc(wait.created_by_name || "")} · waiting for the Director</small></div></div>`
