@@ -456,13 +456,17 @@
   }
   const box = (title, inner) => `<div class="pbox"><div class="pbox-h">${esc(title)}</div>${inner}</div>`;
   const cell = (label, value, cls = "") => `<div class="pcell ${cls}"><div class="pl">${esc(label)}</div><div class="pv">${value === "" || value == null ? "&nbsp;" : esc(value)}</div></div>`;
-  const radio = (on, label) => `<div class="pradio"><span class="dot ${on ? "on" : ""}"></span>${esc(label)}</div>`;
   // Two signature lines. sign (approvedBy): the Director approved the document, so the Director's signature picture stands
   // on the right line, with the name and the date under it.
   const sigCol = (label, sign) => sign
     ? `<div class="sig-on">${sign.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="line"></div>${label}${sign.name ? `: <b class="nw">${esc(sign.name)}</b>` : ""}${sign.at ? ` &nbsp;·&nbsp; <span class="nw">${esc(mdy(sign.at))}</span>` : ""}</div>`
     : `<div><div class="line"></div>${label}</div>`;
   const sigs = (left, right, sign = null) => `<div class="psig">${sigCol(left)}${sigCol(right, sign)}</div>`;
+  // 3.17 certificate style: a top row (left · centre number · right), a thin section title and "Label : value" lines
+  const val = (v) => (v === "" || v == null ? "&nbsp;" : esc(v));
+  const cxTop = (items) => `<div class="cx-top">${items.map(([k, v]) => `<div><small>${esc(k)}</small><b>${val(v)}</b></div>`).join("")}</div>`;
+  const cxSec = (title, note = "") => `<div class="cx-sec">${esc(title)}${note ? `<small>${esc(note)}</small>` : ""}</div>`;
+  const cxKv = (pairs) => `<div class="cx-kv">${pairs.map(([k, v, cls = ""]) => `<div class="cx-r ${cls}"><span>${esc(k)}</span><i>:</i><b>${val(v)}</b></div>`).join("")}</div>`;
 
   // ======================================================================
   // Dashboard
@@ -1880,21 +1884,18 @@
   function memoPage(m) {
     const c = m.customers;
     const sign = memoApproved(m) ? approvedBy(m.approved_by, m.approved_by_name, m.approved_at) : null;
-    return `<div class="cm-head"><div><div class="cm-co">${esc(C.company.name)}</div><div class="cm-date">${esc(mdy(m.memo_date))}</div></div>
-        <div class="cm-rep"><div><span>REPORT:</span> <b>${esc(m.memo_no)}</b></div><img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt=""></div></div>
-      <div class="ph-title" style="text-align:left">CUSTOMER COMPLAINT</div>
-      ${box("Customer / Buyer Information", `<div class="pgrid2">${cell("Customer Name", fullName(c).toUpperCase(), "hl")}${cell("Account No", c.account_no, "hl")}
-        ${cell("Payment Reference", m.payment_ref)}${cell("Purchase Order", m.po_number)}</div>`)}
-      ${box("Garment & Order Details", `<div class="pgrid4">${cell("Garment Description / Article", m.article, "span2 hl")}${cell("Brand", m.brand)}${cell("Style", m.style)}
-        ${cell("Batch Number", m.batch_no, "hl")}${cell("Serial Number", m.serial_no)}${cell("Qty", m.qty, "hl")}${cell("Purchase Date", mdy(m.purchase_date), "hl")}</div>`)}
-      ${box("Defect Parameters & Customer Request", `<div class="pgrid2"><div class="pcell"><div class="pl">Defect Category</div>
-          ${Object.entries(DEFECT).map(([k, v]) => radio(m.defect_category === k, k === m.defect_category && m.defect_detail ? `${v}: ${m.defect_detail}`.toUpperCase() : v)).join("")}</div>
-        <div class="pcell"><div class="pl">Requested Action</div>${Object.entries(ACTION).map(([k, v]) => radio(m.requested_action === k, k === "discount" && m.rate > 0 ? `${v} ${peso(m.rate)} PHP` : v)).join("")}</div></div>
-        ${cell("Requested Amount", (m.rate > 0 ? `${m.qty} × ${peso(m.rate)} = ` : "") + peso(m.request_amount) + " PHP", "hl")}`)}
-      ${box("Warehouse Verification (Internal Office Use) — " + C.company.name, `<div class="pgrid2">
-        <div>${cell("Assigned By", m.assigned_by)}${cell("Inspection Notes", m.inspection_notes)}</div>
-        <div class="pcell"><div class="pl">Status</div><div class="pv" style="white-space:pre-wrap;font-weight:bold">${esc((m.factory_status || "").toUpperCase())}</div>
-</div></div>`)}
+    const tick = (on, label) => `<div class="cx-tick"><span class="qc-box${on ? " on" : ""}"></span>${esc(label)}</div>`;
+    const ticks = (map, key, text) => Object.entries(map).map(([k, v]) => tick(key === k, key === k ? text(k, v) : v)).join("");
+    return `${printHead("CREDIT MEMO", `<img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt="" class="ph-bar"><div class="mono">${esc(m.memo_no)}</div>`)}
+      ${cxTop([["Memo Date", mdy(m.memo_date)], ["Credit Memo No", m.memo_no], ["Purchase Date", mdy(m.purchase_date)]])}
+      ${cxSec("Customer")}${cxKv([["Customer Name", fullName(c).toUpperCase()], ["Account No", c.account_no], ["Purchase Order", m.po_number], ["Payment Reference", m.payment_ref]])}
+      ${cxSec("Goods")}${cxKv([["Article", m.article], ["Brand", m.brand], ["Style", m.style], ["Batch No", m.batch_no], ["Serial No", m.serial_no], ["Qty", m.qty]])}
+      ${cxSec("Customer Complaint")}
+      <div class="cx-ticks"><div><small>Defect</small>${ticks(DEFECT, m.defect_category, (k, v) => (m.defect_detail ? `${v}: ${m.defect_detail}`.toUpperCase() : v))}</div>
+        <div><small>Customer Request</small>${ticks(ACTION, m.requested_action, (k, v) => (k === "discount" && m.rate > 0 ? `${v} ${peso(m.rate)} PHP` : v))}</div></div>
+      <div class="cx-amt"><div><small>Credit Amount (PHP)</small><b>${esc(peso(m.request_amount))}</b>${m.rate > 0 ? `<span>${esc(`${m.qty} × ${peso(m.rate)}`)}</span>` : ""}</div>
+        <div><small>Amount in Words</small><span class="words">${esc(words(m.request_amount))}</span></div></div>
+      ${cxSec("Warehouse Check", "Office use only")}${cxKv([["Assigned By", m.assigned_by], ["Status", (m.factory_status || "").toUpperCase()], ["Inspection Notes", m.inspection_notes, "wide"]])}
       ${sigs("Customer Signature &nbsp; Date: ____________", sign ? "Approval Signature" : "Approval Signature &nbsp; Date: ____________", sign)}`;
   }
 
@@ -2126,7 +2127,7 @@
   // shared with modules2.js and modules3.js
   Object.assign(E, {
     extOf, viewFile, latestSigned, uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, isImage,
-    docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, uuid, cleanQ, idBox, METHOD,
+    docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, cxTop, cxSec, cxKv, uuid, cleanQ, idBox, METHOD,
     loadSignatures, approvedBy, signaturePic, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm, editCustomer
   });
 })();

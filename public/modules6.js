@@ -178,23 +178,27 @@
     <div class="qc-card-code"><img src="${E.pdf417DataUrl("EMONQC|" + t.qc_no)}" alt="" class="ph-bar"><div class="mono">${esc(t.qc_no)}</div></div>
     <div class="qc-card-row"><span>Checked Date</span><b>${res ? esc(mdy(res.when)) : ""}</b></div>
     <div class="qc-card-row"><span>Qty Found</span><b>${res ? res.qty : ""}</b></div>
-    <div class="qc-card-row"><span>Result</span><b class="qc-res">${res ? `${res.score} / 100` : ""}</b><b class="qc-verdict${res?.verdict === "FAIL" ? " fail" : ""}">${res ? res.verdict : ""}</b></div>
+    <div class="qc-card-row"><span>Result</span><b class="qc-res">${res ? `Pass ${res.pass} · Fail ${res.fail}` : ""}</b><b class="qc-verdict${res?.verdict === "FAIL" ? " fail" : ""}">${res ? res.verdict : ""}</b></div>
     <div class="qc-card-row"><span>Check By</span><b>${res ? esc(res.by) : ""}</b></div></div>`;
   // The QC form on paper: blank to write on (the form made when the QC test is created), or with the result.
   function qcPage(t, r = null) {
     const T = r ? tally(t, r) : null, res = resultOf(t, r);
     const right = `<img src="${E.pdf417DataUrl("EMONQC|" + t.qc_no)}" alt="" class="ph-bar"><div class="mono">${esc(t.qc_no)}</div>`;
     const rows = CHECKS.map(([k, label], i) => { const c = r ? choiceOf(t, r, k) : "";
-      return `<tr><td>${i + 1}</td><td><b>${esc(label)}</b>${k === "mending" ? " PCS" : ""}</td>
-        <td class="qc-failc"><span class="qc-line">${c === "fail" ? esc(String(numOf(r, k))) : ""}</span> ${boxTick(c === "fail")}</td><td class="qc-tickc">${boxTick(c === "pass")}</td></tr>`; }).join("");
+      return `<tr><td class="qx-n">${i + 1}</td><td class="qx-c">${esc(label)}${k === "mending" ? " ___ PCS" : ""}</td>
+        <td class="qx-b">${boxTick(c === "pass")}</td><td class="qx-b">${boxTick(c === "fail")}</td><td class="qx-q"><span class="qc-line">${c === "fail" ? esc(String(numOf(r, k))) : ""}</span></td></tr>`; }).join("");
+    const sum = (k, v) => `<div class="qx-sum"><small>${esc(k)}</small><b>${v === "" || v == null ? "&nbsp;" : esc(v)}</b></div>`;
+    // 3.17: certificate style: date · QC no · checks across the top, the goods as "Label : value" lines, the 10 checks with PASS / FAIL / QTY FOUND, the result strip and the signature lines
     return `${E.printHead("QC TEST", right)}
-      ${E.box("Goods", `<div class="pgrid2">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item || "")}
-        ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}</div>`)}
-      ${E.box("Quality Check — tick Pass or Fail for each check; for a Fail write the Qty Found (pieces)", `<table class="ptl qc-ptl"><thead><tr><th>#</th><th>Check</th><th class="qc-failc">Fail · Qty Found</th><th class="qc-tickc">Pass</th></tr></thead><tbody>${rows}</tbody></table>`)}
-      ${E.box("Result", `<div class="pgrid2">${E.cell("Pass", T && !T.open ? String(T.pass) : "")}${E.cell("Fail", T && !T.open ? String(T.fail) : "")}
-        ${E.cell("Qty Found (total pieces of the Fails)", res ? String(res.qty) : "")}${E.cell("QC Test Result (Total Score)", res ? `${res.score} / 100` : "          / 100", "hl")}
-        ${E.cell("Result", res ? res.verdict : "")}${E.cell("Checked By", res ? res.by : "")}${E.cell("Checked Date", res ? mdy(res.when) : "")}</div>
-        <div class="qc-need">Requirement to pass the QC test: a total score of ${PASS_MARK} or more.</div>`)}`;
+      ${E.cxTop([["Date", mdy(t.created_at)], ["QC No", t.qc_no], ["Checks", "10"]])}
+      ${E.cxSec("Goods")}${E.cxKv([["Item", t.item || ""], ["Brand", t.brand || ""], ["Serial No", t.serial_no || ""], ["Batch", t.batch || ""], ["CTN", t.ctn || ""]])}
+      <div class="qx-h">QUALITY CHECK <small>Tick PASS or FAIL for each check. For a FAIL write the Qty Found (pieces).</small></div>
+      <table class="qx-t"><thead><tr><th class="qx-n">#</th><th class="qx-c">Check</th><th class="qx-b">Pass</th><th class="qx-b">Fail</th><th class="qx-q">Qty Found</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="qx-h">RESULT</div>
+      <div class="qx-res">${sum("Total Pass", T && !T.open ? String(T.pass) : "")}${sum("Total Fail", T && !T.open ? String(T.fail) : "")}${sum("Qty Found", res ? String(res.qty) : "")}
+        <div class="qx-sum qx-verdict"><small>QC Result</small><span>${boxTick(res?.verdict === "PASS")} PASS</span><span>${boxTick(res?.verdict === "FAIL")} FAIL</span></div></div>
+      <p class="qx-need">To PASS the QC test the score must be ${PASS_MARK} or more. Each FAIL takes 10 points off.</p>
+      <div class="qx-sign"><div><b>${res ? esc(res.by) : "&nbsp;"}</b><span>Checked By · Signature over Printed Name</span></div><div><b>${res ? esc(mdy(res.when)) : "&nbsp;"}</b><span>Checked Date</span></div></div>`;
   }
   // The 2 stickers on plain paper: nothing else on the page (no heading, no footer, no date).
   const stickerPage = (t, res) => `<div class="qc-cards qc-sticker">${qcCard(t, res)}${qcCard(t, res)}</div>`;

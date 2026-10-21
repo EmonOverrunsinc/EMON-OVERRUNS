@@ -529,9 +529,6 @@ main h3 { margin: 14px 0 6px; color: var(--title-2); }
 .pgrid4 { display: grid; grid-template-columns: repeat(4, 1fr); }
 .prow3 { display: grid; grid-template-columns: repeat(3, 1fr); }
 .span2 { grid-column: span 2; }
-.pradio { display: flex; align-items: center; gap: 6px; font-size: 11px; padding: 2px 0; }
-.pradio .dot { width: 11px; height: 11px; border: 1.5px solid #000; border-radius: 50%; flex: none; }
-.pradio .dot.on { background: radial-gradient(circle, #000 45%, transparent 50%); }
 .pdecl { font-size: 10.5px; margin: 10px 0; }
 .psig { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 46px; font-size: 10px; text-align: center; }
 .psig .line { border-top: 1px solid #000; margin-bottom: 3px; }
@@ -541,12 +538,6 @@ main h3 { margin: 14px 0 6px; color: var(--title-2); }
 .pstamp.paid { border-color: #1b5e20; color: #1b5e20; }
 .pstamp.big { align-self: center; font-size: 34px; display: flex; flex-direction: column; align-items: center; margin-top: 18px; }
 .pstamp.big small { font-size: 11px; letter-spacing: 0; }
-.cm-head { display: flex; justify-content: space-between; gap: 10px; }
-.cm-co { font: bold 26px var(--font-report); letter-spacing: .05em; }
-.cm-date { font-weight: bold; font-size: 12px; margin-top: 2px; }
-.cm-rep { text-align: right; font-size: 10px; }
-.cm-rep b { background: #fff4b8; border: 1px solid #c9a400; padding: 2px 10px; font-size: 13px; }
-.cm-rep img { display: block; height: 46px; margin-top: 4px; margin-left: auto; image-rendering: pixelated; }
 
 /* Printed pages (3.0: no watermark) */
 .page { position: relative; overflow: hidden; }
@@ -1646,7 +1637,7 @@ table.grid tfoot td { background: #fafafc; border-top: 1px solid var(--panel-lin
    and an official foot line. Sizes stay as before, so every document keeps its page count. */
 .page { font-family: "Helvetica Neue", Arial, "Liberation Sans", sans-serif; color: #111; }
 .page .ph { border-bottom: 3px double #111; padding-bottom: 7px; }
-.page .ph-co, .page .cm-co, .page .soa-co, .page .rp-brand b { font-family: Arial, "Helvetica Neue", "Liberation Sans", sans-serif; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.page .ph-co, .page .soa-co, .page .rp-brand b { font-family: Arial, "Helvetica Neue", "Liberation Sans", sans-serif; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .page .ph-addr { color: #333; letter-spacing: .02em; }
 .page .ph-title, .page .rp-title, .page .vt {
   font-family: Arial, "Helvetica Neue", "Liberation Sans", sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: .18em;
@@ -1765,7 +1756,7 @@ html { -webkit-tap-highlight-color: transparent; }
    borders and type change, so every document keeps its page count. */
 .page { --doc: #1f4fa3; --doc-line: #9db3dc; --doc-soft: #eef3fb; --doc-ok: #7cc242; counter-reset: sec; }
 .page .ph { border-bottom: 2px solid var(--doc); }
-.page .ph-co, .page .cm-co, .page .soa-co { color: var(--doc); font-family: Arial, "Helvetica Neue", "Liberation Sans", sans-serif; font-weight: 900; letter-spacing: .03em; }
+.page .ph-co, .page .soa-co { color: var(--doc); font-family: Arial, "Helvetica Neue", "Liberation Sans", sans-serif; font-weight: 900; letter-spacing: .03em; }
 .page .ph-title, .page .rp-title, .page .vt { color: var(--doc); border-top: 0; border-bottom: 0; padding: 2px 0; letter-spacing: .14em; }
 .page .pbox { border: 1px solid var(--doc); }
 .page .pbox-h, .page .ol-sec { background: var(--doc); color: #fff; letter-spacing: .08em; }
@@ -1994,6 +1985,53 @@ button, a, input, select, label.btn { touch-action: manipulation; }
 table.ptl.qc-ptl td { padding-top: 2.6px; padding-bottom: 2.6px; font-size: 11px; }
 .qc-ptl .qc-tickc { text-align: center; width: 24mm; }
 .qc-line { display: inline-block; min-width: 18mm; border-bottom: 1px solid #000; text-align: center; }
+/* 3.17 QC form: info band, check table, result strip and sign lines */
+.page .qx-h, .page .cx-sec { color: var(--doc); border-bottom: 1.5px solid var(--doc); margin: 5mm 0 0; padding: 0 0 3px; font-size: 10.5px; font-weight: 800; letter-spacing: .16em;
+  text-transform: uppercase; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.page .qx-h small, .page .cx-sec small { font-size: 8.5px; font-weight: 400; letter-spacing: .02em; text-transform: none; color: #555; text-align: right; }
+.page .qx-h + table.qx-t { margin-top: 2mm; }
+/* certificate style: date · number · date across the top, then "Label : value" lines with room between them */
+.page .cx-top { display: grid; grid-template-columns: 1fr 1.3fr 1fr; align-items: end; gap: 6mm; margin: 4mm 0 1mm; padding: 0 2mm 3mm; border-bottom: 1px solid var(--doc-line); }
+.page .cx-top > div:nth-child(2) { text-align: center; }
+.page .cx-top > div:nth-child(3) { text-align: right; }
+.page .cx-top small, .page .cx-ticks small, .page .cx-amt small, .page .qx-sum small { display: block; font-size: 8px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #555; margin-bottom: 2px; }
+.page .cx-top b { font-size: 12px; font-weight: 700; }
+.page .cx-top > div:nth-child(2) b { font: 700 15px/1.2 "Courier New", monospace; letter-spacing: .06em; color: var(--doc); }
+.page .cx-kv { display: grid; grid-template-columns: 1fr 1fr; gap: 3.2mm 10mm; padding: 3.5mm 2mm 1mm; }
+.page .cx-r { display: grid; grid-template-columns: 30mm 3mm 1fr; align-items: baseline; font-size: 11.5px; min-width: 0; }
+.page .cx-r.wide { grid-column: 1 / -1; }
+.page .cx-r span { color: #333; }
+.page .cx-r i { font-style: normal; color: #333; }
+.page .cx-r b { font-weight: 600; color: #000; word-break: break-word; white-space: pre-wrap; }
+.page .cx-ticks { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm 10mm; padding: 3.5mm 2mm 1mm; }
+.page .cx-tick { display: flex; align-items: center; gap: 7px; font-size: 11px; margin: 0 0 2.2mm; }
+.page .cx-amt { display: grid; grid-template-columns: 1fr 2fr; margin: 3mm 2mm 0; border: 1.5px solid var(--doc); background: var(--doc-soft); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.page .cx-amt > div { padding: 3mm 4mm; }
+.page .cx-amt > div + div { border-left: 1px solid var(--doc-line); }
+.page .cx-amt b { display: block; font-size: 20px; color: var(--doc); }
+.page .cx-amt span { font-size: 10px; color: #333; }
+.page .cx-amt .words { font-size: 11px; font-weight: 600; color: #000; }
+.page table.qx-t { width: 100%; border-collapse: collapse; font-size: 11px; }
+.page .qx-t th { background: var(--doc-soft); color: #111; font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase; padding: 4px 6px; border: 1px solid var(--doc); }
+.page .qx-t td { border: 1px solid var(--doc-line); padding: 5px 6px; height: 8.4mm; }
+.page .qx-t tbody tr:nth-child(even) td { background: #fafbfd; }
+.page .qx-n { width: 8mm; text-align: center; color: #555; }
+.page .qx-c { text-align: left; font-weight: 600; letter-spacing: .02em; }
+.page .qx-b { width: 17mm; text-align: center; }
+.page .qx-q { width: 32mm; text-align: center; }
+.page .qx-q .qc-line { min-width: 22mm; }
+.page .qx-res { display: grid; grid-template-columns: 1fr 1fr 1fr 1.6fr; gap: 0; border: 1px solid var(--doc); }
+.page .qx-sum { padding: 5px 8px; border-right: 1px solid var(--doc-line); min-height: 13mm; }
+.page .qx-sum:last-child { border-right: 0; }
+.page .qx-sum b { display: block; font-size: 17px; font-weight: 700; margin-top: 2px; }
+.page .qx-verdict { background: var(--doc-soft); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.page .qx-verdict small { flex-basis: 100%; }
+.page .qx-verdict span { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 800; letter-spacing: .06em; }
+.page .qx-need { margin: 2mm 0 0; font-size: 9.5px; color: #333; border-left: 4px solid var(--doc-ok); padding: 3px 8px; background: #f4faee; }
+.page .qx-sign { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12mm; margin-top: 12mm; }
+.page .qx-sign > div { text-align: center; }
+.page .qx-sign b { display: block; min-height: 5mm; font-size: 11px; }
+.page .qx-sign span { display: block; border-top: 1px solid #111; padding-top: 3px; font-size: 9px; letter-spacing: .04em; color: #333; }
 .cv-print { text-align: center; }
 .cv-print img { max-width: 100%; max-height: 150mm; }
 @media (max-width: 560px) {
