@@ -2148,3 +2148,8 @@ input.wz-bad, select.wz-bad, textarea.wz-bad { outline: 2px solid #c41e3a; backg
 .rq-item > div { flex: 1 1 260px; min-width: 0; }
 .rq-item b { display: block; color: #6b4500; }
 .rq-item small { display: block; color: #5c4400; }
+/* 3.11: the Customer Information Update Form */
+.uf-state { margin: 4px 0 8px; padding: 4px; text-align: center; font-weight: bold; letter-spacing: .08em; border: 2px solid #111; }
+.uf-state.wait { color: #8a4b00; border-style: dashed; border-color: #8a4b00; }
+.uf-grid th { width: auto; font-weight: bold; }
+.uf-grid td:first-child { width: 30%; }

@@ -9,7 +9,7 @@
 (() => {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, toast, fail, ic, num, fullName, verifyUrl } = E;
+  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, isStaff, toast, fail, ic, num, fullName, verifyUrl } = E;
   const V = window.EO_VIEWS;
 
   // What the records say today: cleared or not, and why not.
@@ -138,6 +138,29 @@
       ${issuerBlock()}
       <div class="rp-foot"><span>Scan the QR code to check this account online.</span><span>${esc(no)}</span></div>`;
   }
+  // The Customer Information Update Form: the old and the new details, the customer's signature and the Director's approval
+  function updatePage(c, r, no) {
+    const keys = Object.keys(r.changes || {}), ok = r.atOnce || r.req?.status === "approved";
+    const sign = ok ? E.approvedBy(S.session?.user?.id, S.profile?.full_name, new Date().toISOString()) : null;
+    const val = (k, v) => esc(E.showVal(k === "credit_limit" && v != null ? `₱ ${peso(v)}` : v));
+    return `${E.printHead("CUSTOMER INFORMATION UPDATE FORM", codes(c, no))}
+      <div class="cert-no"><span>Request No: <b>${esc(no)}</b></span><span>Date: <b>${esc(mdy(isoToday()))}</b></span></div>
+      <div class="uf-state ${ok ? "ok" : "wait"}">${ok ? "APPROVED — THE PROFILE SHOWS THE NEW INFORMATION" : "WAITING FOR THE DIRECTOR'S APPROVAL"}</div>
+      <div class="ol-sec">ACCOUNT</div>
+      <table class="ol-grid"><tbody>${tr2("Name of Customer", esc(fullName(r.previous)))}${tr2("Account No", esc(c.account_no || "—"))}${tr2("Account Status", esc(String(c.status || "").toUpperCase()))}</tbody></table>
+      <div class="ol-sec">UPDATED INFORMATION</div>
+      <table class="ol-grid uf-grid"><thead><tr><th>Detail</th><th>Old Information</th><th>New Information</th></tr></thead><tbody>
+        ${keys.map((k) => `<tr><td>${esc(E.fieldLabel("customers", k))}</td><td>${val(k, r.previous?.[k])}</td><td><b>${val(k, r.changes[k])}</b></td></tr>`).join("")}</tbody></table>
+      <p class="cert-body">I confirm that the new information above is true and correct, and I ask ${esc(C.company.name)} to update my account with it.</p>
+      <div class="ol-sign"><div class="ol-auth"><div class="ol-auth-name">${esc(fullName(r.previous).toUpperCase())}</div><div class="line"></div>Customer · Signature over Printed Name / Date</div>
+        <div class="ol-auth${sign?.pic ? " has-sig" : ""}">${sign?.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="ol-auth-name">${sign ? esc(S.profile?.full_name || "") : ""}</div><div class="line"></div>Approved by · Director${sign ? ` · ${esc(mdy(isoToday()))}` : " / Date"}</div></div>
+      <div class="rp-foot"><span>Scan the QR code to check this account online.</span><span>${esc(no)}</span></div>`;
+  }
+  async function printUpdate(c, r) {
+    await E.loadSignatures().catch(() => {});
+    const no = r.req?.request_no || docNo("UF", c);
+    issueDoc(c, "Customer Information Update Form", no, updatePage(c, r, no), Object.keys(r.changes || {}).map((k) => E.fieldLabel("customers", k)).join(", "));
+  }
   // Print a document and write it in the customer's history
   const issueDoc = (c, title, no, page, note) => {
     E.openPreview(`${title} ${no}`, [page]);
@@ -148,6 +171,8 @@
   function customerRequest(c, ctx) {
     const wait = pendingOf(ctx.orders)[0];
     const opts = [
+      ["update", "edit", "Update Information", isAdmin() && S.mainDirector ? "Change the customer's details. Saved at once; the Update Form prints with the old and new details."
+        : "Change the customer's details. The Update Form prints with the old and new details; the Director approves the change.", isStaff()],
       ["balance", "wallet", "Account Balance Certificate", "The total outstanding balance as of today, with the unpaid invoices", true],
       ["gate", "check", "Gate Pass", "Gate Pass Clearance for Delivery (only for an open account with no overdue invoice, within its credit limit)", true],
       ...Object.entries(STATUS_REQ).filter(([, x]) => x.from.includes(c.status)).map(([k, x]) => [k, x.icon, x.title,
@@ -162,6 +187,7 @@
     $$("[data-rq]", m.el).forEach((b) => (b.onclick = async () => {
       const k = b.dataset.rq; m.close();
       if (k === "gate") return gatePass(c, ctx);
+      if (k === "update") return E.correctRecord("customers", c, `${c.account_no || c.application_no} ${fullName(c)}`, () => V.customer(c.id), { onSaved: (r) => printUpdate(c, r) });
       await E.loadSignatures().catch(() => {});
       if (k === "balance") return balanceForm(c, ctx);
       if (k === "closurecert") {
