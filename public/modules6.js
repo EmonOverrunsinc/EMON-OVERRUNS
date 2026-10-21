@@ -187,7 +187,7 @@
     const rows = CHECKS.map(([k, label], i) => { const c = r ? choiceOf(t, r, k) : "";
       return `<tr><td class="qx-n">${i + 1}</td><td class="qx-c">${esc(label)}${k === "mending" ? " ___ PCS" : ""}</td>
         <td class="qx-b">${boxTick(c === "pass")}</td><td class="qx-b">${boxTick(c === "fail")}</td><td class="qx-q"><span class="qc-line">${c === "fail" ? esc(String(numOf(r, k))) : ""}</span></td></tr>`; }).join("");
-    const sum = (k, v) => `<div class="qx-sum"><small>${esc(k)}</small><b>${v === "" || v == null ? "&nbsp;" : esc(v)}</b></div>`;
+    const sum = (k, v) => `<div class="qx-sum"><small>${esc(k)}</small><b>${v ? esc(v) : "&nbsp;"}</b></div>`;
     // 3.17: certificate style: date · QC no · checks across the top, the goods as "Label : value" lines, the 10 checks with PASS / FAIL / QTY FOUND, the result strip and the signature lines
     return `${E.printHead("QC TEST", right)}
       ${E.cxTop([["Date", mdy(t.created_at)], ["QC No", t.qc_no], ["Checks", "10"]])}

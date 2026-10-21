@@ -454,8 +454,10 @@
       <div class="ph-right">${rightHtml}</div></div>
       <div class="ph-title">${esc(title)}</div>`;
   }
+  const val = (v) => (v === "" || v == null ? "&nbsp;" : esc(v)); // an empty value keeps its line on paper
+  const cell = (label, value, cls = "") => `<div class="pcell ${cls}"><div class="pl">${esc(label)}</div><div class="pv">${val(value)}</div></div>`;
   const box = (title, inner) => `<div class="pbox"><div class="pbox-h">${esc(title)}</div>${inner}</div>`;
-  const cell = (label, value, cls = "") => `<div class="pcell ${cls}"><div class="pl">${esc(label)}</div><div class="pv">${value === "" || value == null ? "&nbsp;" : esc(value)}</div></div>`;
+
   // Two signature lines. sign (approvedBy): the Director approved the document, so the Director's signature picture stands
   // on the right line, with the name and the date under it.
   const sigCol = (label, sign) => sign
@@ -463,7 +465,6 @@
     : `<div><div class="line"></div>${label}</div>`;
   const sigs = (left, right, sign = null) => `<div class="psig">${sigCol(left)}${sigCol(right, sign)}</div>`;
   // 3.17 certificate style: a top row (left · centre number · right), a thin section title and "Label : value" lines
-  const val = (v) => (v === "" || v == null ? "&nbsp;" : esc(v));
   const cxTop = (items) => `<div class="cx-top">${items.map(([k, v]) => `<div><small>${esc(k)}</small><b>${val(v)}</b></div>`).join("")}</div>`;
   const cxSec = (title, note = "") => `<div class="cx-sec">${esc(title)}${note ? `<small>${esc(note)}</small>` : ""}</div>`;
   const cxKv = (pairs) => `<div class="cx-kv">${pairs.map(([k, v, cls = ""]) => `<div class="cx-r ${cls}"><span>${esc(k)}</span><i>:</i><b>${val(v)}</b></div>`).join("")}</div>`;

@@ -1982,8 +1982,6 @@ button, a, input, select, label.btn { touch-action: manipulation; }
 .qc-box { display: inline-block; width: 4.2mm; height: 4.2mm; border: 1.4px solid #000; vertical-align: middle; position: relative; background: #fff; }
 .qc-box.on::before, .qc-box.on::after { content: ""; position: absolute; left: 50%; top: -1px; width: 1.6px; height: calc(100% + 2px); background: #000; transform: rotate(45deg); }
 .qc-box.on::after { transform: rotate(-45deg); }
-table.ptl.qc-ptl td { padding-top: 2.6px; padding-bottom: 2.6px; font-size: 11px; }
-.qc-ptl .qc-tickc { text-align: center; width: 24mm; }
 .qc-line { display: inline-block; min-width: 18mm; border-bottom: 1px solid #000; text-align: center; }
 /* 3.17 QC form: info band, check table, result strip and sign lines */
 .page .qx-h, .page .cx-sec { color: var(--doc); border-bottom: 1.5px solid var(--doc); margin: 5mm 0 0; padding: 0 0 3px; font-size: 10.5px; font-weight: 800; letter-spacing: .16em;
@@ -2106,8 +2104,6 @@ input.wz-bad, select.wz-bad, textarea.wz-bad { outline: 2px solid #c41e3a; backg
 .qc-verd.fail { color: #fff; background: #c41e3a; }
 .qc-find { display: flex; gap: 8px; margin: 0 0 8px; }
 .qc-find input { flex: 1 1 auto; min-width: 0; }
-.qc-ptl .qc-failc { text-align: center; width: 40mm; white-space: nowrap; }
-.qc-need { padding: 3px 7px 5px; font-size: 9.5px; font-style: italic; }
 /* the result card (also the box sticker): the same size empty and filled, so a second print lands in the same place */
 .qc-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; margin: 5mm 0 3mm; }
 .qc-card { border: 1.4px solid #000; border-radius: 2mm; font-size: 10px; break-inside: avoid; background: #fff; }
@@ -2208,3 +2204,11 @@ table.ga-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .page .cx-sn > div { display: flex; align-items: baseline; gap: 5px; padding: 4px 6px; border-right: 1px solid var(--doc-line); border-bottom: 1px solid var(--doc-line); min-width: 0; }
 .page .cx-sn small { font-size: 8px; color: #777; min-width: 3.5mm; }
 .page .cx-sn b { font-size: 10.5px; font-weight: 600; word-break: break-all; }
+/* a credit memo with issue-box serial numbers: tighter lines so it stays on one A4 page */
+.page:has(.cx-sn) .cx-sec, .page:has(.cx-sn) .qx-h { margin-top: 3.5mm; }
+.page:has(.cx-sn) .cx-top { margin-top: 2.5mm; padding-bottom: 2mm; }
+.page:has(.cx-sn) .cx-kv { gap: 2mm 10mm; padding-top: 2.5mm; }
+.page:has(.cx-sn) .cx-ticks { padding-top: 2.5mm; }
+.page:has(.cx-sn) .cx-tick { margin-bottom: 1.3mm; }
+.page:has(.cx-sn) .cx-amt > div { padding: 2mm 4mm; }
+.page:has(.cx-sn) .cx-sn > div { padding: 3px 6px; }
