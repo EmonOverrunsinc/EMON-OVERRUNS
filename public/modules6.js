@@ -55,6 +55,7 @@
     vouchers.forEach((v) => { const m = monthOf(v.cv_date); if (!byMonth.has(m)) byMonth.set(m, []); byMonth.get(m).push(v); });
     const monthRows = [...byMonth.keys()].sort().reverse().map((m) => ({ m, n: byMonth.get(m).length, total: sum(byMonth.get(m)) }));
     const qNow = tests.filter((t) => monthOf(E.isoDay(new Date(t.created_at))) === now), scored = qNow.filter((t) => t.score != null);
+    const passNow = scored.filter((t) => verdict(t.score) === "PASS").length;
     const avgScore = scored.length ? Math.round(scored.reduce((s, t) => s + t.score, 0) / scored.length) : null;
     const six = Array.from({ length: 6 }, (_, i) => prevMonth(now, 5 - i)).map((m) => ({ m, total: sum(byMonth.get(m) || []) }));
     const top = Math.max(1, ...six.map((x) => x.total));
@@ -62,7 +63,7 @@
     $("#eoBody").innerHTML = `
       <div class="eo-mini">
         <div class="tiles">
-          <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">QC Tests This Month</div><div class="v">${qNow.length}</div><small>${avgScore == null ? "No result yet" : `${scored.filter((t) => verdict(t.score) === "PASS").length} pass · ${scored.filter((t) => verdict(t.score) === "FAIL").length} fail · average ${avgScore} / 100`}</small></div>
+          <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">QC Tests This Month</div><div class="v">${qNow.length}</div><small>${avgScore == null ? "No result yet" : `${passNow} pass · ${scored.length - passNow} fail · average ${avgScore} / 100`}</small></div>
           <div class="tile"><span class="tile-ic">${ic("wallet")}</span><div class="k">Collection This Month (₱)</div><div class="v">${peso(sum(byMonth.get(now) || []))}</div><small>${(byMonth.get(now) || []).length} voucher(s)</small></div>
           <div class="tile"><span class="tile-ic">${ic("wallet")}</span><div class="k">Collection Last Month (₱)</div><div class="v">${peso(sum(byMonth.get(last) || []))}</div><small>${monthName(last)}</small></div>
         </div>
@@ -74,7 +75,7 @@
     const qcCols = [{ label: "QC No", get: (r) => r.qc_no }, { label: "Date", get: (r) => mdy(r.created_at) }, { label: "Serial No", get: (r) => r.serial_no || "" },
       { label: "Item", get: (r) => r.item || "" }, { label: "Brand", get: (r) => r.brand || "" }, { label: "Batch", get: (r) => r.batch || "" }, { label: "CTN", get: (r) => r.ctn || "" },
       { label: "Score", num: true, get: (r) => (r.score == null ? "—" : `${r.score} / 100`) },
-      { label: "Result", html: (r) => (r.score == null ? "" : pill(verdict(r.score) === "PASS" ? "approved" : "rejected", verdict(r.score))) }, { label: "Status", html: (r) => pill(r.status === "done" ? "approved" : "pending", r.status === "done" ? "TESTED" : "NOT TESTED YET") }];
+      { label: "Result", html: (r) => { const v = verdict(r.score); return v ? pill(v === "PASS" ? "approved" : "rejected", v) : ""; } }, { label: "Status", html: (r) => pill(r.status === "done" ? "approved" : "pending", r.status === "done" ? "TESTED" : "NOT TESTED YET") }];
     const cvCols = [{ label: "Voucher No", get: (r) => r.cv_no }, { label: "Date", get: (r) => mdy(r.cv_date) }, { label: "Received From", get: (r) => r.received_from },
       { label: "Method", get: (r) => METHODS[r.method] || r.method }, { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) },
       { label: "Receipt", html: (r) => (r.receipt_path ? pill("approved", "ON FILE") : pill("pending", "NO RECEIPT")) }, { label: "Made By", get: (r) => r.created_by_name || "" }];
@@ -89,10 +90,14 @@
           <div id="qcGrid"></div>`;
         // a barcode (typed by a scanner, or the QC number) opens that QC test at once; any other words filter the list
         const norm = (q) => { const m = /EMONQCK?\|\s*(QC-\d{4}-\d+)/i.exec(q); return (m ? m[1] : q).trim().toLowerCase(); };
-        let shown = tests;
+        // the words of each test, made once (the list is filtered on every key)
+        const hay = tests.map((r) => [r.qc_no, r.serial_no, r.item, r.brand, r.batch, r.ctn].map((x) => String(x || "").toLowerCase()));
+        let shown = tests, lastW = null;
         const paint = () => {
           const w = norm($("#qcFind").value);
-          shown = w ? tests.filter((r) => [r.qc_no, r.serial_no, r.item, r.brand, r.batch, r.ctn].some((x) => String(x || "").toLowerCase().includes(w))) : tests;
+          if (w === lastW) return;
+          lastW = w;
+          shown = w ? tests.filter((r, i) => hay[i].some((x) => x.includes(w))) : tests;
           $("#qcGrid").innerHTML = E.grid({ cols: qcCols, rows: shown, onRow: true, empty: w ? "No QC test matches that." : "No QC tests yet." });
           E.bindGrid($("#qcGrid"), shown, (r) => (location.hash = "qc/" + r.id));
         };

@@ -23,7 +23,7 @@
     if (c.status !== "active") reasons.push(`The account is ${String(c.status || "").toUpperCase()}, not open.`);
     if (overdue.length) reasons.push(`${overdue.length} overdue invoice${overdue.length === 1 ? "" : "s"} (₱ ${peso(owed)}): ${overdue.slice(0, 4).map((i) => i.invoice_no).join(", ")}${overdue.length > 4 ? " …" : ""}.`);
     if (limit != null && bal > limit + 0.004) reasons.push(`Over the credit limit: balance ₱ ${peso(bal)} is above the limit ₱ ${peso(limit)}.`);
-    return { ok: !reasons.length, reasons, overdue, bal, limit, today };
+    return { ok: !reasons.length, reasons, overdue, owed, bal, limit, today };
   }
   const stampNo = (c) => {
     const d = new Date(), p2 = (n) => String(n).padStart(2, "0");
@@ -57,7 +57,8 @@
     const rows = invs.map((i) => {
       let need = num(i.total_amount) - num(i.amount_returned), last = null;
       while (need > 0.004 && qi < q.length) { const take = Math.min(need, q[qi].left); need -= take; q[qi].left -= take; last = q[qi].d; if (q[qi].left <= 0.004) qi++; }
-      const paidOn = need <= 0.004 ? last || i.invoice_date : null;
+      // paid or not comes from the server (invoice_balances); the payments only date it
+      const paidOn = i.pay_status === "paid" ? (need <= 0.004 ? last || i.invoice_date : pays.length ? pays[pays.length - 1].paid_date : i.invoice_date) : null;
       return { i, paidOn, days: paidOn ? Math.max(0, dayDiff(i.invoice_date, paidOn)) : null, late: paidOn && i.due_date && paidOn > i.due_date ? dayDiff(i.due_date, paidOn) : 0 };
     });
     const paid = rows.filter((r) => r.paidOn), late = paid.filter((r) => r.late > 0);
@@ -66,36 +67,37 @@
     const gaps = pays.slice(1).map((p, k) => ({ p, gap: dayDiff(pays[k].paid_date, p.paid_date) }));
     const avgGap = gaps.length ? Math.round(gaps.reduce((t, x) => t + x.gap, 0) / gaps.length) : null;
     const lastPay = pays.length ? pays[pays.length - 1].paid_date : null;
-    const memos = ctx.memos || [], ok2 = (m) => ["approved", "paid"].includes(m.status);
-    const cms = memos.filter((m) => !m.is_return), rets = memos.filter((m) => m.is_return);
-    const sum = (a, f) => a.reduce((t, x) => t + num(f(x)), 0);
+    const cms = [], rets = [];
+    for (const m of ctx.memos || []) (m.is_return ? rets : cms).push(m);
+    const approvedSum = (list) => list.reduce((t, m) => t + (["approved", "paid"].includes(m.status) ? num(m.request_amount) : 0), 0);
+    const cmApproved = approvedSum(cms), retApproved = approvedSum(rets), sinceLast = lastPay ? dayDiff(lastPay, today) : null;
     const overdueNow = g.overdue.map((i) => ({ i, days: dayDiff(i.due_date, today) }));
     const rating = !invs.length ? "NEW ACCOUNT" : overdueNow.length ? "OVERDUE NOW" : onTime == null ? "NO PAYMENT YET" : onTime >= 80 ? "GOOD PAYER" : onTime >= 50 ? "FAIR PAYER" : "SLOW PAYER";
     const notes = [];
     if (late.length && !overdueNow.length) notes.push(`Paid late before (${late.length} invoice${late.length === 1 ? "" : "s"}, at most ${Math.max(...late.map((r) => r.late))} days late), but nothing is overdue now.`);
     if (!late.length && paid.length) notes.push(`Every invoice was paid on or before its due date (${paid.length} paid).`);
-    if (lastPay && dayDiff(lastPay, today) > 60) notes.push(`No payment for ${dayDiff(lastPay, today)} days (last payment ${mdy(lastPay)}).`);
-    if (sum(rets.filter(ok2), (m) => m.request_amount) > 0) notes.push(`Returns approved: ₱ ${peso(sum(rets.filter(ok2), (m) => m.request_amount))}.`);
-    return { ...g, invs, pays, rows, paid, late, avgDays, onTime, gaps, avgGap, lastPay, cms, rets, ok2, sum, overdueNow, rating, notes,
-      invoiced: sum(invs, (i) => i.total_amount), paidTotal: sum(pays, (p) => p.amount) };
+    if (sinceLast > 60) notes.push(`No payment for ${sinceLast} days (last payment ${mdy(lastPay)}).`);
+    if (retApproved > 0) notes.push(`Returns approved: ₱ ${peso(retApproved)}.`);
+    return { ...g, invs, pays, rows, paid, late, avgDays, onTime, gaps, avgGap, lastPay, sinceLast, cms, rets, cmApproved, retApproved, overdueNow, rating, notes,
+      invoiced: invs.reduce((t, i) => t + num(i.total_amount), 0), paidTotal: pays.reduce((t, p) => t + num(p.amount), 0) };
   }
   const tile = (k, v, small = "") => `<div class="ga-tile"><small>${esc(k)}</small><b>${v}</b>${small ? `<span>${small}</span>` : ""}</div>`;
   function analysisHtml(a) {
     const daysTxt = (n) => (n == null ? "—" : `${n} day${n === 1 ? "" : "s"}`);
     return `<div class="ga-tiles">
         ${tile("Rating", esc(a.rating))}${tile("Invoices", String(a.invs.length), `₱ ${peso(a.invoiced)}`)}${tile("Paid", String(a.paid.length), `₱ ${peso(a.paidTotal)} received`)}
-        ${tile("Overdue Now", String(a.overdueNow.length), a.overdueNow.length ? `₱ ${peso(a.overdueNow.reduce((t, x) => t + num(x.i.balance), 0))}` : "none")}
+        ${tile("Overdue Now", String(a.overdueNow.length), a.overdueNow.length ? `₱ ${peso(a.owed)}` : "none")}
         ${tile("Average Days to Pay", daysTxt(a.avgDays))}${tile("Paid on Time", a.onTime == null ? "—" : a.onTime + "%", a.late.length ? `${a.late.length} late` : "")}
-        ${tile("Average Gap Between Payments", daysTxt(a.avgGap))}${tile("Last Payment", a.lastPay ? esc(mdy(a.lastPay)) : "—", a.lastPay ? `${dayDiff(a.lastPay, a.today)} days ago` : "")}
+        ${tile("Average Gap Between Payments", daysTxt(a.avgGap))}${tile("Last Payment", a.lastPay ? esc(mdy(a.lastPay)) : "—", a.lastPay ? `${a.sinceLast} days ago` : "")}
         ${tile("Balance Due", `₱ ${peso(a.bal)}`, a.limit != null ? `limit ₱ ${peso(a.limit)}` : "no credit limit")}
-        ${tile("Credit Memos", String(a.cms.length), `₱ ${peso(a.sum(a.cms.filter(a.ok2), (m) => m.request_amount))} approved`)}${tile("Returns", String(a.rets.length), `₱ ${peso(a.sum(a.rets.filter(a.ok2), (m) => m.request_amount))} approved`)}</div>
+        ${tile("Credit Memos", String(a.cms.length), `₱ ${peso(a.cmApproved)} approved`)}${tile("Returns", String(a.rets.length), `₱ ${peso(a.retApproved)} approved`)}</div>
       ${a.notes.length ? `<ul class="ga-notes">${a.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
       ${a.overdueNow.length ? `<div class="ga-h">Overdue Invoices</div><table class="ga-t"><thead><tr><th>Invoice No</th><th>Due Date</th><th class="num">Days Overdue</th><th class="num">Balance (₱)</th></tr></thead><tbody>
         ${a.overdueNow.map((x) => `<tr><td>${esc(x.i.invoice_no)}</td><td>${esc(mdy(x.i.due_date))}</td><td class="num">${x.days}</td><td class="num">${peso(x.i.balance)}</td></tr>`).join("")}</tbody></table>` : ""}
       ${a.rows.length ? `<div class="ga-h">Invoice Payment Record</div><table class="ga-t"><thead><tr><th>Invoice No</th><th>Date</th><th>Due</th><th>Paid On</th><th class="num">Days to Pay</th><th class="num">Days Late</th></tr></thead><tbody>
         ${a.rows.slice(-12).reverse().map((r) => `<tr><td>${esc(r.i.invoice_no)}</td><td>${esc(mdy(r.i.invoice_date))}</td><td>${esc(mdy(r.i.due_date) || "—")}</td><td>${r.paidOn ? esc(mdy(r.paidOn)) : "<b>NOT PAID</b>"}</td><td class="num">${r.days ?? "—"}</td><td class="num">${r.late || ""}</td></tr>`).join("")}</tbody></table>` : ""}
       ${a.pays.length ? `<div class="ga-h">Payments and Gaps</div><table class="ga-t"><thead><tr><th>Date Paid</th><th>Receipt No</th><th class="num">Amount (₱)</th><th class="num">Days Since the Payment Before</th></tr></thead><tbody>
-        ${a.pays.slice(-12).reverse().map((p) => { const k = a.pays.indexOf(p); return `<tr><td>${esc(mdy(p.paid_date))}</td><td>${esc(p.receipt_no || "")}</td><td class="num">${peso(p.amount)}</td><td class="num">${k ? dayDiff(a.pays[k - 1].paid_date, p.paid_date) : "—"}</td></tr>`; }).join("")}</tbody></table>` : ""}`;
+        ${a.pays.slice(-12).map((p, j, last) => { const k = a.pays.length - last.length + j; return `<tr><td>${esc(mdy(p.paid_date))}</td><td>${esc(p.receipt_no || "")}</td><td class="num">${peso(p.amount)}</td><td class="num">${k ? a.gaps[k - 1].gap : "—"}</td></tr>`; }).reverse().join("")}</tbody></table>` : ""}`;
   }
   const summaryText = (a) => `Rating ${a.rating} · invoices ${a.invs.length} · overdue now ${a.overdueNow.length} · average ${a.avgDays ?? "—"} days to pay · ${a.onTime ?? "—"}% on time · balance PHP ${peso(a.bal)}`;
 
@@ -110,7 +112,7 @@
       <div class="ol-sec">ACCOUNT</div>
       <table class="ol-grid"><tbody>${tr2("Name of Customer", esc(fullName(c)))}${tr2("Account No", esc(c.account_no || "—"))}${c.business_name ? tr2("Business Name", esc(c.business_name)) : ""}
         ${tr2("Account Status", esc(String(c.status || "").toUpperCase()))}${tr2("Credit Limit", a.limit != null ? `PHP ${peso(a.limit)}` : "No limit set")}
-        ${tr2("Balance Due Today", `PHP ${peso(Math.max(a.bal, 0))}`)}${tr2("Overdue Invoices", a.overdueNow.length ? `${a.overdueNow.length} · PHP ${peso(a.overdueNow.reduce((t, x) => t + num(x.i.balance), 0))}` : "None")}</tbody></table>
+        ${tr2("Balance Due Today", `PHP ${peso(Math.max(a.bal, 0))}`)}${tr2("Overdue Invoices", a.overdueNow.length ? `${a.overdueNow.length} · PHP ${peso(a.owed)}` : "None")}</tbody></table>
       <div class="ol-sec">PAYMENT RECORD</div>
       <table class="ol-grid"><tbody>${tr2("Rating", esc(a.rating))}${tr2("Invoices / Paid", `${a.invs.length} / ${a.paid.length}`)}${tr2("Average Days to Pay", a.avgDays == null ? "—" : `${a.avgDays} days`)}
         ${tr2("Paid on Time", a.onTime == null ? "—" : `${a.onTime}%${a.late.length ? ` (${a.late.length} late)` : ""}`)}${tr2("Average Gap Between Payments", a.avgGap == null ? "—" : `${a.avgGap} days`)}
@@ -122,8 +124,7 @@
   async function issueGate(c, a, approved = null) {
     await E.loadSignatures().catch(() => {});
     const no = stampNo(c);
-    E.openPreview(`Gate Pass ${no}`, [gatePage(c, no, a, approved)]);
-    sb.rpc("log_customer_document", { p_customer: c.id, p_document: `GATE PASS ${no}`, p_note: approved ? `Cleared by the Director (${approved.order_no})` : `Cleared for delivery · balance PHP ${peso(a.bal)}` }).then(() => {}, () => {});
+    issueDoc(c, "Gate Pass", no, gatePage(c, no, a, approved), approved ? `Cleared by the Director (${approved.order_no})` : `Cleared for delivery · balance PHP ${peso(a.bal)}`);
   }
 
   async function gatePass(c, ctx) {
@@ -150,7 +151,7 @@
       ${analysisHtml(a)}
       ${!a.ok ? (wait ? `<div class="rq-item"><span>${ic("clock")}</span><div><b>Request for Clearance · ${esc(wait.order_no)}</b><small>Sent by ${esc(wait.created_by_name || "")} · waiting for the Director</small></div></div>`
         : `<div class="fields wide" style="margin-top:10px"><label for="gaNote">${isAdmin() ? "Director's note" : "Note for the Director"}</label><textarea id="gaNote" rows="2" maxlength="600" placeholder="e.g. customer promised to pay on Friday; delivery is needed today"></textarea></div>`) : ""}`;
-    const foot = $(".modal-foot, .mfoot, footer", m.el) || $("[data-x]", m.el).parentNode;
+    const foot = $(".wfoot", m.el);
     const add = (html) => { foot.insertAdjacentHTML("beforeend", html); };
     if (a.ok) {
       add(`<button type="button" class="btn primary" data-issue>${ic("print")} Issue Gate Pass</button>`);
@@ -159,8 +160,8 @@
     }
     if (wait && isAdmin()) {
       add(`<button type="button" class="btn danger" data-hold>${ic("x")} Hold for Delivery</button><button type="button" class="btn primary" data-appr>${ic("check")} Approve Clearance</button>`);
-      $("[data-appr]", m.el).onclick = () => { m.close(); decideGate(c, ctx, wait, "approve"); };
-      $("[data-hold]", m.el).onclick = () => { m.close(); decideGate(c, ctx, wait, "reject"); };
+      $("[data-appr]", m.el).onclick = () => { m.close(); decideGate(c, ctx, wait, "approve", a); };
+      $("[data-hold]", m.el).onclick = () => { m.close(); decideGate(c, ctx, wait, "reject", a); };
       return;
     }
     if (wait || !canRequest()) return;
@@ -173,11 +174,8 @@
       if (error) { $$("[data-req],[data-appr],[data-hold]", m.el).forEach((b) => (b.disabled = false)); return fail(error, "Could not send the request"); }
       m.close();
       if (!decide) { toast(`Request for Clearance ${o.order_no} sent to the Director.`); return V.customer(c.id); }
-      const { data: r, error: e2 } = await sb.rpc("review_order_letter", { p_id: o.id, p_action: decide, p_note: note || null });
+      const e2 = await applyDecision(c, a, o, decide, note);
       if (e2) { fail(e2, "Could not record the decision"); return V.customer(c.id); }
-      toast(decide === "approve" ? "Clearance approved." : "HOLD FOR DELIVERY recorded.");
-      await V.customer(c.id);
-      if (decide === "approve") issueGate(c, a, { ...o, ...(r || {}), review_note: note });
     };
     if (isAdmin()) {
       add(`<button type="button" class="btn danger" data-hold>${ic("x")} Hold for Delivery</button><button type="button" class="btn primary" data-appr>${ic("check")} Approve Clearance &amp; Issue</button>`);
@@ -189,8 +187,16 @@
     }
   }
   // The Director decides a Request for Clearance (from the profile or the gate pass window): a note, then approve / hold
-  function decideGate(c, ctx, o, action) {
-    const a = analyse(c, ctx);
+  // The decision on a Request for Clearance; approved = the gate pass prints. Gives back the error, if any.
+  async function applyDecision(c, a, o, action, note) {
+    const { data: r, error } = await sb.rpc("review_order_letter", { p_id: o.id, p_action: action, p_note: note || null });
+    if (error) return error;
+    toast(action === "approve" ? "Clearance approved." : "HOLD FOR DELIVERY recorded.");
+    await V.customer(c.id);
+    if (action === "approve") issueGate(c, a, { ...o, ...(r || {}), review_note: note });
+    return null;
+  }
+  function decideGate(c, ctx, o, action, a = analyse(c, ctx)) {
     const m = E.modal(`${action === "approve" ? "Approve Clearance" : "Hold for Delivery"} — ${o.order_no}`, `
       <div class="gp-verdict ${action === "approve" ? "ok" : "no"}"><span>${ic(action === "approve" ? "check" : "x")}</span><div><b>${action === "approve" ? "APPROVE: CLEAR THE DELIVERY" : "REJECT: HOLD FOR DELIVERY"}</b>
         <small>Asked by ${esc(o.created_by_name || "")} on ${esc(mdy(o.order_date))}${o.details ? " · " + esc(o.details.split("\n")[0]) : ""}</small></div></div>
@@ -202,12 +208,10 @@
     $("[data-ok]", m.el).onclick = async (e) => {
       const note = $("#gdNote", m.el).value.trim();
       if (action === "reject" && !note) { $("#gdNote", m.el).focus(); return toast("Write why the delivery is on hold.", true); }
-      e.currentTarget.disabled = true;
-      const { data: r, error } = await sb.rpc("review_order_letter", { p_id: o.id, p_action: action, p_note: note || null });
-      if (error) { e.currentTarget.disabled = false; return fail(error, "Could not record the decision"); }
-      m.close(); toast(action === "approve" ? "Clearance approved." : "HOLD FOR DELIVERY recorded.");
-      await V.customer(c.id);
-      if (action === "approve") issueGate(c, a, { ...o, ...(r || {}), review_note: note });
+      const btn = e.currentTarget; btn.disabled = true;
+      m.close();
+      const error = await applyDecision(c, a, o, action, note);
+      if (error) fail(error, "Could not record the decision");
     };
   }
   // The Gate Pass history of the customer: every Request for Clearance (waiting / approved / on hold) and every gate pass issued
@@ -219,17 +223,19 @@
       ...(events || []).filter((e) => /^GATE PASS GP-/.test(e.note || "")).map((e) => ({ at: e.created_at, no: (e.note.match(/GP-\S+/) || [""])[0], what: "Gate Pass Issued", by: e.actor_name || "", st: "ISSUED · CLEAR", tone: "approved", note: e.note.replace(/^GATE PASS \S+\s*·?\s*/, "") }))
     ].sort((x, y) => String(y.at).localeCompare(String(x.at)));
   }
+  // the History tab line of an approved Request for Clearance (the server writes it as "other by <request no>")
+  const gateEventLabel = (ev) => (/^other by /i.test(ev.action) && String(ev.note || "").startsWith(GATE) ? `GATE PASS CLEARANCE APPROVED (${ev.action.replace(/^other by /i, "")})` : null);
   function gateHistoryHtml(orders, events) {
     const rows = gateHistoryRows(orders, events);
     if (!rows.length) return `<div class="empty">No gate pass or request for clearance yet.</div>`;
     return `<table class="grid"><thead><tr><th>Date / Time</th><th>No</th><th>Type</th><th>Status</th><th>Note</th><th>By</th></tr></thead><tbody>
-      ${rows.map((r) => `<tr><td>${esc(E.dateTime(r.at))}</td><td>${esc(r.no)}</td><td>${esc(r.what)}</td><td><span class="pill ${r.tone}">${esc(r.st)}</span></td><td>${esc(r.note)}</td><td>${esc(r.by)}</td></tr>`).join("")}</tbody></table>`;
+      ${rows.map((r) => `<tr><td>${esc(E.dateTime(r.at))}</td><td>${esc(r.no)}</td><td>${esc(r.what)}</td><td>${E.pill(r.tone, r.st)}</td><td>${esc(r.note)}</td><td>${esc(r.by)}</td></tr>`).join("")}</tbody></table>`;
   }
 
   // ======================================================================
   // REQUEST menu on the customer profile
   // ======================================================================
-  const docNo = (pre, c) => { const d = new Date(), p2 = (n) => String(n).padStart(2, "0"); return `${pre}-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${c.account_no || c.application_no}`; };
+  const docNo = (pre, c) => `${pre}-${isoToday().replace(/-/g, "")}-${c.account_no || c.application_no}`;
   const php2 = (n) => `PHP ${peso(n)}`;
   const para = (t) => esc(t).replace(/\n/g, "<br>");
   // the status requests: what it is called, who it is for, and what the account becomes
@@ -272,7 +278,7 @@
   }
   function closurePage(c, ctx, no, ord) {
     const bal = num(ctx.b?.balance_due);
-    const when = ord?.applied_at ? mdy(E.isoDay(new Date(ord.applied_at))) : ord?.order_date ? mdy(ord.order_date) : "";
+    const when = ord?.applied_at ? mdy(ord.applied_at) : ord?.order_date ? mdy(ord.order_date) : "";
     return `${E.printHead("CERTIFICATE OF ACCOUNT CLOSURE", codes(c, no))}
       <div class="cert-no"><span>Certificate No: <b>${esc(no)}</b></span><span>Date Issued: <b>${esc(mdy(isoToday()))}</b></span></div>
       <p class="cert-to">TO WHOM IT MAY CONCERN:</p>
@@ -419,5 +425,5 @@
     location.replace(data?.customer_id ? "#customer/" + data.customer_id : "#dashboard");
   };
 
-  Object.assign(E, { gatePass, gateCheck, customerRequest, requestsHtml, bindRequests, gateHistoryHtml, isGateRequest: isGate });
+  Object.assign(E, { gatePass, gateCheck, customerRequest, requestsHtml, bindRequests, gateHistoryHtml, gateHistoryRows, gateEventLabel });
 })();

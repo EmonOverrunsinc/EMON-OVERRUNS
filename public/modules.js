@@ -857,15 +857,16 @@
     const canPay = ["active", "suspended", "closed"].includes(c.status) && (E.canWrite("payments") || E.canWrite("invoices"));
     const canMemo = ["active", "suspended"].includes(c.status) && E.canWrite("creditmemos");
     const history = [
-      ...(ev.data || []).map((r) => ({ src: "event", id: r.id, at: r.created_at, action: /^other by /i.test(r.action) && /^Gate Pass Clearance/.test(r.note || "") ? `GATE PASS CLEARANCE APPROVED (${r.action.replace(/^other by /i, "")})` : r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
+      ...(ev.data || []).map((r) => ({ src: "event", id: r.id, at: r.created_at, action: E.gateEventLabel?.(r) || r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
       ...(chg.data || []).map((r) => ({ src: "change", id: r.id, ...(r.action === "correction" ? { at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }
         : r.action === "edited" || r.action === "correction approved" ? { at: r.created_at, action: r.action === "edited" ? "EDITED BY DIRECTOR" : `CORRECTION APPROVED BY DIRECTOR${r.request_no ? " (" + r.request_no + ")" : ""}`,
           by: r.actor_name || "", note: `${Object.keys(r.changes || {}).map((k) => fieldLabel("customers", k)).join(", ")}${r.requested_by_name ? ` · asked by ${r.requested_by_name}` : ""}` }
         : { at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.action === "file removed" ? r.previous?.file || "" : changeText(r) }) }))
     ].sort((x, y) => String(x.at).localeCompare(String(y.at)));
     const overdue = (invs.data || []).filter(isOverdue).sort((x, y) => String(x.due_date).localeCompare(String(y.due_date)));
-    const rets = (memos.data || []).filter((m) => m.is_return), cms = (memos.data || []).filter((m) => !m.is_return);
-    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${cms.length})`, `Documents (${att.length})`, "History", `Overdue (${overdue.length})`, `Returns (${rets.length})`, `Gate Pass (${(orders || []).filter((o) => E.isGateRequest?.(o)).length + (ev.data || []).filter((e) => /^GATE PASS GP-/.test(e.note || "")).length})`];
+    const rets = [], cms = [];
+    for (const m of memos.data || []) (m.is_return ? rets : cms).push(m);
+    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${cms.length})`, `Documents (${att.length})`, "History", `Overdue (${overdue.length})`, `Returns (${rets.length})`, `Gate Pass (${E.gateHistoryRows ? E.gateHistoryRows(orders, ev.data || []).length : 0})`];
     $(".band h1").textContent = `Customer — ${fullName(c)}`;
     $("#main").innerHTML = `
       ${statusBanner(c)}
@@ -1280,7 +1281,7 @@
   // linked to an invoice pays the oldest invoices first by itself)
   const isOverdue = (r) => r.pay_status !== "paid" && num(r.balance) > 0.004 && r.due_date && r.due_date < isoToday();
   const daysOver = (r) => Math.max(0, Math.floor((new Date(isoToday() + "T00:00:00") - new Date(r.due_date + "T00:00:00")) / 86400000));
-  const payPill = (r) => `${pill(r.pay_status)}${isOverdue(r) ? ` <span class="pill overdue">OVERDUE</span>` : ""}`;
+  const payPill = (r) => `${pill(r.pay_status)}${isOverdue(r) ? ` ${pill("overdue")}` : ""}`;
   const INV_COLS = [
     { label: "Invoice No", get: (r) => r.invoice_no }, { label: "Date", get: (r) => mdy(r.invoice_date) },
     { label: "Terms", get: (r) => r.payment_terms || "" }, { label: "Due Date", get: (r) => mdy(r.due_date) },
@@ -1550,7 +1551,7 @@
     // 3.14: a return or credit memo taken off this invoice: the invoice shows what was taken off and the corrected amount
     const fix = deds.length ? box("Corrected Invoice", `<table class="ptl"><thead><tr><th>Taken Off By</th><th>Date</th><th>Type</th><th class="num">Amount (₱)</th></tr></thead><tbody>
         <tr><td colspan="3"><b>Original Invoice Amount</b></td><td class="num"><b>${peso(inv.total_amount)}</b></td></tr>
-        ${deds.map((m) => `<tr><td>${esc(m.memo_no || "")}</td><td>${esc(mdy(m.approved_at ? isoDay(new Date(m.approved_at)) : m.memo_date))}</td><td>${m.is_return ? "RETURN" : m.requested_action === "discount" ? "DISCOUNT" : "CREDIT MEMO"}</td><td class="num">− ${peso(m.request_amount)}</td></tr>`).join("")}
+        ${deds.map((m) => `<tr><td>${esc(m.memo_no || "")}</td><td>${esc(mdy(m.approved_at || m.memo_date))}</td><td>${m.is_return ? "RETURN" : m.requested_action === "discount" ? "DISCOUNT" : "CREDIT MEMO"}</td><td class="num">− ${peso(m.request_amount)}</td></tr>`).join("")}
         <tr><td colspan="3"><b>Corrected Invoice Amount</b></td><td class="num"><b>${peso(corrected)}</b></td></tr></tbody></table>
         <div class="pcell"><div class="pl">Corrected Amount in Words</div><div class="pv words">${esc(words(corrected))}</div></div>`) : "";
     return `${printHead(deds.length ? "INVOICE (CORRECTED)" : "INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
@@ -1700,14 +1701,15 @@
   ];
   // 3.13: the customer's Overdue, Returns and Credit Memo histories (screen and print); text: the status in words for the print
   const memoState = (m) => (m.status === "pending" ? "WAITING FOR APPROVAL" : m.status === "rejected" ? "REJECTED" : m.status === "paid" ? "PAID" : "APPROVED");
+  const MEMO_STATUS_COL = { label: "Status", html: (r) => pill(r.status === "pending" ? "pending" : r.status === "rejected" ? "rejected" : "approved", memoState(r)), text: memoState };
   const OD_HIST = [{ label: "Invoice No", get: (r) => r.invoice_no }, { label: "Invoice Date", get: (r) => mdy(r.invoice_date) }, { label: "Due Date", get: (r) => mdy(r.due_date) },
     { label: "Days Overdue", num: true, get: (r) => String(daysOver(r)) }, { label: "Amount (₱)", num: true, get: (r) => peso(r.total_amount) }, { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) }];
   const RET_HIST = [{ label: "Date", get: (r) => mdy(r.memo_date) }, { label: "Return No", get: (r) => r.memo_no }, { label: "Invoice No", get: (r) => r.po_number || "" },
     { label: "Qty Box", num: true, get: (r) => String(retLines(r).reduce((t, l) => t + num(l.boxes), 0)) }, { label: "Total Amount (₱)", num: true, get: (r) => peso(r.request_amount) },
-    { label: "Status", html: (r) => pill(r.status === "pending" ? "pending" : r.status === "rejected" ? "rejected" : "approved", memoState(r)), text: memoState }];
+    MEMO_STATUS_COL];
   const CM_HIST = [{ label: "Date", get: (r) => mdy(r.memo_date) }, { label: "Report No", get: (r) => r.memo_no }, { label: "Request", get: (r) => ACTION[r.requested_action] || "" },
     { label: "Invoice No", get: (r) => r.po_number || "" }, { label: "Amount (₱)", num: true, get: (r) => peso(r.request_amount) },
-    { label: "Status", html: (r) => pill(r.status === "pending" ? "pending" : r.status === "rejected" ? "rejected" : "approved", memoState(r)), text: memoState }];
+    MEMO_STATUS_COL];
   V.creditmemos = async () => {
     E.shell("creditmemos", "Credit Memo", `${E.eoTabs("creditmemos")}
       <div class="btnrow">${E.canWrite("creditmemos") ? `<a class="btn primary" href="#newcreditmemo">+ New Credit Memo</a>` : ""}</div><div id="cmRes">${busy()}</div>`,

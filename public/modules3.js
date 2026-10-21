@@ -153,8 +153,8 @@
       m.close();
       toast(admin ? "Saved — the record shows the new details." : `Correction ${data.request_no} sent to the ${boss} for approval. You will be told when it is approved.`);
       // 3.11: the customer's Update Information request prints the update form after the page is drawn again
-      if (opts.onSaved) { if (reload) await reload(); opts.onSaved({ req: data, changes, previous: row, atOnce: admin }); }
-      else if (reload) reload();
+      if (reload) await reload();
+      opts.onSaved?.({ req: data, changes, previous: row, atOnce: admin });
     };
   }
   // The Director deletes a record permanently, with its files. Nothing of it is shown afterwards.
