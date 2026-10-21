@@ -878,7 +878,7 @@
         <div class="ch-pic"><div class="ch-photo">${photoUrl ? `<img src="${esc(photoUrl)}" alt="Photo of ${esc(fullName(c))}">` : `<span>${esc(((c.first_name || "")[0] || "") + ((c.last_name || "")[0] || ""))}</span>`}</div>
           ${E.canWrite("customers") ? `<div class="ch-pic-tools"><label class="linkbtn" for="pfPhotoFile">${c.photo_path ? "Change" : "Add Photo"}</label><input type="file" id="pfPhotoFile" accept="image/*" hidden>${c.photo_path ? `<button type="button" class="linkbtn del" id="pfPhotoDel">Remove</button>` : ""}</div>` : ""}</div>
         <div class="ch-main">
-          <div class="ch-name"><h2>${esc(fullName(c))}</h2>${pill(c.status)}</div>
+          <div class="ch-name"><h2>${esc(fullName(c))}</h2>${pill(c.status)}${isApprovedAccount(c) && isStaff() ? `<span id="pfStanding"></span>` : ""}</div>
           <div class="ch-sub">${[c.business_name, c.phone, c.email].filter(Boolean).map(esc).join(" · ") || "—"}</div>
           <div class="ch-ids">
             ${idBox("Account No", c.account_no)}${idBox("Application No", c.application_no)}${idBox("Opened", mdy(c.application_date))}${c.credit_limit != null ? idBox("Credit Limit", "₱ " + peso(c.credit_limit)) : ""}
@@ -978,6 +978,7 @@
     const gctx = { b, invs: invs.data || [], pays: pays.data || [], memos: memos.data || [], orders };
     if ($("#pfRequest")) $("#pfRequest").onclick = () => E.customerRequest(c, gctx);
     E.bindRequests(c, orders, gctx);
+    E.standingBadge($("#pfStanding"), c, gctx);
     // 3.12: the Director deletes a history line
     $$("[data-hdel]").forEach((b) => (b.onclick = async () => {
       const [src, hid] = b.dataset.hdel.split(":");
@@ -1746,10 +1747,11 @@
             </div>
             <div class="fields wide">
               <label for="cmBatch">Batch Number</label><input type="text" id="cmBatch">
-              <label for="cmSerial">Serial Number</label><input type="text" id="cmSerial">
               <label for="cmQty">Qty</label><input type="number" id="cmQty" min="0" step="1" value="0">
               <label for="cmPDate">Purchase Date</label><input type="date" id="cmPDate">
             </div></div></fieldset>
+          <fieldset class="opt"><legend>Serial No of Issue Boxes (up to ${SN_MAX})</legend>
+            <div class="sn-grid">${Array.from({ length: SN_MAX }, (_, i) => `<label><small>Box ${i + 1}</small><input type="text" class="cm-sn" maxlength="40" aria-label="Serial No of box ${i + 1}"></label>`).join("")}</div></fieldset>
           <fieldset class="opt"><legend>Defect Parameters &amp; Customer Request</legend><div class="formgrid">
             <div><b>Defect Category</b>${Object.entries(DEFECT).map(([k, v], i) => `<label class="rline"><input type="radio" name="cmDef" value="${k}" ${i ? "" : "checked"}> ${v}</label>`).join("")}
               <div class="fields wide"><label for="cmDefD">Details</label><input type="text" id="cmDefD" placeholder="e.g. DOMINANT 60% GREEN"></div></div>
@@ -1785,7 +1787,7 @@
       E.setBusy(e.target, true, "Submitting");
       const { data: m, error } = await sb.from("credit_memos").insert({
         customer_id: cust.id, memo_date: v("cmDate") || isoToday(), payment_ref: v("cmPay") || null, po_number: v("cmPo") || null,
-        article: v("cmArt") || null, brand: v("cmBrand") || null, style: v("cmStyle") || null, batch_no: v("cmBatch") || null, serial_no: v("cmSerial") || null,
+        article: v("cmArt") || null, brand: v("cmBrand") || null, style: v("cmStyle") || null, batch_no: v("cmBatch") || null, serial_no: $$(".cm-sn").map((x) => x.value.trim().replace(/,/g, " ")).filter(Boolean).join(", ") || null,
         qty: Math.max(0, Math.floor(num(v("cmQty")))), purchase_date: v("cmPDate") || null,
         defect_category: $("input[name=cmDef]:checked").value, defect_detail: v("cmDefD") || null,
         requested_action: $("input[name=cmAct]:checked").value, rate: num(v("cmRate")), request_amount: num(v("cmAmt")),
@@ -1881,15 +1883,20 @@
   }
   // A credit memo the Director approved is printed with the Director's signature on "Approval Signature".
   const memoApproved = (m) => ["approved", "paid"].includes(m.status) && !!(m.approved_by || m.approved_by_name);
+  // 3.18: the serial numbers of the issue boxes (up to SN_MAX) are kept in serial_no, separated by commas
+  const SN_MAX = 20;
+  const serialsOf = (m) => String(m.serial_no || "").split(/\s*,\s*/).filter(Boolean);
   function memoPage(m) {
     const c = m.customers;
     const sign = memoApproved(m) ? approvedBy(m.approved_by, m.approved_by_name, m.approved_at) : null;
+    const sns = serialsOf(m);
     const tick = (on, label) => `<div class="cx-tick"><span class="qc-box${on ? " on" : ""}"></span>${esc(label)}</div>`;
     const ticks = (map, key, text) => Object.entries(map).map(([k, v]) => tick(key === k, key === k ? text(k, v) : v)).join("");
     return `${printHead("CREDIT MEMO", `<img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt="" class="ph-bar"><div class="mono">${esc(m.memo_no)}</div>`)}
       ${cxTop([["Memo Date", mdy(m.memo_date)], ["Credit Memo No", m.memo_no], ["Purchase Date", mdy(m.purchase_date)]])}
       ${cxSec("Customer")}${cxKv([["Customer Name", fullName(c).toUpperCase()], ["Account No", c.account_no], ["Purchase Order", m.po_number], ["Payment Reference", m.payment_ref]])}
-      ${cxSec("Goods")}${cxKv([["Article", m.article], ["Brand", m.brand], ["Style", m.style], ["Batch No", m.batch_no], ["Serial No", m.serial_no], ["Qty", m.qty]])}
+      ${cxSec("Goods")}${cxKv([["Article", m.article], ["Brand", m.brand], ["Style", m.style], ["Batch No", m.batch_no], ["Qty", m.qty]])}
+      ${sns.length ? `${cxSec("Issue Boxes · Serial No", `${sns.length} box${sns.length === 1 ? "" : "es"}`)}<div class="cx-sn">${Array.from({ length: Math.ceil(sns.length / 5) * 5 }, (_, i) => `<div><small>${i + 1}</small><b>${val(sns[i])}</b></div>`).join("")}</div>` : ""}
       ${cxSec("Customer Complaint")}
       <div class="cx-ticks"><div><small>Defect</small>${ticks(DEFECT, m.defect_category, (k, v) => (m.defect_detail ? `${v}: ${m.defect_detail}`.toUpperCase() : v))}</div>
         <div><small>Customer Request</small>${ticks(ACTION, m.requested_action, (k, v) => (k === "discount" && m.rate > 0 ? `${v} ${peso(m.rate)} PHP` : v))}</div></div>

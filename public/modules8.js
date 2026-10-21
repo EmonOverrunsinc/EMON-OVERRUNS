@@ -446,5 +446,16 @@
     location.replace(data?.customer_id ? "#customer/" + data.customer_id : "#dashboard");
   };
 
-  Object.assign(E, { gatePass, gateCheck, customerRequest, requestsHtml, bindRequests, gateHistoryHtml, gateHistoryRows, gateEventLabel });
+  // 3.18: the account standing next to the customer's name: TRUSTED CUSTOMER (passes every trusted check), NEW ACCOUNT
+  // (with us less than TRUST.months) or REGULAR CUSTOMER. A click shows the full record and the trusted checks.
+  function standingBadge(el, c, ctx) {
+    if (!el) return;
+    const a = analyse(c, ctx);
+    const [kind, label] = a.trusted ? ["trusted", "TRUSTED CUSTOMER"] : a.months < TRUST.months ? ["new", "NEW ACCOUNT"] : ["regular", "REGULAR CUSTOMER"];
+    const sinceTxt = `since ${mdy(a.since)} · ${a.months} month${a.months === 1 ? "" : "s"}`;
+    el.innerHTML = `<button type="button" class="stand ${kind}" title="${esc(sinceTxt)} · ${esc(a.rating)}">${ic(kind === "trusted" ? "shield" : kind === "new" ? "plus" : "user")}<b>${label}</b><small>${esc(a.rating)}</small></button>`;
+    $("button", el).onclick = () => E.modal(`${label} · ${fullName(c)}`, `<p class="stand-since">Business with us ${esc(sinceTxt)}</p>${analysisHtml(a)}`, "", { wide: true });
+  }
+
+  Object.assign(E, { gatePass, standingBadge, gateCheck, customerRequest, requestsHtml, bindRequests, gateHistoryHtml, gateHistoryRows, gateEventLabel });
 })();

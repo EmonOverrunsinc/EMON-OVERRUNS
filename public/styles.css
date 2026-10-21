@@ -2187,3 +2187,24 @@ table.ga-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .ga-trust li.ok b { color: #1e9e4a; }
 .ga-trust li.no b { color: #c41e3a; }
 .ga-trust small { color: var(--ink-soft); }
+/* 3.18 account standing badge next to the customer's name */
+.stand { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px 4px 8px; border-radius: 999px; border: 1px solid; cursor: pointer; font: inherit; line-height: 1.1; }
+.stand .ic { width: 15px; height: 15px; }
+.stand b { font-size: 11.5px; letter-spacing: .06em; }
+.stand small { font-size: 10.5px; opacity: .8; padding-left: 6px; border-left: 1px solid currentColor; }
+.stand.trusted { background: #e8f6ec; border-color: #9fd3ad; color: #156a32; }
+.stand.new { background: #e9f1fd; border-color: #a9c4ef; color: #1f4fa3; }
+.stand.regular { background: #f2f2f4; border-color: #d2d2d8; color: #3a3a40; }
+.stand:hover { filter: brightness(.97); }
+.stand-since { margin: 0 0 10px; color: var(--ink-soft); }
+@media (max-width: 560px) { .stand small { display: none; } }
+/* 3.18 credit memo: serial no of up to 20 issue boxes */
+.sn-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.sn-grid label { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.sn-grid small { font-size: 11px; color: var(--ink-soft); }
+.sn-grid input { width: 100%; min-width: 0; }
+@media (max-width: 560px) { .sn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.page .cx-sn { display: grid; grid-template-columns: repeat(5, 1fr); margin: 3mm 2mm 0; border-top: 1px solid var(--doc-line); border-left: 1px solid var(--doc-line); }
+.page .cx-sn > div { display: flex; align-items: baseline; gap: 5px; padding: 4px 6px; border-right: 1px solid var(--doc-line); border-bottom: 1px solid var(--doc-line); min-width: 0; }
+.page .cx-sn small { font-size: 8px; color: #777; min-width: 3.5mm; }
+.page .cx-sn b { font-size: 10.5px; font-weight: 600; word-break: break-all; }
