@@ -2212,3 +2212,8 @@ table.ga-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .page:has(.cx-sn) .cx-tick { margin-bottom: 1.3mm; }
 .page:has(.cx-sn) .cx-amt > div { padding: 2mm 4mm; }
 .page:has(.cx-sn) .cx-sn > div { padding: 3px 6px; }
+/* 3.19 credit memo: settle by */
+.page .cx-ticks .cx-sub { margin-top: 2.5mm; }
+.page .cx-amt .cx-how { display: block; margin-top: 2mm; font-size: 9.5px; color: #333; font-style: italic; }
+#cmSettle { margin-top: 10px; }
+#cmSetNote { display: block; color: var(--ink-soft); margin-top: 2px; }

@@ -10,6 +10,11 @@
   const METHOD = { cash: "Cash", bank_transfer: "Bank Transfer", online_transfer: "Online Transfer", deposit: "Bank Deposit" };
   const DEFECT = { fabric_damage: "Fabric Damage (Tears, Holes)", color_issue: "Color Issue", wrong_box: "Wrong Box Delivered", wrong_bundle: "Wrong Bundle", other: "Other" };
   const ACTION = { replacement: "Replacement / Exchange", refund: "Full Refund Transfer", credit: "Credit", discount: "Discount" };
+  // 3.19: how the money goes back to the customer. Only an ACCOUNT CREDIT is taken off the balance (credit_memos.off_balance);
+  // BANK TRANSFER and CASH are handed back like a refund. Old memos (no choice saved) are account credit.
+  const SETTLE = { account_credit: "Account Credit", bank_transfer: "Bank Transfer", cash: "Cash" };
+  const settleOf = (m) => (m.requested_action === "replacement" ? null : m.settle_by || (m.requested_action === "refund" ? null : "account_credit"));
+  const offBalance = (m) => ["credit", "discount"].includes(m.requested_action) && (m.settle_by || "account_credit") === "account_credit";
   // The customer's QR code is the Public ID key itself, like a crypto wallet address.
   const custQr = (c) => c.public_id || c.account_no;
   const cleanQ = (q) => String(q || "").replace(/[,%()*\\]/g, " ").trim();
@@ -1120,7 +1125,7 @@
       t.push({ date: isoDay(new Date(o.applied_at)), ref: o.order_no, desc: o.subject_type === "charge" ? "ADDITIONAL CHARGE" : "SETTLEMENT ADJUSTMENT", debit: off ? 0 : num(o.amount), credit: off ? num(o.amount) : 0 });
     });
     pays.forEach((p) => t.push({ date: p.paid_date, ref: p.receipt_no, desc: "PAYMENT RECEIVED", debit: 0, credit: num(p.amount), pay: p }));
-    memos.filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action) && m.approved_at)
+    memos.filter((m) => ["approved", "paid"].includes(m.status) && offBalance(m) && m.approved_at)
       .forEach((m) => t.push({ date: isoDay(new Date(m.approved_at)), ref: m.memo_no, desc: m.is_return ? `RETURN${m.po_number ? " · " + m.po_number : ""}` : m.requested_action === "discount" ? "DISCOUNT" : "CREDIT MEMO", debit: 0, credit: num(m.request_amount) }));
     return t.sort((a, b) => a.date.localeCompare(b.date) || (b.debit - a.debit));
   }
@@ -1421,7 +1426,7 @@
     if (!inv) { $("#main").innerHTML = `<div class="empty">Invoice not found. <a href="#invoices">Back to Invoices</a></div>`; return; }
     const rets = (rt.data || []).filter((m) => m.is_return);
     // 3.14: what was taken off this invoice: approved returns and credit / discount memos of this invoice
-    const deds = (rt.data || []).filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action));
+    const deds = (rt.data || []).filter((m) => ["approved", "paid"].includes(m.status) && offBalance(m));
     const linksOn = !lk.error, links = lk.data || [], active = links.filter((l) => !l.removed_at);
     const canReturn = E.canWrite("invoices") || E.canWrite("creditmemos");
     const canLink = linksOn && (E.canWrite("payments") || E.canWrite("invoices"));
@@ -1759,7 +1764,9 @@
             <div><b>Requested Action</b>${Object.entries(ACTION).map(([k, v]) => `<label class="rline"><input type="radio" name="cmAct" value="${k}" ${k === "discount" ? "checked" : ""}> ${v}</label>`).join("")}
               <div class="fields wide"><label for="cmRate">Rate per pc (₱)</label><input type="number" id="cmRate" min="0" step="0.01" value="0">
               <label for="cmAmt">Requested Amount (₱)</label><input type="number" id="cmAmt" min="0" step="0.01" value="0"></div>
-              <small id="cmCalc"></small></div></div></fieldset>
+              <small id="cmCalc"></small>
+              <div id="cmSettle"><b>Settle By</b> <small>(how the money goes back to the customer)</small>${Object.entries(SETTLE).map(([k, v]) => `<label class="rline"><input type="radio" name="cmSet" value="${k}" ${k === "account_credit" ? "checked" : ""}> ${v}</label>`).join("")}
+                <small id="cmSetNote"></small></div></div></div></fieldset>
           <fieldset class="opt"><legend>Warehouse Verification (Internal Office Use)</legend><div class="fields wide">
             <label for="cmAssign">Assigned By</label><input type="text" id="cmAssign" value="${esc(myName())}">
             <label for="cmNotes">Inspection Notes</label><textarea id="cmNotes" rows="3" placeholder="e.g. PROOF OF VIDEO 60% GREEN SUBMITTED"></textarea>
@@ -1780,6 +1787,16 @@
       if (r > 0) { $("#cmAmt").value = (q * r).toFixed(2); $("#cmCalc").textContent = `${q} × ₱${peso(r)} = ₱${peso(q * r)}`; } else $("#cmCalc").textContent = "";
     };
     $("#cmQty").oninput = calc; $("#cmRate").oninput = calc;
+    // Settle By: none for a replacement; a refund is always handed back (no account credit)
+    const settleUi = () => {
+      const act = $("input[name=cmAct]:checked").value, acc = $("input[name=cmSet][value=account_credit]");
+      $("#cmSettle").hidden = act === "replacement";
+      acc.closest("label").hidden = act === "refund";
+      if (act === "refund" && acc.checked) $("input[name=cmSet][value=bank_transfer]").checked = true;
+      const set = $("input[name=cmSet]:checked").value;
+      $("#cmSetNote").textContent = set === "account_credit" ? "Once approved, the amount is taken off the customer's balance." : `Once approved, the amount is given back to the customer by ${SETTLE[set].toLowerCase()}; the balance does not change.`;
+    };
+    $$("input[name=cmAct], input[name=cmSet]").forEach((x) => (x.onchange = settleUi)); settleUi();
     $("#cmCancel").onclick = () => history.back();
     $("#cmForm").onsubmit = async (e) => {
       e.preventDefault();
@@ -1792,6 +1809,7 @@
         qty: Math.max(0, Math.floor(num(v("cmQty")))), purchase_date: v("cmPDate") || null,
         defect_category: $("input[name=cmDef]:checked").value, defect_detail: v("cmDefD") || null,
         requested_action: $("input[name=cmAct]:checked").value, rate: num(v("cmRate")), request_amount: num(v("cmAmt")),
+        settle_by: $("#cmSettle").hidden ? null : $("input[name=cmSet]:checked").value,
         assigned_by: v("cmAssign") || null, inspection_notes: v("cmNotes") || null, factory_status: v("cmFactory") || null
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the credit memo"); }
@@ -1818,6 +1836,7 @@
         <span>Defect</span><span>${esc(DEFECT[m.defect_category])}${m.defect_detail ? " — " + esc(m.defect_detail) : ""}</span>
         <span>Request</span><span>${m.is_return ? `Return of invoice ${m.invoice_id ? `<a href="#invoice/${m.invoice_id}">${esc(m.po_number || "")}</a>` : esc(m.po_number || "")}` : esc(ACTION[m.requested_action])}${m.rate > 0 ? ` (₱${peso(m.rate)} / pc)` : ""}</span>
         <span>Requested Amount</span><b>₱ ${peso(m.request_amount)}</b>
+        ${settleOf(m) ? `<span>Settle By</span><span><b>${esc(SETTLE[settleOf(m)].toUpperCase())}</b> · ${offBalance(m) ? "taken off the customer's balance" : "given back to the customer; the balance does not change"}</span>` : ""}
         <span>Assigned By</span><span>${esc(m.assigned_by || "—")}</span><span>Inspection Notes</span><span>${esc(m.inspection_notes || "—")}</span>
         <span>Factory Status</span><span>${esc(m.factory_status || "—")}</span>
         <span>Approved By</span><span>${esc(m.approved_by_name || "—")} ${m.approved_at ? mdy(m.approved_at) : ""}</span>
@@ -1890,7 +1909,7 @@
   function memoPage(m) {
     const c = m.customers;
     const sign = memoApproved(m) ? approvedBy(m.approved_by, m.approved_by_name, m.approved_at) : null;
-    const sns = serialsOf(m);
+    const sns = serialsOf(m), set = settleOf(m);
     const tick = (on, label) => `<div class="cx-tick"><span class="qc-box${on ? " on" : ""}"></span>${esc(label)}</div>`;
     const ticks = (map, key, text) => Object.entries(map).map(([k, v]) => tick(key === k, key === k ? text(k, v) : v)).join("");
     return `${printHead("CREDIT MEMO", `<img src="${E.pdf417DataUrl("EMONCM|" + m.memo_no)}" alt="" class="ph-bar"><div class="mono">${esc(m.memo_no)}</div>`)}
@@ -1900,9 +1919,11 @@
       ${sns.length ? `${cxSec("Issue Boxes · Serial No", `${sns.length} box${sns.length === 1 ? "" : "es"}`)}<div class="cx-sn">${Array.from({ length: Math.ceil(sns.length / 5) * 5 }, (_, i) => `<div><small>${i + 1}</small><b>${val(sns[i])}</b></div>`).join("")}</div>` : ""}
       ${cxSec("Customer Complaint")}
       <div class="cx-ticks"><div><small>Defect</small>${ticks(DEFECT, m.defect_category, (k, v) => (m.defect_detail ? `${v}: ${m.defect_detail}`.toUpperCase() : v))}</div>
-        <div><small>Customer Request</small>${ticks(ACTION, m.requested_action, (k, v) => (k === "discount" && m.rate > 0 ? `${v} ${peso(m.rate)} PHP` : v))}</div></div>
+        <div><small>Customer Request</small>${ticks(ACTION, m.requested_action, (k, v) => (k === "discount" && m.rate > 0 ? `${v} ${peso(m.rate)} PHP` : v))}
+          ${set ? `<small class="cx-sub">Settle By</small>${ticks(SETTLE, set, (k, v) => v)}` : ""}</div></div>
       <div class="cx-amt"><div><small>Credit Amount (PHP)</small><b>${esc(peso(m.request_amount))}</b>${m.rate > 0 ? `<span>${esc(`${m.qty} × ${peso(m.rate)}`)}</span>` : ""}</div>
-        <div><small>Amount in Words</small><span class="words">${esc(words(m.request_amount))}</span></div></div>
+        <div><small>Amount in Words</small><span class="words">${esc(words(m.request_amount))}</span>
+          ${set ? `<span class="cx-how">${offBalance(m) ? "Taken off the customer's balance (account credit)." : `Given back to the customer by ${esc(SETTLE[set].toLowerCase())}; the balance does not change.`}</span>` : ""}</div></div>
       ${cxSec("Warehouse Check", "Office use only")}${cxKv([["Assigned By", m.assigned_by], ["Status", (m.factory_status || "").toUpperCase()], ["Inspection Notes", m.inspection_notes, "wide"]])}
       ${sigs("Customer Signature &nbsp; Date: ____________", sign ? "Approval Signature" : "Approval Signature &nbsp; Date: ____________", sign)}`;
   }
