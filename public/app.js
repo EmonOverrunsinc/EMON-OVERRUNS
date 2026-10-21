@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.9";
+  const VERSION = "3.10";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.9.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.10.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -792,7 +792,7 @@
   const EO_MODULES = ["eooffice", "creditmemos", "projects", "employees"];
   // Which menu item (module) each page belongs to; pages a user has no access to are blocked.
   const MODULE_OF = {
-    customers: "customers", newcustomer: "customers", customer: "customers", statements: "customers",
+    customers: "customers", newcustomer: "customers", customer: "customers", statements: "customers", order: "customers",
     invoices: "invoices", newinvoice: "invoices", invoice: "invoices",
     // 2.9: staff who record invoices also record payments (the server allows both)
     payments: ["payments", "invoices"], newpayment: ["payments", "invoices"], payment: ["payments", "invoices"],
@@ -817,7 +817,7 @@
   ];
   const ACTIVE_OF = { creditmemos: "eooffice", newcreditmemo: "eooffice", creditmemo: "eooffice", projects: "eooffice", newproject: "eooffice", project: "eooffice", jobapps: "eooffice", jobapp: "eooffice", positions: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", payslip: "employees", ebill: "inventory", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
-  const ALIAS = { users: "employees", userres: "employees", resolutions: "purchase", resolution: "purchase", community: "purchase", orders: "dashboard", neworder: "dashboard", order: "dashboard", editorder: "dashboard", verification: "verify", supplier: "billing", newsupplier: "billing", search: "dashboard" };
+  const ALIAS = { users: "employees", userres: "employees", resolutions: "purchase", resolution: "purchase", community: "purchase", orders: "dashboard", neworder: "dashboard", editorder: "dashboard", verification: "verify", supplier: "billing", newsupplier: "billing", search: "dashboard" };
   const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);
   const initials = (name) => String(name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
   const isPhone = () => window.innerWidth < 900;

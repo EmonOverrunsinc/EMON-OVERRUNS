@@ -886,10 +886,11 @@
         ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">${ic("plus")} Record Invoice</a>` : ""}
         ${canPay ? `<a class="btn" href="#newpayment/${c.id}">${ic("plus")} Record Payment</a>` : ""}
         ${canMemo ? `<a class="btn" href="#newcreditmemo/${c.id}">${ic("plus")} Credit Memo</a>` : ""}
-        ${isApprovedAccount(c) && isStaff() ? `<button type="button" class="btn" id="pfGate">${ic("check")} Gate Pass</button>` : ""}
+        ${isApprovedAccount(c) && isStaff() ? `<button type="button" class="btn" id="pfRequest">${ic("stamp")} Request</button>` : ""}
         <span class="grow"></span>
         ${tools("customers", c, `${c.account_no || c.application_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers") })}
       </div>
+      ${isApprovedAccount(c) && isStaff() ? E.requestsHtml(c, orders) : ""}
       <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", tag: "System Generated", sub: `${c.application_no} · made by the E-Portal · print it for the customer to sign`, ownerType: "customer", ownerId: c.id, att, kind: "__system", canUpload: false, print: () => printApplication(c),
         approved: isApprovedAccount(c) ? (() => { const a = [...(ev.data || [])].reverse().find((x) => x.action === "approve"); return { name: a?.actor_name || "", at: a?.created_at || c.reviewed_at }; })() : null })}
         ${signed.length ? "" : copyCard({ key: "appcopy", title: "Customer Application Form", tag: "Signed Paper Copy", sub: "Scan or upload the form signed by the customer", ownerType: "customer", ownerId: c.id, att, kind: "signed_form", kinds: ["signed_form", "application"], canUpload: isStaff() && c.status !== "closed" })}</div>
@@ -952,7 +953,8 @@
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.customer(c.id));
     bindTools($("#main"));
-    if ($("#pfGate")) $("#pfGate").onclick = () => E.gatePass(c, { b, invs: invs.data || [] });
+    if ($("#pfRequest")) $("#pfRequest").onclick = () => E.customerRequest(c, { b, invs: invs.data || [], orders });
+    E.bindRequests(c, orders);
     if ($("#pvShow")) $("#pvShow").onclick = () => { const el = $("#pvCode"); const hidden = el.textContent.startsWith("•"); el.textContent = hidden ? el.dataset.code || "(none)" : "••••••••"; $("#pvShow").textContent = hidden ? "Hide" : "Show"; };
     if ($("#pfAdd")) $("#pfAdd").onchange = async (e) => { const here = E.stillHere(), f = await uploadRecords("customer", c.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed to upload.` : "Uploaded.", f > 0); if (here()) V.customer(c.id); };
     if (isAdmin() && ["pending", "verified"].includes(c.status)) bindReview(c);
