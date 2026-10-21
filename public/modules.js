@@ -857,11 +857,11 @@
     const canPay = ["active", "suspended", "closed"].includes(c.status) && (E.canWrite("payments") || E.canWrite("invoices"));
     const canMemo = ["active", "suspended"].includes(c.status) && E.canWrite("creditmemos");
     const history = [
-      ...(ev.data || []).map((r) => ({ at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
-      ...(chg.data || []).map((r) => r.action === "correction" ? { at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }
+      ...(ev.data || []).map((r) => ({ src: "event", id: r.id, at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
+      ...(chg.data || []).map((r) => ({ src: "change", id: r.id, ...(r.action === "correction" ? { at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }
         : r.action === "edited" || r.action === "correction approved" ? { at: r.created_at, action: r.action === "edited" ? "EDITED BY DIRECTOR" : `CORRECTION APPROVED BY DIRECTOR${r.request_no ? " (" + r.request_no + ")" : ""}`,
           by: r.actor_name || "", note: `${Object.keys(r.changes || {}).map((k) => fieldLabel("customers", k)).join(", ")}${r.requested_by_name ? ` · asked by ${r.requested_by_name}` : ""}` }
-        : { at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.action === "file removed" ? r.previous?.file || "" : changeText(r) })
+        : { at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.action === "file removed" ? r.previous?.file || "" : changeText(r) }) }))
     ].sort((x, y) => String(x.at).localeCompare(String(y.at)));
     const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${(memos.data || []).length})`, `Documents (${att.length})`, "History"];
     $(".band h1").textContent = `Customer — ${fullName(c)}`;
@@ -903,7 +903,8 @@
         <div data-p="3" hidden><div id="pfFree"></div>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
         <div data-p="4" hidden>${E.grid({ cols: MEMO_COLS.filter((x) => x.label !== "Customer"), rows: memos.data || [], onRow: true, empty: "No credit memos." })}</div>
         <div data-p="5" hidden>${filesHtml(att.map((a) => a.kind === "signed_form" ? { ...a, kind: "application" } : a), "No documents yet.")}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple data-save-now")}</div>` : ""}</div>
-        <div data-p="6" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note }], rows: history })}</div>
+        <div data-p="6" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note },
+          ...(isAdmin() ? [{ label: "", html: (r) => `<button type="button" class="btn small danger" data-hdel="${r.src}:${r.id}" aria-label="Delete this history line">${ic("trash")}</button>` }] : [])], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
     if ($("#pfLoc")) $("#pfLoc").onchange = (e) => setLocation(c, e.target.value);
@@ -955,6 +956,15 @@
     bindTools($("#main"));
     if ($("#pfRequest")) $("#pfRequest").onclick = () => E.customerRequest(c, { b, invs: invs.data || [], orders });
     E.bindRequests(c, orders);
+    // 3.12: the Director deletes a history line
+    $$("[data-hdel]").forEach((b) => (b.onclick = async () => {
+      const [src, hid] = b.dataset.hdel.split(":");
+      const row = history.find((h) => h.src === src && String(h.id) === hid);
+      if (!(await E.confirmBox(`Delete this history line?<br><b>${esc(row?.action || "")}</b> ${esc(row?.note || "")}<br>It cannot be brought back.`, { ok: "Delete", danger: true }))) return;
+      const { error } = await sb.rpc("delete_history_line", { p_source: src, p_id: Number(hid) });
+      if (error) return fail(error, /delete_history_line|schema cache/i.test(error.message || "") ? "Run the database update 030_delete_history.sql first" : "Could not delete the history line");
+      toast("History line deleted."); V.customer(c.id);
+    }));
     if ($("#pvShow")) $("#pvShow").onclick = () => { const el = $("#pvCode"); const hidden = el.textContent.startsWith("•"); el.textContent = hidden ? el.dataset.code || "(none)" : "••••••••"; $("#pvShow").textContent = hidden ? "Hide" : "Show"; };
     if ($("#pfAdd")) $("#pfAdd").onchange = async (e) => { const here = E.stillHere(), f = await uploadRecords("customer", c.id, "requirement", Array.from(e.target.files)); toast(f ? `${f} file(s) failed to upload.` : "Uploaded.", f > 0); if (here()) V.customer(c.id); };
     if (isAdmin() && ["pending", "verified"].includes(c.status)) bindReview(c);
