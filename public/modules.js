@@ -1404,13 +1404,15 @@
     const [ib, att, rt, lk] = await Promise.all([
       sb.from("invoice_balances").select("*").eq("id", id).maybeSingle(),
       attachmentsOf("invoice", id),
-      sb.from("credit_memos").select("*").eq("invoice_id", id).eq("is_return", true).order("memo_date"),
+      sb.from("credit_memos").select("*").eq("invoice_id", id).order("memo_date"),
       sb.from("payment_links").select("*, payments_received(receipt_no, paid_date, amount)").eq("invoice_id", id).order("linked_at")
     ]);
     if (!here()) return;
     const inv = ib.data;
     if (!inv) { $("#main").innerHTML = `<div class="empty">Invoice not found. <a href="#invoices">Back to Invoices</a></div>`; return; }
-    const rets = rt.data || [];
+    const rets = (rt.data || []).filter((m) => m.is_return);
+    // 3.14: what was taken off this invoice: approved returns and credit / discount memos of this invoice
+    const deds = (rt.data || []).filter((m) => ["approved", "paid"].includes(m.status) && ["credit", "discount"].includes(m.requested_action));
     const linksOn = !lk.error, links = lk.data || [], active = links.filter((l) => !l.removed_at);
     const canReturn = E.canWrite("invoices") || E.canWrite("creditmemos");
     const canLink = linksOn && (E.canWrite("payments") || E.canWrite("invoices"));
@@ -1441,7 +1443,7 @@
             <b>₱ ${peso(l.amount)}</b>${l.removed_at ? `<span class="pill rejected">UNLINKED</span>` : canLink ? `<button type="button" class="linkbtn" data-unlink="${l.id}">Unlink</button>` : `<span class="pill active">LINKED</span>`}</div>`).join("")
           : `<div class="empty small">No payment is linked to this invoice.</div>`}
         ${linksOn && active.length ? `<div class="lp-sum"><span>Linked to this invoice</span><b>₱ ${peso(active.reduce((s, l) => s + num(l.amount), 0))}</b>${need > 0.004 ? `<span>Still needed from a payment</span><b>₱ ${peso(need)}</b>` : ""}</div>` : ""}</div>
-      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, active)]) })}
+      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}${deds.length ? ` · CORRECTED: ₱ ${peso(num(inv.total_amount) - deds.reduce((t, m) => t + num(m.request_amount), 0))}` : ""}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, active, deds)]) })}
         ${copyCard({ key: "invcopy", title: `Invoice ${inv.invoice_no}`, tag: "Paper Copy", sub: "Scan or upload the paper invoice", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}</div>
       <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
       ${rhBox("customer_invoices", inv.id)}</div>
@@ -1540,14 +1542,22 @@
     E.setRecords(`Invoice: ${inv.invoice_no}`);
   };
   // The invoice print. links: the payments linked to it (2.9), listed with the amount each one paid.
-  function invoicePage(inv, links = []) {
+  function invoicePage(inv, links = [], deds = []) {
     const bal = num(inv.balance);
-    return `${printHead("INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
+    const off = deds.reduce((t, m) => t + num(m.request_amount), 0), corrected = Math.max(0, num(inv.total_amount) - off);
+    // 3.14: a return or credit memo taken off this invoice: the invoice shows what was taken off and the corrected amount
+    const fix = deds.length ? box("Corrected Invoice", `<table class="ptl"><thead><tr><th>Taken Off By</th><th>Date</th><th>Type</th><th class="num">Amount (₱)</th></tr></thead><tbody>
+        <tr><td colspan="3"><b>Original Invoice Amount</b></td><td class="num"><b>${peso(inv.total_amount)}</b></td></tr>
+        ${deds.map((m) => `<tr><td>${esc(m.memo_no || "")}</td><td>${esc(mdy(m.approved_at ? isoDay(new Date(m.approved_at)) : m.memo_date))}</td><td>${m.is_return ? "RETURN" : m.requested_action === "discount" ? "DISCOUNT" : "CREDIT MEMO"}</td><td class="num">− ${peso(m.request_amount)}</td></tr>`).join("")}
+        <tr><td colspan="3"><b>Corrected Invoice Amount</b></td><td class="num"><b>${peso(corrected)}</b></td></tr></tbody></table>
+        <div class="pcell"><div class="pl">Corrected Amount in Words</div><div class="pv words">${esc(words(corrected))}</div></div>`) : "";
+    return `${printHead(deds.length ? "INVOICE (CORRECTED)" : "INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
       ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}</div>`)}
       ${box("Invoice", `<div class="prow3">${cell("Invoice No", inv.invoice_no)}${cell("Invoice Date", mdy(inv.invoice_date))}${cell("Total Boxes", inv.total_boxes)}</div>
         <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Terms of Payment", inv.payment_terms || "—")}${cell("Due Date", mdy(inv.due_date) || "—")}</div>
         ${inv.po_number ? `<div class="pcell"><div class="pl">PO Number</div><div class="pv">${esc(inv.po_number)}</div></div>` : ""}
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
+      ${fix}
       ${box("Payment", `<div class="pgrid2">${cell("Payment Status", ({ paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase()) + (isOverdue(inv) ? ` · OVERDUE ${daysOver(inv)} DAY(S)` : "") + (bal < 0 ? " (OVERPAID)" : ""))}${cell("Total Amount (₱)", peso(inv.total_amount))}${num(inv.amount_returned) > 0 ? cell("Returned (₱)", peso(inv.amount_returned)) : ""}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(bal))}</div>
         ${links.length ? `<table class="ptl"><thead><tr><th>Linked Payment (Receipt No)</th><th>Date Paid</th><th class="num">Amount Linked (₱)</th></tr></thead><tbody>
           ${links.map((l) => `<tr><td>${esc(l.payments_received?.receipt_no || "")}</td><td>${mdy(l.payments_received?.paid_date)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}</tbody></table>` : ""}`)}
