@@ -55,7 +55,7 @@
       <rect width="${W}" height="${H}" fill="url(#pf${k})" mask="url(#mb${k})" opacity=".55"/>
       <rect width="${W}" height="${H}" fill="url(#pc${k})" mask="url(#mw${k})" opacity=".55"/>`;
   }
-  const MICRO = "EMONOVERRUNS·AUTHENTIC·";
+  const MICRO = "EMON OVERRUNS · "; // 3.23: tiny company name in the blue foot (anti-copy microtext)
   const micro = (n) => esc(MICRO.repeat(n));
   const bg = (k, front) => `<svg class="idc-bg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
       ${copyTint(k, "#b9c9e6")}
@@ -84,7 +84,7 @@
         <div><small>VALID UNTIL</small><b>${esc(mdy(d.card.valid_until))}</b></div>${d.blood ? `<div><small>BLOOD TYPE</small><b>${esc(d.blood)}</b></div>` : ""}</div>
       <div class="idc-bar"><img src="${esc(E.pdf417DataUrl("EMONEMP|" + d.em.employee_no))}" alt="PDF417 barcode ${esc(d.em.employee_no)}"></div>
       <div class="idc-hsig">${d.holderSig ? `<img src="${esc(d.holderSig)}" alt="">` : ""}<i></i><small>HOLDER'S SIGNATURE</small></div>
-      <div class="idc-foot"><span class="idc-micro">${micro(6)}</span><b>${esc(d.card.card_no)}</b></div>
+      <div class="idc-foot"><span class="idc-micro">${micro(8)}</span><b>${esc(d.card.card_no)}</b></div>
     </div>`;
   }
   function back(d) {
@@ -94,14 +94,14 @@
       <div class="idc-bhead">IN CASE OF EMERGENCY, PLEASE NOTIFY</div><div class="idc-gold b"></div>
       <div class="idc-emg">${row("NAME", em.emergency_name)}<div class="idc-er2">${row("RELATIONSHIP", em.emergency_relation)}${row("CONTACT NO", em.emergency_phone)}</div>${row("ADDRESS", em.emergency_address)}</div>
       <div class="idc-qrrow"><div class="idc-qr">${d.qr ? `<img src="${esc(d.qr)}" alt="QR code">` : `<span>${ic("key")}<br>QR CODE<br>ON THE<br>PRINTED CARD</span>`}</div>
-        <div class="idc-qrtxt"><b class="idc-scan">SCAN TO SIGN IN</b><small class="idc-pin">E-PORTAL PASSWORD REQUIRED</small>
+        <div class="idc-qrtxt"><b class="idc-scan">SCAN TO SIGN IN</b>
           <small>CARD NO</small><b class="mono">${esc(d.card.card_no)}</b><small>ISSUED</small><b>${esc(mdy(d.card.issued_at))}</b>
           <small>APPLICATION NO</small><b class="mono">${val(d.appNo)}</b></div></div>
       ${d.photo ? `<div class="idc-ghost b"><img src="${esc(d.photo)}" alt=""></div>` : ""}
       <div class="idc-sign"><img class="idc-stamp" src="${STAMP}" alt="Company stamp"><div class="idc-sigpic">${d.dirSig ? `<img src="${esc(d.dirSig)}" alt="">` : ""}</div><i></i>
         <b>${esc(C.company.name)}</b><small>${esc(C.company.address.join(", "))}</small><small>${esc(C.company.email)}${site ? ` · ${esc(site)}` : ""}</small></div>
       <p class="idc-note">This card is the property of ${esc(C.company.name)} and is not transferable. If found, please return it to the address above.</p>
-      <div class="idc-foot"><span class="idc-micro">${micro(6)}</span><b>${esc(em.employee_no)}</b></div>
+      <div class="idc-foot"><span class="idc-micro">${micro(8)}</span><b>${esc(em.employee_no)}</b></div>
     </div>`;
   }
   // The print: front and back side by side on A4, corner marks to cut, a dotted line to fold.
