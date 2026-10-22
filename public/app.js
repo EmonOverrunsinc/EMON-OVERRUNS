@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.19";
+  const VERSION = "3.20";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.19.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.20.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -1354,6 +1354,19 @@
     }
   }
   document.addEventListener("submit", (e) => scanGuard(e, e.target, () => e.target.requestSubmit()), true);
+  // 3.20: what is typed is written in CAPITAL letters (as on the printed documents), except where the exact letters matter:
+  // e-mail, web links, user names, passwords and one-time codes (or a field marked data-case="keep")
+  const KEEP_AUTO = ["username", "email", "url", "one-time-code", "current-password", "new-password"];
+  const keepCase = (el) => el.dataset.case === "keep" || el.getAttribute("autocapitalize") === "none" || ["email", "url"].includes(el.inputMode)
+    || KEEP_AUTO.some((k) => (el.getAttribute("autocomplete") || "").split(/\s+/).includes(k));
+  const toCaps = (el) => {
+    if (!(el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && ["text", "search"].includes(el.type))) || keepCase(el)) return;
+    const up = el.value.toUpperCase(); if (up === el.value) return;
+    const s = el.selectionStart, f = el.selectionEnd; el.value = up;
+    try { if (s != null) el.setSelectionRange(s, f); } catch { /* not every field keeps a cursor */ }
+  };
+  document.addEventListener("input", (e) => { if (!e.isComposing) toCaps(e.target); }, true);
+  document.addEventListener("compositionend", (e) => toCaps(e.target), true);
   document.addEventListener("click", (e) => {
     const b = e.target.closest?.("[data-ok], button[type=submit]");
     if (!b || (b.type === "submit" && b.form)) return; // a form's own Submit is checked when the form is sent

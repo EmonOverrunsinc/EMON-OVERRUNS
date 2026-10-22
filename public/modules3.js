@@ -47,7 +47,7 @@
   // Details that can be corrected — must match editable_columns() in the database. Amounts, transaction dates and
   // record numbers are never corrected: a wrong money record is deleted by the Director and recorded again.
   const FIELDS = {
-    customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("facebook_link", "Facebook Account Link"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool"), F("credit_limit", "Credit Limit (₱)", "money")],
+    customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("facebook_link", "Facebook Account Link", "url"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool"), F("credit_limit", "Credit Limit (₱)", "money")],
     customer_invoices: [F("invoice_date", "Invoice Date", "date"), F("total_amount", "Total Amount (₱)", "money"), F("payment_terms", "Terms of Payment", "terms"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int"),
       F("po_number", "PO Number")], // 2.6: every detail of an invoice; 2.6.1: PO Number only
     payments_received: [F("method", "Method", "select", METHODS), F("bank_name", "Bank Name"), F("bank_account", "Deposit Account"), F("reference_no", "Reference No"), F("notes", "Notes")],
@@ -100,7 +100,7 @@
           <option value="">—</option>${E.TERMS.map((t) => `<option ${t === v ? "selected" : ""}>${t}</option>`).join("")}<option value="OTHER" ${other ? "selected" : ""}>OTHER (type the terms)</option></select>
         <label for="${id}_x" ${other ? "" : "hidden"}>Other Terms</label><input type="text" id="${id}_x" maxlength="60" value="${esc(other ? v : "")}" ${other ? "" : "hidden"}>`;
     }
-    const t = { date: "date", money: "number", rate: "number", int: "number", email: "email" }[f.type] || "text";
+    const t = { date: "date", money: "number", rate: "number", int: "number", email: "email", url: "url" }[f.type] || "text";
     const step = { money: "0.01", rate: "0.0001", int: "1" }[f.type];
     const val = f.type === "date" ? String(v || "").slice(0, 10) : v ?? "";
     return `${lab}<input type="${t}" id="${id}" value="${esc(val)}" ${step ? `step="${step}" min="0"` : ""}>`;
