@@ -200,38 +200,9 @@
       };
       if (dl) dl.onclick = (e) => { e.stopPropagation(); deleteRecord(o.table, o.row, o.label, o.afterDelete || o.reload); };
     });
-    $$("[data-rh]", root).forEach((el) => { const [t, id] = el.dataset.rh.split(":"); recordHistory(el, t, id); });
   }
-  // Changes to one record (corrections still waiting, files removed, an order changed before approval), newest first.
-  // A decided correction leaves no line here (2.2). Director only.
-  const rhBox = (table, id) => isAdmin() ? `<div class="rhist" data-rh="${esc(table)}:${esc(id)}" hidden></div>` : "";
-  async function recordHistory(el, table, id) {
-    const [done, reqs] = await Promise.all([
-      sb.from("record_changes").select("*").eq("target_table", table).eq("target_id", id).order("created_at", { ascending: false }),
-      sb.from("change_requests").select("*").eq("target_table", table).eq("target_id", id).order("created_at", { ascending: false })
-    ]);
-    if (!el.isConnected) return;
-    const why = new Map((reqs.data || []).map((r) => [r.request_no, r.reason]));
-    // a memo changed before approval: the e-bills it named, by number
-    const billIds = [...new Set((done.data || []).flatMap((r) => [r.changes?.memo_bill_id, r.previous?.memo_bill_id]).filter(Boolean))];
-    const names = new Map(billIds.length ? ((await sb.from("stock_bills").select("id, bill_no, batch_no").in("id", billIds)).data || [])
-      .map((b) => [b.id, `${b.bill_no}${b.batch_no ? ` (Batch No ${b.batch_no})` : ""}`]) : []);
-    if (!el.isConnected) return;
-    const rows = [
-      ...(reqs.data || []).filter((r) => r.status === "pending").map((r) => ({ at: r.created_at, no: r.request_no, st: "pending", what: "Correction request", detail: changeList(table, r.changes, r.previous), why: r.reason, by: r.requested_by_name })),
-      ...(done.data || []).map((r) => r.action === "file removed"
-        ? { at: r.created_at, no: "", st: "removed", what: "File removed", detail: r.previous?.file || "", why: "", by: r.actor_name }
-        : r.action === "order changed" ? { at: r.created_at, no: "", st: "changed", what: "Changed before approval", detail: changeList(table, r.changes, r.previous, names), why: "", by: r.actor_name }
-        // 2.9: which details were changed and the Director who approved (and who asked) or who edited; no old values
-        : r.action === "correction approved" || r.action === "edited" ? { at: r.created_at, no: r.request_no || "", st: "approved", what: r.action === "edited" ? `Edited by Director ${r.actor_name || ""}` : `Approved by Director ${r.actor_name || ""}`, detail: fieldNames(table, r.changes), why: "", by: r.requested_by_name || r.actor_name }
-        : { at: r.created_at, no: r.request_no || "", st: "approved", what: "Correction", detail: changeList(table, r.changes, r.previous), why: why.get(r.request_no) || "", by: r.actor_name })
-    ];
-    if (!rows.length) { el.hidden = true; return; }
-    el.hidden = false;
-    el.innerHTML = `<b>Changes</b>${E.grid({ cols: [
-      { label: "Date / Time", get: (r) => E.stamp(new Date(r.at)) }, { label: "Correction No", get: (r) => r.no }, { label: "Type", html: (r) => `${esc(r.what)} ${pill(r.st)}` },
-      { label: "Details", get: (r) => r.detail || "—" }, { label: "Note", get: (r) => r.why || "" }, { label: "Asked / Done By", get: (r) => r.by || "" }], rows })}`;
-  }
+  // 3.22: record pages show no change history
+  const rhBox = () => "";
 
   // ======================================================================
   // Corrections (requests and the log) — the Director only
