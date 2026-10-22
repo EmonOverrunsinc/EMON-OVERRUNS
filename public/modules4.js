@@ -257,7 +257,7 @@
       sb.from("stock_bill_entries").select("*").eq("stock_bill_id", id).order("entry_date").order("created_at"),
       sb.from("stock_bill_payments").select("*").eq("stock_bill_id", id).order("pay_date").order("created_at"),
       // payment vouchers linked to the e-bill in Billing before 2.1
-      sb.from("pay_vouchers").select("id, voucher_no, pay_date, amount_bdt, purpose, method, reference_no").eq("stock_bill_id", id).order("pay_date").order("voucher_no"),
+      sb.from("pay_vouchers").select("id, voucher_no, pay_date, amount_bdt, method, reference_no").eq("stock_bill_id", id).order("pay_date").order("voucher_no"),
       sb.from("order_letters").select("*").eq("stock_bill_id", id).order("created_at", { ascending: false }),
       sb.from("stock_bill_events").select("*").eq("stock_bill_id", id).order("created_at", { ascending: false }).order("id", { ascending: false })
     ]);
@@ -374,7 +374,7 @@
   // vouchers linked to it in Billing before 2.1.
   const payRowsOf = (pays, vouchers) => [
     ...pays.map((p) => ({ date: p.pay_date, no: p.order_no, oid: p.order_id, what: p.subject || "Memo", php: p.amount_php, rate: p.exchange_rate, bdt: num(p.amount_bdt), by: p.approved_by_name || "" })),
-    ...vouchers.map((v) => ({ date: v.pay_date, no: v.voucher_no, vid: v.id, what: `Payment voucher${v.purpose ? " — " + v.purpose : ""}`, php: null, rate: null, bdt: num(v.amount_bdt), by: "" }))
+    ...vouchers.map((v) => ({ date: v.pay_date, no: v.voucher_no, vid: v.id, what: "Payment voucher", php: null, rate: null, bdt: num(v.amount_bdt), by: "" }))
   ].sort((x, y) => String(x.date).localeCompare(String(y.date)));
 
   // Mark as SALES (inventory) or PAID (the Director), with an optional note.
@@ -609,7 +609,7 @@
       sb.from("stock_bill_totals").select("*").eq("id", id).maybeSingle(),
       sb.from("stock_bill_entries").select("*").eq("stock_bill_id", id).order("entry_date").order("created_at"),
       sb.from("stock_bill_payments").select("*").eq("stock_bill_id", id).order("pay_date").order("created_at"),
-      sb.from("pay_vouchers").select("id, voucher_no, pay_date, amount_bdt, purpose, method, reference_no").eq("stock_bill_id", id).order("pay_date").order("voucher_no"),
+      sb.from("pay_vouchers").select("id, voucher_no, pay_date, amount_bdt, method, reference_no").eq("stock_bill_id", id).order("pay_date").order("voucher_no"),
       sb.from("order_letters").select("id, order_no, order_date, subject, status, release_date, shipping_cost, shipping_bill_no, price_per_box, exchange_rate, release_php, release_bdt, approved_by_name, created_by_name").eq("stock_bill_id", id).order("created_at"),
       sb.from("stock_bill_events").select("*").eq("stock_bill_id", id).order("created_at").order("id"),
       sb.from("stock_bill_secrets").select("secret_code").eq("stock_bill_id", id).maybeSingle()

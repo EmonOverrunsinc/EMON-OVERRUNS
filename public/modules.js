@@ -1609,7 +1609,7 @@
             <div class="fields wide">
               <label for="npBank" class="npb">Bank Name</label><input type="text" id="npBank" class="npb" placeholder="e.g. BDO, BPI, GCash">
               <label for="npAcct" class="npb">Deposit Account</label><input type="text" id="npAcct" class="npb" placeholder="Account the money went to">
-              <label for="npRef" class="npb">Reference No</label><input type="text" id="npRef" class="npb">
+              <label for="npRef" class="npb">Reference No</label><input type="text" id="npRef" class="npb" placeholder="Optional">
               <span>Verified By</span><b>${esc(myName())}</b>
             </div></div>
             <div class="summary-box" style="margin-top:6px"><span id="npWords">PESOS ZERO ONLY</span></div></fieldset>
@@ -1632,12 +1632,11 @@
       const amt = num($("#npAmt").value);
       if (amt <= 0) return toast("Enter the amount received.", true);
       const m = $("#npMethod").value;
-      if (m !== "cash" && !$("#npRef").value.trim()) return toast("Enter the reference number.", true);
       E.setBusy(e.target, true, "Saving");
       const { data: p, error } = await sb.from("payments_received").insert({
         customer_id: cust.id, amount: amt, method: m, paid_date: $("#npDate").value || isoToday(),
         bank_name: m === "cash" ? null : $("#npBank").value.trim() || null, bank_account: m === "cash" ? null : $("#npAcct").value.trim() || null,
-        reference_no: m === "cash" ? null : $("#npRef").value.trim(), notes: $("#npNotes").value.trim() || null
+        reference_no: m === "cash" ? null : $("#npRef").value.trim() || null, notes: $("#npNotes").value.trim() || null
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not record the payment"); }
       let failed = await uploadRecords("payment", p.id, "receipt", filesOf("npRcpt"));
