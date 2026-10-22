@@ -59,6 +59,11 @@
     run("current");
   };
 
+  const EDU_COLS = ["Examination", "Institute / Board", "Result / GPA", "Passing Year"];
+  const EXP_COLS = ["Company", "Position", "From", "To"];
+  const eduRow = (r = {}) => `<tr><td><input type="text" class="e1" value="${esc(r.exam || "")}" placeholder="e.g. SSC"></td><td><input type="text" class="e2" value="${esc(r.institute || "")}"></td><td><input type="text" class="e3" value="${esc(r.result || "")}"></td><td><input type="text" class="e4" value="${esc(r.year || "")}" inputmode="numeric"></td><td><button type="button" class="btn danger" aria-label="Remove row">✕</button></td></tr>`;
+  const expRow = (r = {}) => `<tr><td><input type="text" class="x1" value="${esc(r.company || "")}"></td><td><input type="text" class="x2" value="${esc(r.position || "")}"></td><td><input type="text" class="x3" value="${esc(r.from || "")}" placeholder="2022"></td><td><input type="text" class="x4" value="${esc(r.to || "")}" placeholder="2024"></td><td><button type="button" class="btn danger" aria-label="Remove row">✕</button></td></tr>`;
+
   const accessFields = (role, mods) => `
     <label for="emRole">Access Level</label><select id="emRole">
       <option value="staff" ${role === "staff" ? "selected" : ""}>Employee — can add and record</option>
@@ -84,9 +89,31 @@
           <div class="fields wide">
             <label for="neEmail">Email (login) *</label><input type="email" id="neEmail" required>
             <label for="nePhone">Phone</label><input type="tel" id="nePhone">
-            <label for="neAddr">Address</label><input type="text" id="neAddr">
+            <label for="neAddr">Present Address</label><input type="text" id="neAddr">
+            <label for="nePerm">Permanent Address</label><input type="text" id="nePerm">
+            <label for="neHrs">Duty Hours</label><input type="text" id="neHrs" placeholder="e.g. 9:00 AM - 6:00 PM">
             <label for="nePhoto">Photo</label><input type="file" id="nePhoto" accept="image/*">
           </div></div></fieldset>
+        <fieldset class="opt"><legend>Personal Information</legend><div class="formgrid">
+          <div class="fields wide">
+            <label for="neFather">Father's Name</label><input type="text" id="neFather">
+            <label for="neMother">Mother's Name</label><input type="text" id="neMother">
+            <label for="neSpouse">Wife's / Husband's Name</label><input type="text" id="neSpouse">
+            <label for="neDob">Date of Birth</label><input type="date" id="neDob">
+            <label for="neBirth">Birth Place</label><input type="text" id="neBirth">
+          </div>
+          <div class="fields wide">
+            <label for="neIdNo">BRC / NID / Passport No</label><input type="text" id="neIdNo">
+            <label for="neGender">Gender</label><select id="neGender">${["", "Male", "Female"].map((g) => `<option>${g}</option>`).join("")}</select>
+            <label for="neRel">Religion</label><input type="text" id="neRel">
+            <label for="neBlood">Blood Group</label><select id="neBlood">${["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((g) => `<option>${g}</option>`).join("")}</select>
+          </div></div></fieldset>
+        <fieldset class="opt"><legend>Educational Qualifications</legend>
+          <div class="grid-scroll"><table class="grid budget"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="neEdu">${[{ exam: "SSC" }, { exam: "HSC" }].map(eduRow).join("")}</tbody></table></div>
+          <div class="btnrow"><button type="button" class="btn" id="neEduAdd">+ Add Row</button></div></fieldset>
+        <fieldset class="opt"><legend>Work Experience</legend>
+          <div class="grid-scroll"><table class="grid budget"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="neExp"></tbody></table></div>
+          <div class="btnrow"><button type="button" class="btn" id="neExpAdd">+ Add Experience</button></div></fieldset>
         <fieldset class="opt"><legend>Emergency Contact</legend><div class="formgrid">
           <div class="fields wide">
             <label for="neEmName">Name</label><input type="text" id="neEmName">
@@ -103,6 +130,11 @@
         <fieldset class="opt"><legend>Access</legend><div class="fields wide">${accessFields("staff", ["customers"])}</div></fieldset>
       </div><div class="wfoot"><a class="btn" href="#employees">Cancel</a><button type="submit" class="btn primary">Save Employee</button></div></form>`,
       "The employee then signs up with the same email (Create Account) and can sign in immediately with the access chosen here.");
+    // 3.24: education and work experience rows (as on the paper job application)
+    const bindRemove = () => $$("#neEdu button, #neExp button").forEach((b) => (b.onclick = () => b.closest("tr").remove()));
+    bindRemove();
+    $("#neEduAdd").onclick = () => { $("#neEdu").insertAdjacentHTML("beforeend", eduRow()); bindRemove(); };
+    $("#neExpAdd").onclick = () => { $("#neExp").insertAdjacentHTML("beforeend", expRow()); bindRemove(); };
     $("#neForm").onsubmit = async (e) => {
       e.preventDefault();
       const v = (id) => $("#" + id).value.trim();
@@ -114,7 +146,11 @@
       const { data, error } = await sb.from("employees").insert({
         id, first_name: v("neFirst"), last_name: v("neLast"), position: v("nePos") || null, email: v("neEmail"),
         phone: v("nePhone") || null, address: v("neAddr") || null, date_hired: v("neHired") || null, monthly_salary: num(v("neSalary")), photo_path, ...readAccess(),
-        emergency_name: v("neEmName") || null, emergency_relation: v("neEmRel") || null, emergency_phone: v("neEmPhone") || null, emergency_address: v("neEmAddr") || null
+        emergency_name: v("neEmName") || null, emergency_relation: v("neEmRel") || null, emergency_phone: v("neEmPhone") || null, emergency_address: v("neEmAddr") || null,
+        permanent_address: v("nePerm") || null, duty_hours: v("neHrs") || null, father_name: v("neFather") || null, mother_name: v("neMother") || null, spouse_name: v("neSpouse") || null,
+        date_of_birth: v("neDob") || null, birth_place: v("neBirth") || null, id_number: v("neIdNo") || null, gender: v("neGender") || null, religion: v("neRel") || null, blood_group: v("neBlood") || null,
+        education: $$("#neEdu tr").map((tr) => ({ exam: $(".e1", tr).value.trim(), institute: $(".e2", tr).value.trim(), result: $(".e3", tr).value.trim(), year: $(".e4", tr).value.trim() })).filter((r) => r.exam && (r.institute || r.result || r.year) || r.institute),
+        experience: $$("#neExp tr").map((tr) => ({ company: $(".x1", tr).value.trim(), position: $(".x2", tr).value.trim(), from: $(".x3", tr).value.trim(), to: $(".x4", tr).value.trim() })).filter((r) => r.company || r.position)
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the employee"); }
       let f = await E.uploadRecords("employee", id, "application", E.filesOf("neApp"));
@@ -181,7 +217,11 @@
             <div class="fields wide"><label for="emLinkSel">Login Account</label><select id="emLinkSel"><option value="">Loading…</option></select></div>
             <div class="btnrow"><button type="button" class="btn" id="emLink">${ic("key")} Link Login Account</button></div>`}</fieldset></div>` : ""}
         ${isAdmin() ? `<div data-p="3" hidden id="emCard"></div>` : ""}
-        <div data-p="${isAdmin() ? 4 : 2}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Address", em.address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""],
+        <div data-p="${isAdmin() ? 4 : 2}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Present Address", em.address], ["Permanent Address", em.permanent_address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Duty Hours", em.duty_hours],
+          ["Father's Name", em.father_name], ["Mother's Name", em.mother_name], ["Wife's / Husband's Name", em.spouse_name], ["Date of Birth", mdy(em.date_of_birth)], ["Birth Place", em.birth_place],
+          ["BRC / NID / Passport No", em.id_number], ["Gender", em.gender], ["Religion", em.religion], ["Blood Group", em.blood_group],
+          ["Education", (em.education || []).map((r) => [r.exam, r.institute, r.result, r.year].filter(Boolean).join(" · ")).join(" | ")],
+          ["Work Experience", (em.experience || []).map((r) => [r.company, r.position, [r.from, r.to].filter(Boolean).join("–")].filter(Boolean).join(" · ")).join(" | ")], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""],
           ["Emergency Contact", em.emergency_name], ["Relationship", em.emergency_relation], ["Emergency Contact No", em.emergency_phone], ["Emergency Address", em.emergency_address], ["Created By", em.created_by_name]].map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>${rhBox("employees", em.id)}</div>
       </div>`;
     $$("#emTabs button").forEach((t) => (t.onclick = () => { $$("#emTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#emPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
@@ -249,7 +289,11 @@
       ${E.box("Employee", `<div class="pgrid"><div class="pphoto">${photo ? `<img src="${esc(photo)}" alt="">` : "PHOTO"}</div><div class="pgrid2">
         ${E.cell("First Name", em.first_name)}${E.cell("Last Name", em.last_name)}${E.cell("Position", em.position)}${E.cell("Date Hired", mdy(em.date_hired))}
         ${E.cell("Email", em.email)}${E.cell("Phone", em.phone)}${E.cell("Monthly Salary (PHP)", peso(em.monthly_salary))}${E.cell("Status", em.status.toUpperCase())}
-        ${E.cell("Address", em.address, "span2")}</div></div>`)}
+        ${E.cell("Present Address", em.address)}${E.cell("Permanent Address", em.permanent_address)}</div></div>`)}
+      ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Father's Name", em.father_name)}${E.cell("Mother's Name", em.mother_name)}${E.cell("Wife's / Husband's Name", em.spouse_name)}${E.cell("Date of Birth", mdy(em.date_of_birth))}
+        ${E.cell("Birth Place", em.birth_place)}${E.cell("BRC / NID / Passport No", em.id_number)}${E.cell("Gender", em.gender)}${E.cell("Religion", em.religion)}${E.cell("Blood Group", em.blood_group)}${E.cell("Duty Hours", em.duty_hours)}</div>`)}
+      ${(em.education || []).length ? E.box("Educational Qualifications", `<table class="rp ja-tbl"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${em.education.map((r) => `<tr>${[r.exam, r.institute, r.result, r.year].map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`) : ""}
+      ${(em.experience || []).length ? E.box("Work Experience", `<table class="rp ja-tbl"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${em.experience.map((r) => `<tr>${[r.company, r.position, r.from, r.to].map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`) : ""}
       ${E.box("Emergency Contact", `<div class="pgrid2">${E.cell("Name", em.emergency_name)}${E.cell("Relationship", em.emergency_relation)}${E.cell("Contact No", em.emergency_phone)}${E.cell("Address", em.emergency_address)}</div>`)}
       ${E.box("Portal Access", `<div class="pgrid2">${E.cell("Access Level", E.roleName(em.role).toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
       ${em.status === "terminated" ? E.box("Termination", `<div class="pgrid2">${E.cell("Date", mdy(em.termination_date))}${E.cell("Reason", em.termination_reason)}</div>`) : ""}
@@ -479,25 +523,24 @@
     run("submitted");
   };
 
-  const EDU_COLS = ["Examination", "Institute / Board", "Result / GPA", "Passing Year"];
-  const EXP_COLS = ["Company", "Position", "From", "To"];
   // The printed job application (laid out like the company's paper template), on one A4 page: the application
   // number, name, phone and email sit under the company name, beside the QR code and the photo.
   // An approved job application is printed with the Director's signature (no signed copy by the Director).
   const jaApproved = (a) => a.status === "approved" && !!a.approved_by_name;
   function jobAppPage(a, photoUrl) {
     const sign = jaApproved(a) ? E.approvedBy(null, a.approved_by_name, a.approved_at) : null;
-    const edu = Array.isArray(a.education) ? a.education : [], exp = Array.isArray(a.experience) ? a.experience : [];
+    // 3.24: a.blank = the empty form to fill in by hand (no number, no QR, empty rows to write in)
+    const edu = a.blank ? Array(3).fill({}) : Array.isArray(a.education) ? a.education : [], exp = a.blank ? Array(2).fill({}) : Array.isArray(a.experience) ? a.experience : [];
     const row4 = (cells) => `<tr>${cells.map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`;
     return `<div class="ja-head">
         <div class="ja-main">
           <div class="ja-left">${E.logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div><div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)}${E.siteText()}</div></div></div>
-          <div class="ja-ids"><div><span>Application No</span><b>${esc(a.application_no)}</b></div><div><span>Name</span><b>${esc(a.full_name)}</b></div>
+          <div class="ja-ids"><div><span>${a.blank ? "Employee No" : "Application No"}</span><b>${esc(a.application_no || "")}</b></div><div><span>Name</span><b>${esc(a.full_name)}</b></div>
             <div><span>Phone</span><b>${esc(a.phone || "")}</b></div><div><span>Email</span><b>${esc(a.email || "")}</b></div>
             ${a.status === "approved" ? `<div class="ja-appr">( APPROVED ) ${esc(a.approval_no || "")} ${esc(E.mdy(a.approved_at))}</div>` : ""}</div></div>
-        <div class="ja-qr"><img src="${E.qrDataUrl("EMONJA|" + a.application_no)}" alt="QR code"><img class="ja-bar" src="${E.pdf417DataUrl("EMONJA|" + a.application_no)}" alt=""></div>
+        ${a.blank ? "" : `<div class="ja-qr"><img src="${E.qrDataUrl("EMONJA|" + a.application_no)}" alt="QR code"><img class="ja-bar" src="${E.pdf417DataUrl("EMONJA|" + a.application_no)}" alt=""></div>`}
         <div class="ja-photo">${photoUrl ? `<img src="${esc(photoUrl)}" alt="">` : "PHOTO"}</div></div>
-      <div class="ph-title">JOB APPLICATION FORM</div>
+      <div class="ph-title">${a.blank ? "EMPLOYEE JOB APPLICATION FORM" : "JOB APPLICATION FORM"}</div>
       ${E.box("Address Details", `<div class="pgrid2">${E.cell("Present Address", a.present_address)}${E.cell("Permanent Address", a.permanent_address)}
         ${E.cell("Emergency Contact", [a.emergency_name, a.emergency_relation && `(${a.emergency_relation})`].filter(Boolean).join(" "))}${E.cell("Emergency Contact No · Address", [a.emergency_phone, a.emergency_address].filter(Boolean).join(" · "))}</div>`)}
       ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Full Name", a.full_name, "hl")}${E.cell("Father's Name", a.father_name)}${E.cell("Mother's Name", a.mother_name)}${E.cell("Wife's / Husband's Name", a.spouse_name)}
@@ -512,6 +555,8 @@
       ${E.box("Declaration", `<p class="pdecl" style="padding:4px 6px;margin:0">I hereby declare that all the information given above is true and correct to the best of my knowledge. If any information is found to be false, my application or employment may be cancelled.</p>`)}
       ${E.sigs("Applicant's Signature / Date", sign ? "Authorized Signature" : `Authorized Signature (${esc(C.company.name)}) / Date`, sign)}`;
   }
+  // 3.24: the empty Employee Job Application Form (Download Forms)
+  const printBlankJobApp = () => E.openPreview("Employee Job Application Form", [jobAppPage({ blank: true, company_name: C.company.name }, "")]);
   async function printJobApp(a) {
     const [photo] = await Promise.all([a.photo_path ? E.signedUrl(a.photo_path, 900) : "", E.loadSignatures()]);
     E.openPreview(`Job Application ${a.application_no}`, [jobAppPage(a, photo)]);
@@ -1064,5 +1109,5 @@
     E.setRecords(`Voucher: ${v.voucher_no}`);
   };
 
-  Object.assign(E, { printJobApp, jobAppPage, EDU_COLS, EXP_COLS, MODULES });
+  Object.assign(E, { printJobApp, printBlankJobApp, jobAppPage, EDU_COLS, EXP_COLS, MODULES });
 })();

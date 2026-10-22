@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.23";
+  const VERSION = "3.24";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.23.2"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.24.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -439,7 +439,7 @@
           <div class="wtitle">${esc(APP)} — ${esc(title)}</div>
           ${inner}
         </div>
-        <div class="login-below"><a href="#careers" class="verify-link join-link">${ic("users")} Join Us — see open jobs</a><a href="#contact" class="verify-link contact-link">${ic("mail")} Contact Us — send us a message</a><a href="#verify" class="verify-link">${ic("shield")} Verify a record — no sign-in needed</a><small class="legal-links"><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> · <a href="/delete-account" target="_blank" rel="noopener">Delete Account</a></small><small>${esc(APP)} · Version ${VERSION}</small></div>
+        <div class="login-below"><a href="#contact" class="verify-link contact-link">${ic("mail")} Contact Us — send us a message</a><a href="#verify" class="verify-link">${ic("shield")} Verify a record — no sign-in needed</a><small class="legal-links"><a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a> · <a href="/delete-account" target="_blank" rel="noopener">Delete Account</a></small><small>${esc(APP)} · Version ${VERSION}</small></div>
       </div>`;
   }
   const brandBlock = () => `<div class="brand">${logoHtml("login-logo")}<div><b>${esc(C.company.name)}</b><small>E-PORTAL</small></div></div>`;
@@ -1583,9 +1583,13 @@
         <div class="doccard"><div class="dc-ic">${ic("doc")}</div>
           <div class="dc-main"><b>SIGNATURE VERIFICATION FORM</b><small>A4 form to collect a person's signature: boxes for three specimen signatures and the initials, and the Director's approval</small></div>
           <div class="dc-act"><a class="btn primary" id="fmSvfPdf" href="forms/EMON-OVERRUNS-Signature-Verification-Form.pdf" download="EMON-OVERRUNS-Signature-Verification-Form.pdf">${ic("download")} Download PDF</a>
-            <button type="button" class="btn" id="fmSvfPrint">${ic("print")} Print</button></div></div></div></div>
+            <button type="button" class="btn" id="fmSvfPrint">${ic("print")} Print</button></div></div>
+        <div class="doccard"><div class="dc-ic">${ic("doc")}</div>
+          <div class="dc-main"><b>EMPLOYEE JOB APPLICATION FORM</b><small>Empty A4 form for a new employee to fill in by hand: photo, address, emergency contact, personal information, education, work experience, position and signatures</small></div>
+          <div class="dc-act"><button type="button" class="btn primary" id="fmJaPrint">${ic("print")} Print / Download PDF</button></div></div></div></div>
       <div id="fmList">${busy()}</div>`, "Blank company forms. Press <b>Download</b> to save a copy.");
     $("#fmSvfPrint").onclick = () => window.EO.openBlankSignatureForm();
+    $("#fmJaPrint").onclick = () => window.EO.printBlankJobApp(); // 3.24
     const load = async () => {
       const { data, error } = await sb.from("forms").select("*").order("category").order("title");
       if (error) return fail(error, "Could not load forms");

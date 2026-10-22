@@ -119,7 +119,7 @@
       E.loadSignatures()
     ]);
     const sig = prof.data?.signature_status === "approved" ? await E.signaturePic(prof.data.signature_path) : "";
-    return { em, card, photo, holderSig: sig, dirSig: E.approvedBy(card.issued_by, card.issued_by_name, card.issued_at)?.pic || "", blood: app.data?.blood_group || "", appNo: app.data?.application_no || "" };
+    return { em, card, photo, holderSig: sig, dirSig: E.approvedBy(card.issued_by, card.issued_by_name, card.issued_at)?.pic || "", blood: app.data?.blood_group || em.blood_group || "", appNo: app.data?.application_no || "" };
   }
 
   // ---------- the Director's ID Card tab on the employee profile ----------

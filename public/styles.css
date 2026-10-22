@@ -2330,3 +2330,6 @@ table.ga-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .idc-foot .idc-micro { font-size: .8mm; letter-spacing: .08mm; font-weight: 800; }
 /* 3.23.2: the numbers in the blue foot in Arial */
 .idc-foot b { font-family: Arial, Helvetica, sans-serif; letter-spacing: .1mm; font-weight: 800; }
+/* 3.24: the empty job application form: room to write by hand */
+.ja-tbl td:empty { height: 5.6mm; }
+.ja-ids b:empty { display: inline-block; min-width: 62mm; height: 4mm; border-bottom: .2mm solid #777; vertical-align: bottom; }
