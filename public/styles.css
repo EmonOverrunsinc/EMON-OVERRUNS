@@ -2328,3 +2328,5 @@ table.ga-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 @media print { .idc-pair.screen .idc-face::after { content: none; } }
 .idc-qrtxt small.idc-pin { white-space: nowrap; font-size: 1.12mm; letter-spacing: .05mm; }
 .idc-foot .idc-micro { font-size: .8mm; letter-spacing: .08mm; font-weight: 800; }
+/* 3.23.2: the numbers in the blue foot in Arial */
+.idc-foot b { font-family: Arial, Helvetica, sans-serif; letter-spacing: .1mm; font-weight: 800; }
