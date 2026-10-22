@@ -61,7 +61,7 @@
     project_payments: [F("received_by", "Received By"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
     pay_companies: [F("name", "Company Name"), F("contact_person", "Contact Person"), F("contact", "Phone / Email"), F("address", "Address"), F("currency", "Currency", "select", [["PHP", "PHP"], ["BDT", "BDT"], ["BOTH", "PHP, BDT"]]), F("notes", "Notes")],
     pay_accounts: [F("account_name", "Account Name"), F("account_number", "Account Number"), F("bank_name", "Bank Name"), F("branch_name", "Branch"), F("notes", "Notes")],
-    pay_vouchers: [F("purpose", "Purpose"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
+    pay_vouchers: [F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
     job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife's / Husband's Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("apply_salary", "Expected Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date"),
       F("emergency_name", "Emergency Contact Name"), F("emergency_relation", "Emergency Contact Relationship"), F("emergency_phone", "Emergency Contact No"), F("emergency_address", "Emergency Contact Address")],
     stock_bills: [F("supplier_bill_no", "Bill No"), F("batch_no", "Batch No"), F("shipment_no", "System Record No"), F("shipment_date", "Shipment Date", "date"), F("total_boxes", "Total Boxes", "int"), F("notes", "Notes"),
@@ -200,38 +200,9 @@
       };
       if (dl) dl.onclick = (e) => { e.stopPropagation(); deleteRecord(o.table, o.row, o.label, o.afterDelete || o.reload); };
     });
-    $$("[data-rh]", root).forEach((el) => { const [t, id] = el.dataset.rh.split(":"); recordHistory(el, t, id); });
   }
-  // Changes to one record (corrections still waiting, files removed, an order changed before approval), newest first.
-  // A decided correction leaves no line here (2.2). Director only.
-  const rhBox = (table, id) => isAdmin() ? `<div class="rhist" data-rh="${esc(table)}:${esc(id)}" hidden></div>` : "";
-  async function recordHistory(el, table, id) {
-    const [done, reqs] = await Promise.all([
-      sb.from("record_changes").select("*").eq("target_table", table).eq("target_id", id).order("created_at", { ascending: false }),
-      sb.from("change_requests").select("*").eq("target_table", table).eq("target_id", id).order("created_at", { ascending: false })
-    ]);
-    if (!el.isConnected) return;
-    const why = new Map((reqs.data || []).map((r) => [r.request_no, r.reason]));
-    // a memo changed before approval: the e-bills it named, by number
-    const billIds = [...new Set((done.data || []).flatMap((r) => [r.changes?.memo_bill_id, r.previous?.memo_bill_id]).filter(Boolean))];
-    const names = new Map(billIds.length ? ((await sb.from("stock_bills").select("id, bill_no, batch_no").in("id", billIds)).data || [])
-      .map((b) => [b.id, `${b.bill_no}${b.batch_no ? ` (Batch No ${b.batch_no})` : ""}`]) : []);
-    if (!el.isConnected) return;
-    const rows = [
-      ...(reqs.data || []).filter((r) => r.status === "pending").map((r) => ({ at: r.created_at, no: r.request_no, st: "pending", what: "Correction request", detail: changeList(table, r.changes, r.previous), why: r.reason, by: r.requested_by_name })),
-      ...(done.data || []).map((r) => r.action === "file removed"
-        ? { at: r.created_at, no: "", st: "removed", what: "File removed", detail: r.previous?.file || "", why: "", by: r.actor_name }
-        : r.action === "order changed" ? { at: r.created_at, no: "", st: "changed", what: "Changed before approval", detail: changeList(table, r.changes, r.previous, names), why: "", by: r.actor_name }
-        // 2.9: which details were changed and the Director who approved (and who asked) or who edited; no old values
-        : r.action === "correction approved" || r.action === "edited" ? { at: r.created_at, no: r.request_no || "", st: "approved", what: r.action === "edited" ? `Edited by Director ${r.actor_name || ""}` : `Approved by Director ${r.actor_name || ""}`, detail: fieldNames(table, r.changes), why: "", by: r.requested_by_name || r.actor_name }
-        : { at: r.created_at, no: r.request_no || "", st: "approved", what: "Correction", detail: changeList(table, r.changes, r.previous), why: why.get(r.request_no) || "", by: r.actor_name })
-    ];
-    if (!rows.length) { el.hidden = true; return; }
-    el.hidden = false;
-    el.innerHTML = `<b>Changes</b>${E.grid({ cols: [
-      { label: "Date / Time", get: (r) => E.stamp(new Date(r.at)) }, { label: "Correction No", get: (r) => r.no }, { label: "Type", html: (r) => `${esc(r.what)} ${pill(r.st)}` },
-      { label: "Details", get: (r) => r.detail || "—" }, { label: "Note", get: (r) => r.why || "" }, { label: "Asked / Done By", get: (r) => r.by || "" }], rows })}`;
-  }
+  // 3.22: record pages show no change history
+  const rhBox = () => "";
 
   // ======================================================================
   // Corrections (requests and the log) — the Director only

@@ -838,24 +838,20 @@
   }
   // Record numbers and codes in a typewriter font; names, dates and amounts in the normal font.
   const idBox = (label, value) => `<div class="idbox"><small>${esc(label)}</small><b class="${/^[A-Z0-9][A-Z0-9-]*\d[A-Z0-9-]*$/i.test(String(value || "")) ? "mono" : ""}">${esc(value || "—")}</b></div>`;
-  const fieldLabel = (table, k) => (E.fieldLabel ? E.fieldLabel(table, k) : k.replace(/_/g, " "));
-  const showVal = (v) => E.showVal(v);
-  const changeText = (r) => Object.keys(r.changes || r.previous || {}).map((k) => `${fieldLabel(r.target_table, k)}: ${showVal(r.previous?.[k])} → ${showVal(r.changes?.[k])}`).join("; ");
 
   V.customer = async (id, extra) => {
     E.shell("customer", "Customer Profile", busy());
     // 3.0: the customer and everything on the page are asked for at the same time (all need only the id)
-    const [c, att, bal, invs, pays, memos, ev, secret, ords, chg] = await Promise.all([
+    const [c, att, bal, invs, pays, memos, ev, secret, ords] = await Promise.all([
       getCustomer(id),
       attachmentsOf("customer", id),
       sb.from("customer_balances").select("*").eq("customer_id", id).maybeSingle(),
-      sb.from("invoice_balances").select("*").eq("customer_id", id).order("invoice_date", { ascending: false }),
-      sb.from("payments_received").select("*, payment_links(invoice_id, amount, removed_at)").eq("customer_id", id).order("paid_date", { ascending: false }),
-      sb.from("credit_memos").select("*").eq("customer_id", id).order("memo_date", { ascending: false }),
+      sb.from("invoice_balances").select("*").eq("customer_id", id).order("invoice_date", { ascending: false }).order("created_at", { ascending: false }),
+      sb.from("payments_received").select("*, payment_links(invoice_id, amount, removed_at)").eq("customer_id", id).order("paid_date", { ascending: false }).order("created_at", { ascending: false }),
+      sb.from("credit_memos").select("*").eq("customer_id", id).order("memo_date", { ascending: false }).order("created_at", { ascending: false }),
       sb.from("customer_events").select("*").eq("customer_id", id).order("created_at"),
       isAdmin() ? sb.from("customer_secrets").select("private_code").eq("customer_id", id).maybeSingle() : Promise.resolve({ data: null }),
-      sb.from("order_letters").select("*").eq("customer_id", id).order("created_at", { ascending: false }),
-      sb.from("record_changes").select("*").eq("target_table", "customers").eq("target_id", id).order("created_at")
+      sb.from("order_letters").select("*").eq("customer_id", id).order("created_at", { ascending: false })
     ]);
     if (!c) { $("#main").innerHTML = `<div class="empty">Customer not found. <a href="#customers">Back to Customers</a></div>`; return; }
     if (extra === "submitted") return renderSubmitted(c);
@@ -868,11 +864,7 @@
     const canMemo = ["active", "suspended"].includes(c.status) && E.canWrite("creditmemos");
     const history = [
       ...(ev.data || []).map((r) => ({ src: "event", id: r.id, at: r.created_at, action: E.gateEventLabel?.(r) || r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
-      ...(chg.data || []).map((r) => ({ src: "change", id: r.id, ...(r.action === "correction" ? { at: r.created_at, action: `CORRECTION${r.request_no ? " (" + r.request_no + ")" : ""}`, by: r.actor_name || "", note: changeText(r) }
-        : r.action === "edited" || r.action === "correction approved" ? { at: r.created_at, action: r.action === "edited" ? "EDITED BY DIRECTOR" : `CORRECTION APPROVED BY DIRECTOR${r.request_no ? " (" + r.request_no + ")" : ""}`,
-          by: r.actor_name || "", note: `${Object.keys(r.changes || {}).map((k) => fieldLabel("customers", k)).join(", ")}${r.requested_by_name ? ` · asked by ${r.requested_by_name}` : ""}` }
-        : { at: r.created_at, action: r.action.toUpperCase(), by: r.actor_name || "", note: r.action === "file removed" ? r.previous?.file || "" : changeText(r) }) }))
-    ].sort((x, y) => String(x.at).localeCompare(String(y.at)));
+    ].sort((x, y) => String(y.at).localeCompare(String(x.at))); // 3.22: newest first; no change records
     const overdue = (invs.data || []).filter(isOverdue).sort((x, y) => String(x.due_date).localeCompare(String(y.due_date)));
     const rets = [], cms = [];
     for (const m of memos.data || []) (m.is_return ? rets : cms).push(m);
@@ -1313,7 +1305,7 @@
       <div class="tabs" id="ivTabs">${INV_TABS.map(([f, l], i) => `<button type="button" class="${i ? "" : "on"}" data-f="${f}">${l} <span data-n="${f}"></span></button>`).join("")}</div>
       <div class="btnrow">${E.canWrite("invoices") ? `<a class="btn primary" href="#newinvoice">+ Record Invoice</a>` : ""}</div>
       <div id="ivRes">${busy()}</div>`, "Every invoice is <b>PAID</b> (in full), <b>PARTIAL PAYMENT</b> or <b>UNPAID</b> (nothing paid yet). Payments, credit memos, discounts and settlement adjustments are for the customer's account: they pay the oldest invoices first. Press <b>Record Invoice</b> to add a sale for an ACTIVE customer.");
-    const { data, error } = await sb.from("invoice_balances").select("*").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(5000);
+    const { data, error } = await sb.from("invoice_balances").select("*").order("invoice_date", { ascending: false }).order("created_at", { ascending: false }).limit(5000);
     if (error) return fail(error, "Could not load invoices");
     const all = data || [];
     if (!$("#ivTabs")) return; // another page was opened while the invoices loaded
@@ -1452,9 +1444,10 @@
           : `<div class="empty small">No returns on this invoice.</div>`}</div>
       <div class="linked-pays"><div class="lp-head"><b>Linked Payments</b>${canLink && need > 0.004 ? `<button type="button" class="btn small" id="ivLink">${ic("plus")} Link a Payment</button>` : ""}</div>
         ${!linksOn ? `<div class="empty small">Linking payments needs the database update 022_update_2_9.sql.</div>`
-          : links.length ? links.map((l) => `<div class="lp-row${l.removed_at ? " lp-off" : ""}"><a href="#payment/${l.payment_id}"><b>${esc(l.payments_received?.receipt_no || "")}</b></a>
-            <span>Paid ${mdy(l.payments_received?.paid_date)} · ₱ ${peso(l.payments_received?.amount)}<small>Linked ${esc(E.dateTime(l.linked_at))}${l.linked_by_name ? ` by ${esc(l.linked_by_name)}` : ""}${l.removed_at ? ` · unlinked ${esc(E.dateTime(l.removed_at))}${l.removed_by_name ? ` by ${esc(l.removed_by_name)}` : ""}` : ""}</small></span>
-            <b>₱ ${peso(l.amount)}</b>${l.removed_at ? `<span class="pill rejected">UNLINKED</span>` : canLink ? `<button type="button" class="linkbtn" data-unlink="${l.id}">Unlink</button>` : `<span class="pill active">LINKED</span>`}</div>`).join("")
+          // 3.22: an unlinked payment leaves no trace on the invoice
+          : active.length ? active.map((l) => `<div class="lp-row"><a href="#payment/${l.payment_id}"><b>${esc(l.payments_received?.receipt_no || "")}</b></a>
+            <span>Paid ${mdy(l.payments_received?.paid_date)} · ₱ ${peso(l.payments_received?.amount)}<small>Linked ${esc(E.dateTime(l.linked_at))}${l.linked_by_name ? ` by ${esc(l.linked_by_name)}` : ""}</small></span>
+            <b>₱ ${peso(l.amount)}</b>${canLink ? `<button type="button" class="linkbtn" data-unlink="${l.id}">Unlink</button>` : `<span class="pill active">LINKED</span>`}</div>`).join("")
           : `<div class="empty small">No payment is linked to this invoice.</div>`}
         ${linksOn && active.length ? `<div class="lp-sum"><span>Linked to this invoice</span><b>₱ ${peso(active.reduce((s, l) => s + num(l.amount), 0))}</b>${need > 0.004 ? `<span>Still needed from a payment</span><b>₱ ${peso(need)}</b>` : ""}</div>` : ""}</div>
       <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}${deds.length ? ` · CORRECTED: ₱ ${peso(num(inv.total_amount) - deds.reduce((t, m) => t + num(m.request_amount), 0))}` : ""}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, active, deds)]) })}
@@ -1520,7 +1513,7 @@
       };
       setTimeout(() => $(".rtI", m.el)?.focus(), 50);
     };
-    // 2.9: unlink one link (it stays in the list as UNLINKED, and its amount is available again)
+    // 2.9: unlink one link (its amount is available again; 3.22: it leaves the list)
     $$("[data-unlink]").forEach((b) => (b.onclick = async () => {
       const l = links.find((x) => x.id === b.dataset.unlink);
       if (!l || !(await E.confirmBox(`Unlink receipt <b>${esc(l.payments_received?.receipt_no || "")}</b> (₱ ${peso(l.amount)}) from ${esc(inv.invoice_no)}? The amount becomes available to link again.`, { ok: "Unlink" }))) return;
@@ -1616,7 +1609,7 @@
             <div class="fields wide">
               <label for="npBank" class="npb">Bank Name</label><input type="text" id="npBank" class="npb" placeholder="e.g. BDO, BPI, GCash">
               <label for="npAcct" class="npb">Deposit Account</label><input type="text" id="npAcct" class="npb" placeholder="Account the money went to">
-              <label for="npRef" class="npb">Reference No</label><input type="text" id="npRef" class="npb">
+              <label for="npRef" class="npb">Reference No</label><input type="text" id="npRef" class="npb" placeholder="Optional">
               <span>Verified By</span><b>${esc(myName())}</b>
             </div></div>
             <div class="summary-box" style="margin-top:6px"><span id="npWords">PESOS ZERO ONLY</span></div></fieldset>
@@ -1639,12 +1632,11 @@
       const amt = num($("#npAmt").value);
       if (amt <= 0) return toast("Enter the amount received.", true);
       const m = $("#npMethod").value;
-      if (m !== "cash" && !$("#npRef").value.trim()) return toast("Enter the reference number.", true);
       E.setBusy(e.target, true, "Saving");
       const { data: p, error } = await sb.from("payments_received").insert({
         customer_id: cust.id, amount: amt, method: m, paid_date: $("#npDate").value || isoToday(),
         bank_name: m === "cash" ? null : $("#npBank").value.trim() || null, bank_account: m === "cash" ? null : $("#npAcct").value.trim() || null,
-        reference_no: m === "cash" ? null : $("#npRef").value.trim(), notes: $("#npNotes").value.trim() || null
+        reference_no: m === "cash" ? null : $("#npRef").value.trim() || null, notes: $("#npNotes").value.trim() || null
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not record the payment"); }
       let failed = await uploadRecords("payment", p.id, "receipt", filesOf("npRcpt"));

@@ -282,7 +282,6 @@
   // ======================================================================
   const docNo = (pre, c) => `${pre}-${isoToday().replace(/-/g, "")}-${c.account_no || c.application_no}`;
   const php2 = (n) => `PHP ${peso(n)}`;
-  const para = (t) => esc(t).replace(/\n/g, "<br>");
   // the status requests: what it is called, who it is for, and what the account becomes
   const STATUS_REQ = {
     suspension: { title: "Restrict Account", sub: "Restrict (suspend) this account: no new invoices until the restriction is lifted", from: ["active"], to: "SUSPENDED (RESTRICTED)", icon: "shield" },
@@ -293,7 +292,7 @@
   const pendingOf = (orders) => (orders || []).filter((o) => STATUS_REQ[o.subject_type] && o.status === "pending");
   const canRequest = () => E.canWrite("customers") || E.canWrite("orders");
 
-  function balancePage(c, ctx, no, purpose) {
+  function balancePage(c, ctx, no) {
     const b = ctx.b || {}, bal = num(b.balance_due), today = isoToday(), asOf = mdy(today);
     const open = (ctx.invs || []).filter((i) => num(i.balance) > 0.004).sort((x, y) => String(x.invoice_date).localeCompare(String(y.invoice_date)));
     const days = (d) => (d && d < today ? Math.floor((new Date(today + "T00:00:00") - new Date(d + "T00:00:00")) / 86400000) : 0);
@@ -316,7 +315,7 @@
       ${open.length ? `<div class="ol-sec">UNPAID INVOICES</div>
       <table class="ol-grid ol-sched"><thead><tr><th>Invoice No</th><th>Invoice Date</th><th>Due Date</th><th class="num">Days Overdue</th><th class="num">Balance (PHP)</th></tr></thead><tbody>
         ${open.map((i) => `<tr><td class="nw">${esc(i.invoice_no)}</td><td>${esc(mdy(i.invoice_date))}</td><td>${esc(mdy(i.due_date) || "—")}</td><td class="num">${days(i.due_date) || "—"}</td><td class="num">${peso(i.balance)}</td></tr>`).join("")}</tbody></table>` : ""}
-      <p class="cert-body">${purpose ? `This certificate is issued upon the request of the account holder for: ${para(purpose)}.` : "This certificate is issued upon the request of the account holder for whatever purpose it may serve."}
+      <p class="cert-body">This certificate is issued upon the request of the account holder.
         Payments received after the date above are not included.</p>
       ${issuerBlock()}
       <div class="rp-foot"><span>Scan the QR code to check this account online.</span><span>${esc(no)}</span></div>`;
@@ -336,7 +335,7 @@
       <div class="ol-sec">CLOSURE</div>
       <table class="ol-grid"><tbody>${tr2("Date Closed", esc(when || "—"))}${tr2("Reason for Closure", `<b>${esc(ord?.closure_reason || c.status_note || "—")}</b>`)}${ord ? tr2("Request No", esc(ord.order_no)) : ""}
         ${tr2("Balance at Issue", `<b>${php2(bal)}</b>`)}</tbody></table>
-      <p class="cert-body">This certificate is issued upon request for whatever purpose it may serve. The account can be reopened only with the approval of the Director of ${esc(C.company.name)}.</p>
+      <p class="cert-body">This certificate is issued upon request. The account can be reopened only with the approval of the Director of ${esc(C.company.name)}.</p>
       ${issuerBlock()}
       <div class="rp-foot"><span>Scan the QR code to check this account online.</span><span>${esc(no)}</span></div>`;
   }
@@ -403,13 +402,12 @@
   function balanceForm(c, ctx) {
     const bal = num(ctx.b?.balance_due);
     const m = E.modal("Account Balance Certificate", `<div class="summary-box"><div class="fields wide"><span>Customer</span><b>${esc(fullName(c))} (${esc(c.account_no || "")})</b>
-        <span>Total Outstanding Balance</span><b class="${bal < 0 ? "neg" : ""}">₱ ${peso(bal)}</b><span>As Of</span><b>${esc(mdy(isoToday()))}</b></div></div>
-      <div class="fields wide" style="margin-top:10px"><label for="rqPurpose">Purpose (optional)</label><input type="text" id="rqPurpose" maxlength="160" placeholder="e.g. bank requirement, settlement of account"></div>`,
+        <span>Total Outstanding Balance</span><b class="${bal < 0 ? "neg" : ""}">₱ ${peso(bal)}</b><span>As Of</span><b>${esc(mdy(isoToday()))}</b></div></div>`,
       `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${ic("print")} Print / Download</button>`);
     $("[data-x]", m.el).onclick = m.close;
     $("[data-ok]", m.el).onclick = () => {
-      const purpose = $("#rqPurpose", m.el).value.trim(), no = docNo("AB", c);
-      m.close(); issueDoc(c, "Account Balance Certificate", no, balancePage(c, ctx, no, purpose), `PHP ${peso(bal)}${purpose ? " · " + purpose : ""}`);
+      const no = docNo("AB", c);
+      m.close(); issueDoc(c, "Account Balance Certificate", no, balancePage(c, ctx, no), `PHP ${peso(bal)}`);
     };
   }
   // Restrict / lift / close / reopen: the reason, then it waits for the Director (the Director's own is done at once)
