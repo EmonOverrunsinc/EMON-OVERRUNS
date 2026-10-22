@@ -2317,10 +2317,6 @@ table.ga-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 
 /* 3.23: section headings inside a page (Payroll) */
 .sec-h { font-size: 14px; margin: 14px 0 6px; color: var(--ink, #1d2b22); }
-/* 3.23: three ways to read the ID card */
-.cl-ways { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.cl-ways .btn { justify-content: center; padding-left: 6px; padding-right: 6px; font-size: 13px; }
-@media (max-width: 420px) { .cl-ways { grid-template-columns: 1fr; } }
 /* 3.23: the small photo on the back too, and DRAFT ONLY on the card shown on the screen (the print stays clean) */
 .idc-ghost.b { right: 2.2mm; top: 41mm; width: 7mm; height: 8.4mm; }
 .idc-pair.screen .idc-face::after { content: "DRAFT ONLY"; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-38deg); white-space: nowrap;
@@ -2330,3 +2326,6 @@ table.ga-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .idc-foot .idc-micro { font-size: .8mm; letter-spacing: .08mm; font-weight: 800; }
 /* 3.23.2: the numbers in the blue foot in Arial */
 .idc-foot b { font-family: Arial, Helvetica, sans-serif; letter-spacing: .1mm; font-weight: 800; }
+/* 3.24: the empty job application form: room to write by hand */
+.ja-tbl td:empty { height: 5.6mm; }
+.ja-ids b:empty { display: inline-block; min-width: 62mm; height: 4mm; border-bottom: .2mm solid #777; vertical-align: bottom; }

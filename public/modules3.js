@@ -260,7 +260,6 @@
   // ======================================================================
   const APPLY_KEY = "eoApplyPos";
   const keepApply = (id) => { try { id ? sessionStorage.setItem(APPLY_KEY, id) : sessionStorage.removeItem(APPLY_KEY); } catch (_) {} };
-  const wantedApply = () => { try { return sessionStorage.getItem(APPLY_KEY) || ""; } catch (_) { return ""; } };
   V.careers = async () => {
     E.miniShell("Join Us", busy("Loading open positions"), { home: "#dashboard" });
     const { data, error } = await sb.from("job_positions").select("id, title, company_name, monthly_salary, duty_hours, description").eq("is_open", true).order("title");
@@ -290,7 +289,7 @@
   // ======================================================================
   let applicantTimer = null;
   V.applicant = async () => {
-    E.miniShell("Apply for a Job", busy());
+    E.miniShell("Welcome", busy());
     clearInterval(applicantTimer);
     // Once the application is approved the account becomes active: open the full portal.
     applicantTimer = setInterval(async () => {
@@ -298,135 +297,24 @@
       const { data } = await sb.from("profiles").select("status").eq("id", meId()).maybeSingle();
       if (data?.status === "active") { clearInterval(applicantTimer); S.profile = null; toast("Your application was approved. Welcome!"); E.route(); }
     }, 60000);
-    const [apps, pos] = await Promise.all([
-      sb.from("job_applications").select("*").eq("profile_id", meId()).order("created_at", { ascending: false }),
-      sb.from("job_positions").select("*").eq("is_open", true).order("title")
-    ]);
+    const apps = await sb.from("job_applications").select("*").eq("profile_id", meId()).order("created_at", { ascending: false });
     if (apps.error) { $("#main").innerHTML = `<div class="empty">Job applications are not available yet. Please try again later.</div>`; return; }
     const last = (apps.data || [])[0];
     if (last && last.status !== "rejected") { keepApply(""); return applicantStatus(last); }
-    applicantPositions(pos.data || [], last);
-    // 2.9: chosen on Join Us before signing up → open that position's application form at once
-    const want = wantedApply(), chosen = want && (pos.data || []).find((p) => p.id === want);
+    // 3.24: no job applications on the portal any more: the Director adds the employee (or links this account)
     keepApply("");
-    if (chosen) applicationForm(chosen);
+    $(".band h1").textContent = "Welcome";
+    // 3.25: an employee profile waiting for the Director's approval
+    const mine = await sb.from("employees").select("employee_no, approval_status").eq("profile_id", meId()).maybeSingle();
+    const waiting = mine.data?.approval_status === "pending";
+    $("#main").innerHTML = waiting ? `<section class="welcome-card"><h2>Welcome, ${esc(S.profile.full_name || "")}!</h2>
+      <p>Your employee profile <b>${esc(mine.data.employee_no || "")}</b> is <b>waiting for the Director's approval</b>. This page opens the portal by itself once it is approved.</p>
+      <div class="btnrow"><button type="button" class="btn" id="apCheck">Check Again</button></div></section>` : `<section class="welcome-card"><h2>Welcome, ${esc(S.profile.full_name || "")}!</h2>
+      <p>Your account <b>${esc(S.session.user.email)}</b> is ready. To work with ${esc(C.company.name)}, fill in the paper Employee Job Application Form at the office.
+        The Director adds you as an employee with this email (or links this account to your employee profile). This page opens the portal by itself once that is done.</p>
+      <div class="btnrow"><button type="button" class="btn" id="apCheck">Check Again</button></div></section>`;
+    $("#apCheck").onclick = () => { S.profile = null; E.route(); };
   };
-  function applicantPositions(positions, rejected) {
-    $("#main").innerHTML = `
-      <section class="welcome-card"><h2>Welcome, ${esc(S.profile.full_name || "")}!</h2>
-        <p>Your account is ready. To work with ${esc(C.company.name)}, choose a position below and fill in the job application. After you submit, download the application form, sign it, and bring it to the office. The Director approves it and gives you access to the portal.</p>
-        ${rejected ? `<div class="banner closed">Your last application ${esc(rejected.application_no)} was not approved${rejected.review_note ? " (" + esc(rejected.review_note) + ")" : ""}. You may apply again.</div>` : ""}</section>
-      <h3>Open Positions</h3>
-      <div class="pos-grid">${positions.map((p) => `<article class="pos-card"><h4>${esc(p.title)}</h4><div class="pos-co">${esc(p.company_name)}</div>
-          <div class="pos-meta">${num(p.monthly_salary) ? `<span>₱ ${peso(p.monthly_salary)} / month</span>` : ""}${p.duty_hours ? `<span>${esc(p.duty_hours)}</span>` : ""}</div>
-          ${p.description ? `<p>${esc(p.description)}</p>` : ""}<button type="button" class="btn primary" data-apply="${p.id}">Apply Now</button></article>`).join("")}
-        <article class="pos-card other"><h4>Other Position</h4><div class="pos-co">${esc(C.company.name)}</div><p>Apply for a position that is not listed.</p><button type="button" class="btn" data-apply="">Apply</button></article></div>`;
-    $$("[data-apply]").forEach((b) => (b.onclick = () => applicationForm(positions.find((p) => p.id === b.dataset.apply) || null)));
-  }
-
-  const eduRow = (r = {}) => `<tr><td><input type="text" class="e1" value="${esc(r.exam || "")}" placeholder="e.g. SSC"></td><td><input type="text" class="e2" value="${esc(r.institute || "")}"></td><td><input type="text" class="e3" value="${esc(r.result || "")}"></td><td><input type="text" class="e4" value="${esc(r.year || "")}" inputmode="numeric"></td><td><button type="button" class="btn danger" aria-label="Remove row">✕</button></td></tr>`;
-  const expRow = (r = {}) => `<tr><td><input type="text" class="x1" value="${esc(r.company || "")}"></td><td><input type="text" class="x2" value="${esc(r.position || "")}"></td><td><input type="text" class="x3" value="${esc(r.from || "")}" placeholder="2022"></td><td><input type="text" class="x4" value="${esc(r.to || "")}" placeholder="2024"></td><td><button type="button" class="btn danger" aria-label="Remove row">✕</button></td></tr>`;
-  // The job application form (same fields as the printed company template). Once submitted it is not edited.
-  function applicationForm(pos) {
-    const v = (d = "") => esc(d ?? "");
-    $(".band h1").textContent = "Job Application Form";
-    $("#main").innerHTML = `
-      <form class="window jaform" id="jaForm" novalidate><div class="wtitle">Job Application — ${esc(pos ? pos.title : "Other Position")}</div><div class="wbody">
-        <fieldset class="opt"><legend>Position Applied For</legend><div class="formgrid">
-          <div class="fields wide">
-            ${pos ? `<span>Position</span><b>${esc(pos.title)}</b><span>Company</span><b>${esc(pos.company_name)}</b>`
-              : `<label for="jaPos">Position *</label><input type="text" id="jaPos" placeholder="Position you are applying for">`}
-            <label for="jaSal">Expected Monthly Salary (₱)</label><input type="number" id="jaSal" min="0" step="0.01" value="${v(pos ? pos.monthly_salary : "")}">
-          </div>
-          <div class="fields wide">
-            <label for="jaHrs">Duty Hours</label><input type="text" id="jaHrs" value="${v(pos ? pos.duty_hours || "" : "")}">
-            <label for="jaJoin">Joining Date</label><input type="date" id="jaJoin">
-          </div></div></fieldset>
-        <fieldset class="opt"><legend>Applicant</legend><div class="formgrid">
-          <div class="fields wide">
-            <label for="jaName">Full Name *</label><input type="text" id="jaName" value="${v(S.profile.full_name || "")}">
-            <label for="jaPhone">Phone *</label><input type="tel" id="jaPhone">
-            <label for="jaEmail">Email</label><input type="email" id="jaEmail" value="${v(S.session.user.email)}">
-          </div>
-          <div class="fields wide">
-            <label for="jaPhoto">Photo *</label><input type="file" id="jaPhoto" accept="image/*">
-            <span></span><div id="jaPhotoPrev" class="photo-prev">No photo</div>
-          </div></div></fieldset>
-        <fieldset class="opt"><legend>Address Details</legend><div class="fields wide">
-          <label for="jaPres">Present Address *</label><input type="text" id="jaPres">
-          <label for="jaPerm">Permanent Address</label><input type="text" id="jaPerm"></div></fieldset>
-        <fieldset class="opt"><legend>Emergency Contact</legend><div class="formgrid">
-          <div class="fields wide">
-            <label for="jaEmName">Name *</label><input type="text" id="jaEmName">
-            <label for="jaEmRel">Relationship</label><input type="text" id="jaEmRel" placeholder="e.g. Mother, Wife, Brother">
-          </div>
-          <div class="fields wide">
-            <label for="jaEmPhone">Contact No *</label><input type="tel" id="jaEmPhone">
-            <label for="jaEmAddr">Address</label><input type="text" id="jaEmAddr">
-          </div></div><small>The person we call in an emergency. It is printed on the back of your employee ID card.</small></fieldset>
-        <fieldset class="opt"><legend>Personal Information</legend><div class="formgrid">
-          <div class="fields wide">
-            <label for="jaFather">Father's Name</label><input type="text" id="jaFather">
-            <label for="jaMother">Mother's Name</label><input type="text" id="jaMother">
-            <label for="jaSpouse">Wife's / Husband's Name</label><input type="text" id="jaSpouse">
-            <label for="jaDob">Date of Birth</label><input type="date" id="jaDob">
-            <label for="jaBirth">Birth Place</label><input type="text" id="jaBirth">
-          </div>
-          <div class="fields wide">
-            <label for="jaIdNo">BRC / NID / Passport No</label><input type="text" id="jaIdNo">
-            <label for="jaGender">Gender</label><select id="jaGender">${["", "Male", "Female"].map((g) => `<option>${g}</option>`).join("")}</select>
-            <label for="jaRel">Religion</label><input type="text" id="jaRel">
-            <label for="jaBlood">Blood Group</label><select id="jaBlood">${["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((g) => `<option>${g}</option>`).join("")}</select>
-          </div></div></fieldset>
-        <fieldset class="opt"><legend>Educational Qualifications</legend>
-          <div class="grid-scroll"><table class="grid budget"><thead><tr>${E.EDU_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="jaEdu">${[{ exam: "SSC" }, { exam: "HSC" }].map(eduRow).join("")}</tbody></table></div>
-          <div class="btnrow"><button type="button" class="btn" id="jaEduAdd">+ Add Row</button></div></fieldset>
-        <fieldset class="opt"><legend>Work Experience</legend>
-          <div class="grid-scroll"><table class="grid budget"><thead><tr>${E.EXP_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="jaExp"></tbody></table></div>
-          <div class="btnrow"><button type="button" class="btn" id="jaExpAdd">+ Add Experience</button></div></fieldset>
-        <fieldset class="opt"><legend>Requirements</legend><div class="fields wide">${E.fileField("jaReq", "Upload Requirements", 'multiple accept="image/*,application/pdf"')}</div>
-          <small>NID or birth certificate, certificates, CV, police clearance — photos or PDF.</small></fieldset>
-        <label class="decl"><input type="checkbox" id="jaDecl"> I hereby declare that all the information given above is true and correct to the best of my knowledge.</label>
-        <small class="muted">Check everything before you submit: a submitted application cannot be changed.</small>
-      </div><div class="wfoot"><button type="button" class="btn" id="jaCancel">Cancel</button><button type="submit" class="btn primary">Submit Application</button></div></form>`;
-    const rows = (sel, html) => { $(sel).insertAdjacentHTML("beforeend", html); bindRemove(); };
-    const bindRemove = () => $$("#jaEdu button, #jaExp button").forEach((b) => (b.onclick = () => b.closest("tr").remove()));
-    bindRemove();
-    $("#jaEduAdd").onclick = () => rows("#jaEdu", eduRow());
-    $("#jaExpAdd").onclick = () => rows("#jaExp", expRow());
-    $("#jaPhoto").onchange = (e) => { const f = e.target.files[0]; $("#jaPhotoPrev").innerHTML = f ? `<img src="${URL.createObjectURL(f)}" alt="Photo preview">` : "No photo"; };
-    $("#jaCancel").onclick = () => V.applicant();
-    $("#jaForm").onsubmit = async (e) => {
-      e.preventDefault();
-      const g = (id) => ($("#" + id)?.value || "").trim();
-      if (!pos && !g("jaPos")) return toast("Enter the position you are applying for.", true);
-      if (!g("jaName")) return toast("Enter your full name.", true);
-      if (!g("jaPhone")) return toast("Enter your phone number.", true);
-      if (!g("jaPres")) return toast("Enter your present address.", true);
-      if (!g("jaEmName") || !g("jaEmPhone")) return toast("Enter the name and contact no of your emergency contact.", true);
-      const photo = $("#jaPhoto").files[0];
-      if (!photo) return toast("Add your photo.", true);
-      if (!$("#jaDecl").checked) return toast("Tick the declaration to confirm the information is true.", true);
-      const education = $$("#jaEdu tr").map((tr) => ({ exam: $(".e1", tr).value.trim(), institute: $(".e2", tr).value.trim(), result: $(".e3", tr).value.trim(), year: $(".e4", tr).value.trim() })).filter((r) => r.exam || r.institute);
-      const experience = $$("#jaExp tr").map((tr) => ({ company: $(".x1", tr).value.trim(), position: $(".x2", tr).value.trim(), from: $(".x3", tr).value.trim(), to: $(".x4", tr).value.trim() })).filter((r) => r.company || r.position);
-      const rec = {
-        full_name: g("jaName"), phone: g("jaPhone"), email: g("jaEmail") || null, present_address: g("jaPres"), permanent_address: g("jaPerm") || null,
-        father_name: g("jaFather") || null, mother_name: g("jaMother") || null, spouse_name: g("jaSpouse") || null, date_of_birth: g("jaDob") || null,
-        birth_place: g("jaBirth") || null, id_number: g("jaIdNo") || null, gender: g("jaGender") || null, religion: g("jaRel") || null, blood_group: g("jaBlood") || null,
-        emergency_name: g("jaEmName") || null, emergency_relation: g("jaEmRel") || null, emergency_phone: g("jaEmPhone") || null, emergency_address: g("jaEmAddr") || null,
-        education, experience, apply_salary: g("jaSal") === "" ? null : num(g("jaSal")), apply_duty_hours: g("jaHrs") || null, apply_joining_date: g("jaJoin") || null, declaration: true
-      };
-      E.setBusy(e.target, true, "Submitting");
-      const id = E.uuid();
-      const { data: app, error } = await sb.from("job_applications").insert({ id, ...rec, position_id: pos?.id || null, position_title: pos ? pos.title : g("jaPos"), company_name: pos ? pos.company_name : C.company.name, company_code: pos ? pos.company_code : "EO" }).select().single();
-      if (error) { E.setBusy(e.target, false); return fail(error, "Could not submit the application"); }
-      if (!(await addApplicationPhoto(app, photo))) toast("The photo could not be uploaded. Add it from My Job Application.", true);
-      const failed = await E.uploadRecords("job_application", app.id, "requirement", E.filesOf("jaReq"));
-      if (failed) toast(`${failed} requirement file(s) failed to upload.`, true);
-      toast(`Application ${app.application_no} submitted. The Director has been notified.`);
-      applicantStatus(app);
-    };
-  }
   // The photo is added once, right after submitting (or later from the status page if that upload failed).
   async function addApplicationPhoto(app, file) {
     const f = await shrinkImage(file, 900);
