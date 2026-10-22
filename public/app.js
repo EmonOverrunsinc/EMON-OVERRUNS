@@ -748,13 +748,6 @@
       if (p1.length < 6) return toast("Use at least 6 characters.", true);
       if (p1 !== p2) return toast("The two passwords do not match.", true);
       setBusy(e.target, true, "Saving");
-      // 3.23: a change from My Profile needs the old password (a reset from the email link does not)
-      if (!fromEmail) {
-        const old = $("#pw0").value;
-        if (!old) { setBusy(e.target, false); toast("Type your old password.", true); return $("#pw0").focus(); }
-        const chk = await sb.auth.signInWithPassword({ email: S.session.user.email, password: old });
-        if (chk.error) { setBusy(e.target, false); toast(/invalid login/i.test(chk.error.message) ? "The old password is wrong." : chk.error.message, true); return $("#pw0").focus(); }
-      }
       S.resetting = true;
       const { error } = await sb.auth.verifyOtp({ email, token, type: "recovery" });
       if (error) { S.resetting = false; setBusy(e.target, false); return fail(/expired|invalid/i.test(error.message) ? "That code is wrong or has expired. Press Resend code." : error, "Could not check the code"); }
