@@ -92,7 +92,7 @@
     const row = (l, v) => `<div class="idc-er"><small>${l}</small><b>${val(v)}</b></div>`;
     return `<div class="idc-face idc-back">${bg(k, false)}
       <div class="idc-bhead">IN CASE OF EMERGENCY, PLEASE NOTIFY</div><div class="idc-gold b"></div>
-      <div class="idc-emg">${row("NAME", em.emergency_name)}<div class="idc-er2">${row("RELATIONSHIP", em.emergency_relation)}${row("CONTACT NO", em.emergency_phone)}</div>${row("ADDRESS", em.emergency_address)}</div>
+      <div class="idc-emg">${row("NAME", em.emergency_name)}${row("CONTACT NO", em.emergency_phone)}${row("ADDRESS", em.emergency_address)}</div>
       <div class="idc-qrrow"><div class="idc-qr">${d.qr ? `<img src="${esc(d.qr)}" alt="QR code">` : `<span>${ic("key")}<br>QR CODE<br>ON THE<br>PRINTED CARD</span>`}</div>
         <div class="idc-qrtxt"><b class="idc-scan">SCAN TO SIGN IN</b>
           <small>CARD NO</small><b class="mono">${esc(d.card.card_no)}</b><small>ISSUED</small><b>${esc(mdy(d.card.issued_at))}</b>
