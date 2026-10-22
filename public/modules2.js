@@ -30,11 +30,9 @@
   // ======================================================================
   // 5. Employee
   // ======================================================================
-  const empTabs = (on) => `<nav class="subnav">${[["employees", "Employees"], ["payroll", "Payroll"]]
-    .map(([k, l]) => `<a href="#${k}" class="${k === on ? "on" : ""}">${l}</a>`).join("")}</nav>`;
 
   V.employees = async () => {
-    E.shell("employees", "Employee", `${empTabs("employees")}
+    E.shell("employees", "Employees", `${E.eoTabs("employees")}
       <div class="tabs" id="emF"><button type="button" class="on" data-f="current">Current</button><button type="button" data-f="terminated">Terminated</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${isAdmin() ? `<a class="btn primary" href="#newemployee">+ New Employee</a>` : ""}</div>
       <div id="emRes">${busy()}</div>`,
@@ -158,6 +156,7 @@
       <div class="actionbar">
         ${canPay ? `<button type="button" class="btn primary" id="emPay">${ic("plus")} Record Salary / Advance</button>` : ""}
         <button type="button" class="btn" id="emPrint">${ic("print")} Print Employee Record</button>
+        ${isAdmin() ? `<label class="btn" for="emPhoto">${ic("camera")} ${photo ? "Change Photo" : "Add Photo"}</label><input type="file" id="emPhoto" accept="image/*" hidden>` : ""}
         ${isAdmin() && em.status !== "terminated" && em.profile_id !== S.profile.id ? `<button type="button" class="btn danger" id="emTerm">Terminate</button>` : ""}
         ${isAdmin() && em.status === "terminated" ? `<button type="button" class="btn ok" id="emRehire">Re-hire</button>` : ""}
         <span class="grow"></span>
@@ -193,14 +192,22 @@
     E.bindDocCards($("#main"), () => V.employee(id));
     bindTools($("#main"));
     if ($("#emPay")) $("#emPay").onclick = () => payslipDialog(em, (p) => (location.hash = "payslip/" + p.id));
+    // 3.23: the Director adds or changes the employee photo (it is also the photo on the ID card)
+    if ($("#emPhoto")) $("#emPhoto").onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const path = await uploadPhoto("employee", id, f); if (!path) return;
+      const { error } = await sb.rpc("set_employee_photo", { p_id: id, p_path: path });
+      if (error) return fail(error, /set_employee_photo/.test(error.message || "") ? "Run the database update 033_employee_photo.sql first" : "Could not save the photo");
+      toast("Photo saved."); V.employee(id);
+    };
     // 3.0: an employee linked to a login account cannot be deleted (no Delete button)
     if (em.profile_id) $$("[data-rt-del]").forEach((b) => b.remove());
     if ($("#emLinkSel")) (async () => {
-      const [{ data: pr }, { data: ems }] = await Promise.all([sb.from("profiles").select("id, full_name, email, role, status").neq("role", "admin").order("full_name"),
+      const [{ data: pr }, { data: ems }] = await Promise.all([sb.from("profiles").select("id, full_name, email, role, status").order("full_name"),
         sb.from("employees").select("profile_id").not("profile_id", "is", null)]);
       const used = new Set((ems || []).map((x) => x.profile_id)), list = (pr || []).filter((x) => !used.has(x.id) && x.status !== "disabled");
       const sel = $("#emLinkSel"); if (!sel) return;
-      sel.innerHTML = list.length ? `<option value="">— Choose the login account —</option>` + list.map((x) => `<option value="${x.id}">${esc(x.full_name || "")} · ${esc(x.email || "")}</option>`).join("") : `<option value="">No free login account</option>`;
+      sel.innerHTML = list.length ? `<option value="">— Choose the login account —</option>` + list.map((x) => `<option value="${x.id}">${esc(x.full_name || "")} · ${esc(x.email || "")}${x.role === "admin" ? " · DIRECTOR" : ""}</option>`).join("") : `<option value="">No free login account</option>`;
       $("#emLink").onclick = async () => {
         const pid = sel.value; if (!pid) return toast("Choose the login account.", true);
         const x = list.find((y) => y.id === pid);
@@ -366,17 +373,28 @@
   };
 
   V.payroll = async () => {
-    E.shell("payroll", "Payroll", `${empTabs("payroll")}
+    E.shell("payroll", "Payroll", `${E.eoTabs("payroll")}
       <div class="options"><fieldset class="opt"><legend>Month</legend><div class="fields"><label for="prMonth">For Month</label><input type="month" id="prMonth" value="${isoToday().slice(0, 7)}"></div></fieldset></div>
       <div class="btnrow"><button type="button" class="btn" id="prPrint">${ic("print")} Print Payroll</button></div>
-      <div id="prRes">${busy()}</div>`, "Every salary, advance and bonus payment for the month. Open a row to see or print the payslip.");
+      <h3 class="sec-h">Active Employees</h3><div id="prActive">${busy()}</div>
+      <h3 class="sec-h">Payments This Month</h3><div id="prRes">${busy()}</div>`, "The active employees with their salary and what was paid to each this month, then every salary, advance and bonus payment of the month. Open a row to see the employee or the payslip.");
     let rows = [];
     const load = async () => {
       $("#prRes").innerHTML = busy();
       const m = $("#prMonth").value + "-01";
-      const { data, error } = await sb.from("payslips").select("*, employees(first_name,last_name,employee_no,position)").eq("period_month", m).order("pay_date");
+      const [{ data, error }, act] = await Promise.all([
+        sb.from("payslips").select("*, employees(first_name,last_name,employee_no,position)").eq("period_month", m).order("pay_date"),
+        sb.from("employees").select("id, employee_no, first_name, last_name, position, monthly_salary").eq("status", "active").order("employee_no")]);
       if (error) return fail(error, "Could not load payroll");
       rows = data || [];
+      // 3.23: every active employee, the salary and what was paid to each this month
+      const paidTo = new Map(); rows.forEach((r) => paidTo.set(r.employee_id, (paidTo.get(r.employee_id) || 0) + num(r.net_pay)));
+      const staff = (act.data || []).map((e) => ({ ...e, paid: paidTo.get(e.id) || 0 }));
+      $("#prActive").innerHTML = E.grid({ cols: [{ label: "Employee No", get: (r) => r.employee_no }, { label: "Name", get: (r) => fullName(r) }, { label: "Position", get: (r) => r.position || "" },
+        { label: "Monthly Salary (₱)", key: "monthly_salary", num: true, get: (r) => peso(r.monthly_salary) }, { label: "Paid This Month (₱)", key: "paid", num: true, get: (r) => peso(r.paid) },
+        { label: "Status", html: (r) => r.paid >= num(r.monthly_salary) && r.paid > 0 ? pill("approved", "PAID") : r.paid > 0 ? pill("pending", "PART PAID") : pill("pending", "NOT PAID") }],
+        rows: staff, onRow: true, foot: { monthly_salary: peso(staff.reduce((t, e) => t + num(e.monthly_salary), 0)), paid: peso(staff.reduce((t, e) => t + e.paid, 0)) }, empty: "No active employees." });
+      E.bindGrid($("#prActive"), staff, (r) => (location.hash = "employee/" + r.id));
       const cols = [SLIP_COLS[0], { label: "Employee", get: (r) => fullName(r.employees || {}) }, { label: "Employee No", get: (r) => r.employees?.employee_no || "" }, ...SLIP_COLS.slice(1, 6)];
       $("#prRes").innerHTML = E.grid({ cols, rows, onRow: true, foot: { net_pay: peso(rows.reduce((s, r) => s + num(r.net_pay), 0)) }, empty: `No payments for ${monthLabel(m)}.` });
       E.bindGrid($("#prRes"), rows, (r) => (location.hash = "payslip/" + r.id));

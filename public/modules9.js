@@ -3,9 +3,9 @@
    rosette behind the photo, microtext lines, a ghost photo, the company seal over the photo corner and a dot background
    that may show COPY on a photocopy. The front carries a PDF417 barcode of the employee no (it opens Verify a Record).
    The back carries the emergency contact, a QR with the private card code (the employee signs in by scanning it and
-   typing a PIN) and the signature of the Director who issued the card over the company name, address and email.
-   Here: the card itself, the Director's ID Card tab (print / download, new card, reset PIN), the employee's PIN in
-   My Profile and the check of a scanned card. The sign-in with the card is on the sign-in page (app.js). */
+   typing the E-Portal password) and the signature of the Director who issued the card over the company name, address and email.
+   Here: the card itself, the Director's ID Card tab (print / download, new card), the employee's card in My Profile
+   and the check of a scanned card. 3.23: on the screen the card shows DRAFT ONLY; the print is clean. The sign-in with the card is on the sign-in page (app.js). */
 (function () {
   "use strict";
   const E = window.EO;
@@ -56,7 +56,7 @@
       <rect width="${W}" height="${H}" fill="url(#pc${k})" mask="url(#mw${k})" opacity=".55"/>`;
   }
   const MICRO = "EMONOVERRUNS·AUTHENTIC·";
-  const micro = (n = 12) => esc(MICRO.repeat(n));
+  const micro = (n) => esc(MICRO.repeat(n));
   const bg = (k, front) => `<svg class="idc-bg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
       ${copyTint(k, "#b9c9e6")}
       ${waves("#8fb0e6", 20, 82, 16, 1.6, 19, 0.3)}${waves("#e3a3c8", 22, 84, 14, 1.2, 13, 2.1, 0.06)}
@@ -70,12 +70,12 @@
   // ---------- the card ----------
   const nameSize = (n) => (n.length <= 16 ? 3.8 : n.length <= 22 ? 3.2 : n.length <= 30 ? 2.7 : 2.3);
   const val = (v) => (v ? esc(v) : "&nbsp;");
-  // d: { em, card, photo, holderSig, dirSig, blood, qr }  (qr: a picture; empty on the screen)
+  // d: { em, card, photo, holderSig, dirSig, blood, appNo, qr }  (qr: a picture; empty on the screen)
   function front(d) {
     const k = ++uid, name = fullName(d.em).toUpperCase();
     return `<div class="idc-face idc-front">${bg(k, true)}
       <div class="idc-top">${band(k)}${E.logoHtml("idc-logo")}<div class="idc-co"><b>${esc(C.company.name)}</b><small>EMPLOYEE IDENTIFICATION CARD</small></div></div>
-      <div class="idc-gold"></div><div class="idc-micro idc-m1">${micro()}</div>
+      <div class="idc-gold"></div>
       <div class="idc-photo">${d.photo ? `<img class="idc-pic" src="${esc(d.photo)}" alt="">` : `<span>PHOTO</span>`}<img class="idc-seal" src="${STAMP}" alt=""></div>
       ${d.photo ? `<div class="idc-ghost"><img src="${esc(d.photo)}" alt=""></div>` : ""}
       <div class="idc-name" style="font-size:${nameSize(name)}mm">${esc(name)}</div>
@@ -94,8 +94,10 @@
       <div class="idc-bhead">IN CASE OF EMERGENCY, PLEASE NOTIFY</div><div class="idc-gold b"></div>
       <div class="idc-emg">${row("NAME", em.emergency_name)}<div class="idc-er2">${row("RELATIONSHIP", em.emergency_relation)}${row("CONTACT NO", em.emergency_phone)}</div>${row("ADDRESS", em.emergency_address)}</div>
       <div class="idc-qrrow"><div class="idc-qr">${d.qr ? `<img src="${esc(d.qr)}" alt="QR code">` : `<span>${ic("key")}<br>QR CODE<br>ON THE<br>PRINTED CARD</span>`}</div>
-        <div class="idc-qrtxt"><b class="idc-scan">SCAN TO SIGN IN</b><small class="idc-pin">4-DIGIT PIN REQUIRED</small>
-          <small>CARD NO</small><b class="mono">${esc(d.card.card_no)}</b><small>ISSUED</small><b>${esc(mdy(d.card.issued_at))}</b></div></div>
+        <div class="idc-qrtxt"><b class="idc-scan">SCAN TO SIGN IN</b><small class="idc-pin">E-PORTAL PASSWORD REQUIRED</small>
+          <small>CARD NO</small><b class="mono">${esc(d.card.card_no)}</b><small>ISSUED</small><b>${esc(mdy(d.card.issued_at))}</b>
+          <small>APPLICATION NO</small><b class="mono">${val(d.appNo)}</b></div></div>
+      ${d.photo ? `<div class="idc-ghost b"><img src="${esc(d.photo)}" alt=""></div>` : ""}
       <div class="idc-sign"><img class="idc-stamp" src="${STAMP}" alt="Company stamp"><div class="idc-sigpic">${d.dirSig ? `<img src="${esc(d.dirSig)}" alt="">` : ""}</div><i></i>
         <b>${esc(C.company.name)}</b><small>${esc(C.company.address.join(", "))}</small><small>${esc(C.company.email)}${site ? ` · ${esc(site)}` : ""}</small></div>
       <p class="idc-note">This card is the property of ${esc(C.company.name)} and is not transferable. If found, please return it to the address above.</p>
@@ -113,11 +115,11 @@
     const [photo, prof, app] = await Promise.all([
       em.photo_path ? E.signedUrl(em.photo_path, 3600) : "",
       em.profile_id ? sb.from("profiles").select("signature_path, signature_status").eq("id", em.profile_id).maybeSingle() : { data: null },
-      em.job_application_id ? sb.from("job_applications").select("blood_group").eq("id", em.job_application_id).maybeSingle() : { data: null },
+      em.job_application_id ? sb.from("job_applications").select("blood_group, application_no").eq("id", em.job_application_id).maybeSingle() : { data: null },
       E.loadSignatures()
     ]);
     const sig = prof.data?.signature_status === "approved" ? await E.signaturePic(prof.data.signature_path) : "";
-    return { em, card, photo, holderSig: sig, dirSig: E.approvedBy(card.issued_by, card.issued_by_name, card.issued_at)?.pic || "", blood: app.data?.blood_group || "" };
+    return { em, card, photo, holderSig: sig, dirSig: E.approvedBy(card.issued_by, card.issued_by_name, card.issued_at)?.pic || "", blood: app.data?.blood_group || "", appNo: app.data?.application_no || "" };
   }
 
   // ---------- the Director's ID Card tab on the employee profile ----------
@@ -125,12 +127,9 @@
   async function idCardTab(em, el, reload) {
     if (!isAdmin() || !el) return;
     el.innerHTML = busy("Loading the ID card");
-    const [cards, pin] = await Promise.all([
-      sb.from("employee_cards").select("*").eq("employee_id", em.id).order("issued_at", { ascending: false }),
-      sb.rpc("employee_pin_state", { p_employee: em.id })
-    ]);
+    const cards = await sb.from("employee_cards").select("*").eq("employee_id", em.id).order("issued_at", { ascending: false });
     if (cards.error) { el.innerHTML = `<div class="hint err">The ID cards could not be loaded. ${/employee_cards/.test(cards.error.message || "") ? "Run the database update <b>032_employee_id.sql</b> first." : esc(cards.error.message)}</div>`; return; }
-    const list = cards.data || [], card = list.find((c) => c.status === "active"), ps = pin.data || {};
+    const list = cards.data || [], card = list.find((c) => c.status === "active");
     const d = card ? await cardData(em, card) : null;
     if (!el.isConnected) return;
     const expired = card && card.valid_until < E.isoToday();
@@ -144,15 +143,13 @@
             <tr><th scope="row">Valid Until</th><td>${esc(mdy(card.valid_until))}</td></tr>
             <tr><th scope="row">Portal Account</th><td>${em.profile_id ? `<span class="pill approved">LINKED</span>` : `<span class="pill pending">NOT LINKED</span> — the card works after ${esc(em.email)} creates an account (Create Account), or after you link the login account in Access &amp; Status`}</td></tr>
             <tr><th scope="row">Printed</th><td>${card.print_count ? `${card.print_count} time${card.print_count === 1 ? "" : "s"} · last ${esc(mdy(card.last_printed_at))}` : "Not printed yet"}</td></tr>
-            <tr><th scope="row">Sign-in PIN</th><td>${ps.locked_until ? `<span class="pill rejected">LOCKED</span> until ${esc(E.dateTime(ps.locked_until))}` : ps.pin_set ? `<span class="pill approved">SET</span> ${esc(mdy(ps.set_at))}` : `<span class="pill pending">NOT SET</span> — the employee sets it in My Profile`}</td></tr>
-            <tr><th scope="row">Last Card Sign-in</th><td>${card.last_login_at ? esc(E.dateTime(card.last_login_at)) : "—"}</td></tr></tbody></table></div>` : ""}
+            </tbody></table></div>` : ""}
           ${missing && card ? `<div class="hint warn">The emergency contact is missing. Add it with <b>Correction</b> on this employee (Details), or the card prints empty lines to fill in by hand.</div>` : ""}
           <div class="btnrow">
             ${card ? `<button type="button" class="btn primary" id="idcPrint">${ic("print")} Print / Download ID Card</button>` : ""}
             ${em.status !== "terminated" ? `<button type="button" class="btn" id="idcNew">${ic("plus")} ${card ? "Issue New Card" : "Issue ID Card"}</button>` : ""}
-            ${ps.pin_set ? `<button type="button" class="btn danger" id="idcPin">${ic("key")} Reset PIN</button>` : ""}
           </div>
-          <p class="muted small">Only the Director sees and prints the ID card. A new card stops the old one at once (lost or damaged card). The employee signs in by scanning the card and typing the PIN.</p>
+          <p class="muted small">Only the Director sees and prints the ID card. A new card stops the old one at once (lost or damaged card). The employee signs in by scanning the card and typing the E-Portal password of the linked account.</p>
         </div></div>
       ${list.length ? `<h4>Card History</h4>${E.grid({ cols: [{ label: "Card No", get: (r) => r.card_no }, { label: "Issued", get: (r) => mdy(r.issued_at) }, { label: "Issued By", get: (r) => r.issued_by_name || "" },
         { label: "Valid Until", get: (r) => mdy(r.valid_until) }, { label: "Status", get: (r) => STATE[r.status] || r.status.toUpperCase() }, { label: "Ended", get: (r) => (r.ended_at ? mdy(r.ended_at) : "") }], rows: list })}` : ""}`;
@@ -168,38 +165,16 @@
       if (error) return fail(error, "Could not issue the ID card");
       toast(`ID card ${data.card_no} issued.`); idCardTab(em, el, reload);
     };
-    if ($("#idcPin", el)) $("#idcPin", el).onclick = async () => {
-      if (!(await E.confirmBox(`Reset the sign-in PIN of <b>${esc(fullName(em))}</b>?<br><br>The card cannot sign in until the employee sets a new PIN in My Profile (signed in with the email and password).`, { ok: "Reset PIN", danger: true }))) return;
-      const { error } = await sb.rpc("reset_card_pin", { p_employee: em.id });
-      if (error) return fail(error, "Could not reset the PIN");
-      toast("PIN reset."); idCardTab(em, el, reload);
-    };
   }
 
-  // ---------- the employee's PIN (My Profile) ----------
-  async function cardPinBox(el, { focus = false } = {}) {
+  // ---------- the employee's ID card (My Profile) ----------
+  async function cardPinBox(el) {
     if (!el) return;
     const { data, error } = await sb.rpc("my_id_card");
     if (error || !data || !el.isConnected) { el.remove(); return; }
-    el.innerHTML = `<fieldset class="opt"><legend>ID Card Sign-in PIN</legend>
-        <p>Your ID card <b class="mono">${esc(data.card_no)}</b> (valid until ${esc(mdy(data.valid_until))}) signs you in: on the sign-in page press <b>Sign In with ID Card</b>, scan the card and type your 4-digit PIN.</p>
-        <p>${data.pin_set ? `<span class="pill approved">PIN SET</span> You can change it below.` : `<span class="pill pending">NO PIN YET</span> Choose a PIN to use your card.`}</p>
-        <div class="fields wide"><label for="mpPin">New PIN</label><input type="password" id="mpPin" inputmode="numeric" maxlength="4" autocomplete="off" data-case="keep">
-          <label for="mpPin2">Type It Again</label><input type="password" id="mpPin2" inputmode="numeric" maxlength="4" autocomplete="off" data-case="keep"></div>
-        <div class="btnrow"><button type="button" class="btn primary" id="mpPinSave">${ic("key")} ${data.pin_set ? "Change PIN" : "Save PIN"}</button></div>
-        <small class="muted">Keep the PIN secret. Anyone with your card and your PIN can open the portal as you. Lost your card? Tell the Director at once.</small></fieldset>`;
-    if (focus && !data.pin_set) {
-      el.classList.add("pin-now"); el.scrollIntoView({ block: "center" }); $("#mpPin", el).focus();
-      toast("Welcome! Choose your 4-digit ID card PIN below.");
-    }
-    $("#mpPinSave", el).onclick = async () => {
-      const a = $("#mpPin", el).value.trim(), b = $("#mpPin2", el).value.trim();
-      if (!/^\d{4}$/.test(a)) return toast("The PIN is 4 numbers.", true);
-      if (a !== b) return toast("The two PINs are not the same.", true);
-      const r = await sb.rpc("set_card_pin", { p_pin: a });
-      if (r.error) return fail(r.error, "Could not save the PIN");
-      toast("PIN saved. Your ID card can sign you in now."); cardPinBox(el);
-    };
+    el.innerHTML = `<fieldset class="opt"><legend>My ID Card</legend>
+        <p>Your ID card <b class="mono">${esc(data.card_no)}</b> (valid until ${esc(mdy(data.valid_until))}) signs you in: on the sign-in page press <b>Sign In with ID Card</b>, scan the card (or upload a photo of it) and type your E-Portal password.</p>
+        <small class="muted">Lost your card? Tell the Director at once.</small></fieldset>`;
   }
 
   // ---------- a scanned card (anyone): who it belongs to and whether it is valid ----------
