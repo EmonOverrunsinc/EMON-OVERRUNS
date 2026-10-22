@@ -13,6 +13,15 @@ const CORS = {
 };
 const reply = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+// The project's default secret key (sb_secret_…); the legacy service_role key (works until the end of 2026) only when
+// the project has no new keys.
+const secretKey = (): string => {
+  try {
+    const key = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}").default;
+    if (key) return key;
+  } catch { /* not set: use the legacy key */ }
+  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -23,7 +32,7 @@ Deno.serve(async (req) => {
   const pin = String(body.pin ?? "").trim();
   if (!code || !/^\d{4}$/.test(pin)) return reply(400, { error: "Scan the ID card and enter the 4-digit PIN." });
 
-  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, secretKey(), {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data, error } = await admin.rpc("card_login", { p_code: code, p_pin: pin });
