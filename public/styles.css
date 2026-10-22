@@ -2327,3 +2327,4 @@ table.ga-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   font: 900 9.5mm/1 Arial, sans-serif; letter-spacing: .6mm; color: rgba(200, 30, 30, .28); border: .8mm solid rgba(200, 30, 30, .28); padding: 1.2mm 2.4mm; border-radius: 1.5mm; pointer-events: none; z-index: 5; }
 @media print { .idc-pair.screen .idc-face::after { content: none; } }
 .idc-qrtxt small.idc-pin { white-space: nowrap; font-size: 1.12mm; letter-spacing: .05mm; }
+.idc-foot .idc-micro { font-size: .8mm; letter-spacing: .08mm; font-weight: 800; }
