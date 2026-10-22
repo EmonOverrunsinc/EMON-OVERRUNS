@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.22";
+  const VERSION = "3.23";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.22.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.23.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -521,23 +521,26 @@
     };
   }
 
-  // 3.21: sign in with the employee ID card. The card is scanned first (camera, a photo of it, or a USB barcode scanner that
-  // types into the code box) and the portal says what is needed: an account linked to the employee profile (Create Account),
-  // the first time the account password (then the PIN is chosen in My Profile), after that only the 4-digit PIN.
+  // 3.23: sign in with the employee ID card. The card is read first: Live Scan (camera), Upload Photo (a picture of the QR
+  // on the back) or Type Code (also a USB barcode scanner types here). The portal says what is needed: an account linked to
+  // the employee profile (Create Account, or the Director links one), then the E-PORTAL PASSWORD of that account.
   const CARD_CODE = /^EMONID\|EOID-\d{4}-\d{4,}\|[0-9A-F]{40}$/i;
   function renderCardLogin() {
     authFrame("Sign In with ID Card", `<form class="wbody login-form" id="clForm" novalidate>
       ${brandBlock()}
       <div class="cl-scan">
-        <button type="button" class="btn big" id="clCam">${ic("camera")} Scan My ID Card</button>
-        <label class="fl" for="clCode">Or scan it with a barcode scanner into this box</label>
-        <input type="password" id="clCode" autocomplete="off" spellcheck="false" data-case="keep" placeholder="ID card code">
+        <div class="cl-ways">
+          <button type="button" class="btn big" id="clCam">${ic("camera")} Live Scan</button>
+          <label class="btn big" for="clFile">${ic("upload")} Upload Photo</label><input type="file" id="clFile" accept="image/*" hidden>
+          <button type="button" class="btn big" id="clType">${ic("edit")} Type Code</button>
+        </div>
+        <div id="clTypeBox" hidden><label class="fl" for="clCode">ID card code (or scan it with a barcode scanner)</label>
+          <input type="text" id="clCode" autocomplete="off" spellcheck="false" data-case="keep" placeholder="EMONID|EOID-…"></div>
         <div class="cl-read" id="clRead" hidden></div>
         <div id="clMsg" hidden></div>
       </div>
       <div id="clStep" hidden>
-        <div id="clPinBox"><label class="fl" for="clPin">4-Digit PIN</label><input type="password" id="clPin" inputmode="numeric" maxlength="4" autocomplete="off" data-case="keep"></div>
-        <div id="clPassBox" hidden>${pwField("clPass", "Account Password", "current-password")}</div>
+        ${pwField("clPass", "E-Portal Password", "current-password")}
         <button class="btn primary big" type="submit" id="clGo">Sign In</button>
       </div>
       <div class="login-links"><button type="button" class="linkbtn" id="clBack">Sign in with email and password</button></div>
@@ -550,66 +553,53 @@
     const take = async (t) => {
       const v = String(t || "").trim();
       reset();
-      if (!CARD_CODE.test(v)) { $("#clCode").value = ""; return toast("This is not an EMON OVERRUNS employee ID card. Scan the QR code on the back of your ID card.", true); }
-      $("#clCode").value = v;
-      const r = $("#clRead"); r.hidden = false; r.innerHTML = `<span class="spin sm"></span> Reading the ID card…`;
+      if (!CARD_CODE.test(v)) { return toast("This is not an EMON OVERRUNS employee ID card. Use the QR code on the back of your ID card.", true); }
+      const r = $("#clRead"); r.hidden = false; r.classList.remove("bad"); r.innerHTML = `<span class="spin sm"></span> Reading the ID card…`;
       const { data, error } = await sb.rpc("card_state", { p_code: v });
       if (error || !data) { r.hidden = true; return toast("The ID card could not be checked. Check the internet and try again.", true); }
       st = data; code = v;
       const no = esc(v.split("|")[1].toUpperCase()), who = data.name ? ` · ${esc(data.name)}` : "";
-      r.innerHTML = `${ic("check")} ID card ${no}${who}`;
-      r.classList.toggle("bad", !["ready", "no_pin", "locked"].includes(data.state));
-      if (data.state === "ready") { show("#clStep", true); show("#clPinBox", true); show("#clPassBox", false); $("#clGo").textContent = "Sign In"; return $("#clPin").focus(); }
-      if (data.state === "no_pin") {
-        msg("ok", `<b>Welcome! First time with your ID card:</b> type your account password once. Then choose your 4-digit PIN. Next time you sign in with the card and the PIN only.`);
-        show("#clStep", true); show("#clPinBox", false); show("#clPassBox", true); $("#clGo").textContent = "Continue"; return $("#clPass").focus();
+      r.innerHTML = `${ic("check")} ID card found: ${no}${who}`;
+      const ok = data.email && ["password", "no_pin", "ready"].includes(data.state);
+      r.classList.toggle("bad", !ok);
+      if (ok) {
+        msg("ok", `Type the password of your E-Portal account <b>${esc(data.email)}</b>.`);
+        show("#clStep", true); return $("#clPass").focus();
       }
       if (data.state === "no_account") {
-        msg("warn", `<b>Your portal account is not linked to your employee profile yet.</b> First create your account with your email <b>${esc(data.email_hint || "")}</b>. If you already have an account with another email, ask the Director to link it to your employee profile.
+        msg("warn", `<b>Your portal account is not linked to your employee profile yet.</b> Create your account with your email <b>${esc(data.email_hint || "")}</b>, or ask the Director to link your account to your employee profile.
           <div class="btnrow"><button type="button" class="btn primary" id="clSignup">Create Account</button></div>`);
         $("#clSignup").onclick = () => renderSignup();
         return;
       }
-      const why = { locked: `Too many wrong PINs. Try again after ${esc(data.until || "")}, or ask the Director to reset your PIN.`, blocked: "Your login is blocked. Ask the Director.",
+      const why = { blocked: "Your login is blocked. Ask the Director.",
         replaced: "This ID card was replaced by a newer card. Use your new ID card.", ended: "This ID card is no longer valid.",
-        expired: `This ID card expired on ${esc(mdy(data.valid_until))}. Ask the Director for a new card.`, invalid: "This ID card is not valid." }[data.state] || "This ID card cannot sign in.";
+        expired: `This ID card expired on ${esc(mdy(data.valid_until))}. Ask the Director for a new card.`, invalid: "This ID card is not valid." }[data.state] || "This ID card cannot sign in yet. Ask the Director.";
       msg("err", why);
-      if (data.state === "invalid") { r.hidden = true; $("#clCode").value = ""; }
+      if (data.state === "invalid") r.hidden = true;
     };
     $("#clBack").onclick = () => renderLogin("signin");
     $("#clCam").onclick = () => scanDialog(take, { title: "Scan Your ID Card", hint: "Hold the back of your ID card (the QR code) in front of the camera." });
-    $("#clCode").onchange = () => { if ($("#clCode").value.trim() && $("#clCode").value.trim() !== code) take($("#clCode").value); };
+    $("#clFile").onchange = async (e) => {
+      const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+      const r = $("#clRead"); reset(); r.hidden = false; r.innerHTML = `<span class="spin sm"></span> Reading the photo…`;
+      try { take(await decodeImageFile(f)); } catch (err) { r.hidden = true; toast(err.message || "No QR code found in that photo.", true); }
+    };
+    $("#clType").onclick = () => { show("#clTypeBox", true); $("#clCode").focus(); };
+    $("#clCode").onchange = () => { const v = $("#clCode").value.trim(); if (v && v !== code) take(v); };
     $("#clCode").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); if ($("#clCode").value.trim()) take($("#clCode").value); } };
-    $("#clCode").focus();
     $("#clForm").onsubmit = async (e) => {
       e.preventDefault();
-      if (!st || !code) { toast("Scan your ID card first.", true); return $("#clCode").focus(); }
-      if (st.state === "no_pin") {
-        const password = $("#clPass").value;
-        if (!password) { toast("Type your account password.", true); return $("#clPass").focus(); }
-        setBusy(e.target, true, "Signing in");
-        history.replaceState(null, "", "#profile/pin"); // after signing in, My Profile opens at the PIN
-        const { error } = await sb.auth.signInWithPassword({ email: st.email, password });
-        if (!error) return; // the auth listener opens My Profile
-        history.replaceState(null, "", "#dashboard");
-        setBusy(e.target, false);
-        if (/confirm/i.test(error.message)) { sb.auth.resend({ type: "signup", email: st.email, options: { emailRedirectTo: authRedirect() } }).then(() => {}, () => {}); toast("Your email is not confirmed yet. Enter the code we emailed you.", true); return renderCode(st.email); }
-        return fail(/invalid login/i.test(error.message) ? "Wrong password." : error, "Sign-in failed");
-      }
-      if (st.state !== "ready") return toast($("#clMsg").textContent || "This ID card cannot sign in.", true);
-      const pin = $("#clPin").value.trim();
-      if (!/^\d{4}$/.test(pin)) { toast("Type your 4-digit PIN.", true); return $("#clPin").focus(); }
-      setBusy(e.target, true, "Checking the ID card");
-      let j = {}, ok = false;
-      try {
-        const r = await fetch(`${C.supabaseUrl}/functions/v1/${C.cardLoginFunction || "card-login"}`, { method: "POST", headers: { "Content-Type": "application/json", apikey: C.supabaseKey }, body: JSON.stringify({ code, pin }) });
-        j = await r.json().catch(() => ({})); ok = r.ok && !!j.token_hash;
-        if (r.status === 404 && !j.error) j.error = "Sign-in with the ID card is not switched on yet. Sign in with your email and password.";
-      } catch (_) { j = { error: "No connection to the portal. Check the internet and try again." }; }
-      if (!ok) { setBusy(e.target, false); $("#clPin").value = ""; $("#clPin").focus(); return toast(j.error || "The ID card could not sign in. Try again.", true); }
-      const { error } = await sb.auth.verifyOtp({ token_hash: j.token_hash, type: "magiclink" });
-      if (error) { setBusy(e.target, false); return fail(error, "Sign-in failed"); }
-      // the auth listener opens the portal
+      if (!st || !code) return toast("Scan, upload or type your ID card first.", true);
+      if (!st.email) return toast($("#clMsg").textContent || "This ID card cannot sign in.", true);
+      const password = $("#clPass").value;
+      if (!password) { toast("Type your E-Portal password.", true); return $("#clPass").focus(); }
+      setBusy(e.target, true, "Signing in");
+      const { error } = await sb.auth.signInWithPassword({ email: st.email, password });
+      if (!error) return; // the auth listener opens the portal
+      setBusy(e.target, false);
+      if (/confirm/i.test(error.message)) { sb.auth.resend({ type: "signup", email: st.email, options: { emailRedirectTo: authRedirect() } }).then(() => {}, () => {}); toast("Your email is not confirmed yet. Enter the code we emailed you.", true); return renderCode(st.email); }
+      return fail(/invalid login/i.test(error.message) ? "Wrong password." : error, "Sign-in failed");
     };
   }
 
@@ -776,6 +766,7 @@
     authFrame("Set New Password", `<form class="wbody login-form" id="pwForm" novalidate>
       ${brandBlock()}
       <p class="center">${esc(S.session?.user?.email || "")}</p>
+      ${fromEmail ? "" : pwField("pw0", "Old Password", "current-password")}
       ${pwField("pw1", "New Password", "new-password")}
       ${pwField("pw2", "Confirm New Password", "new-password")}
       <button class="btn primary big" type="submit">Save New Password</button>
@@ -789,6 +780,13 @@
       if (p1.length < 6) return toast("Use at least 6 characters.", true);
       if (p1 !== p2) return toast("The two passwords do not match.", true);
       setBusy(e.target, true, "Saving");
+      // 3.23: a change from My Profile needs the old password (a reset from the email link does not)
+      if (!fromEmail) {
+        const old = $("#pw0").value;
+        if (!old) { setBusy(e.target, false); toast("Type your old password.", true); return $("#pw0").focus(); }
+        const chk = await sb.auth.signInWithPassword({ email: S.session.user.email, password: old });
+        if (chk.error) { setBusy(e.target, false); toast(/invalid login/i.test(chk.error.message) ? "The old password is wrong." : chk.error.message, true); return $("#pw0").focus(); }
+      }
       const { error } = await sb.auth.updateUser({ password: p1 });
       setBusy(e.target, false);
       if (error) return fail(error, "Could not save the password");
@@ -878,7 +876,6 @@
     { k: "customers", icon: "user", label: "Customer" },
     { k: "invoices", icon: "doc", label: "Invoice" },
     { k: "payments", icon: "wallet", label: "Payment" },
-    { k: "employees", icon: "users", label: "Employee" },
     { k: "purchase", icon: "order", label: "Purchase Order" },
     { k: "eooffice", icon: "shield", label: "EO-Office" },
     { k: "billing", icon: "building", label: "Billing" },
@@ -911,7 +908,7 @@
     ["logins", "Login Accounts", () => isAdmin(), "key"],
     ["forms", "Download Forms", () => true, "download"]
   ];
-  const ACTIVE_OF = { creditmemos: "eooffice", newcreditmemo: "eooffice", creditmemo: "eooffice", projects: "eooffice", newproject: "eooffice", project: "eooffice", jobapps: "eooffice", jobapp: "eooffice", positions: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", payslip: "employees", ebill: "inventory", find: "", profile: "", settings: "" };
+  const ACTIVE_OF = { employees: "eooffice", newemployee: "eooffice", employee: "eooffice", payroll: "eooffice", payslip: "eooffice", creditmemos: "eooffice", newcreditmemo: "eooffice", creditmemo: "eooffice", projects: "eooffice", newproject: "eooffice", project: "eooffice", jobapps: "eooffice", jobapp: "eooffice", positions: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", ebill: "inventory", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
   const ALIAS = { users: "employees", userres: "employees", resolutions: "purchase", resolution: "purchase", community: "purchase", orders: "dashboard", neworder: "dashboard", editorder: "dashboard", verification: "verify", supplier: "billing", newsupplier: "billing", search: "dashboard" };
   const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);

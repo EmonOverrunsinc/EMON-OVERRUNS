@@ -2086,7 +2086,7 @@
         <div class="tiles"><div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div><div class="tile ok"><div class="k">Total Received (₱)</div><div class="v">₱ ${peso(netTotal)}</div></div></div>
         <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}`;
     if (emp) E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
-    if (emp && E.cardPinBox) E.cardPinBox($("#mpCard"), { focus: focus === "pin" }); // 3.21: the ID card sign-in PIN (#profile/pin: open at it)
+    if (emp && E.cardPinBox) E.cardPinBox($("#mpCard")); // 3.23: the employee's ID card (signs in with the E-Portal password)
     $("#mpPw").onclick = () => E.changePassword();
     // 2.4: the request goes to the Director's Contact Messages, who then deletes the account on Login Accounts
     if ($("#mpDel")) $("#mpDel").onclick = async () => {

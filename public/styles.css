@@ -2224,7 +2224,6 @@ table.ga-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .idc-face .idc-micro { display: block; font-size: .62mm; letter-spacing: .04mm; white-space: nowrap; overflow: hidden; line-height: 1; color: #1f4fa3; font-weight: 700; }
 .idc-gold { position: absolute; left: 0; right: 0; top: 15mm; height: .7mm; background: linear-gradient(90deg, #a87a22, #f3d27a 50%, #a87a22); }
 .idc-gold.b { top: 8mm; }
-.idc-m1 { position: absolute; left: 1.2mm; right: 1.2mm; top: 16.1mm; }
 /* front */
 .idc-top { position: absolute; left: 0; top: 0; width: 100%; height: 15mm; display: flex; align-items: center; gap: 2.2mm; padding: 0 3mm; color: #fff; overflow: hidden; }
 .idc-top > * { position: relative; }
@@ -2315,3 +2314,16 @@ table.ga-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 #clMsg { margin: 2px 0 6px; }
 #clMsg .btnrow { margin-top: 8px; }
 #mpCard.pin-now fieldset { box-shadow: 0 0 0 3px var(--accent, #0071e3); border-radius: 12px; }
+
+/* 3.23: section headings inside a page (Payroll) */
+.sec-h { font-size: 14px; margin: 14px 0 6px; color: var(--ink, #1d2b22); }
+/* 3.23: three ways to read the ID card */
+.cl-ways { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cl-ways .btn { justify-content: center; padding-left: 6px; padding-right: 6px; font-size: 13px; }
+@media (max-width: 420px) { .cl-ways { grid-template-columns: 1fr; } }
+/* 3.23: the small photo on the back too, and DRAFT ONLY on the card shown on the screen (the print stays clean) */
+.idc-ghost.b { right: 2.2mm; top: 41mm; width: 7mm; height: 8.4mm; }
+.idc-pair.screen .idc-face::after { content: "DRAFT ONLY"; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(-38deg); white-space: nowrap;
+  font: 900 9.5mm/1 Arial, sans-serif; letter-spacing: .6mm; color: rgba(200, 30, 30, .28); border: .8mm solid rgba(200, 30, 30, .28); padding: 1.2mm 2.4mm; border-radius: 1.5mm; pointer-events: none; z-index: 5; }
+@media print { .idc-pair.screen .idc-face::after { content: none; } }
+.idc-qrtxt small.idc-pin { white-space: nowrap; font-size: 1.12mm; letter-spacing: .05mm; }
