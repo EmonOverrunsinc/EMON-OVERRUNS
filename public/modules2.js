@@ -50,7 +50,7 @@
         { label: "Employee No", get: (r) => r.employee_no }, { label: "Name", html: (r) => `${esc(fullName(r))} ${verifiedBadge(r.verified)}` }, { label: "Position", get: (r) => r.position || "" },
         { label: "Email", get: (r) => r.email }, { label: "Access", get: (r) => accessText(r.role, r.modules) },
         { label: "Salary (₱)", num: true, get: (r) => peso(r.monthly_salary) },
-        { label: "Status", html: (r) => r.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(r.status) }],
+        { label: "Status", html: (r) => r.approval_status === "pending" ? `<span class="pill pending">WAITING FOR APPROVAL</span>` : r.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(r.status) }],
         rows, onRow: true, empty: f === "terminated" ? "No terminated employees." : "No employees yet." });
       E.bindGrid($("#emRes"), rows, (r) => (location.hash = "employee/" + r.id));
       E.setRecords(`Employees: ${rows.length}`);
@@ -146,16 +146,17 @@
       const { data, error } = await sb.from("employees").insert({
         id, first_name: v("neFirst"), last_name: v("neLast"), position: v("nePos") || null, email: v("neEmail"),
         phone: v("nePhone") || null, address: v("neAddr") || null, date_hired: v("neHired") || null, monthly_salary: num(v("neSalary")), photo_path, ...readAccess(),
+        approval_status: "pending", // 3.25: the Director approves it next; the ID card is made then
         emergency_name: v("neEmName") || null, emergency_relation: v("neEmRel") || null, emergency_phone: v("neEmPhone") || null, emergency_address: v("neEmAddr") || null,
         permanent_address: v("nePerm") || null, duty_hours: v("neHrs") || null, father_name: v("neFather") || null, mother_name: v("neMother") || null, spouse_name: v("neSpouse") || null,
         date_of_birth: v("neDob") || null, birth_place: v("neBirth") || null, id_number: v("neIdNo") || null, gender: v("neGender") || null, religion: v("neRel") || null, blood_group: v("neBlood") || null,
         education: $$("#neEdu tr").map((tr) => ({ exam: $(".e1", tr).value.trim(), institute: $(".e2", tr).value.trim(), result: $(".e3", tr).value.trim(), year: $(".e4", tr).value.trim() })).filter((r) => r.exam && (r.institute || r.result || r.year) || r.institute),
         experience: $$("#neExp tr").map((tr) => ({ company: $(".x1", tr).value.trim(), position: $(".x2", tr).value.trim(), from: $(".x3", tr).value.trim(), to: $(".x4", tr).value.trim() })).filter((r) => r.company || r.position)
       }).select().single();
-      if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the employee"); }
+      if (error) { E.setBusy(e.target, false); return fail(error, /approval_status/.test(error.message || "") ? "Run the database update 035_employee_approval.sql first" : "Could not save the employee"); }
       let f = await E.uploadRecords("employee", id, "application", E.filesOf("neApp"));
       f += await E.uploadRecords("employee", id, "signature", E.filesOf("neSig"));
-      toast(`Saved ${data.employee_no}. The ID card is ready on the employee's ID Card tab.${f ? ` ${f} file(s) failed to upload.` : ""}`, f > 0);
+      toast(`Submitted ${data.employee_no}: waiting for approval. Check the details and access, then press Approve Employee to make the ID card.${f ? ` ${f} file(s) failed to upload.` : ""}`, f > 0);
       location.hash = "employee/" + id;
     };
   };
@@ -181,7 +182,8 @@
     $("#main").innerHTML = `
       ${em.status === "terminated" ? `<div class="banner closed">TERMINATED on ${mdy(em.termination_date)} — ${esc(em.termination_reason || "")}. The login is disabled.</div>` : ""}
       ${em.status === "suspended" ? `<div class="banner warn">⚠ SUSPENDED — the login is blocked until the employee is reactivated by an approved order.</div>` : ""}
-      ${em.status === "waiting" ? `<div class="banner warn">No login yet. Ask ${esc(em.first_name)} to open the portal, tap <b>Create Account</b> and use <b>${esc(em.email)}</b>. They can sign in immediately with the access below.</div>` : ""}
+      ${em.approval_status === "pending" ? `<div class="banner warn">⚠ WAITING FOR APPROVAL — check the details and the portal access (Access &amp; Status). ${isAdmin() ? "Then press <b>Approve Employee</b>: the employee ID card is made and the login opens." : "The Director approves it."}</div>` : ""}
+      ${em.status === "waiting" && em.approval_status !== "pending" ? `<div class="banner warn">No login yet. Ask ${esc(em.first_name)} to open the portal, tap <b>Create Account</b> and use <b>${esc(em.email)}</b>. They can sign in immediately with the access below.</div>` : ""}
       <section class="cust-hero st-${esc(em.status)}">${photoBox(photo, (em.first_name[0] || "") + (em.last_name[0] || ""))}
         <div class="ch-main"><div class="ch-name"><h2>${esc(fullName(em))}</h2>${verifiedBadge(verified)}${em.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(em.status)}</div>
           <div class="ch-sub">${esc(em.position || "—")} · ${esc(em.email)}${em.phone ? " · " + esc(em.phone) : ""}</div>
@@ -190,6 +192,7 @@
         <div class="tile ${advances > 0 ? "warn" : ""}"><div class="k">Advance Balance (₱)</div><div class="v">₱ ${peso(Math.max(0, advances))}</div></div>
         <div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div></div>
       <div class="actionbar">
+        ${isAdmin() && em.approval_status === "pending" ? `<button type="button" class="btn ok" id="emApprove">${ic("check")} Approve Employee</button>` : ""}
         ${canPay ? `<button type="button" class="btn primary" id="emPay">${ic("plus")} Record Salary / Advance</button>` : ""}
         <button type="button" class="btn" id="emPrint">${ic("print")} Print Employee Record</button>
         ${isAdmin() ? `<label class="btn" for="emPhoto">${ic("camera")} ${photo ? "Change Photo" : "Add Photo"}</label><input type="file" id="emPhoto" accept="image/*" hidden>` : ""}
@@ -232,6 +235,13 @@
     E.bindDocCards($("#main"), () => V.employee(id));
     bindTools($("#main"));
     if ($("#emPay")) $("#emPay").onclick = () => payslipDialog(em, (p) => (location.hash = "payslip/" + p.id));
+    // 3.25: the Director approves a new employee: the ID card is made and the login opens
+    if ($("#emApprove")) $("#emApprove").onclick = async () => {
+      if (!(await E.confirmBox(`Approve <b>${esc(fullName(em))}</b> (${esc(em.employee_no)}) with the access <b>${esc(accessText(em.role, em.modules))}</b>?<br><br>The employee ID card is made now and the login opens.`, { ok: "Approve Employee" }))) return;
+      const { data, error } = await sb.rpc("approve_employee", { p_id: id });
+      if (error) return fail(error, "Could not approve the employee");
+      toast(`${data.employee_no} approved. The ID card is ready on the ID Card tab.`); V.employee(id);
+    };
     // 3.23: the Director adds or changes the employee photo (it is also the photo on the ID card)
     if ($("#emPhoto")) $("#emPhoto").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
@@ -428,12 +438,12 @@
       const m = $("#prMonth").value + "-01";
       const [{ data, error }, act] = await Promise.all([
         sb.from("payslips").select("*, employees(first_name,last_name,employee_no,position)").eq("period_month", m).order("pay_date"),
-        sb.from("employees").select("id, employee_no, first_name, last_name, position, monthly_salary").eq("status", "active").order("employee_no")]);
+        sb.from("employees").select("*").eq("status", "active").order("employee_no")]);
       if (error) return fail(error, "Could not load payroll");
       rows = data || [];
       // 3.23: every active employee, the salary and what was paid to each this month
       const paidTo = new Map(); rows.forEach((r) => paidTo.set(r.employee_id, (paidTo.get(r.employee_id) || 0) + num(r.net_pay)));
-      const staff = (act.data || []).map((e) => ({ ...e, paid: paidTo.get(e.id) || 0 }));
+      const staff = (act.data || []).filter((e) => e.approval_status !== "pending").map((e) => ({ ...e, paid: paidTo.get(e.id) || 0 }));
       $("#prActive").innerHTML = E.grid({ cols: [{ label: "Employee No", get: (r) => r.employee_no }, { label: "Name", get: (r) => fullName(r) }, { label: "Position", get: (r) => r.position || "" },
         { label: "Monthly Salary (₱)", key: "monthly_salary", num: true, get: (r) => peso(r.monthly_salary) }, { label: "Paid This Month (₱)", key: "paid", num: true, get: (r) => peso(r.paid) },
         { label: "Status", html: (r) => r.paid >= num(r.monthly_salary) && r.paid > 0 ? pill("approved", "PAID") : r.paid > 0 ? pill("pending", "PART PAID") : pill("pending", "NOT PAID") }],

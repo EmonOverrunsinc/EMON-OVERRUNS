@@ -4,6 +4,8 @@ window.EMON_CONFIG = {
   // 2.2.1: the Supabase project EMON OVERRUNS in Singapore (ap-southeast-1), organization EMON HASAN
   supabaseUrl: "https://cvmqjerbbejvmzypbawi.supabase.co",
   supabaseKey: "sb_publishable_z7RMQOs1KiLuiAfOJvqFxA_k793EDQO",
+  // 3.25: the Edge Function that checks the ID card + PIN (the code of supabase/functions/card-login), by its name in Supabase
+  cardLoginFunction: "super-api",
   company: {
     name: "EMON OVERRUNS",
     // 2.2: the address is the city only, and no phone number is shown anywhere (screens, prints and PDFs)

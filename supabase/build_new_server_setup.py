@@ -3,7 +3,7 @@ import re, sys
 SRC = "/home/user/emon-overruns/supabase/"
 FILES = ["portal_init", "002_customers_invoices_payments", "003_statements", "004_update_1_1", "005_update_1_2", "006_update_1_3",
          "007_update_1_4", "008_update_1_5", "009_update_1_6", "010_update_1_7", "011_update_1_8", "012_update_1_9",
-         "013_update_2_0", "014_update_2_1", "015_update_2_2", "016_update_2_3", "017_play_store", "018_invoice_po", "019_link_payment", "020_invoice_return", "021_join_us", "022_update_2_9", "023_purchase_orders", "024_eo_office", "025_qc_simple", "026_eo_office_fixes", "027_ebill_release", "028_eportal_name", "029_qc_optional", "030_delete_history", "031_settle_by", "032_employee_id", "033_employee_photo", "034_employee_details"]
+         "013_update_2_0", "014_update_2_1", "015_update_2_2", "016_update_2_3", "017_play_store", "018_invoice_po", "019_link_payment", "020_invoice_return", "021_join_us", "022_update_2_9", "023_purchase_orders", "024_eo_office", "025_qc_simple", "026_eo_office_fixes", "027_ebill_release", "028_eportal_name", "029_qc_optional", "030_delete_history", "031_settle_by", "032_employee_id", "033_employee_photo", "034_employee_details", "035_employee_approval"]
 parts = []
 for f in FILES:
     t = open(SRC + f + ".sql", encoding="utf-8").read().replace("\r", "")

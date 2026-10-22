@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.24";
+  const VERSION = "3.25";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.24.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.25.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -521,26 +521,22 @@
     };
   }
 
-  // 3.23: sign in with the employee ID card. The card is read first: Live Scan (camera), Upload Photo (a picture of the QR
-  // on the back) or Type Code (also a USB barcode scanner types here). The portal says what is needed: an account linked to
-  // the employee profile (Create Account, or the Director links one), then the E-PORTAL PASSWORD of that account.
+  // 3.25: sign in with the employee ID card: SCAN the card (camera only: no photo upload, no typed code), then the 4-digit
+  // PIN and Sign In opens the portal at once. The portal says what is needed: an account linked to the employee profile
+  // (Create Account, or the Director links one), the first time the account password (then the PIN is chosen in My
+  // Profile), after that only the PIN. The PIN is checked by the card-login Edge Function (config.cardLoginFunction).
   const CARD_CODE = /^EMONID\|EOID-\d{4}-\d{4,}\|[0-9A-F]{40}$/i;
   function renderCardLogin() {
     authFrame("Sign In with ID Card", `<form class="wbody login-form" id="clForm" novalidate>
       ${brandBlock()}
       <div class="cl-scan">
-        <div class="cl-ways">
-          <button type="button" class="btn big" id="clCam">${ic("camera")} Live Scan</button>
-          <label class="btn big" for="clFile">${ic("upload")} Upload Photo</label><input type="file" id="clFile" accept="image/*" hidden>
-          <button type="button" class="btn big" id="clType">${ic("edit")} Type Code</button>
-        </div>
-        <div id="clTypeBox" hidden><label class="fl" for="clCode">ID card code (or scan it with a barcode scanner)</label>
-          <input type="text" id="clCode" autocomplete="off" spellcheck="false" data-case="keep" placeholder="EMONID|EOID-…"></div>
+        <button type="button" class="btn big primary" id="clCam">${ic("camera")} Scan My ID Card</button>
         <div class="cl-read" id="clRead" hidden></div>
         <div id="clMsg" hidden></div>
       </div>
       <div id="clStep" hidden>
-        ${pwField("clPass", "E-Portal Password", "current-password")}
+        <div id="clPinBox"><label class="fl" for="clPin">4-Digit PIN</label><input type="password" id="clPin" inputmode="numeric" maxlength="4" autocomplete="off" data-case="keep"></div>
+        <div id="clPassBox" hidden>${pwField("clPass", "Account Password", "current-password")}</div>
         <button class="btn primary big" type="submit" id="clGo">Sign In</button>
       </div>
       <div class="login-links"><button type="button" class="linkbtn" id="clBack">Sign in with email and password</button></div>
@@ -553,53 +549,62 @@
     const take = async (t) => {
       const v = String(t || "").trim();
       reset();
-      if (!CARD_CODE.test(v)) { return toast("This is not an EMON OVERRUNS employee ID card. Use the QR code on the back of your ID card.", true); }
-      const r = $("#clRead"); r.hidden = false; r.classList.remove("bad"); r.innerHTML = `<span class="spin sm"></span> Reading the ID card…`;
+      if (!CARD_CODE.test(v)) { return toast("This is not an EMON OVERRUNS employee ID card. Scan the QR code on the back of your ID card.", true); }
+      const r = $("#clRead"); r.hidden = false; r.innerHTML = `<span class="spin sm"></span> Reading the ID card…`;
       const { data, error } = await sb.rpc("card_state", { p_code: v });
       if (error || !data) { r.hidden = true; return toast("The ID card could not be checked. Check the internet and try again.", true); }
       st = data; code = v;
       const no = esc(v.split("|")[1].toUpperCase()), who = data.name ? ` · ${esc(data.name)}` : "";
-      r.innerHTML = `${ic("check")} ID card found: ${no}${who}`;
-      const ok = data.email && ["password", "no_pin", "ready"].includes(data.state);
-      r.classList.toggle("bad", !ok);
-      if (ok) {
-        msg("ok", `Type the password of your E-Portal account <b>${esc(data.email)}</b>.`);
-        show("#clStep", true); return $("#clPass").focus();
+      r.innerHTML = `${ic("check")} ID card ${no}${who}`;
+      r.classList.toggle("bad", !["ready", "no_pin", "locked"].includes(data.state));
+      if (data.state === "ready") { show("#clStep", true); show("#clPinBox", true); show("#clPassBox", false); $("#clGo").textContent = "Sign In"; return $("#clPin").focus(); }
+      if (data.state === "no_pin") {
+        msg("ok", `<b>Welcome! First time with your ID card:</b> type your account password once. Then choose your 4-digit PIN. Next time you sign in with the card and the PIN only.`);
+        show("#clStep", true); show("#clPinBox", false); show("#clPassBox", true); $("#clGo").textContent = "Continue"; return $("#clPass").focus();
       }
       if (data.state === "no_account") {
-        msg("warn", `<b>Your portal account is not linked to your employee profile yet.</b> Create your account with your email <b>${esc(data.email_hint || "")}</b>, or ask the Director to link your account to your employee profile.
+        msg("warn", `<b>Your portal account is not linked to your employee profile yet.</b> First create your account with your email <b>${esc(data.email_hint || "")}</b>. If you already have an account with another email, ask the Director to link it to your employee profile.
           <div class="btnrow"><button type="button" class="btn primary" id="clSignup">Create Account</button></div>`);
         $("#clSignup").onclick = () => renderSignup();
         return;
       }
-      const why = { blocked: "Your login is blocked. Ask the Director.",
+      const why = { locked: `Too many wrong PINs. Try again after ${esc(data.until || "")}, or ask the Director to reset your PIN.`, blocked: "Your login is blocked. Ask the Director.",
         replaced: "This ID card was replaced by a newer card. Use your new ID card.", ended: "This ID card is no longer valid.",
-        expired: `This ID card expired on ${esc(mdy(data.valid_until))}. Ask the Director for a new card.`, invalid: "This ID card is not valid." }[data.state] || "This ID card cannot sign in yet. Ask the Director.";
+        expired: `This ID card expired on ${esc(mdy(data.valid_until))}. Ask the Director for a new card.`, invalid: "This ID card is not valid." }[data.state] || "This ID card cannot sign in.";
       msg("err", why);
       if (data.state === "invalid") r.hidden = true;
     };
     $("#clBack").onclick = () => renderLogin("signin");
-    $("#clCam").onclick = () => scanDialog(take, { title: "Scan Your ID Card", hint: "Hold the back of your ID card (the QR code) in front of the camera." });
-    $("#clFile").onchange = async (e) => {
-      const f = e.target.files[0]; e.target.value = ""; if (!f) return;
-      const r = $("#clRead"); reset(); r.hidden = false; r.innerHTML = `<span class="spin sm"></span> Reading the photo…`;
-      try { take(await decodeImageFile(f)); } catch (err) { r.hidden = true; toast(err.message || "No QR code found in that photo.", true); }
-    };
-    $("#clType").onclick = () => { show("#clTypeBox", true); $("#clCode").focus(); };
-    $("#clCode").onchange = () => { const v = $("#clCode").value.trim(); if (v && v !== code) take(v); };
-    $("#clCode").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); if ($("#clCode").value.trim()) take($("#clCode").value); } };
+    $("#clCam").onclick = () => scanDialog(take, { title: "Scan Your ID Card", hint: "Hold the back of your ID card (the QR code) in front of the camera.", photo: false }); // 3.25: live scan only
     $("#clForm").onsubmit = async (e) => {
       e.preventDefault();
-      if (!st || !code) return toast("Scan, upload or type your ID card first.", true);
-      if (!st.email) return toast($("#clMsg").textContent || "This ID card cannot sign in.", true);
-      const password = $("#clPass").value;
-      if (!password) { toast("Type your E-Portal password.", true); return $("#clPass").focus(); }
-      setBusy(e.target, true, "Signing in");
-      const { error } = await sb.auth.signInWithPassword({ email: st.email, password });
-      if (!error) return; // the auth listener opens the portal
-      setBusy(e.target, false);
-      if (/confirm/i.test(error.message)) { sb.auth.resend({ type: "signup", email: st.email, options: { emailRedirectTo: authRedirect() } }).then(() => {}, () => {}); toast("Your email is not confirmed yet. Enter the code we emailed you.", true); return renderCode(st.email); }
-      return fail(/invalid login/i.test(error.message) ? "Wrong password." : error, "Sign-in failed");
+      if (!st || !code) return toast("Scan your ID card first.", true);
+      if (st.state === "no_pin") {
+        const password = $("#clPass").value;
+        if (!password) { toast("Type your account password.", true); return $("#clPass").focus(); }
+        setBusy(e.target, true, "Signing in");
+        history.replaceState(null, "", "#profile/pin"); // after signing in, My Profile opens at the PIN
+        const { error } = await sb.auth.signInWithPassword({ email: st.email, password });
+        if (!error) return; // the auth listener opens My Profile
+        history.replaceState(null, "", "#dashboard");
+        setBusy(e.target, false);
+        if (/confirm/i.test(error.message)) { sb.auth.resend({ type: "signup", email: st.email, options: { emailRedirectTo: authRedirect() } }).then(() => {}, () => {}); toast("Your email is not confirmed yet. Enter the code we emailed you.", true); return renderCode(st.email); }
+        return fail(/invalid login/i.test(error.message) ? "Wrong password." : error, "Sign-in failed");
+      }
+      if (st.state !== "ready") return toast($("#clMsg").textContent || "This ID card cannot sign in.", true);
+      const pin = $("#clPin").value.trim();
+      if (!/^\d{4}$/.test(pin)) { toast("Type your 4-digit PIN.", true); return $("#clPin").focus(); }
+      setBusy(e.target, true, "Checking the ID card");
+      let j = {}, ok = false;
+      try {
+        const r = await fetch(`${C.supabaseUrl}/functions/v1/${C.cardLoginFunction || "card-login"}`, { method: "POST", headers: { "Content-Type": "application/json", apikey: C.supabaseKey }, body: JSON.stringify({ code, pin }) });
+        j = await r.json().catch(() => ({})); ok = r.ok && !!j.token_hash;
+        if (r.status === 404 && !j.error) j.error = "Sign-in with the ID card is not switched on yet. Sign in with your email and password.";
+      } catch (_) { j = { error: "No connection to the portal. Check the internet and try again." }; }
+      if (!ok) { setBusy(e.target, false); $("#clPin").value = ""; $("#clPin").focus(); return toast(j.error || "The ID card could not sign in. Try again.", true); }
+      const { error } = await sb.auth.verifyOtp({ token_hash: j.token_hash, type: "magiclink" });
+      if (error) { setBusy(e.target, false); return fail(error, "Sign-in failed"); }
+      // the auth listener opens the portal
     };
   }
 
@@ -1118,11 +1123,11 @@
   function stopTimers() { timers.forEach(clearInterval); timers = []; }
 
   // Scanner: camera (QR or PDF417) or a photo of the code.
-  function scanDialog(onText, { title = "Scan QR Code / Barcode", hint = "Point the camera at the QR code or barcode." } = {}) {
+  function scanDialog(onText, { title = "Scan QR Code / Barcode", hint = "Point the camera at the QR code or barcode.", photo = true } = {}) {
     let reader = null, done = false;
     const m = modal(title, `<div class="scan-view"><video id="scVideo" playsinline muted></video><div class="scan-frame"><i></i></div></div>
       <div id="scMsg" class="scan-msg">${esc(hint)}</div>`,
-      `<label class="btn" for="scImg">${ic("image")} Use a Photo</label><input type="file" id="scImg" accept="image/*" hidden><button type="button" class="btn" data-close>Close</button>`,
+      `${photo ? `<label class="btn" for="scImg">${ic("image")} Use a Photo</label>` : ""}<input type="file" id="scImg" accept="image/*" hidden><button type="button" class="btn" data-close>Close</button>`,
       { cls: "scan-modal", onClose: () => { try { reader?.reset(); } catch (_) {} } });
     const d = m.el;
     const msg = (t) => { const el = $("#scMsg", d); if (el) el.textContent = t; };
@@ -1141,9 +1146,9 @@
         const hints = new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.QR_CODE, Z.BarcodeFormat.PDF_417]]]);
         reader = new Z.BrowserMultiFormatReader(hints);
         reader.decodeFromVideoDevice(undefined, $("#scVideo", d), (res) => { if (res) finish(res.getText()); })
-          .catch(() => { d.classList.add("nocam"); msg("The camera is not available. Use a photo instead."); });
+          .catch(() => { d.classList.add("nocam"); msg(photo ? "The camera is not available. Use a photo instead." : "The camera is not available. Allow the camera, or use a phone or computer with a camera."); });
       }, (err) => msg(err.message));
-    } else { d.classList.add("nocam"); msg("The camera is not available here. Use a photo instead."); }
+    } else { d.classList.add("nocam"); msg(photo ? "The camera is not available here. Use a photo instead." : "The camera is not available here. Use a phone or computer with a camera."); }
   }
   // Customer QR: the customer's Public ID key, like a crypto wallet address (EO + 40 letters and numbers).
   // Older customer QR codes read EMONCUST|<public id>|<account no>.

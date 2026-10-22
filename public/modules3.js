@@ -304,7 +304,12 @@
     // 3.24: no job applications on the portal any more: the Director adds the employee (or links this account)
     keepApply("");
     $(".band h1").textContent = "Welcome";
-    $("#main").innerHTML = `<section class="welcome-card"><h2>Welcome, ${esc(S.profile.full_name || "")}!</h2>
+    // 3.25: an employee profile waiting for the Director's approval
+    const mine = await sb.from("employees").select("employee_no, approval_status").eq("profile_id", meId()).maybeSingle();
+    const waiting = mine.data?.approval_status === "pending";
+    $("#main").innerHTML = waiting ? `<section class="welcome-card"><h2>Welcome, ${esc(S.profile.full_name || "")}!</h2>
+      <p>Your employee profile <b>${esc(mine.data.employee_no || "")}</b> is <b>waiting for the Director's approval</b>. This page opens the portal by itself once it is approved.</p>
+      <div class="btnrow"><button type="button" class="btn" id="apCheck">Check Again</button></div></section>` : `<section class="welcome-card"><h2>Welcome, ${esc(S.profile.full_name || "")}!</h2>
       <p>Your account <b>${esc(S.session.user.email)}</b> is ready. To work with ${esc(C.company.name)}, fill in the paper Employee Job Application Form at the office.
         The Director adds you as an employee with this email (or links this account to your employee profile). This page opens the portal by itself once that is done.</p>
       <div class="btnrow"><button type="button" class="btn" id="apCheck">Check Again</button></div></section>`;
