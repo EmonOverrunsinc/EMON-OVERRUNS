@@ -302,13 +302,17 @@
         ${E.cell("Present Address", em.address)}${E.cell("Permanent Address", em.permanent_address)}</div></div>`)}
       ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Father's Name", em.father_name)}${E.cell("Mother's Name", em.mother_name)}${E.cell("Wife's / Husband's Name", em.spouse_name)}${E.cell("Date of Birth", mdy(em.date_of_birth))}
         ${E.cell("Birth Place", em.birth_place)}${E.cell("BRC / NID / Passport No", em.id_number)}${E.cell("Gender", em.gender)}${E.cell("Religion", em.religion)}${E.cell("Blood Group", em.blood_group)}${E.cell("Duty Hours", em.duty_hours)}</div>`)}
-      ${(em.education || []).length ? E.box("Educational Qualifications", `<table class="rp ja-tbl"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${em.education.map((r) => `<tr>${[r.exam, r.institute, r.result, r.year].map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`) : ""}
-      ${(em.experience || []).length ? E.box("Work Experience", `<table class="rp ja-tbl"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${em.experience.map((r) => `<tr>${[r.company, r.position, r.from, r.to].map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`) : ""}
       ${E.box("Emergency Contact", `<div class="pgrid2">${E.cell("Name", em.emergency_name)}${E.cell("Relationship", em.emergency_relation)}${E.cell("Contact No", em.emergency_phone)}${E.cell("Address", em.emergency_address)}</div>`)}
       ${E.box("Portal Access", `<div class="pgrid2">${E.cell("Access Level", E.roleName(em.role).toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
       ${em.status === "terminated" ? E.box("Termination", `<div class="pgrid2">${E.cell("Date", mdy(em.termination_date))}${E.cell("Reason", em.termination_reason)}</div>`) : ""}
+      ${(em.education || []).length || (em.experience || []).length ? "" : `${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
+      ${E.sigs("Employee Signature / Date", "Approved by / Date")}`}`,
+      // 3.25: with education or work experience the record has a second page
+      ...((em.education || []).length || (em.experience || []).length ? [`${E.printHead("EMPLOYEE INFORMATION", `<div class="mono">${esc(em.employee_no)}</div>`)}
+      ${(em.education || []).length ? E.box("Educational Qualifications", `<table class="rp ja-tbl"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${em.education.map((r) => `<tr>${[r.exam, r.institute, r.result, r.year].map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`) : ""}
+      ${(em.experience || []).length ? E.box("Work Experience", `<table class="rp ja-tbl"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${em.experience.map((r) => `<tr>${[r.company, r.position, r.from, r.to].map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`) : ""}
       ${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
-      ${E.sigs("Employee Signature / Date", "Approved by / Date")}`]);
+      ${E.sigs("Employee Signature / Date", "Approved by / Date")}`] : [])]);
     E.setRecords(`Employee: ${em.employee_no}`);
   };
 
