@@ -9,7 +9,7 @@
   const VERSION = "3.21";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.21.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.21.1"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -602,7 +602,7 @@
       setBusy(e.target, true, "Checking the ID card");
       let j = {}, ok = false;
       try {
-        const r = await fetch(`${C.supabaseUrl}/functions/v1/card-login`, { method: "POST", headers: { "Content-Type": "application/json", apikey: C.supabaseKey }, body: JSON.stringify({ code, pin }) });
+        const r = await fetch(`${C.supabaseUrl}/functions/v1/${C.cardLoginFunction || "card-login"}`, { method: "POST", headers: { "Content-Type": "application/json", apikey: C.supabaseKey }, body: JSON.stringify({ code, pin }) });
         j = await r.json().catch(() => ({})); ok = r.ok && !!j.token_hash;
         if (r.status === 404 && !j.error) j.error = "Sign-in with the ID card is not switched on yet. Sign in with your email and password.";
       } catch (_) { j = { error: "No connection to the portal. Check the internet and try again." }; }
