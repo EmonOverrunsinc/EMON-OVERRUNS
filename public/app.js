@@ -521,8 +521,9 @@
     };
   }
 
-  // 3.21: sign in with the employee ID card: scan the QR on the back (camera, a photo of it, or a USB barcode scanner that
-  // types into the code box), then type the 4-digit PIN. The card-login function checks both and gives a one-time token.
+  // 3.21: sign in with the employee ID card. The card is scanned first (camera, a photo of it, or a USB barcode scanner that
+  // types into the code box) and the portal says what is needed: an account linked to the employee profile (Create Account),
+  // the first time the account password (then the PIN is chosen in My Profile), after that only the 4-digit PIN.
   const CARD_CODE = /^EMONID\|EOID-\d{4}-\d{4,}\|[0-9A-F]{40}$/i;
   function renderCardLogin() {
     authFrame("Sign In with ID Card", `<form class="wbody login-form" id="clForm" novalidate>
@@ -532,35 +533,78 @@
         <label class="fl" for="clCode">Or scan it with a barcode scanner into this box</label>
         <input type="password" id="clCode" autocomplete="off" spellcheck="false" data-case="keep" placeholder="ID card code">
         <div class="cl-read" id="clRead" hidden></div>
+        <div id="clMsg" hidden></div>
       </div>
-      <label class="fl" for="clPin">4-Digit PIN</label>
-      <input type="password" id="clPin" inputmode="numeric" maxlength="4" autocomplete="off" data-case="keep" required>
-      <button class="btn primary big" type="submit">Sign In</button>
+      <div id="clStep" hidden>
+        <div id="clPinBox"><label class="fl" for="clPin">4-Digit PIN</label><input type="password" id="clPin" inputmode="numeric" maxlength="4" autocomplete="off" data-case="keep"></div>
+        <div id="clPassBox" hidden>${pwField("clPass", "Account Password", "current-password")}</div>
+        <button class="btn primary big" type="submit" id="clGo">Sign In</button>
+      </div>
       <div class="login-links"><button type="button" class="linkbtn" id="clBack">Sign in with email and password</button></div>
-      <div class="hint small">No PIN yet? Sign in with your email and password, then set your ID card PIN in <b>My Profile</b>.</div>
     </form>`);
-    const take = (t) => {
+    bindEyes();
+    let st = null, code = "";
+    const show = (sel, on) => ($(sel).hidden = !on);
+    const msg = (cls, html) => { const m = $("#clMsg"); m.className = "hint small " + cls; m.innerHTML = html; m.hidden = !html; };
+    const reset = () => { st = null; code = ""; show("#clRead", false); show("#clStep", false); msg("", ""); };
+    const take = async (t) => {
       const v = String(t || "").trim();
-      if (!CARD_CODE.test(v)) { toast("This is not an EMON OVERRUNS employee ID card. Scan the QR code on the back of your ID card.", true); $("#clCode").value = ""; return; }
+      reset();
+      if (!CARD_CODE.test(v)) { $("#clCode").value = ""; return toast("This is not an EMON OVERRUNS employee ID card. Scan the QR code on the back of your ID card.", true); }
       $("#clCode").value = v;
-      const r = $("#clRead"); r.hidden = false; r.innerHTML = `${ic("check")} ID card ${esc(v.split("|")[1].toUpperCase())} read`;
-      $("#clPin").focus();
+      const r = $("#clRead"); r.hidden = false; r.innerHTML = `<span class="spin sm"></span> Reading the ID card…`;
+      const { data, error } = await sb.rpc("card_state", { p_code: v });
+      if (error || !data) { r.hidden = true; return toast("The ID card could not be checked. Check the internet and try again.", true); }
+      st = data; code = v;
+      const no = esc(v.split("|")[1].toUpperCase()), who = data.name ? ` · ${esc(data.name)}` : "";
+      r.innerHTML = `${ic("check")} ID card ${no}${who}`;
+      r.classList.toggle("bad", !["ready", "no_pin", "locked"].includes(data.state));
+      if (data.state === "ready") { show("#clStep", true); show("#clPinBox", true); show("#clPassBox", false); $("#clGo").textContent = "Sign In"; return $("#clPin").focus(); }
+      if (data.state === "no_pin") {
+        msg("ok", `<b>Welcome! First time with your ID card:</b> type your account password once. Then choose your 4-digit PIN. Next time you sign in with the card and the PIN only.`);
+        show("#clStep", true); show("#clPinBox", false); show("#clPassBox", true); $("#clGo").textContent = "Continue"; return $("#clPass").focus();
+      }
+      if (data.state === "no_account") {
+        msg("warn", `<b>Your portal account is not linked to your employee profile yet.</b> First create your account with your email <b>${esc(data.email_hint || "")}</b>. If you already have an account with another email, ask the Director to link it to your employee profile.
+          <div class="btnrow"><button type="button" class="btn primary" id="clSignup">Create Account</button></div>`);
+        $("#clSignup").onclick = () => renderSignup();
+        return;
+      }
+      const why = { locked: `Too many wrong PINs. Try again after ${esc(data.until || "")}, or ask the Director to reset your PIN.`, blocked: "Your login is blocked. Ask the Director.",
+        replaced: "This ID card was replaced by a newer card. Use your new ID card.", ended: "This ID card is no longer valid.",
+        expired: `This ID card expired on ${esc(mdy(data.valid_until))}. Ask the Director for a new card.`, invalid: "This ID card is not valid." }[data.state] || "This ID card cannot sign in.";
+      msg("err", why);
+      if (data.state === "invalid") { r.hidden = true; $("#clCode").value = ""; }
     };
     $("#clBack").onclick = () => renderLogin("signin");
     $("#clCam").onclick = () => scanDialog(take, { title: "Scan Your ID Card", hint: "Hold the back of your ID card (the QR code) in front of the camera." });
-    $("#clCode").onchange = () => { if ($("#clCode").value.trim()) take($("#clCode").value); };
+    $("#clCode").onchange = () => { if ($("#clCode").value.trim() && $("#clCode").value.trim() !== code) take($("#clCode").value); };
     $("#clCode").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); if ($("#clCode").value.trim()) take($("#clCode").value); } };
     $("#clCode").focus();
     $("#clForm").onsubmit = async (e) => {
       e.preventDefault();
-      const code = $("#clCode").value.trim(), pin = $("#clPin").value.trim();
-      if (!CARD_CODE.test(code)) { toast("Scan your ID card first.", true); return $("#clCode").focus(); }
+      if (!st || !code) { toast("Scan your ID card first.", true); return $("#clCode").focus(); }
+      if (st.state === "no_pin") {
+        const password = $("#clPass").value;
+        if (!password) { toast("Type your account password.", true); return $("#clPass").focus(); }
+        setBusy(e.target, true, "Signing in");
+        history.replaceState(null, "", "#profile/pin"); // after signing in, My Profile opens at the PIN
+        const { error } = await sb.auth.signInWithPassword({ email: st.email, password });
+        if (!error) return; // the auth listener opens My Profile
+        history.replaceState(null, "", "#dashboard");
+        setBusy(e.target, false);
+        if (/confirm/i.test(error.message)) { sb.auth.resend({ type: "signup", email: st.email, options: { emailRedirectTo: authRedirect() } }).then(() => {}, () => {}); toast("Your email is not confirmed yet. Enter the code we emailed you.", true); return renderCode(st.email); }
+        return fail(/invalid login/i.test(error.message) ? "Wrong password." : error, "Sign-in failed");
+      }
+      if (st.state !== "ready") return toast($("#clMsg").textContent || "This ID card cannot sign in.", true);
+      const pin = $("#clPin").value.trim();
       if (!/^\d{4}$/.test(pin)) { toast("Type your 4-digit PIN.", true); return $("#clPin").focus(); }
       setBusy(e.target, true, "Checking the ID card");
       let j = {}, ok = false;
       try {
         const r = await fetch(`${C.supabaseUrl}/functions/v1/card-login`, { method: "POST", headers: { "Content-Type": "application/json", apikey: C.supabaseKey }, body: JSON.stringify({ code, pin }) });
         j = await r.json().catch(() => ({})); ok = r.ok && !!j.token_hash;
+        if (r.status === 404 && !j.error) j.error = "Sign-in with the ID card is not switched on yet. Sign in with your email and password.";
       } catch (_) { j = { error: "No connection to the portal. Check the internet and try again." }; }
       if (!ok) { setBusy(e.target, false); $("#clPin").value = ""; $("#clPin").focus(); return toast(j.error || "The ID card could not sign in. Try again.", true); }
       const { error } = await sb.auth.verifyOtp({ token_hash: j.token_hash, type: "magiclink" });

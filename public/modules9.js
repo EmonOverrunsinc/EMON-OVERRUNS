@@ -108,7 +108,7 @@
   // The print: front and back side by side on A4, corner marks to cut, a dotted line to fold.
   const sheet = (d) => `<div class="idc-sheet">
       <div class="idc-pair print"><i class="cm tl"></i><i class="cm tr"></i><i class="cm bl"></i><i class="cm br"></i>${front(d)}<div class="idc-fold"></div>${back(d)}</div>
-      <div class="idc-howto"><b>EMPLOYEE ID CARD · ${esc(d.card.card_no)} · ${esc(fullName(d.em).toUpperCase())}</b><br>
+      <div class="idc-howto"><b>EMPLOYEE ID CARD · ${esc(d.card.card_no)} · ${esc(fullName(d.em).toUpperCase())}</b> · Date Printed: ${esc(E.dateTime(new Date().toISOString()))}<br>
         Print at actual size (100%). Cut along the corner marks, fold on the dotted line so the front and the back meet, then laminate.</div></div>`;
 
   // Everything the card shows: the photo, the holder's signature, the Director who approved it, the blood type.
@@ -145,6 +145,7 @@
             <tr><th scope="row">Card No</th><td><b class="mono">${esc(card.card_no)}</b> ${expired ? `<span class="pill rejected">EXPIRED</span>` : `<span class="pill approved">ACTIVE</span>`}</td></tr>
             <tr><th scope="row">Issued</th><td>${esc(mdy(card.issued_at))} · approved by ${esc(card.issued_by_name || "—")}</td></tr>
             <tr><th scope="row">Valid Until</th><td>${esc(mdy(card.valid_until))}</td></tr>
+            <tr><th scope="row">Portal Account</th><td>${em.profile_id ? `<span class="pill approved">LINKED</span>` : `<span class="pill pending">NOT LINKED</span> — the card works after ${esc(em.email)} creates an account (Create Account), or after you link the login account in Access &amp; Status`}</td></tr>
             <tr><th scope="row">Printed</th><td>${card.print_count ? `${card.print_count} time${card.print_count === 1 ? "" : "s"} · last ${esc(mdy(card.last_printed_at))}` : "Not printed yet"}</td></tr>
             <tr><th scope="row">Sign-in PIN</th><td>${ps.locked_until ? `<span class="pill rejected">LOCKED</span> until ${esc(E.dateTime(ps.locked_until))}` : ps.pin_set ? `<span class="pill approved">SET</span> ${esc(mdy(ps.set_at))}` : `<span class="pill pending">NOT SET</span> — the employee sets it in My Profile`}</td></tr>
             <tr><th scope="row">Last Card Sign-in</th><td>${card.last_login_at ? esc(E.dateTime(card.last_login_at)) : "—"}</td></tr></tbody></table></div>` : ""}
@@ -179,7 +180,7 @@
   }
 
   // ---------- the employee's PIN (My Profile) ----------
-  async function cardPinBox(el) {
+  async function cardPinBox(el, { focus = false } = {}) {
     if (!el) return;
     const { data, error } = await sb.rpc("my_id_card");
     if (error || !data || !el.isConnected) { el.remove(); return; }
@@ -190,6 +191,10 @@
           <label for="mpPin2">Type It Again</label><input type="password" id="mpPin2" inputmode="numeric" maxlength="4" autocomplete="off" data-case="keep"></div>
         <div class="btnrow"><button type="button" class="btn primary" id="mpPinSave">${ic("key")} ${data.pin_set ? "Change PIN" : "Save PIN"}</button></div>
         <small class="muted">Keep the PIN secret. Anyone with your card and your PIN can open the portal as you. Lost your card? Tell the Director at once.</small></fieldset>`;
+    if (focus && !data.pin_set) {
+      el.classList.add("pin-now"); el.scrollIntoView({ block: "center" }); $("#mpPin", el).focus();
+      toast("Welcome! Choose your 4-digit ID card PIN below.");
+    }
     $("#mpPinSave", el).onclick = async () => {
       const a = $("#mpPin", el).value.trim(), b = $("#mpPin2", el).value.trim();
       if (!/^\d{4}$/.test(a)) return toast("The PIN is 4 numbers.", true);

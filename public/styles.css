@@ -2312,3 +2312,7 @@ table.ga-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .login-or { display: flex; align-items: center; gap: 10px; color: var(--ink-soft); font-size: 12px; margin: 4px 0; }
 .login-or::before, .login-or::after { content: ""; flex: 1; border-top: 1px solid var(--panel-line); }
 @media (max-width: 520px) { .idc-pair.screen { justify-content: center; } }
+.cl-read.bad { background: #fdecea; color: #a1281e; }
+#clMsg { margin: 2px 0 6px; }
+#clMsg .btnrow { margin-top: 8px; }
+#mpCard.pin-now fieldset { box-shadow: 0 0 0 3px var(--accent, #0071e3); border-radius: 12px; }

@@ -480,11 +480,11 @@
         <div class="ja-qr"><img src="${E.qrDataUrl("EMONJA|" + a.application_no)}" alt="QR code"><img class="ja-bar" src="${E.pdf417DataUrl("EMONJA|" + a.application_no)}" alt=""></div>
         <div class="ja-photo">${photoUrl ? `<img src="${esc(photoUrl)}" alt="">` : "PHOTO"}</div></div>
       <div class="ph-title">JOB APPLICATION FORM</div>
-      ${E.box("Address Details", `<div class="pgrid2">${E.cell("Present Address", a.present_address)}${E.cell("Permanent Address", a.permanent_address)}</div>`)}
+      ${E.box("Address Details", `<div class="pgrid2">${E.cell("Present Address", a.present_address)}${E.cell("Permanent Address", a.permanent_address)}
+        ${E.cell("Emergency Contact", [a.emergency_name, a.emergency_relation && `(${a.emergency_relation})`].filter(Boolean).join(" "))}${E.cell("Emergency Contact No · Address", [a.emergency_phone, a.emergency_address].filter(Boolean).join(" · "))}</div>`)}
       ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Full Name", a.full_name, "hl")}${E.cell("Father's Name", a.father_name)}${E.cell("Mother's Name", a.mother_name)}${E.cell("Wife's / Husband's Name", a.spouse_name)}
         ${E.cell("Date of Birth", E.mdy(a.date_of_birth))}${E.cell("Birth Place", a.birth_place)}${E.cell("BRC / NID / Passport No", a.id_number)}${E.cell("Gender", a.gender)}
         ${E.cell("Religion", a.religion)}${E.cell("Blood Group", a.blood_group)}</div>`)}
-      ${E.box("Emergency Contact", `<div class="pgrid2">${E.cell("Name", a.emergency_name)}${E.cell("Relationship", a.emergency_relation)}${E.cell("Contact No", a.emergency_phone)}${E.cell("Address", a.emergency_address)}</div>`)}
       ${E.box("Educational Qualifications", `<table class="rp ja-tbl"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>
         ${edu.length ? edu.map((r) => row4([r.exam, r.institute, r.result, r.year])).join("") : `<tr><td colspan="4">—</td></tr>`}</tbody></table>`)}
       ${E.box("Work Experience", `<table class="rp ja-tbl"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>
