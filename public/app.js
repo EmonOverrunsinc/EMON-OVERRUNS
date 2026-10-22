@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.20";
+  const VERSION = "3.21";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.20.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.21.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -91,6 +91,7 @@
     bell: '<path d="M6 16v-5a6 6 0 1 1 12 0v5l1.6 2H4.4z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
     chat: '<path d="M20.5 12a8.5 8.5 0 0 1-12.3 7.6L3.5 21l1.4-4.5A8.5 8.5 0 1 1 20.5 12z"/>',
     shield: '<path d="M12 3 4.5 6v6c0 4.6 3.2 7.8 7.5 9 4.3-1.2 7.5-4.4 7.5-9V6z"/><path d="m8.8 12 2.2 2.2 4.4-4.4"/>',
+    idcard: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2.2"/><path d="M5.6 16.4c.6-1.6 1.9-2.5 3.4-2.5s2.8.9 3.4 2.5M14.5 10h4M14.5 13.5h3"/>',
     check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
     camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.4"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
@@ -489,6 +490,8 @@
       ${pwField("lgPass", "Password", "current-password")}
       <button class="btn primary big" type="submit">Sign In</button>
       <div class="login-links"><button type="button" class="linkbtn" id="toForgot">Forgot password?</button></div>
+      <div class="login-or">or</div>
+      <button type="button" class="btn big" id="toCard">${ic("idcard")} Sign In with ID Card</button>
     </form>`);
     bindEyes();
     if (linkError) {
@@ -498,6 +501,7 @@
     $(preset ? "#lgPass" : "#lgId").focus();
     $("#toSignup").onclick = () => renderSignup();
     $("#toForgot").onclick = () => renderForgot($("#lgId").value.trim());
+    $("#toCard").onclick = () => renderCardLogin();
     $("#lgForm").onsubmit = async (e) => {
       e.preventDefault();
       const id = $("#lgId").value.trim(), password = $("#lgPass").value;
@@ -514,6 +518,54 @@
         return renderCode(email);
       }
       fail(/invalid login/i.test(error.message) ? "Wrong email/username or password." : error, "Sign-in failed");
+    };
+  }
+
+  // 3.21: sign in with the employee ID card: scan the QR on the back (camera, a photo of it, or a USB barcode scanner that
+  // types into the code box), then type the 4-digit PIN. The card-login function checks both and gives a one-time token.
+  const CARD_CODE = /^EMONID\|EOID-\d{4}-\d{4,}\|[0-9A-F]{40}$/i;
+  function renderCardLogin() {
+    authFrame("Sign In with ID Card", `<form class="wbody login-form" id="clForm" novalidate>
+      ${brandBlock()}
+      <div class="cl-scan">
+        <button type="button" class="btn big" id="clCam">${ic("camera")} Scan My ID Card</button>
+        <label class="fl" for="clCode">Or scan it with a barcode scanner into this box</label>
+        <input type="password" id="clCode" autocomplete="off" spellcheck="false" data-case="keep" placeholder="ID card code">
+        <div class="cl-read" id="clRead" hidden></div>
+      </div>
+      <label class="fl" for="clPin">4-Digit PIN</label>
+      <input type="password" id="clPin" inputmode="numeric" maxlength="4" autocomplete="off" data-case="keep" required>
+      <button class="btn primary big" type="submit">Sign In</button>
+      <div class="login-links"><button type="button" class="linkbtn" id="clBack">Sign in with email and password</button></div>
+      <div class="hint small">No PIN yet? Sign in with your email and password, then set your ID card PIN in <b>My Profile</b>.</div>
+    </form>`);
+    const take = (t) => {
+      const v = String(t || "").trim();
+      if (!CARD_CODE.test(v)) { toast("This is not an EMON OVERRUNS employee ID card. Scan the QR code on the back of your ID card.", true); $("#clCode").value = ""; return; }
+      $("#clCode").value = v;
+      const r = $("#clRead"); r.hidden = false; r.innerHTML = `${ic("check")} ID card ${esc(v.split("|")[1].toUpperCase())} read`;
+      $("#clPin").focus();
+    };
+    $("#clBack").onclick = () => renderLogin("signin");
+    $("#clCam").onclick = () => scanDialog(take, { title: "Scan Your ID Card", hint: "Hold the back of your ID card (the QR code) in front of the camera." });
+    $("#clCode").onchange = () => { if ($("#clCode").value.trim()) take($("#clCode").value); };
+    $("#clCode").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); if ($("#clCode").value.trim()) take($("#clCode").value); } };
+    $("#clCode").focus();
+    $("#clForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const code = $("#clCode").value.trim(), pin = $("#clPin").value.trim();
+      if (!CARD_CODE.test(code)) { toast("Scan your ID card first.", true); return $("#clCode").focus(); }
+      if (!/^\d{4}$/.test(pin)) { toast("Type your 4-digit PIN.", true); return $("#clPin").focus(); }
+      setBusy(e.target, true, "Checking the ID card");
+      let j = {}, ok = false;
+      try {
+        const r = await fetch(`${C.supabaseUrl}/functions/v1/card-login`, { method: "POST", headers: { "Content-Type": "application/json", apikey: C.supabaseKey }, body: JSON.stringify({ code, pin }) });
+        j = await r.json().catch(() => ({})); ok = r.ok && !!j.token_hash;
+      } catch (_) { j = { error: "No connection to the portal. Check the internet and try again." }; }
+      if (!ok) { setBusy(e.target, false); $("#clPin").value = ""; $("#clPin").focus(); return toast(j.error || "The ID card could not sign in. Try again.", true); }
+      const { error } = await sb.auth.verifyOtp({ token_hash: j.token_hash, type: "magiclink" });
+      if (error) { setBusy(e.target, false); return fail(error, "Sign-in failed"); }
+      // the auth listener opens the portal
     };
   }
 
@@ -1060,6 +1112,8 @@
     const t = String(text || "").trim();
     if (!t) return;
     if (/#verify\//i.test(t)) { location.hash = "verify/" + encodeURIComponent(t.replace(/^.*#verify\//i, "")); return; }
+    // 3.21: an employee ID card: whose it is and whether it is valid (its private code never goes into the address bar)
+    if (/^EMONID\|/i.test(t)) { if (E.showCardCheck) E.showCardCheck(t); return true; }
     const key = isCustKey(t);
     if (key || t.startsWith("EMONCUST|")) {
       const q = sb.from("customers").select("id");

@@ -2074,6 +2074,7 @@
         </fieldset>
         <fieldset class="opt"><legend>Password</legend><p>Change the password you sign in with.</p><div class="btnrow"><button type="button" class="btn" id="mpPw">${ic("key")} Change Password</button></div></fieldset>
       </div>
+      ${emp ? `<div id="mpCard"></div>` : ""}
       <fieldset class="opt sigset" id="mpSigBox"><legend>My Signature</legend>
         ${myPic ? `<div class="sig-show"><img src="${esc(myPic)}" alt="My signature"></div><div class="sig-st">${sigPill(sp.signature_status)}${sp.signature_status === "approved" && sp.signature_approved_by_name ? ` <small>by ${esc(sp.signature_approved_by_name)} on ${mdy(sp.signature_approved_at)}</small>` : ""}</div>` : `<p><b>No signature yet.</b></p>`}
         ${sp.signature_status === "rejected" && sp.signature_note ? `<div class="hint err">Not approved: ${esc(sp.signature_note)}. Upload a clearer signature.</div>` : ""}
@@ -2093,6 +2094,7 @@
         <div class="tiles"><div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div><div class="tile ok"><div class="k">Total Received (₱)</div><div class="v">₱ ${peso(netTotal)}</div></div></div>
         <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}`;
     if (emp) E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
+    if (emp && E.cardPinBox) E.cardPinBox($("#mpCard")); // 3.21: the ID card sign-in PIN
     $("#mpPw").onclick = () => E.changePassword();
     // 2.4: the request goes to the Director's Contact Messages, who then deletes the account on Login Accounts
     if ($("#mpDel")) $("#mpDel").onclick = async () => {
