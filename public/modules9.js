@@ -1,8 +1,9 @@
 /* EMON OVERRUNS E-PORTAL — 3.21 Employee ID Card.
    The card is CR80 size (54 × 85.6 mm), front and back. Copy-resistant printing: fine-line guilloche waves, a security
    rosette behind the photo, microtext lines, a ghost photo, the company seal over the photo corner and a dot background
-   that may show COPY on a photocopy. The back carries the emergency contact, the company, the Director who approved the
-   card (with the signature) and a QR with the private card code: the employee signs in by scanning it and typing a PIN.
+   that may show COPY on a photocopy. The front carries a PDF417 barcode of the employee no (it opens Verify a Record).
+   The back carries the emergency contact, the company and a QR with the private card code: the employee signs in by
+   scanning it and typing a PIN.
    Here: the card itself, the Director's ID Card tab (print / download, new card, reset PIN), the employee's PIN in
    My Profile and the check of a scanned card. The sign-in with the card is on the sign-in page (app.js). */
 (function () {
@@ -58,17 +59,17 @@
   const bg = (k, front) => `<svg class="idc-bg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
       ${copyTint(k, "#b9c9e6")}
       ${waves("#8fb0e6", 20, 82, 16, 1.6, 19, 0.3)}${waves("#e3a3c8", 22, 84, 14, 1.2, 13, 2.1, 0.06)}
-      ${front ? rosette(27, 36.5, 16.5, 2.4, 9, 14, "#7fa2e0") + rosette(27, 36.5, 12, 1.4, 13, 10, "#d9a441", 0.05) : rosette(27, 43, 20, 2, 11, 12, "#9fbbe9")}
+      ${front ? rosette(27, 32.8, 15.5, 2.3, 9, 14, "#7fa2e0") + rosette(27, 32.8, 11.2, 1.3, 13, 10, "#d9a441", 0.05) : rosette(27, 43, 20, 2, 11, 12, "#9fbbe9")}
     </svg>`;
-  const band = (k) => `<svg class="idc-bandbg" viewBox="0 0 ${W} 17" preserveAspectRatio="none" aria-hidden="true">
+  const band = (k) => `<svg class="idc-bandbg" viewBox="0 0 ${W} 15" preserveAspectRatio="none" aria-hidden="true">
       <defs><linearGradient id="bd${k}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0a2463"/><stop offset=".6" stop-color="#1f4fa3"/><stop offset="1" stop-color="#2f6fd6"/></linearGradient></defs>
-      <rect width="${W}" height="17" fill="url(#bd${k})"/>
-      <g opacity=".22">${waves("#ffffff", 1, 16, 9, 0.9, 11, 0.8, 0.06)}</g></svg>`;
+      <rect width="${W}" height="15" fill="url(#bd${k})"/>
+      <g opacity=".22">${waves("#ffffff", 1, 14, 8, 0.9, 11, 0.8, 0.06)}</g></svg>`;
 
   // ---------- the card ----------
   const nameSize = (n) => (n.length <= 16 ? 3.8 : n.length <= 22 ? 3.2 : n.length <= 30 ? 2.7 : 2.3);
   const val = (v) => (v ? esc(v) : "&nbsp;");
-  // d: { em, card, photo, holderSig, approver: {name, pic}, blood, qr }  (qr: a picture; empty on the screen)
+  // d: { em, card, photo, holderSig, blood, qr }  (qr: a picture; empty on the screen)
   function front(d) {
     const k = ++uid, name = fullName(d.em).toUpperCase();
     return `<div class="idc-face idc-front">${bg(k, true)}
@@ -80,18 +81,13 @@
       <div class="idc-pos"><span>${esc((d.em.position || "EMPLOYEE").toUpperCase())}</span></div>
       <div class="idc-rows${d.blood ? " three" : ""}"><div><small>ID NO</small><b>${esc(d.em.employee_no)}</b></div>
         <div><small>VALID UNTIL</small><b>${esc(mdy(d.card.valid_until))}</b></div>${d.blood ? `<div><small>BLOOD TYPE</small><b>${esc(d.blood)}</b></div>` : ""}</div>
+      <div class="idc-bar"><img src="${esc(E.pdf417DataUrl("EMONEMP|" + d.em.employee_no))}" alt="PDF417 barcode ${esc(d.em.employee_no)}"></div>
       <div class="idc-hsig">${d.holderSig ? `<img src="${esc(d.holderSig)}" alt="">` : ""}<i></i><small>HOLDER'S SIGNATURE</small></div>
       <div class="idc-foot"><span class="idc-micro">${micro(6)}</span><b>${esc(d.card.card_no)}</b></div>
     </div>`;
   }
-  // The main Director's login carries the company name; the card shows the Director's own name and title instead
-  // (company.director in config.js: "Emon Hasan, Managing Director").
-  function approverOf(d) {
-    const name = d.approver?.name || d.card.issued_by_name || "", [dn, dt] = String(C.company.director || "").split(/,\s*/);
-    return name.toUpperCase() === String(C.company.name).toUpperCase() && dn ? { name: dn, title: dt || "Director" } : { name, title: "Director" };
-  }
   function back(d) {
-    const k = ++uid, em = d.em, site = String(C.company.website || "").replace(/^https?:\/\//, "").replace(/\/$/, ""), ap = approverOf(d);
+    const k = ++uid, em = d.em, site = String(C.company.website || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
     const row = (l, v) => `<div class="idc-er"><small>${l}</small><b>${val(v)}</b></div>`;
     return `<div class="idc-face idc-back">${bg(k, false)}
       <div class="idc-bhead">IN CASE OF EMERGENCY, PLEASE NOTIFY</div><div class="idc-gold b"></div>
@@ -99,7 +95,6 @@
       <div class="idc-qrrow"><div class="idc-qr">${d.qr ? `<img src="${esc(d.qr)}" alt="QR code">` : `<span>${ic("key")}<br>QR CODE<br>ON THE<br>PRINTED CARD</span>`}</div>
         <div class="idc-qrtxt"><b class="idc-scan">SCAN TO SIGN IN</b><small class="idc-pin">4-DIGIT PIN REQUIRED</small>
           <small>CARD NO</small><b class="mono">${esc(d.card.card_no)}</b><small>ISSUED</small><b>${esc(mdy(d.card.issued_at))}</b></div></div>
-      <div class="idc-dsig">${d.approver?.pic ? `<img src="${esc(d.approver.pic)}" alt="">` : ""}<i></i><b>${esc(ap.name.toUpperCase())}</b><small>APPROVED BY · ${esc(ap.title.toUpperCase())}</small></div>
       <div class="idc-co2">${E.logoHtml("idc-logo2")}<div><b>${esc(C.company.name)}</b><small>${esc(C.company.address.join(", "))}</small><small>${esc(C.company.email)}${site ? ` · ${esc(site)}` : ""}</small></div></div>
       <p class="idc-note">This card is the property of ${esc(C.company.name)} and is not transferable. If found, please return it to the address above.</p>
       <div class="idc-foot"><span class="idc-micro">${micro(6)}</span><b>${esc(em.employee_no)}</b></div>
@@ -111,16 +106,15 @@
       <div class="idc-howto"><b>EMPLOYEE ID CARD · ${esc(d.card.card_no)} · ${esc(fullName(d.em).toUpperCase())}</b> · Date Printed: ${esc(E.dateTime(new Date().toISOString()))}<br>
         Print at actual size (100%). Cut along the corner marks, fold on the dotted line so the front and the back meet, then laminate.</div></div>`;
 
-  // Everything the card shows: the photo, the holder's signature, the Director who approved it, the blood type.
+  // Everything the card shows: the photo, the holder's signature, the blood type.
   async function cardData(em, card) {
     const [photo, prof, app] = await Promise.all([
       em.photo_path ? E.signedUrl(em.photo_path, 3600) : "",
       em.profile_id ? sb.from("profiles").select("signature_path, signature_status").eq("id", em.profile_id).maybeSingle() : { data: null },
-      em.job_application_id ? sb.from("job_applications").select("blood_group").eq("id", em.job_application_id).maybeSingle() : { data: null },
-      E.loadSignatures()
+      em.job_application_id ? sb.from("job_applications").select("blood_group").eq("id", em.job_application_id).maybeSingle() : { data: null }
     ]);
     const sig = prof.data?.signature_status === "approved" ? await E.signaturePic(prof.data.signature_path) : "";
-    return { em, card, photo, holderSig: sig, blood: app.data?.blood_group || "", approver: E.approvedBy(card.issued_by, card.issued_by_name, card.issued_at) };
+    return { em, card, photo, holderSig: sig, blood: app.data?.blood_group || "" };
   }
 
   // ---------- the Director's ID Card tab on the employee profile ----------
@@ -143,7 +137,7 @@
         <div class="idc-side">
           ${card ? `<div class="grid-wrap"><table class="grid kv-table"><tbody>
             <tr><th scope="row">Card No</th><td><b class="mono">${esc(card.card_no)}</b> ${expired ? `<span class="pill rejected">EXPIRED</span>` : `<span class="pill approved">ACTIVE</span>`}</td></tr>
-            <tr><th scope="row">Issued</th><td>${esc(mdy(card.issued_at))} · approved by ${esc(card.issued_by_name || "—")}</td></tr>
+            <tr><th scope="row">Issued</th><td>${esc(mdy(card.issued_at))}${card.issued_by_name ? ` · by ${esc(card.issued_by_name)}` : ""}</td></tr>
             <tr><th scope="row">Valid Until</th><td>${esc(mdy(card.valid_until))}</td></tr>
             <tr><th scope="row">Portal Account</th><td>${em.profile_id ? `<span class="pill approved">LINKED</span>` : `<span class="pill pending">NOT LINKED</span> — the card works after ${esc(em.email)} creates an account (Create Account), or after you link the login account in Access &amp; Status`}</td></tr>
             <tr><th scope="row">Printed</th><td>${card.print_count ? `${card.print_count} time${card.print_count === 1 ? "" : "s"} · last ${esc(mdy(card.last_printed_at))}` : "Not printed yet"}</td></tr>
@@ -157,7 +151,7 @@
           </div>
           <p class="muted small">Only the Director sees and prints the ID card. A new card stops the old one at once (lost or damaged card). The employee signs in by scanning the card and typing the PIN.</p>
         </div></div>
-      ${list.length ? `<h4>Card History</h4>${E.grid({ cols: [{ label: "Card No", get: (r) => r.card_no }, { label: "Issued", get: (r) => mdy(r.issued_at) }, { label: "Approved By", get: (r) => r.issued_by_name || "" },
+      ${list.length ? `<h4>Card History</h4>${E.grid({ cols: [{ label: "Card No", get: (r) => r.card_no }, { label: "Issued", get: (r) => mdy(r.issued_at) }, { label: "Issued By", get: (r) => r.issued_by_name || "" },
         { label: "Valid Until", get: (r) => mdy(r.valid_until) }, { label: "Status", get: (r) => STATE[r.status] || r.status.toUpperCase() }, { label: "Ended", get: (r) => (r.ended_at ? mdy(r.ended_at) : "") }], rows: list })}` : ""}`;
     if ($("#idcPrint", el)) $("#idcPrint", el).onclick = async () => {
       const { data: code, error } = await sb.rpc("employee_card_code", { p_card: card.id });
