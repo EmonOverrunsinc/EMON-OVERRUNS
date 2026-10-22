@@ -2,8 +2,8 @@
    The card is CR80 size (54 × 85.6 mm), front and back. Copy-resistant printing: fine-line guilloche waves, a security
    rosette behind the photo, microtext lines, a ghost photo, the company seal over the photo corner and a dot background
    that may show COPY on a photocopy. The front carries a PDF417 barcode of the employee no (it opens Verify a Record).
-   The back carries the emergency contact, the company and a QR with the private card code: the employee signs in by
-   scanning it and typing a PIN.
+   The back carries the emergency contact, a QR with the private card code (the employee signs in by scanning it and
+   typing a PIN) and the signature of the Director who issued the card over the company name, address and email.
    Here: the card itself, the Director's ID Card tab (print / download, new card, reset PIN), the employee's PIN in
    My Profile and the check of a scanned card. The sign-in with the card is on the sign-in page (app.js). */
 (function () {
@@ -11,6 +11,7 @@
   const E = window.EO;
   const { sb, C, esc, mdy, $, $$, isAdmin, toast, fail, ic, busy, fullName } = E;
   const W = 54, H = 85.6;
+  const STAMP = "brand/stamp.png"; // the company stamp (round seal, see-through), on the photo corner and by the Director's signature
   let uid = 0;
 
   // ---------- the security background (SVG in mm) ----------
@@ -69,13 +70,13 @@
   // ---------- the card ----------
   const nameSize = (n) => (n.length <= 16 ? 3.8 : n.length <= 22 ? 3.2 : n.length <= 30 ? 2.7 : 2.3);
   const val = (v) => (v ? esc(v) : "&nbsp;");
-  // d: { em, card, photo, holderSig, blood, qr }  (qr: a picture; empty on the screen)
+  // d: { em, card, photo, holderSig, dirSig, blood, qr }  (qr: a picture; empty on the screen)
   function front(d) {
     const k = ++uid, name = fullName(d.em).toUpperCase();
     return `<div class="idc-face idc-front">${bg(k, true)}
       <div class="idc-top">${band(k)}${E.logoHtml("idc-logo")}<div class="idc-co"><b>${esc(C.company.name)}</b><small>EMPLOYEE IDENTIFICATION CARD</small></div></div>
       <div class="idc-gold"></div><div class="idc-micro idc-m1">${micro()}</div>
-      <div class="idc-photo">${d.photo ? `<img src="${esc(d.photo)}" alt="">` : `<span>PHOTO</span>`}<div class="idc-seal">${E.logoHtml("idc-seal-img")}</div></div>
+      <div class="idc-photo">${d.photo ? `<img class="idc-pic" src="${esc(d.photo)}" alt="">` : `<span>PHOTO</span>`}<img class="idc-seal" src="${STAMP}" alt=""></div>
       ${d.photo ? `<div class="idc-ghost"><img src="${esc(d.photo)}" alt=""></div>` : ""}
       <div class="idc-name" style="font-size:${nameSize(name)}mm">${esc(name)}</div>
       <div class="idc-pos"><span>${esc((d.em.position || "EMPLOYEE").toUpperCase())}</span></div>
@@ -95,7 +96,8 @@
       <div class="idc-qrrow"><div class="idc-qr">${d.qr ? `<img src="${esc(d.qr)}" alt="QR code">` : `<span>${ic("key")}<br>QR CODE<br>ON THE<br>PRINTED CARD</span>`}</div>
         <div class="idc-qrtxt"><b class="idc-scan">SCAN TO SIGN IN</b><small class="idc-pin">4-DIGIT PIN REQUIRED</small>
           <small>CARD NO</small><b class="mono">${esc(d.card.card_no)}</b><small>ISSUED</small><b>${esc(mdy(d.card.issued_at))}</b></div></div>
-      <div class="idc-co2">${E.logoHtml("idc-logo2")}<div><b>${esc(C.company.name)}</b><small>${esc(C.company.address.join(", "))}</small><small>${esc(C.company.email)}${site ? ` · ${esc(site)}` : ""}</small></div></div>
+      <div class="idc-sign"><img class="idc-stamp" src="${STAMP}" alt="Company stamp"><div class="idc-sigpic">${d.dirSig ? `<img src="${esc(d.dirSig)}" alt="">` : ""}</div><i></i>
+        <b>${esc(C.company.name)}</b><small>${esc(C.company.address.join(", "))}</small><small>${esc(C.company.email)}${site ? ` · ${esc(site)}` : ""}</small></div>
       <p class="idc-note">This card is the property of ${esc(C.company.name)} and is not transferable. If found, please return it to the address above.</p>
       <div class="idc-foot"><span class="idc-micro">${micro(6)}</span><b>${esc(em.employee_no)}</b></div>
     </div>`;
@@ -106,15 +108,16 @@
       <div class="idc-howto"><b>EMPLOYEE ID CARD · ${esc(d.card.card_no)} · ${esc(fullName(d.em).toUpperCase())}</b> · Date Printed: ${esc(E.dateTime(new Date().toISOString()))}<br>
         Print at actual size (100%). Cut along the corner marks, fold on the dotted line so the front and the back meet, then laminate.</div></div>`;
 
-  // Everything the card shows: the photo, the holder's signature, the blood type.
+  // Everything the card shows: the photo, the holder's signature, the signature of the Director who issued it, the blood type.
   async function cardData(em, card) {
     const [photo, prof, app] = await Promise.all([
       em.photo_path ? E.signedUrl(em.photo_path, 3600) : "",
       em.profile_id ? sb.from("profiles").select("signature_path, signature_status").eq("id", em.profile_id).maybeSingle() : { data: null },
-      em.job_application_id ? sb.from("job_applications").select("blood_group").eq("id", em.job_application_id).maybeSingle() : { data: null }
+      em.job_application_id ? sb.from("job_applications").select("blood_group").eq("id", em.job_application_id).maybeSingle() : { data: null },
+      E.loadSignatures()
     ]);
     const sig = prof.data?.signature_status === "approved" ? await E.signaturePic(prof.data.signature_path) : "";
-    return { em, card, photo, holderSig: sig, blood: app.data?.blood_group || "" };
+    return { em, card, photo, holderSig: sig, dirSig: E.approvedBy(card.issued_by, card.issued_by_name, card.issued_at)?.pic || "", blood: app.data?.blood_group || "" };
   }
 
   // ---------- the Director's ID Card tab on the employee profile ----------
