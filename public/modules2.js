@@ -89,6 +89,15 @@
             <label for="neAddr">Address</label><input type="text" id="neAddr">
             <label for="nePhoto">Photo</label><input type="file" id="nePhoto" accept="image/*">
           </div></div></fieldset>
+        <fieldset class="opt"><legend>Emergency Contact</legend><div class="formgrid">
+          <div class="fields wide">
+            <label for="neEmName">Name</label><input type="text" id="neEmName">
+            <label for="neEmRel">Relationship</label><input type="text" id="neEmRel" placeholder="e.g. Mother, Wife, Brother">
+          </div>
+          <div class="fields wide">
+            <label for="neEmPhone">Contact No</label><input type="tel" id="neEmPhone">
+            <label for="neEmAddr">Address</label><input type="text" id="neEmAddr">
+          </div></div></fieldset>
         <fieldset class="opt"><legend>Documents</legend><div class="fields wide">
           ${E.fileField("neApp", "Application Form", 'multiple accept="image/*,application/pdf"')}
           ${E.fileField("neSig", "Signature Form", 'accept="image/*,application/pdf"')}
@@ -106,12 +115,13 @@
       const photo_path = await uploadPhoto("employee", id, $("#nePhoto").files[0]);
       const { data, error } = await sb.from("employees").insert({
         id, first_name: v("neFirst"), last_name: v("neLast"), position: v("nePos") || null, email: v("neEmail"),
-        phone: v("nePhone") || null, address: v("neAddr") || null, date_hired: v("neHired") || null, monthly_salary: num(v("neSalary")), photo_path, ...readAccess()
+        phone: v("nePhone") || null, address: v("neAddr") || null, date_hired: v("neHired") || null, monthly_salary: num(v("neSalary")), photo_path, ...readAccess(),
+        emergency_name: v("neEmName") || null, emergency_relation: v("neEmRel") || null, emergency_phone: v("neEmPhone") || null, emergency_address: v("neEmAddr") || null
       }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the employee"); }
       let f = await E.uploadRecords("employee", id, "application", E.filesOf("neApp"));
       f += await E.uploadRecords("employee", id, "signature", E.filesOf("neSig"));
-      toast(`Saved ${data.employee_no}.${f ? ` ${f} file(s) failed to upload.` : ""}`, f > 0);
+      toast(`Saved ${data.employee_no}. The ID card is ready on the employee's ID Card tab.${f ? ` ${f} file(s) failed to upload.` : ""}`, f > 0);
       location.hash = "employee/" + id;
     };
   };
@@ -153,7 +163,7 @@
         <span class="grow"></span>
         ${tools("employees", em, `${em.employee_no} ${fullName(em)}`, { reload: () => V.employee(id), afterDelete: () => (location.hash = "employees") })}
       </div>
-      <div class="tabs" id="emTabs">${[`Payslips (${slips.length})`, "Documents", ...(isAdmin() ? ["Access & Status"] : []), "Details"].map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
+      <div class="tabs" id="emTabs">${[`Payslips (${slips.length})`, "Documents", ...(isAdmin() ? ["Access & Status", "ID Card"] : []), "Details"].map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes" id="emPanes">
         <div data-p="0"><div id="emSlips">${E.grid({ cols: SLIP_COLS, rows: slips, onRow: true, foot: { net_pay: peso(paid) }, empty: "No salary or advance payments recorded yet." })}</div></div>
         <div data-p="1" hidden>
@@ -171,10 +181,13 @@
             : `<p class="muted" style="margin-top:0">No login yet. Link an existing login account to this employee (once only: the link cannot be removed afterwards).</p>
             <div class="fields wide"><label for="emLinkSel">Login Account</label><select id="emLinkSel"><option value="">Loading…</option></select></div>
             <div class="btnrow"><button type="button" class="btn" id="emLink">${ic("key")} Link Login Account</button></div>`}</fieldset></div>` : ""}
-        <div data-p="${isAdmin() ? 3 : 2}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Address", em.address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""], ["Created By", em.created_by_name]].map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>${rhBox("employees", em.id)}</div>
+        ${isAdmin() ? `<div data-p="3" hidden id="emCard"></div>` : ""}
+        <div data-p="${isAdmin() ? 4 : 2}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Address", em.address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""],
+          ["Emergency Contact", em.emergency_name], ["Relationship", em.emergency_relation], ["Emergency Contact No", em.emergency_phone], ["Emergency Address", em.emergency_address], ["Created By", em.created_by_name]].map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>${rhBox("employees", em.id)}</div>
       </div>`;
     $$("#emTabs button").forEach((t) => (t.onclick = () => { $$("#emTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#emPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
     E.keepTab("#emTabs", "employee:" + id);
+    if (isAdmin() && E.idCardTab) E.idCardTab(em, $("#emCard"), () => V.employee(id)); // 3.21: the ID card (Director only)
     E.bindGrid($("#emSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), () => V.employee(id));
@@ -230,6 +243,7 @@
         ${E.cell("First Name", em.first_name)}${E.cell("Last Name", em.last_name)}${E.cell("Position", em.position)}${E.cell("Date Hired", mdy(em.date_hired))}
         ${E.cell("Email", em.email)}${E.cell("Phone", em.phone)}${E.cell("Monthly Salary (PHP)", peso(em.monthly_salary))}${E.cell("Status", em.status.toUpperCase())}
         ${E.cell("Address", em.address, "span2")}</div></div>`)}
+      ${E.box("Emergency Contact", `<div class="pgrid2">${E.cell("Name", em.emergency_name)}${E.cell("Relationship", em.emergency_relation)}${E.cell("Contact No", em.emergency_phone)}${E.cell("Address", em.emergency_address)}</div>`)}
       ${E.box("Portal Access", `<div class="pgrid2">${E.cell("Access Level", E.roleName(em.role).toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
       ${em.status === "terminated" ? E.box("Termination", `<div class="pgrid2">${E.cell("Date", mdy(em.termination_date))}${E.cell("Reason", em.termination_reason)}</div>`) : ""}
       ${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
@@ -466,7 +480,8 @@
         <div class="ja-qr"><img src="${E.qrDataUrl("EMONJA|" + a.application_no)}" alt="QR code"><img class="ja-bar" src="${E.pdf417DataUrl("EMONJA|" + a.application_no)}" alt=""></div>
         <div class="ja-photo">${photoUrl ? `<img src="${esc(photoUrl)}" alt="">` : "PHOTO"}</div></div>
       <div class="ph-title">JOB APPLICATION FORM</div>
-      ${E.box("Address Details", `<div class="pgrid2">${E.cell("Present Address", a.present_address)}${E.cell("Permanent Address", a.permanent_address)}</div>`)}
+      ${E.box("Address Details", `<div class="pgrid2">${E.cell("Present Address", a.present_address)}${E.cell("Permanent Address", a.permanent_address)}
+        ${E.cell("Emergency Contact", [a.emergency_name, a.emergency_relation && `(${a.emergency_relation})`].filter(Boolean).join(" "))}${E.cell("Emergency Contact No · Address", [a.emergency_phone, a.emergency_address].filter(Boolean).join(" · "))}</div>`)}
       ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Full Name", a.full_name, "hl")}${E.cell("Father's Name", a.father_name)}${E.cell("Mother's Name", a.mother_name)}${E.cell("Wife's / Husband's Name", a.spouse_name)}
         ${E.cell("Date of Birth", E.mdy(a.date_of_birth))}${E.cell("Birth Place", a.birth_place)}${E.cell("BRC / NID / Passport No", a.id_number)}${E.cell("Gender", a.gender)}
         ${E.cell("Religion", a.religion)}${E.cell("Blood Group", a.blood_group)}</div>`)}
@@ -511,7 +526,8 @@
           <div class="btnrow"><button type="button" class="btn ok" id="jaApprove" ${signed ? "" : 'disabled title="Upload the signed application form first"'}>Approve — Create Employee</button><button type="button" class="btn danger" id="jaReject">Reject</button></div></li>
       </ol></fieldset>` : ""}
       <div class="cols">
-        <div><h3>Address &amp; Personal Information</h3>${kv([["Present Address", a.present_address], ["Permanent Address", a.permanent_address], ["Father's Name", a.father_name], ["Mother's Name", a.mother_name], ["Wife's / Husband's Name", a.spouse_name], ["Date of Birth", E.mdy(a.date_of_birth)], ["Birth Place", a.birth_place], ["BRC / NID / Passport No", a.id_number], ["Gender", a.gender], ["Religion", a.religion], ["Blood Group", a.blood_group]])}</div>
+        <div><h3>Address &amp; Personal Information</h3>${kv([["Present Address", a.present_address], ["Permanent Address", a.permanent_address], ["Father's Name", a.father_name], ["Mother's Name", a.mother_name], ["Wife's / Husband's Name", a.spouse_name], ["Date of Birth", E.mdy(a.date_of_birth)], ["Birth Place", a.birth_place], ["BRC / NID / Passport No", a.id_number], ["Gender", a.gender], ["Religion", a.religion], ["Blood Group", a.blood_group],
+          ["Emergency Contact", a.emergency_name], ["Relationship", a.emergency_relation], ["Emergency Contact No", a.emergency_phone], ["Emergency Address", a.emergency_address]])}</div>
         <div><h3>Position Applied For</h3>${kv([["Position", a.position_title], ["Company", a.company_name], ["Monthly Salary (₱)", a.apply_salary != null ? peso(a.apply_salary) : ""], ["Duty Hours", a.apply_duty_hours], ["Joining Date", E.mdy(a.apply_joining_date)]])}</div>
       </div>
       <h3>Educational Qualifications</h3>${E.grid({ cols: [{ label: "Examination", get: (r) => r.exam || "" }, { label: "Institute / Board", get: (r) => r.institute || "" }, { label: "Result / GPA", get: (r) => r.result || "" }, { label: "Passing Year", get: (r) => r.year || "" }], rows: edu, empty: "None given." })}

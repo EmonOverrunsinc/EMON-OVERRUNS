@@ -47,21 +47,23 @@
   // Details that can be corrected — must match editable_columns() in the database. Amounts, transaction dates and
   // record numbers are never corrected: a wrong money record is deleted by the Director and recorded again.
   const FIELDS = {
-    customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("facebook_link", "Facebook Account Link"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool"), F("credit_limit", "Credit Limit (₱)", "money")],
+    customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("facebook_link", "Facebook Account Link", "url"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool"), F("credit_limit", "Credit Limit (₱)", "money")],
     customer_invoices: [F("invoice_date", "Invoice Date", "date"), F("total_amount", "Total Amount (₱)", "money"), F("payment_terms", "Terms of Payment", "terms"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int"),
       F("po_number", "PO Number")], // 2.6: every detail of an invoice; 2.6.1: PO Number only
     payments_received: [F("method", "Method", "select", METHODS), F("bank_name", "Bank Name"), F("bank_account", "Deposit Account"), F("reference_no", "Reference No"), F("notes", "Notes")],
     credit_memos: [F("payment_ref", "Payment Reference"), F("po_number", "Purchase Order"), F("article", "Article"), F("brand", "Brand"), F("style", "Style"), F("batch_no", "Batch No"), F("serial_no", "Serial No"), F("purchase_date", "Purchase Date", "date"),
       F("defect_category", "Defect Category", "select", [["fabric_damage", "Fabric Damage"], ["color_issue", "Color Issue"], ["wrong_box", "Wrong Box Delivered"], ["wrong_bundle", "Wrong Bundle"], ["other", "Other"]]), F("defect_detail", "Defect Details"),
       F("assigned_by", "Assigned By"), F("inspection_notes", "Inspection Notes", "textarea"), F("factory_status", "Factory Status", "textarea")],
-    employees: [F("first_name", "First Name"), F("last_name", "Last Name"), F("position", "Position"), F("phone", "Phone"), F("address", "Address"), F("date_hired", "Date Hired", "date"), F("monthly_salary", "Monthly Salary (₱)", "money")],
+    employees: [F("first_name", "First Name"), F("last_name", "Last Name"), F("position", "Position"), F("phone", "Phone"), F("address", "Address"), F("date_hired", "Date Hired", "date"), F("monthly_salary", "Monthly Salary (₱)", "money"),
+      F("emergency_name", "Emergency Contact Name"), F("emergency_relation", "Emergency Contact Relationship"), F("emergency_phone", "Emergency Contact No"), F("emergency_address", "Emergency Contact Address")],
     payslips: [F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
     projects: [F("title", "Title"), F("description", "Description", "textarea"), F("location", "Location"), F("start_date", "Start Date", "date"), F("end_date", "End Date", "date")],
     project_payments: [F("received_by", "Received By"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
     pay_companies: [F("name", "Company Name"), F("contact_person", "Contact Person"), F("contact", "Phone / Email"), F("address", "Address"), F("currency", "Currency", "select", [["PHP", "PHP"], ["BDT", "BDT"], ["BOTH", "PHP, BDT"]]), F("notes", "Notes")],
     pay_accounts: [F("account_name", "Account Name"), F("account_number", "Account Number"), F("bank_name", "Bank Name"), F("branch_name", "Branch"), F("notes", "Notes")],
     pay_vouchers: [F("purpose", "Purpose"), F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
-    job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife's / Husband's Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("apply_salary", "Expected Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date")],
+    job_applications: [F("full_name", "Full Name"), F("phone", "Phone"), F("email", "Email", "email"), F("present_address", "Present Address"), F("permanent_address", "Permanent Address"), F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife's / Husband's Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"), F("id_number", "BRC / NID / Passport No"), F("gender", "Gender"), F("religion", "Religion"), F("blood_group", "Blood Group"), F("apply_salary", "Expected Monthly Salary (₱)", "money"), F("apply_duty_hours", "Duty Hours"), F("apply_joining_date", "Joining Date", "date"),
+      F("emergency_name", "Emergency Contact Name"), F("emergency_relation", "Emergency Contact Relationship"), F("emergency_phone", "Emergency Contact No"), F("emergency_address", "Emergency Contact Address")],
     stock_bills: [F("supplier_bill_no", "Bill No"), F("batch_no", "Batch No"), F("shipment_no", "System Record No"), F("shipment_date", "Shipment Date", "date"), F("total_boxes", "Total Boxes", "int"), F("notes", "Notes"),
       F("shipping_company", "Shipping Company"), F("shipping_company_code", "Shipping Company Code")]
   };
@@ -100,7 +102,7 @@
           <option value="">—</option>${E.TERMS.map((t) => `<option ${t === v ? "selected" : ""}>${t}</option>`).join("")}<option value="OTHER" ${other ? "selected" : ""}>OTHER (type the terms)</option></select>
         <label for="${id}_x" ${other ? "" : "hidden"}>Other Terms</label><input type="text" id="${id}_x" maxlength="60" value="${esc(other ? v : "")}" ${other ? "" : "hidden"}>`;
     }
-    const t = { date: "date", money: "number", rate: "number", int: "number", email: "email" }[f.type] || "text";
+    const t = { date: "date", money: "number", rate: "number", int: "number", email: "email", url: "url" }[f.type] || "text";
     const step = { money: "0.01", rate: "0.0001", int: "1" }[f.type];
     const val = f.type === "date" ? String(v || "").slice(0, 10) : v ?? "";
     return `${lab}<input type="${t}" id="${id}" value="${esc(val)}" ${step ? `step="${step}" min="0"` : ""}>`;
@@ -382,6 +384,15 @@
         <fieldset class="opt"><legend>Address Details</legend><div class="fields wide">
           <label for="jaPres">Present Address *</label><input type="text" id="jaPres">
           <label for="jaPerm">Permanent Address</label><input type="text" id="jaPerm"></div></fieldset>
+        <fieldset class="opt"><legend>Emergency Contact</legend><div class="formgrid">
+          <div class="fields wide">
+            <label for="jaEmName">Name *</label><input type="text" id="jaEmName">
+            <label for="jaEmRel">Relationship</label><input type="text" id="jaEmRel" placeholder="e.g. Mother, Wife, Brother">
+          </div>
+          <div class="fields wide">
+            <label for="jaEmPhone">Contact No *</label><input type="tel" id="jaEmPhone">
+            <label for="jaEmAddr">Address</label><input type="text" id="jaEmAddr">
+          </div></div><small>The person we call in an emergency. It is printed on the back of your employee ID card.</small></fieldset>
         <fieldset class="opt"><legend>Personal Information</legend><div class="formgrid">
           <div class="fields wide">
             <label for="jaFather">Father's Name</label><input type="text" id="jaFather">
@@ -421,6 +432,7 @@
       if (!g("jaName")) return toast("Enter your full name.", true);
       if (!g("jaPhone")) return toast("Enter your phone number.", true);
       if (!g("jaPres")) return toast("Enter your present address.", true);
+      if (!g("jaEmName") || !g("jaEmPhone")) return toast("Enter the name and contact no of your emergency contact.", true);
       const photo = $("#jaPhoto").files[0];
       if (!photo) return toast("Add your photo.", true);
       if (!$("#jaDecl").checked) return toast("Tick the declaration to confirm the information is true.", true);
@@ -430,6 +442,7 @@
         full_name: g("jaName"), phone: g("jaPhone"), email: g("jaEmail") || null, present_address: g("jaPres"), permanent_address: g("jaPerm") || null,
         father_name: g("jaFather") || null, mother_name: g("jaMother") || null, spouse_name: g("jaSpouse") || null, date_of_birth: g("jaDob") || null,
         birth_place: g("jaBirth") || null, id_number: g("jaIdNo") || null, gender: g("jaGender") || null, religion: g("jaRel") || null, blood_group: g("jaBlood") || null,
+        emergency_name: g("jaEmName") || null, emergency_relation: g("jaEmRel") || null, emergency_phone: g("jaEmPhone") || null, emergency_address: g("jaEmAddr") || null,
         education, experience, apply_salary: g("jaSal") === "" ? null : num(g("jaSal")), apply_duty_hours: g("jaHrs") || null, apply_joining_date: g("jaJoin") || null, declaration: true
       };
       E.setBusy(e.target, true, "Submitting");
@@ -505,6 +518,15 @@
     const run = async (raw) => {
       const t = String(raw || "").trim();
       if (!t) return toast("Type a record number or scan its code.", true);
+      // 3.21: an employee ID card is checked by its full code; only the card no shows (the code never goes into the address)
+      if (/^EMONID\|/i.test(t) && E.cardCheck) {
+        $("#vfCode").value = (t.split("|")[1] || "").toUpperCase();
+        if (/^verify\/./.test(decodeURIComponent(location.hash.slice(1)))) history.replaceState(null, "", "#verify");
+        $("#vfResult").innerHTML = `<div class="vf-wait">${busy("Checking the ID card")}</div>`;
+        const r = await E.cardCheck(t);
+        if ($("#vfResult")) $("#vfResult").innerHTML = r.html;
+        return;
+      }
       $("#vfCode").value = t.replace(/^.*#verify\//i, "");
       $("#vfResult").innerHTML = `<div class="vf-wait">${busy("Searching the records")}</div>`;
       const shown = $("#vfCode").value;
