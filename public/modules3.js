@@ -54,7 +54,12 @@
     credit_memos: [F("payment_ref", "Payment Reference"), F("po_number", "Purchase Order"), F("article", "Article"), F("brand", "Brand"), F("style", "Style"), F("batch_no", "Batch No"), F("serial_no", "Serial No"), F("purchase_date", "Purchase Date", "date"),
       F("defect_category", "Defect Category", "select", [["fabric_damage", "Fabric Damage"], ["color_issue", "Color Issue"], ["wrong_box", "Wrong Box Delivered"], ["wrong_bundle", "Wrong Bundle"], ["other", "Other"]]), F("defect_detail", "Defect Details"),
       F("assigned_by", "Assigned By"), F("inspection_notes", "Inspection Notes", "textarea"), F("factory_status", "Factory Status", "textarea")],
-    employees: [F("first_name", "First Name"), F("last_name", "Last Name"), F("position", "Position"), F("phone", "Phone"), F("address", "Address"), F("date_hired", "Date Hired", "date"), F("monthly_salary", "Monthly Salary (₱)", "money"),
+    // 3.26: every detail of the employee (as on the paper job application)
+    employees: [F("first_name", "First Name"), F("last_name", "Last Name"), F("position", "Position"), F("phone", "Phone"), F("address", "Present Address"), F("permanent_address", "Permanent Address"),
+      F("date_hired", "Date Hired", "date"), F("monthly_salary", "Monthly Salary (₱)", "money"), F("duty_hours", "Duty Hours"),
+      F("father_name", "Father's Name"), F("mother_name", "Mother's Name"), F("spouse_name", "Wife's / Husband's Name"), F("date_of_birth", "Date of Birth", "date"), F("birth_place", "Birth Place"),
+      F("id_number", "BRC / NID / Passport No"), F("gender", "Gender", "select", [["Male", "Male"], ["Female", "Female"]]), F("religion", "Religion"),
+      F("blood_group", "Blood Group", "select", ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((g) => [g, g])),
       F("emergency_name", "Emergency Contact Name"), F("emergency_relation", "Emergency Contact Relationship"), F("emergency_phone", "Emergency Contact No"), F("emergency_address", "Emergency Contact Address")],
     payslips: [F("method", "Method"), F("reference_no", "Reference No"), F("notes", "Notes")],
     projects: [F("title", "Title"), F("description", "Description", "textarea"), F("location", "Location"), F("start_date", "Start Date", "date"), F("end_date", "End Date", "date")],
