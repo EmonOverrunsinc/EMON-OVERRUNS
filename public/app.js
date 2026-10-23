@@ -9,7 +9,7 @@
   const VERSION = "3.27";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.27.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.27.2"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -1129,20 +1129,35 @@
   const CAM_BLOCKED = "The camera is blocked for this website. Tap the icon left of the web address → Permissions → Camera → Allow (on Android also check Settings → Apps → Chrome → Permissions → Camera), then press Try Again.";
   const CAM_BUSY = "The camera is busy or could not start. Close other apps that use the camera, then press Try Again.";
   const CAMERA_PROBLEM = { NotAllowedError: CAM_BLOCKED, SecurityError: CAM_BLOCKED, NotReadableError: CAM_BUSY, AbortError: CAM_BUSY, NotFoundError: "No camera was found on this device.", OverconstrainedError: "No camera was found on this device." };
-  async function openCamera() {
-    let last;
+  // 3.27.2: the QR is on the back of the card, so the back camera is wanted. When the phone gives the front camera,
+  // each back camera of the phone (main, wide, zoom) is tried by name; the front camera comes back only when none starts.
+  const getCam = (video) => navigator.mediaDevices.getUserMedia({ video, audio: false });
+  const isFront = (track) => track.getSettings?.().facingMode === "user" || /front|selfie/i.test(track.label);
+  const cameras = async () => (await navigator.mediaDevices.enumerateDevices()).filter((c) => c.kind === "videoinput");
+  async function openCamera(deviceId) {
+    if (deviceId) return getCam({ deviceId: { exact: deviceId } }); // Switch Camera
+    let stream, last;
     for (const video of [{ facingMode: { ideal: "environment" } }, true]) {
-      try { return await navigator.mediaDevices.getUserMedia({ video, audio: false }); }
+      try { stream = await getCam(video); break; }
       catch (e) { last = e; if (CAMERA_PROBLEM[e.name] === CAM_BLOCKED) break; } // blocked: another camera will not help
     }
-    throw last;
+    if (!stream) throw last;
+    if (!isFront(stream.getVideoTracks()[0])) return stream;
+    const backs = (await cameras()).filter((c) => /back|rear|environment/i.test(c.label));
+    if (!backs.length) return stream; // only a front camera (a laptop)
+    stream.getTracks().forEach((t) => t.stop()); // a phone opens one camera at a time
+    await new Promise((ok) => setTimeout(ok, 400));
+    for (const c of backs) { try { return await getCam({ deviceId: { exact: c.deviceId } }); } catch (_) { /* the next back camera */ } }
+    stream = await getCam(true);
+    stream.backFailed = true;
+    return stream;
   }
   function scanDialog(onText, { title = "Scan QR Code / Barcode", hint = "Point the camera at the QR code or barcode.", photo = true } = {}) {
     let reader = null, done = false;
     const m = modal(title, `<div class="scan-view"><video id="scVideo" playsinline muted></video><div class="scan-frame"><i></i></div></div>
       <div id="scMsg" class="scan-msg">${esc(hint)}</div>`,
       `${photo ? `<label class="btn" for="scImg">${ic("image")} Use a Photo</label>` : ""}<input type="file" id="scImg" accept="image/*" hidden>
-      <button type="button" class="btn" id="scRetry" hidden>Try Again</button><label class="btn primary" for="scCap" id="scCapL" hidden>${ic("camera")} Open Camera</label><input type="file" id="scCap" accept="image/*" capture="environment" hidden>
+      <button type="button" class="btn" id="scSwitch" hidden>Switch Camera</button><button type="button" class="btn" id="scRetry" hidden>Try Again</button><label class="btn primary" for="scCap" id="scCapL" hidden>${ic("camera")} Open Camera</label><input type="file" id="scCap" accept="image/*" capture="environment" hidden>
       <button type="button" class="btn" data-close>Close</button>`,
       { cls: "scan-modal", onClose: () => { try { reader?.reset(); } catch (_) {} } });
     const d = m.el;
@@ -1161,18 +1176,26 @@
       d.classList.add("nocam"); $("#scRetry", d).hidden = $("#scCapL", d).hidden = false;
       msg(`${CAMERA_PROBLEM[e?.name] || "The camera could not start."} Or press Open Camera to take a picture of the code.${e?.name ? ` (${e.name})` : ""}`);
     };
-    const start = async () => {
-      d.classList.remove("nocam"); $("#scRetry", d).hidden = true; msg(hint);
-      try { reader?.reset(); } catch (_) {}
+    let cams = [], current = "";
+    const start = async (deviceId) => {
+      d.classList.remove("nocam", "front"); $("#scRetry", d).hidden = true; msg(hint);
+      try { reader?.reset(); } catch (_) {} // the camera in use is closed first
       if (!navigator.mediaDevices?.getUserMedia) return noCamera(null);
       let Z, stream;
       try { Z = await need("zxing"); } catch (err) { return msg(err.message); }
-      try { stream = await openCamera(); } catch (e) { return noCamera(e); }
+      try { stream = await openCamera(deviceId); } catch (e) { return noCamera(e); }
       if (done || !d.isConnected) return stream.getTracks().forEach((t) => t.stop()); // closed while the camera started
+      const track = stream.getVideoTracks()[0];
+      current = track.getSettings?.().deviceId || "";
+      cams = await cameras().catch(() => []);
+      $("#scSwitch", d).hidden = cams.length < 2;
+      d.classList.toggle("front", isFront(track)); // the front camera is shown like a mirror
+      if (stream.backFailed) { $("#scCapL", d).hidden = false; msg("The back camera did not start, so the front camera is on. Press Switch Camera to try another camera, or Open Camera."); }
       reader = new Z.BrowserMultiFormatReader(new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.QR_CODE, Z.BarcodeFormat.PDF_417]]]));
       reader.decodeFromStream(stream, $("#scVideo", d), (res) => { if (res) finish(res.getText()); }).catch(noCamera);
     };
-    $("#scRetry", d).onclick = start;
+    $("#scRetry", d).onclick = () => start();
+    $("#scSwitch", d).onclick = () => { const i = cams.findIndex((c) => c.deviceId === current); start(cams[(i + 1) % cams.length]?.deviceId); };
     start();
   }
   // Customer QR: the customer's Public ID key, like a crypto wallet address (EO + 40 letters and numbers).
