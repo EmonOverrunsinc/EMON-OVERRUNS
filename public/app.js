@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.26";
+  const VERSION = "3.27";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.26.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.27.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -895,7 +895,7 @@
     // 2.9: staff who record invoices also record payments (the server allows both)
     payments: ["payments", "invoices"], newpayment: ["payments", "invoices"], payment: ["payments", "invoices"],
     creditmemos: "creditmemos", newcreditmemo: "creditmemos", creditmemo: "creditmemos",
-    employees: "employees", newemployee: "employees", employee: "employees", jobapps: "employees", jobapp: "employees", positions: "employees", payroll: "employees",
+    employees: "employees", newemployee: "employees", editemployee: "employees", employee: "employees", jobapps: "employees", jobapp: "employees", positions: "employees", payroll: "employees",
     projects: "projects", newproject: "projects", project: "projects",
     billing: "billing", newpaycompany: "billing", paycompany: "billing", newvoucher: "billing", voucher: "billing", ebill: ["billing", "inventory"],
     inventory: "inventory", newstockbill: "inventory", stockbill: "inventory",
@@ -913,7 +913,7 @@
     ["logins", "Login Accounts", () => isAdmin(), "key"],
     ["forms", "Download Forms", () => true, "download"]
   ];
-  const ACTIVE_OF = { employees: "eooffice", newemployee: "eooffice", employee: "eooffice", payroll: "eooffice", payslip: "eooffice", creditmemos: "eooffice", newcreditmemo: "eooffice", creditmemo: "eooffice", projects: "eooffice", newproject: "eooffice", project: "eooffice", jobapps: "eooffice", jobapp: "eooffice", positions: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", ebill: "inventory", find: "", profile: "", settings: "" };
+  const ACTIVE_OF = { employees: "eooffice", newemployee: "eooffice", editemployee: "eooffice", employee: "eooffice", payroll: "eooffice", payslip: "eooffice", creditmemos: "eooffice", newcreditmemo: "eooffice", creditmemo: "eooffice", projects: "eooffice", newproject: "eooffice", project: "eooffice", jobapps: "eooffice", jobapp: "eooffice", positions: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", ebill: "inventory", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
   const ALIAS = { users: "employees", userres: "employees", resolutions: "purchase", resolution: "purchase", community: "purchase", orders: "dashboard", neworder: "dashboard", editorder: "dashboard", verification: "verify", supplier: "billing", newsupplier: "billing", search: "dashboard" };
   const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);
@@ -1123,32 +1123,57 @@
   function stopTimers() { timers.forEach(clearInterval); timers = []; }
 
   // Scanner: camera (QR or PDF417) or a photo of the code.
+  // 3.27: the camera is started here, the back camera first and else any camera (some phones refuse the back camera
+  // setting). When it cannot start, the dialog says why, with Try Again and Open Camera (a picture of the code taken
+  // with the phone's camera app).
+  const CAM_BLOCKED = "The camera is blocked for this website. Tap the icon left of the web address → Permissions → Camera → Allow (on Android also check Settings → Apps → Chrome → Permissions → Camera), then press Try Again.";
+  const CAM_BUSY = "The camera is busy or could not start. Close other apps that use the camera, then press Try Again.";
+  const CAMERA_PROBLEM = { NotAllowedError: CAM_BLOCKED, SecurityError: CAM_BLOCKED, NotReadableError: CAM_BUSY, AbortError: CAM_BUSY, NotFoundError: "No camera was found on this device.", OverconstrainedError: "No camera was found on this device." };
+  async function openCamera() {
+    let last;
+    for (const video of [{ facingMode: { ideal: "environment" } }, true]) {
+      try { return await navigator.mediaDevices.getUserMedia({ video, audio: false }); }
+      catch (e) { last = e; if (CAMERA_PROBLEM[e.name] === CAM_BLOCKED) break; } // blocked: another camera will not help
+    }
+    throw last;
+  }
   function scanDialog(onText, { title = "Scan QR Code / Barcode", hint = "Point the camera at the QR code or barcode.", photo = true } = {}) {
     let reader = null, done = false;
     const m = modal(title, `<div class="scan-view"><video id="scVideo" playsinline muted></video><div class="scan-frame"><i></i></div></div>
       <div id="scMsg" class="scan-msg">${esc(hint)}</div>`,
-      `${photo ? `<label class="btn" for="scImg">${ic("image")} Use a Photo</label>` : ""}<input type="file" id="scImg" accept="image/*" hidden><button type="button" class="btn" data-close>Close</button>`,
+      `${photo ? `<label class="btn" for="scImg">${ic("image")} Use a Photo</label>` : ""}<input type="file" id="scImg" accept="image/*" hidden>
+      <button type="button" class="btn" id="scRetry" hidden>Try Again</button><label class="btn primary" for="scCap" id="scCapL" hidden>${ic("camera")} Open Camera</label><input type="file" id="scCap" accept="image/*" capture="environment" hidden>
+      <button type="button" class="btn" data-close>Close</button>`,
       { cls: "scan-modal", onClose: () => { try { reader?.reset(); } catch (_) {} } });
     const d = m.el;
     const msg = (t) => { const el = $("#scMsg", d); if (el) el.textContent = t; };
     const finish = (text) => { if (done) return; done = true; m.close(); onText(text); };
     $("[data-close]", d).onclick = m.close;
-    $("#scImg", d).onchange = async (e) => {
+    $("#scImg", d).onchange = $("#scCap", d).onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
       msg("Reading the photo…");
       try { finish(await decodeImageFile(f)); }
       catch (err) { msg(err.message); }
       e.target.value = "";
     };
-    if (navigator.mediaDevices?.getUserMedia) {
-      need("zxing").then((Z) => {
-        if (done || !d.isConnected) return; // closed while the code reader loaded
-        const hints = new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.QR_CODE, Z.BarcodeFormat.PDF_417]]]);
-        reader = new Z.BrowserMultiFormatReader(hints);
-        reader.decodeFromVideoDevice(undefined, $("#scVideo", d), (res) => { if (res) finish(res.getText()); })
-          .catch(() => { d.classList.add("nocam"); msg(photo ? "The camera is not available. Use a photo instead." : "The camera is not available. Allow the camera, or use a phone or computer with a camera."); });
-      }, (err) => msg(err.message));
-    } else { d.classList.add("nocam"); msg(photo ? "The camera is not available here. Use a photo instead." : "The camera is not available here. Use a phone or computer with a camera."); }
+    const noCamera = (e) => {
+      if (done || !d.isConnected) return;
+      d.classList.add("nocam"); $("#scRetry", d).hidden = $("#scCapL", d).hidden = false;
+      msg(`${CAMERA_PROBLEM[e?.name] || "The camera could not start."} Or press Open Camera to take a picture of the code.${e?.name ? ` (${e.name})` : ""}`);
+    };
+    const start = async () => {
+      d.classList.remove("nocam"); $("#scRetry", d).hidden = true; msg(hint);
+      try { reader?.reset(); } catch (_) {}
+      if (!navigator.mediaDevices?.getUserMedia) return noCamera(null);
+      let Z, stream;
+      try { Z = await need("zxing"); } catch (err) { return msg(err.message); }
+      try { stream = await openCamera(); } catch (e) { return noCamera(e); }
+      if (done || !d.isConnected) return stream.getTracks().forEach((t) => t.stop()); // closed while the camera started
+      reader = new Z.BrowserMultiFormatReader(new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.QR_CODE, Z.BarcodeFormat.PDF_417]]]));
+      reader.decodeFromStream(stream, $("#scVideo", d), (res) => { if (res) finish(res.getText()); }).catch(noCamera);
+    };
+    $("#scRetry", d).onclick = start;
+    start();
   }
   // Customer QR: the customer's Public ID key, like a crypto wallet address (EO + 40 letters and numbers).
   // Older customer QR codes read EMONCUST|<public id>|<account no>.

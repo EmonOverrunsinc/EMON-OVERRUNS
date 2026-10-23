@@ -73,64 +73,69 @@
       <small class="muted">Dashboard, Community, Messages, Verification and Download Forms are open to everyone.</small></div>`;
   const readAccess = () => ({ role: $("#emRole").value, modules: $$("input[name=emMod]:checked").map((x) => x.value) });
 
-  V.newemployee = () => {
-    if (!isAdmin()) { location.hash = "employees"; return; }
-    E.shell("newemployee", "New Employee", `
+  // 3.27: one form for New Employee and Edit Employee (the Director edits every detail of an employee)
+  function employeeForm(em) {
+    const ed = !!em, x = em || {};
+    const val = (k, d = "") => esc(x[k] ?? d);
+    const opt = (list, cur) => list.map((g) => `<option${g === (cur || "") ? " selected" : ""}>${g}</option>`).join("");
+    const linked = ed && !!x.profile_id;
+    const edu = ed && (x.education || []).length ? x.education : [{ exam: "SSC" }, { exam: "HSC" }];
+    E.shell(ed ? "editemployee" : "newemployee", ed ? `Edit Employee — ${x.employee_no}` : "New Employee", `
       <form class="window" id="neForm" novalidate><div class="wtitle">Employee Information</div><div class="wbody">
-        <div class="summary-box"><div class="fields wide"><span>Employee No</span><b>Assigned on save (EO-YYYYMM##)</b><span>Created By</span><b>${esc(S.profile.full_name || "")}</b></div></div>
+        <div class="summary-box"><div class="fields wide"><span>Employee No</span><b>${ed ? esc(x.employee_no) : "Assigned on save (EO-YYYYMM##)"}</b><span>${ed ? "Edited By" : "Created By"}</span><b>${esc(S.profile.full_name || "")}</b></div></div>
         <fieldset class="opt"><legend>Personal Details</legend><div class="formgrid">
           <div class="fields wide">
-            <label for="neFirst">First Name *</label><input type="text" id="neFirst" required>
-            <label for="neLast">Last Name *</label><input type="text" id="neLast" required>
-            <label for="nePos">Position</label><input type="text" id="nePos" placeholder="e.g. Warehouse Staff">
-            <label for="neHired">Date Hired</label><input type="date" id="neHired" value="${isoToday()}">
-            <label for="neSalary">Monthly Salary (₱)</label><input type="number" id="neSalary" min="0" step="0.01" value="0">
+            <label for="neFirst">First Name *</label><input type="text" id="neFirst" required value="${val("first_name")}">
+            <label for="neLast">Last Name *</label><input type="text" id="neLast" required value="${val("last_name")}">
+            <label for="nePos">Position</label><input type="text" id="nePos" placeholder="e.g. Warehouse Staff" value="${val("position")}">
+            <label for="neHired">Date Hired</label><input type="date" id="neHired" value="${ed ? val("date_hired") : isoToday()}">
+            <label for="neSalary">Monthly Salary (₱)</label><input type="number" id="neSalary" min="0" step="0.01" value="${val("monthly_salary", "0")}">
           </div>
           <div class="fields wide">
-            <label for="neEmail">Email (login) *</label><input type="email" id="neEmail" required>
-            <label for="nePhone">Phone</label><input type="tel" id="nePhone">
-            <label for="neAddr">Present Address</label><input type="text" id="neAddr">
-            <label for="nePerm">Permanent Address</label><input type="text" id="nePerm">
-            <label for="neHrs">Duty Hours</label><input type="text" id="neHrs" placeholder="e.g. 9:00 AM - 6:00 PM">
-            <label for="nePhoto">Photo</label><input type="file" id="nePhoto" accept="image/*">
-          </div></div></fieldset>
+            <label for="neEmail">Email (login) *</label><input type="email" id="neEmail" required value="${val("email")}" ${linked ? "disabled" : ""}>
+            <label for="nePhone">Phone</label><input type="tel" id="nePhone" value="${val("phone")}">
+            <label for="neAddr">Present Address</label><input type="text" id="neAddr" value="${val("address")}">
+            <label for="nePerm">Permanent Address</label><input type="text" id="nePerm" value="${val("permanent_address")}">
+            <label for="neHrs">Duty Hours</label><input type="text" id="neHrs" placeholder="e.g. 9:00 AM - 6:00 PM" value="${val("duty_hours")}">
+            ${ed ? "" : `<label for="nePhoto">Photo</label><input type="file" id="nePhoto" accept="image/*">`}
+          </div></div>${linked ? `<small class="muted">The email is the login of the linked account and stays the same.</small>` : ""}</fieldset>
         <fieldset class="opt"><legend>Personal Information</legend><div class="formgrid">
           <div class="fields wide">
-            <label for="neFather">Father's Name</label><input type="text" id="neFather">
-            <label for="neMother">Mother's Name</label><input type="text" id="neMother">
-            <label for="neSpouse">Wife's / Husband's Name</label><input type="text" id="neSpouse">
-            <label for="neDob">Date of Birth</label><input type="date" id="neDob">
-            <label for="neBirth">Birth Place</label><input type="text" id="neBirth">
+            <label for="neFather">Father's Name</label><input type="text" id="neFather" value="${val("father_name")}">
+            <label for="neMother">Mother's Name</label><input type="text" id="neMother" value="${val("mother_name")}">
+            <label for="neSpouse">Wife's / Husband's Name</label><input type="text" id="neSpouse" value="${val("spouse_name")}">
+            <label for="neDob">Date of Birth</label><input type="date" id="neDob" value="${val("date_of_birth")}">
+            <label for="neBirth">Birth Place</label><input type="text" id="neBirth" value="${val("birth_place")}">
           </div>
           <div class="fields wide">
-            <label for="neIdNo">BRC / NID / Passport No</label><input type="text" id="neIdNo">
-            <label for="neGender">Gender</label><select id="neGender">${["", "Male", "Female"].map((g) => `<option>${g}</option>`).join("")}</select>
-            <label for="neRel">Religion</label><input type="text" id="neRel">
-            <label for="neBlood">Blood Group</label><select id="neBlood">${["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((g) => `<option>${g}</option>`).join("")}</select>
+            <label for="neIdNo">BRC / NID / Passport No</label><input type="text" id="neIdNo" value="${val("id_number")}">
+            <label for="neGender">Gender</label><select id="neGender">${opt(["", "Male", "Female"], x.gender)}</select>
+            <label for="neRel">Religion</label><input type="text" id="neRel" value="${val("religion")}">
+            <label for="neBlood">Blood Group</label><select id="neBlood">${opt(["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"], x.blood_group)}</select>
           </div></div></fieldset>
         <fieldset class="opt"><legend>Educational Qualifications</legend>
-          <div class="grid-scroll"><table class="grid budget"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="neEdu">${[{ exam: "SSC" }, { exam: "HSC" }].map(eduRow).join("")}</tbody></table></div>
+          <div class="grid-scroll"><table class="grid budget"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="neEdu">${edu.map(eduRow).join("")}</tbody></table></div>
           <div class="btnrow"><button type="button" class="btn" id="neEduAdd">+ Add Row</button></div></fieldset>
         <fieldset class="opt"><legend>Work Experience</legend>
-          <div class="grid-scroll"><table class="grid budget"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="neExp"></tbody></table></div>
+          <div class="grid-scroll"><table class="grid budget"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="neExp">${(ed ? x.experience || [] : []).map(expRow).join("")}</tbody></table></div>
           <div class="btnrow"><button type="button" class="btn" id="neExpAdd">+ Add Experience</button></div></fieldset>
         <fieldset class="opt"><legend>Emergency Contact</legend><div class="formgrid">
           <div class="fields wide">
-            <label for="neEmName">Name</label><input type="text" id="neEmName">
-            <label for="neEmRel">Relationship</label><input type="text" id="neEmRel" placeholder="e.g. Mother, Wife, Brother">
+            <label for="neEmName">Name</label><input type="text" id="neEmName" value="${val("emergency_name")}">
+            <label for="neEmRel">Relationship</label><input type="text" id="neEmRel" placeholder="e.g. Mother, Wife, Brother" value="${val("emergency_relation")}">
           </div>
           <div class="fields wide">
-            <label for="neEmPhone">Contact No</label><input type="tel" id="neEmPhone">
-            <label for="neEmAddr">Address</label><input type="text" id="neEmAddr">
+            <label for="neEmPhone">Contact No</label><input type="tel" id="neEmPhone" value="${val("emergency_phone")}">
+            <label for="neEmAddr">Address</label><input type="text" id="neEmAddr" value="${val("emergency_address")}">
           </div></div></fieldset>
-        <fieldset class="opt"><legend>Documents</legend><div class="fields wide">
+        ${ed ? "" : `<fieldset class="opt"><legend>Documents</legend><div class="fields wide">
           ${E.fileField("neApp", "Application Form", 'multiple accept="image/*,application/pdf"')}
           ${E.fileField("neSig", "Signature Form", 'accept="image/*,application/pdf"')}
           <span></span><small>Documents can also be uploaded later from the employee profile.</small></div></fieldset>
-        <fieldset class="opt"><legend>Access</legend><div class="fields wide">${accessFields("staff", ["customers"])}</div></fieldset>
-      </div><div class="wfoot"><a class="btn" href="#employees">Cancel</a><button type="submit" class="btn primary">Save Employee</button></div></form>`,
-      "The employee then signs up with the same email (Create Account) and can sign in immediately with the access chosen here.");
-    // 3.24: education and work experience rows (as on the paper job application)
+        <fieldset class="opt"><legend>Access</legend><div class="fields wide">${accessFields("staff", ["customers"])}</div></fieldset>`}
+      </div><div class="wfoot"><a class="btn" href="#${ed ? "employee/" + x.id : "employees"}">Cancel</a><button type="submit" class="btn primary">${ed ? "Save Changes" : "Save Employee"}</button></div></form>`,
+      ed ? "Change any detail of the employee, then press Save Changes. The photo is changed with Change Photo, the access on Access &amp; Status." : "The employee then signs up with the same email (Create Account) and can sign in immediately with the access chosen here.");
+    // education and work experience rows (as on the paper job application)
     const bindRemove = () => $$("#neEdu button, #neExp button").forEach((b) => (b.onclick = () => b.closest("tr").remove()));
     bindRemove();
     $("#neEduAdd").onclick = () => { $("#neEdu").insertAdjacentHTML("beforeend", eduRow()); bindRemove(); };
@@ -139,26 +144,42 @@
       e.preventDefault();
       const v = (id) => $("#" + id).value.trim();
       if (!v("neFirst") || !v("neLast")) return toast("Enter the first and last name.", true);
-      if (!/^\S+@\S+\.\S+$/.test(v("neEmail"))) return toast("Enter a valid email. The employee signs in with it.", true);
-      E.setBusy(e.target, true, "Saving");
-      const id = E.uuid();
-      const photo_path = await uploadPhoto("employee", id, $("#nePhoto").files[0]);
-      const { data, error } = await sb.from("employees").insert({
-        id, first_name: v("neFirst"), last_name: v("neLast"), position: v("nePos") || null, email: v("neEmail"),
-        phone: v("nePhone") || null, address: v("neAddr") || null, date_hired: v("neHired") || null, monthly_salary: num(v("neSalary")), photo_path, ...readAccess(),
-        approval_status: "pending", // 3.25: the Director approves it next; the ID card is made then
+      if (!linked && !/^\S+@\S+\.\S+$/.test(v("neEmail"))) return toast("Enter a valid email. The employee signs in with it.", true);
+      const rec = {
+        first_name: v("neFirst"), last_name: v("neLast"), position: v("nePos") || null, ...(linked ? {} : { email: v("neEmail") }),
+        phone: v("nePhone") || null, address: v("neAddr") || null, date_hired: v("neHired") || null, monthly_salary: num(v("neSalary")),
         emergency_name: v("neEmName") || null, emergency_relation: v("neEmRel") || null, emergency_phone: v("neEmPhone") || null, emergency_address: v("neEmAddr") || null,
         permanent_address: v("nePerm") || null, duty_hours: v("neHrs") || null, father_name: v("neFather") || null, mother_name: v("neMother") || null, spouse_name: v("neSpouse") || null,
         date_of_birth: v("neDob") || null, birth_place: v("neBirth") || null, id_number: v("neIdNo") || null, gender: v("neGender") || null, religion: v("neRel") || null, blood_group: v("neBlood") || null,
         education: $$("#neEdu tr").map((tr) => ({ exam: $(".e1", tr).value.trim(), institute: $(".e2", tr).value.trim(), result: $(".e3", tr).value.trim(), year: $(".e4", tr).value.trim() })).filter((r) => r.exam && (r.institute || r.result || r.year) || r.institute),
         experience: $$("#neExp tr").map((tr) => ({ company: $(".x1", tr).value.trim(), position: $(".x2", tr).value.trim(), from: $(".x3", tr).value.trim(), to: $(".x4", tr).value.trim() })).filter((r) => r.company || r.position)
-      }).select().single();
+      };
+      E.setBusy(e.target, true, "Saving");
+      if (ed) {
+        const { error } = await sb.rpc("director_edit_employee", { p_id: x.id, p_changes: rec });
+        if (error) { E.setBusy(e.target, false); return fail(error, /director_edit_employee/.test(error.message || "") ? "Run the database update 037_edit_employee.sql first" : "Could not save the changes"); }
+        toast(`${x.employee_no} saved.`); location.hash = "employee/" + x.id; return;
+      }
+      const id = E.uuid();
+      const photo_path = await uploadPhoto("employee", id, $("#nePhoto").files[0]);
+      const { data, error } = await sb.from("employees").insert({ id, ...rec, photo_path, ...readAccess(), approval_status: "pending" /* 3.25: the Director approves it next; the ID card is made then */ }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, /approval_status/.test(error.message || "") ? "Run the database update 035_employee_approval.sql first" : "Could not save the employee"); }
       let f = await E.uploadRecords("employee", id, "application", E.filesOf("neApp"));
       f += await E.uploadRecords("employee", id, "signature", E.filesOf("neSig"));
       toast(`Submitted ${data.employee_no}: waiting for approval. Check the details and access, then press Approve Employee to make the ID card.${f ? ` ${f} file(s) failed to upload.` : ""}`, f > 0);
       location.hash = "employee/" + id;
     };
+  }
+  V.newemployee = () => {
+    if (!isAdmin()) { location.hash = "employees"; return; }
+    employeeForm(null);
+  };
+  V.editemployee = async (id) => {
+    if (!isAdmin()) { location.hash = "employee/" + id; return; }
+    E.shell("editemployee", "Edit Employee", busy());
+    const { data: em } = await sb.from("employees").select("*").eq("id", id).maybeSingle();
+    if (!em) { $("#main").innerHTML = `<div class="empty">Employee not found. <a href="#employees">Back</a></div>`; return; }
+    employeeForm(em);
   };
 
   V.employee = async (id) => {
@@ -195,6 +216,7 @@
         ${isAdmin() && em.approval_status === "pending" ? `<button type="button" class="btn ok" id="emApprove">${ic("check")} Approve Employee</button>` : ""}
         ${canPay ? `<button type="button" class="btn primary" id="emPay">${ic("plus")} Record Salary / Advance</button>` : ""}
         <button type="button" class="btn" id="emPrint">${ic("print")} Print Employee Record</button>
+        ${isAdmin() ? `<a class="btn" href="#editemployee/${em.id}">${ic("edit")} Edit Employee</a>` : ""}
         ${isAdmin() ? `<label class="btn" for="emPhoto">${ic("camera")} ${photo ? "Change Photo" : "Add Photo"}</label><input type="file" id="emPhoto" accept="image/*" hidden>` : ""}
         ${isAdmin() && em.status !== "terminated" && em.profile_id !== S.profile.id ? `<button type="button" class="btn danger" id="emTerm">Terminate</button>` : ""}
         ${isAdmin() && em.status === "terminated" ? `<button type="button" class="btn ok" id="emRehire">Re-hire</button>` : ""}
@@ -222,7 +244,7 @@
         ${isAdmin() ? `<div data-p="3" hidden id="emCard"></div>` : ""}
         <div data-p="${isAdmin() ? 4 : 2}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Present Address", em.address], ["Permanent Address", em.permanent_address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Duty Hours", em.duty_hours],
           ["Father's Name", em.father_name], ["Mother's Name", em.mother_name], ["Wife's / Husband's Name", em.spouse_name], ["Date of Birth", mdy(em.date_of_birth)], ["Birth Place", em.birth_place],
-          ["BRC / NID / Passport No", em.id_number], ["Gender", em.gender], ["Religion", em.religion], ["Blood Group", em.blood_group],
+          ["BRC / NID / Passport No", em.id_number], ["Gender", (em.gender || "").toUpperCase()], ["Religion", em.religion], ["Blood Group", em.blood_group],
           ["Education", (em.education || []).map((r) => [r.exam, r.institute, r.result, r.year].filter(Boolean).join(" · ")).join(" | ")],
           ["Work Experience", (em.experience || []).map((r) => [r.company, r.position, [r.from, r.to].filter(Boolean).join("–")].filter(Boolean).join(" · ")).join(" | ")], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""],
           ["Emergency Contact", em.emergency_name], ["Relationship", em.emergency_relation], ["Emergency Contact No", em.emergency_phone], ["Emergency Address", em.emergency_address], ["Created By", em.created_by_name]].map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>${rhBox("employees", em.id)}</div>
@@ -301,7 +323,7 @@
         ${E.cell("Email", em.email)}${E.cell("Phone", em.phone)}${E.cell("Monthly Salary (PHP)", peso(em.monthly_salary))}${E.cell("Status", em.status.toUpperCase())}
         ${E.cell("Present Address", em.address)}${E.cell("Permanent Address", em.permanent_address)}</div></div>`)}
       ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Father's Name", em.father_name)}${E.cell("Mother's Name", em.mother_name)}${E.cell("Wife's / Husband's Name", em.spouse_name)}${E.cell("Date of Birth", mdy(em.date_of_birth))}
-        ${E.cell("Birth Place", em.birth_place)}${E.cell("BRC / NID / Passport No", em.id_number)}${E.cell("Gender", em.gender)}${E.cell("Religion", em.religion)}${E.cell("Blood Group", em.blood_group)}${E.cell("Duty Hours", em.duty_hours)}</div>`)}
+        ${E.cell("Birth Place", em.birth_place)}${E.cell("BRC / NID / Passport No", em.id_number)}${E.cell("Gender", (em.gender || "").toUpperCase())}${E.cell("Religion", em.religion)}${E.cell("Blood Group", em.blood_group)}${E.cell("Duty Hours", em.duty_hours)}</div>`)}
       ${E.box("Emergency Contact", `<div class="pgrid2">${E.cell("Name", em.emergency_name)}${E.cell("Relationship", em.emergency_relation)}${E.cell("Contact No", em.emergency_phone)}${E.cell("Address", em.emergency_address)}</div>`)}
       ${E.box("Portal Access", `<div class="pgrid2">${E.cell("Access Level", E.roleName(em.role).toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
       ${em.status === "terminated" ? E.box("Termination", `<div class="pgrid2">${E.cell("Date", mdy(em.termination_date))}${E.cell("Reason", em.termination_reason)}</div>`) : ""}
@@ -558,7 +580,7 @@
       ${E.box("Address Details", `<div class="pgrid2">${E.cell("Present Address", a.present_address)}${E.cell("Permanent Address", a.permanent_address)}
         ${E.cell("Emergency Contact", [a.emergency_name, a.emergency_relation && `(${a.emergency_relation})`].filter(Boolean).join(" "))}${E.cell("Emergency Contact No · Address", [a.emergency_phone, a.emergency_address].filter(Boolean).join(" · "))}</div>`)}
       ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Full Name", a.full_name, "hl")}${E.cell("Father's Name", a.father_name)}${E.cell("Mother's Name", a.mother_name)}${E.cell("Wife's / Husband's Name", a.spouse_name)}
-        ${E.cell("Date of Birth", E.mdy(a.date_of_birth))}${E.cell("Birth Place", a.birth_place)}${E.cell("BRC / NID / Passport No", a.id_number)}${E.cell("Gender", a.gender)}
+        ${E.cell("Date of Birth", E.mdy(a.date_of_birth))}${E.cell("Birth Place", a.birth_place)}${E.cell("BRC / NID / Passport No", a.id_number)}${E.cell("Gender", (a.gender || "").toUpperCase())}
         ${E.cell("Religion", a.religion)}${E.cell("Blood Group", a.blood_group)}</div>`)}
       ${E.box("Educational Qualifications", `<table class="rp ja-tbl"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>
         ${edu.length ? edu.map((r) => row4([r.exam, r.institute, r.result, r.year])).join("") : `<tr><td colspan="4">—</td></tr>`}</tbody></table>`)}
@@ -603,7 +625,7 @@
           <div class="btnrow"><button type="button" class="btn ok" id="jaApprove" ${signed ? "" : 'disabled title="Upload the signed application form first"'}>Approve — Create Employee</button><button type="button" class="btn danger" id="jaReject">Reject</button></div></li>
       </ol></fieldset>` : ""}
       <div class="cols">
-        <div><h3>Address &amp; Personal Information</h3>${kv([["Present Address", a.present_address], ["Permanent Address", a.permanent_address], ["Father's Name", a.father_name], ["Mother's Name", a.mother_name], ["Wife's / Husband's Name", a.spouse_name], ["Date of Birth", E.mdy(a.date_of_birth)], ["Birth Place", a.birth_place], ["BRC / NID / Passport No", a.id_number], ["Gender", a.gender], ["Religion", a.religion], ["Blood Group", a.blood_group],
+        <div><h3>Address &amp; Personal Information</h3>${kv([["Present Address", a.present_address], ["Permanent Address", a.permanent_address], ["Father's Name", a.father_name], ["Mother's Name", a.mother_name], ["Wife's / Husband's Name", a.spouse_name], ["Date of Birth", E.mdy(a.date_of_birth)], ["Birth Place", a.birth_place], ["BRC / NID / Passport No", a.id_number], ["Gender", (a.gender || "").toUpperCase()], ["Religion", a.religion], ["Blood Group", a.blood_group],
           ["Emergency Contact", a.emergency_name], ["Relationship", a.emergency_relation], ["Emergency Contact No", a.emergency_phone], ["Emergency Address", a.emergency_address]])}</div>
         <div><h3>Position Applied For</h3>${kv([["Position", a.position_title], ["Company", a.company_name], ["Monthly Salary (₱)", a.apply_salary != null ? peso(a.apply_salary) : ""], ["Duty Hours", a.apply_duty_hours], ["Joining Date", E.mdy(a.apply_joining_date)]])}</div>
       </div>
