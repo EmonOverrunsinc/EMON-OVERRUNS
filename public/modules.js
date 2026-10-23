@@ -841,6 +841,7 @@
 
   V.customer = async (id, extra) => {
     E.shell("customer", "Customer Profile", busy());
+    const here = E.stillHere();
     // 3.0: the customer and everything on the page are asked for at the same time (all need only the id)
     const [c, att, bal, invs, pays, memos, ev, secret, ords] = await Promise.all([
       getCustomer(id),
@@ -853,10 +854,12 @@
       isAdmin() ? sb.from("customer_secrets").select("private_code").eq("customer_id", id).maybeSingle() : Promise.resolve({ data: null }),
       sb.from("order_letters").select("*").eq("customer_id", id).order("created_at", { ascending: false })
     ]);
+    if (!here()) return; // another page was opened while this one loaded
     if (!c) { $("#main").innerHTML = `<div class="empty">Customer not found. <a href="#customers">Back to Customers</a></div>`; return; }
     if (extra === "submitted") return renderSubmitted(c);
     const b = bal.data || { total_invoiced: 0, total_paid: 0, total_credits: 0, balance_due: 0, total_charges: 0, total_settlement: 0 };
     const photoUrl = c.photo_path ? await signedUrl(c.photo_path) : "";
+    if (!here()) return;
     const signed = att.filter((a) => a.kind === "signed_form" || a.kind === "application");
     const orders = ords.data || [];
     const canInvoice = c.status === "active" && E.canWrite("invoices");
