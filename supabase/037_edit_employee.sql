@@ -5,7 +5,7 @@
 -- Photo and the access on Access & Status. Needs 034_employee_details.sql first. Safe to run again.
 -- Also: an employee who came from an approved job application gets the details of that application (permanent
 -- address, parents, spouse, birth date and place, BRC / NID / passport no, gender, religion, blood group, duty hours,
--- education, work experience, emergency contact) where the employee profile has none yet, and from now on the
+-- education, work experience, emergency contact, photo) where the employee profile has none yet, and from now on the
 -- Director's approval of a job application copies all of these to the employee.
 -- =====================================================================
 create or replace function public.director_edit_employee(p_id uuid, p_changes jsonb) returns public.employees
@@ -117,6 +117,7 @@ do $$
 begin
   perform public.allow_record_change();
   update public.employees e set
+    photo_path = coalesce(nullif(trim(e.photo_path), ''), a.photo_path),
     permanent_address = coalesce(nullif(trim(e.permanent_address), ''), a.permanent_address),
     father_name = coalesce(nullif(trim(e.father_name), ''), a.father_name),
     mother_name = coalesce(nullif(trim(e.mother_name), ''), a.mother_name),
