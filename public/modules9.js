@@ -3,8 +3,8 @@
    rosette behind the photo, microtext lines, a ghost photo, the company seal over the photo corner and a dot background
    that may show COPY on a photocopy. The front carries a PDF417 barcode of the employee no (it opens Verify a Record).
    The back carries the emergency contact, a QR with the private card code (the employee signs in by scanning it and
-   typing the 4-digit PIN) and the signature of the Director who issued the card over the company name, address and email.
-   Here: the card itself, the Director's ID Card tab (print / download, new card, reset PIN), the employee's PIN in My Profile
+   typing the password of the portal account, 3.28) and the signature of the Director who issued the card over the company name, address and email.
+   Here: the card itself, the Director's ID Card tab (print / download, new card), the card in My Profile
    and the check of a scanned card. 3.23: on the screen the card shows DRAFT ONLY; the print is clean. The sign-in with the card is on the sign-in page (app.js). */
 (function () {
   "use strict";
@@ -128,12 +128,9 @@
     if (!isAdmin() || !el) return;
     if (em.approval_status === "pending") { el.innerHTML = `<div class="hint warn">The employee ID card is made when the employee is approved: press <b>Approve Employee</b> at the top of this page.</div>`; return; }
     el.innerHTML = busy("Loading the ID card");
-    const [cards, pin] = await Promise.all([
-      sb.from("employee_cards").select("*").eq("employee_id", em.id).order("issued_at", { ascending: false }),
-      sb.rpc("employee_pin_state", { p_employee: em.id })
-    ]);
+    const cards = await sb.from("employee_cards").select("*").eq("employee_id", em.id).order("issued_at", { ascending: false });
     if (cards.error) { el.innerHTML = `<div class="hint err">The ID cards could not be loaded. ${/employee_cards/.test(cards.error.message || "") ? "Run the database update <b>032_employee_id.sql</b> first." : esc(cards.error.message)}</div>`; return; }
-    const list = cards.data || [], card = list.find((c) => c.status === "active"), ps = pin.data || {};
+    const list = cards.data || [], card = list.find((c) => c.status === "active");
     const d = card ? await cardData(em, card) : null;
     if (!el.isConnected) return;
     const expired = card && card.valid_until < E.isoToday();
@@ -147,15 +144,13 @@
             <tr><th scope="row">Valid Until</th><td>${esc(mdy(card.valid_until))}</td></tr>
             <tr><th scope="row">Portal Account</th><td>${em.profile_id ? `<span class="pill approved">LINKED</span>` : `<span class="pill pending">NOT LINKED</span> — the card works after ${esc(em.email)} creates an account (Create Account), or after you link the login account in Access &amp; Status`}</td></tr>
             <tr><th scope="row">Printed</th><td>${card.print_count ? `${card.print_count} time${card.print_count === 1 ? "" : "s"} · last ${esc(mdy(card.last_printed_at))}` : "Not printed yet"}</td></tr>
-            <tr><th scope="row">Sign-in PIN</th><td>${ps.locked_until ? `<span class="pill rejected">LOCKED</span> until ${esc(E.dateTime(ps.locked_until))}` : ps.pin_set ? `<span class="pill approved">SET</span> ${esc(mdy(ps.set_at))}` : `<span class="pill pending">NOT SET</span> — the employee sets it in My Profile`}</td></tr>
             </tbody></table></div>` : ""}
           ${missing && card ? `<div class="hint warn">The emergency contact is missing. Add it with <b>Correction</b> on this employee (Details), or the card prints empty lines to fill in by hand.</div>` : ""}
           <div class="btnrow">
             ${card ? `<button type="button" class="btn primary" id="idcPrint">${ic("print")} Print / Download ID Card</button>` : ""}
             ${em.status !== "terminated" ? `<button type="button" class="btn" id="idcNew">${ic("plus")} ${card ? "Issue New Card" : "Issue ID Card"}</button>` : ""}
-            ${ps.pin_set ? `<button type="button" class="btn danger" id="idcPin">${ic("key")} Reset PIN</button>` : ""}
           </div>
-          <p class="muted small">Only the Director sees and prints the ID card. A new card stops the old one at once (lost or damaged card). The employee signs in by scanning the card and typing the 4-digit PIN.</p>
+          <p class="muted small">Only the Director sees and prints the ID card. A new card stops the old one at once (lost or damaged card). The employee signs in by scanning the card and typing the password of the portal account.</p>
         </div></div>
       ${list.length ? `<h4>Card History</h4>${E.grid({ cols: [{ label: "Card No", get: (r) => r.card_no }, { label: "Issued", get: (r) => mdy(r.issued_at) }, { label: "Issued By", get: (r) => r.issued_by_name || "" },
         { label: "Valid Until", get: (r) => mdy(r.valid_until) }, { label: "Status", get: (r) => STATE[r.status] || r.status.toUpperCase() }, { label: "Ended", get: (r) => (r.ended_at ? mdy(r.ended_at) : "") }], rows: list })}` : ""}`;
@@ -171,38 +166,16 @@
       if (error) return fail(error, "Could not issue the ID card");
       toast(`ID card ${data.card_no} issued.`); idCardTab(em, el, reload);
     };
-    if ($("#idcPin", el)) $("#idcPin", el).onclick = async () => {
-      if (!(await E.confirmBox(`Reset the sign-in PIN of <b>${esc(fullName(em))}</b>?<br><br>The card cannot sign in until the employee sets a new PIN in My Profile (signed in with the email and password).`, { ok: "Reset PIN", danger: true }))) return;
-      const { error } = await sb.rpc("reset_card_pin", { p_employee: em.id });
-      if (error) return fail(error, "Could not reset the PIN");
-      toast("PIN reset."); idCardTab(em, el, reload);
-    };
   }
 
-  // ---------- the employee's PIN (My Profile) ----------
-  async function cardPinBox(el, { focus = false } = {}) {
+  // ---------- the employee's ID card in My Profile (3.28: signs in with the card and the account password, no PIN) ----------
+  async function cardInfoBox(el) {
     if (!el) return;
     const { data, error } = await sb.rpc("my_id_card");
     if (error || !data || !el.isConnected) { el.remove(); return; }
-    el.innerHTML = `<fieldset class="opt"><legend>ID Card Sign-in PIN</legend>
-        <p>Your ID card <b class="mono">${esc(data.card_no)}</b> (valid until ${esc(mdy(data.valid_until))}) signs you in: on the sign-in page press <b>Sign In with ID Card</b>, scan the card and type your 4-digit PIN.</p>
-        <p>${data.pin_set ? `<span class="pill approved">PIN SET</span> You can change it below.` : `<span class="pill pending">NO PIN YET</span> Choose a PIN to use your card.`}</p>
-        <div class="fields wide"><label for="mpPin">New PIN</label><input type="password" id="mpPin" inputmode="numeric" maxlength="4" autocomplete="off" data-case="keep">
-          <label for="mpPin2">Type It Again</label><input type="password" id="mpPin2" inputmode="numeric" maxlength="4" autocomplete="off" data-case="keep"></div>
-        <div class="btnrow"><button type="button" class="btn primary" id="mpPinSave">${ic("key")} ${data.pin_set ? "Change PIN" : "Save PIN"}</button></div>
-        <small class="muted">Keep the PIN secret. Anyone with your card and your PIN can open the portal as you. Lost your card? Tell the Director at once.</small></fieldset>`;
-    if (focus && !data.pin_set) {
-      el.classList.add("pin-now"); el.scrollIntoView({ block: "center" }); $("#mpPin", el).focus();
-      toast("Welcome! Choose your 4-digit ID card PIN below.");
-    }
-    $("#mpPinSave", el).onclick = async () => {
-      const a = $("#mpPin", el).value.trim(), b = $("#mpPin2", el).value.trim();
-      if (!/^\d{4}$/.test(a)) return toast("The PIN is 4 numbers.", true);
-      if (a !== b) return toast("The two PINs are not the same.", true);
-      const r = await sb.rpc("set_card_pin", { p_pin: a });
-      if (r.error) return fail(r.error, "Could not save the PIN");
-      toast("PIN saved. Your ID card can sign you in now."); cardPinBox(el);
-    };
+    el.innerHTML = `<fieldset class="opt"><legend>My ID Card</legend>
+        <p>Your ID card <b class="mono">${esc(data.card_no)}</b> (valid until ${esc(mdy(data.valid_until))}) signs you in: on the sign-in page press <b>Sign In with ID Card</b>, scan the card and type your password.</p>
+        <small class="muted">Anyone with your card and your password can open the portal as you. Lost your card? Tell the Director at once.</small></fieldset>`;
   }
 
   // ---------- a scanned card (anyone): who it belongs to and whether it is valid ----------
@@ -227,5 +200,5 @@
     if (open) $("[data-open]", m.el).onclick = () => { m.close(); location.hash = "employee/" + r.data.employee_id; };
   }
 
-  Object.assign(E, { idCardTab, cardPinBox, cardCheck, showCardCheck, idCardSheet: sheet });
+  Object.assign(E, { idCardTab, cardInfoBox, cardCheck, showCardCheck, idCardSheet: sheet });
 })();
