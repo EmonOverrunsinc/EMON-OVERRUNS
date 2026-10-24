@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.28";
+  const VERSION = "3.29";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.28.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.29.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -1534,7 +1534,7 @@
       <div class="pv-tools">
         <button type="button" class="btn primary" id="pvPrint">${ic("print")} Print / Save PDF</button>
         <label for="pvZoom">Zoom</label>
-        <select id="pvZoom" style="width:auto"><option>50</option><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
+        <select id="pvZoom" style="width:auto"><option value="fit">Fit</option><option>50</option><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
         <button type="button" class="btn" id="pvClose">Close</button>
       </div>
       <div class="pv-desk" id="pvDesk">${pages.map((p, i) => (bare ? `<div class="page${cls} bare">${p}</div>` : `<div class="page${cls}">${dated(p)}${p}${web}<div class="pg-num">PAGE ${i + 1} OF ${pages.length}</div></div>`)).join("")}</div>
@@ -1545,7 +1545,19 @@
     const desk = $("#pvDesk", pv);
     $("#pvPrint", pv).onclick = () => window.print();
     $("#pvClose", pv).onclick = closePreview;
-    $("#pvZoom", pv).onchange = (e) => { desk.style.zoom = e.target.value / 100; $("#pvZf", pv).textContent = `Zoom Factor: ${e.target.value}%`; };
+    // 3.29: every document keeps its A4 layout; on a screen narrower than the page (a phone), Fit shows the whole A4
+    // page as it prints. The print itself is always 100%.
+    const zoomTo = (v) => {
+      let k = v / 100;
+      if (v === "fit") { desk.style.zoom = ""; k = Math.min(1, (pv.clientWidth - 32) / ($(".page", desk)?.offsetWidth || 794)); }
+      desk.style.zoom = k; $("#pvZf", pv).textContent = `Zoom Factor: ${Math.round(k * 100)}%`;
+    };
+    const zs = $("#pvZoom", pv);
+    if (($(".page", desk)?.offsetWidth || 0) > pv.clientWidth - 32) zs.value = "fit";
+    zs.onchange = () => zoomTo(zs.value);
+    zoomTo(zs.value);
+    pvFit = () => { if (zs.value === "fit") zoomTo("fit"); };
+    window.addEventListener("resize", pvFit);
     desk.onscroll = () => {
       const pg = $$(".page", desk); let cur = 1;
       pg.forEach((p, i) => { if (p.offsetTop - desk.scrollTop < desk.clientHeight / 2) cur = i + 1; });
@@ -1554,11 +1566,13 @@
     document.addEventListener("keydown", escClose);
   }
   function escClose(e) { if (e.key === "Escape" && !$(".modal")) closePreview(); }
+  let pvFit = null; // the open preview fits its page to the screen again when the phone is turned
   function closePreview() {
     const open = $$(".preview");
     if (!open.length) return;
     open.forEach((p) => p.remove());
     document.removeEventListener("keydown", escClose);
+    if (pvFit) { window.removeEventListener("resize", pvFit); pvFit = null; }
     document.body.classList.remove("print-a5l");
     document.title = S.docTitle || APP;
   }
@@ -1616,7 +1630,7 @@
           <div class="dc-act"><a class="btn primary" id="fmSvfPdf" href="forms/EMON-OVERRUNS-Signature-Verification-Form.pdf" download="EMON-OVERRUNS-Signature-Verification-Form.pdf">${ic("download")} Download PDF</a>
             <button type="button" class="btn" id="fmSvfPrint">${ic("print")} Print</button></div></div>
         <div class="doccard"><div class="dc-ic">${ic("doc")}</div>
-          <div class="dc-main"><b>EMPLOYEE JOB APPLICATION FORM</b><small>Empty A4 form for a new employee to fill in by hand: photo, address, emergency contact, personal information, education, work experience, position and signatures</small></div>
+          <div class="dc-main"><b>EMPLOYEE JOB APPLICATION FORM</b><small>Empty A4 form for a new employee to fill in by hand: photo, address, emergency contact, personal information, work experience, position and signatures</small></div>
           <div class="dc-act"><button type="button" class="btn primary" id="fmJaPrint">${ic("print")} Print / Download PDF</button></div></div></div></div>
       <div id="fmList">${busy()}</div>`, "Blank company forms. Press <b>Download</b> to save a copy.");
     $("#fmSvfPrint").onclick = () => window.EO.openBlankSignatureForm();

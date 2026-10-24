@@ -226,7 +226,7 @@ table.grid tfoot td { background: var(--grid-head); font-weight: bold; border-to
 .preview .statusbar { position: static; }
 
 .page {
-  width: 210mm; max-width: 100%; min-height: 270mm; margin: 0 auto 16px;
+  width: 210mm; max-width: none; min-height: 270mm; margin: 0 auto 16px; /* 3.29: always the A4 layout (Fit zooms it on a phone) */
   background: var(--paper); color: #000; padding: 20mm 14mm 9mm;
   font: 11px/1.35 var(--font-report);
   box-shadow: 0 1px 4px rgba(0,0,0,.4);
@@ -275,6 +275,7 @@ table.rp.sum { width: 75%; }
   .preview .pv-title, .preview .pv-tools, .preview .statusbar { display: none; }
   .preview .pv-desk { padding: 0; overflow: visible; }
   .page { box-shadow: none; margin: 0; page-break-after: always; min-height: 296mm; max-width: none; }
+  .preview .pv-desk { zoom: 1 !important; } /* the print is always 100% */
 }
 
 @media (max-width: 520px) {
@@ -282,7 +283,6 @@ table.rp.sum { width: 75%; }
   .fields, .fields.wide { grid-template-columns: minmax(0, 1fr); }
   .statusbar { grid-template-columns: 1fr 1fr; }
   .statusbar span:nth-child(3) { display: none; }
-  .page { padding: 8mm 6mm; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
@@ -846,7 +846,6 @@ main h3.sec, main h3 { display: flex; align-items: center; gap: 6px; }
 .ja-appr { grid-column: 1 / -1; margin-top: 4px; font-weight: bold; font-size: 12px; color: #1b5e20; }
 .ja-qr { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .ja-qr img:first-child { width: 24mm; height: 24mm; image-rendering: pixelated; }
-@media (max-width: 520px) { .ja-head { flex-wrap: wrap; } .ja-main { flex-basis: 100%; } }
 .ja-qr .ja-bar { height: 32px; image-rendering: pixelated; }
 .ja-tbl th, .ja-tbl td { border: 1px solid #999; padding: 3px 5px; font-size: 10.5px; }
 
@@ -1016,10 +1015,6 @@ table.vp-fields.many { font-size: 10.5px; }
 .vp-qr { padding: 6px 10px 6px 0; text-align: center; font-size: 9px; }
 .vp-qr img { display: block; width: 32mm; height: 32mm; image-rendering: pixelated; }
 .vp-sys { margin-top: auto; padding-top: 8px; border-top: 1px solid #000; text-align: center; font-size: 10px; font-style: italic; }
-@media (max-width: 520px) {
-  .vp-valid { flex-direction: column; align-items: stretch; }
-  .vp-qr { align-self: center; padding: 0 0 8px; }
-}
 
 /* Messages */
 .chat-panel { position: fixed; z-index: 55; top: 0; right: 0; bottom: 0; width: min(780px, 100vw); display: flex; flex-direction: column; background: #fff; box-shadow: -12px 0 34px rgba(0,0,0,.28); transform: translateX(105%); transition: transform .38s cubic-bezier(.2,.8,.2,1); padding-top: env(safe-area-inset-top, 0px); }

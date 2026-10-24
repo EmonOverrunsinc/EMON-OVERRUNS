@@ -59,9 +59,7 @@
     run("current");
   };
 
-  const EDU_COLS = ["Examination", "Institute / Board", "Result / GPA", "Passing Year"];
   const EXP_COLS = ["Company", "Position", "From", "To"];
-  const eduRow = (r = {}) => `<tr><td><input type="text" class="e1" value="${esc(r.exam || "")}" placeholder="e.g. SSC"></td><td><input type="text" class="e2" value="${esc(r.institute || "")}"></td><td><input type="text" class="e3" value="${esc(r.result || "")}"></td><td><input type="text" class="e4" value="${esc(r.year || "")}" inputmode="numeric"></td><td><button type="button" class="btn danger" aria-label="Remove row">✕</button></td></tr>`;
   const expRow = (r = {}) => `<tr><td><input type="text" class="x1" value="${esc(r.company || "")}"></td><td><input type="text" class="x2" value="${esc(r.position || "")}"></td><td><input type="text" class="x3" value="${esc(r.from || "")}" placeholder="2022"></td><td><input type="text" class="x4" value="${esc(r.to || "")}" placeholder="2024"></td><td><button type="button" class="btn danger" aria-label="Remove row">✕</button></td></tr>`;
 
   const accessFields = (role, mods) => `
@@ -79,7 +77,6 @@
     const val = (k, d = "") => esc(x[k] ?? d);
     const opt = (list, cur) => list.map((g) => `<option${g === (cur || "") ? " selected" : ""}>${g}</option>`).join("");
     const linked = ed && !!x.profile_id;
-    const edu = ed && (x.education || []).length ? x.education : [{ exam: "SSC" }, { exam: "HSC" }];
     E.shell(ed ? "editemployee" : "newemployee", ed ? `Edit Employee — ${x.employee_no}` : "New Employee", `
       <form class="window" id="neForm" novalidate><div class="wtitle">Employee Information</div><div class="wbody">
         <div class="summary-box"><div class="fields wide"><span>Employee No</span><b>${ed ? esc(x.employee_no) : "Assigned on save (EO-YYYYMM##)"}</b><span>${ed ? "Edited By" : "Created By"}</span><b>${esc(S.profile.full_name || "")}</b></div></div>
@@ -113,9 +110,6 @@
             <label for="neRel">Religion</label><input type="text" id="neRel" value="${val("religion")}">
             <label for="neBlood">Blood Group</label><select id="neBlood">${opt(["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"], x.blood_group)}</select>
           </div></div></fieldset>
-        <fieldset class="opt"><legend>Educational Qualifications</legend>
-          <div class="grid-scroll"><table class="grid budget"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="neEdu">${edu.map(eduRow).join("")}</tbody></table></div>
-          <div class="btnrow"><button type="button" class="btn" id="neEduAdd">+ Add Row</button></div></fieldset>
         <fieldset class="opt"><legend>Work Experience</legend>
           <div class="grid-scroll"><table class="grid budget"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}<th></th></tr></thead><tbody id="neExp">${(ed ? x.experience || [] : []).map(expRow).join("")}</tbody></table></div>
           <div class="btnrow"><button type="button" class="btn" id="neExpAdd">+ Add Experience</button></div></fieldset>
@@ -135,10 +129,9 @@
         <fieldset class="opt"><legend>Access</legend><div class="fields wide">${accessFields("staff", ["customers"])}</div></fieldset>`}
       </div><div class="wfoot"><a class="btn" href="#${ed ? "employee/" + x.id : "employees"}">Cancel</a><button type="submit" class="btn primary">${ed ? "Save Changes" : "Save Employee"}</button></div></form>`,
       ed ? "Change any detail of the employee, then press Save Changes. The photo is changed with Change Photo, the access on Access &amp; Status." : "The employee then signs up with the same email (Create Account) and can sign in immediately with the access chosen here.");
-    // education and work experience rows (as on the paper job application)
-    const bindRemove = () => $$("#neEdu button, #neExp button").forEach((b) => (b.onclick = () => b.closest("tr").remove()));
+    // work experience rows (as on the paper job application; 3.29: no education)
+    const bindRemove = () => $$("#neExp button").forEach((b) => (b.onclick = () => b.closest("tr").remove()));
     bindRemove();
-    $("#neEduAdd").onclick = () => { $("#neEdu").insertAdjacentHTML("beforeend", eduRow()); bindRemove(); };
     $("#neExpAdd").onclick = () => { $("#neExp").insertAdjacentHTML("beforeend", expRow()); bindRemove(); };
     $("#neForm").onsubmit = async (e) => {
       e.preventDefault();
@@ -151,7 +144,6 @@
         emergency_name: v("neEmName") || null, emergency_relation: v("neEmRel") || null, emergency_phone: v("neEmPhone") || null, emergency_address: v("neEmAddr") || null,
         permanent_address: v("nePerm") || null, duty_hours: v("neHrs") || null, father_name: v("neFather") || null, mother_name: v("neMother") || null, spouse_name: v("neSpouse") || null,
         date_of_birth: v("neDob") || null, birth_place: v("neBirth") || null, id_number: v("neIdNo") || null, gender: v("neGender") || null, religion: v("neRel") || null, blood_group: v("neBlood") || null,
-        education: $$("#neEdu tr").map((tr) => ({ exam: $(".e1", tr).value.trim(), institute: $(".e2", tr).value.trim(), result: $(".e3", tr).value.trim(), year: $(".e4", tr).value.trim() })).filter((r) => r.exam && (r.institute || r.result || r.year) || r.institute),
         experience: $$("#neExp tr").map((tr) => ({ company: $(".x1", tr).value.trim(), position: $(".x2", tr).value.trim(), from: $(".x3", tr).value.trim(), to: $(".x4", tr).value.trim() })).filter((r) => r.company || r.position)
       };
       E.setBusy(e.target, true, "Saving");
@@ -245,7 +237,6 @@
         <div data-p="${isAdmin() ? 4 : 2}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Present Address", em.address], ["Permanent Address", em.permanent_address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Duty Hours", em.duty_hours],
           ["Father's Name", em.father_name], ["Mother's Name", em.mother_name], ["Wife's / Husband's Name", em.spouse_name], ["Date of Birth", mdy(em.date_of_birth)], ["Birth Place", em.birth_place],
           ["BRC / NID / Passport No", em.id_number], ["Gender", (em.gender || "").toUpperCase()], ["Religion", em.religion], ["Blood Group", em.blood_group],
-          ["Education", (em.education || []).map((r) => [r.exam, r.institute, r.result, r.year].filter(Boolean).join(" · ")).join(" | ")],
           ["Work Experience", (em.experience || []).map((r) => [r.company, r.position, [r.from, r.to].filter(Boolean).join("–")].filter(Boolean).join(" · ")).join(" | ")], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""],
           ["Emergency Contact", em.emergency_name], ["Relationship", em.emergency_relation], ["Emergency Contact No", em.emergency_phone], ["Emergency Address", em.emergency_address], ["Created By", em.created_by_name]].map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>${rhBox("employees", em.id)}</div>
       </div>`;
@@ -327,11 +318,10 @@
       ${E.box("Emergency Contact", `<div class="pgrid2">${E.cell("Name", em.emergency_name)}${E.cell("Relationship", em.emergency_relation)}${E.cell("Contact No", em.emergency_phone)}${E.cell("Address", em.emergency_address)}</div>`)}
       ${E.box("Portal Access", `<div class="pgrid2">${E.cell("Access Level", E.roleName(em.role).toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
       ${em.status === "terminated" ? E.box("Termination", `<div class="pgrid2">${E.cell("Date", mdy(em.termination_date))}${E.cell("Reason", em.termination_reason)}</div>`) : ""}
-      ${(em.education || []).length || (em.experience || []).length ? "" : `${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
+      ${(em.experience || []).length ? "" : `${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
       ${E.sigs("Employee Signature / Date", "Approved by / Date")}`}`,
-      // 3.25: with education or work experience the record has a second page
-      ...((em.education || []).length || (em.experience || []).length ? [`${E.printHead("EMPLOYEE INFORMATION", `<div class="mono">${esc(em.employee_no)}</div>`)}
-      ${(em.education || []).length ? E.box("Educational Qualifications", `<table class="rp ja-tbl"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${em.education.map((r) => `<tr>${[r.exam, r.institute, r.result, r.year].map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`) : ""}
+      // 3.25: with work experience the record has a second page
+      ...((em.experience || []).length ? [`${E.printHead("EMPLOYEE INFORMATION", `<div class="mono">${esc(em.employee_no)}</div>`)}
       ${(em.experience || []).length ? E.box("Work Experience", `<table class="rp ja-tbl"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${em.experience.map((r) => `<tr>${[r.company, r.position, r.from, r.to].map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`) : ""}
       ${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
       ${E.sigs("Employee Signature / Date", "Approved by / Date")}`] : [])]);
@@ -566,7 +556,7 @@
   function jobAppPage(a, photoUrl) {
     const sign = jaApproved(a) ? E.approvedBy(null, a.approved_by_name, a.approved_at) : null;
     // 3.24: a.blank = the empty form to fill in by hand (no number, no QR, empty rows to write in)
-    const edu = a.blank ? Array(3).fill({}) : Array.isArray(a.education) ? a.education : [], exp = a.blank ? Array(2).fill({}) : Array.isArray(a.experience) ? a.experience : [];
+    const exp = a.blank ? Array(2).fill({}) : Array.isArray(a.experience) ? a.experience : [];
     const row4 = (cells) => `<tr>${cells.map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`;
     return `<div class="ja-head">
         <div class="ja-main">
@@ -582,8 +572,6 @@
       ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Full Name", a.full_name, "hl")}${E.cell("Father's Name", a.father_name)}${E.cell("Mother's Name", a.mother_name)}${E.cell("Wife's / Husband's Name", a.spouse_name)}
         ${E.cell("Date of Birth", E.mdy(a.date_of_birth))}${E.cell("Birth Place", a.birth_place)}${E.cell("BRC / NID / Passport No", a.id_number)}${E.cell("Gender", (a.gender || "").toUpperCase())}
         ${E.cell("Religion", a.religion)}${E.cell("Blood Group", a.blood_group)}</div>`)}
-      ${E.box("Educational Qualifications", `<table class="rp ja-tbl"><thead><tr>${EDU_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>
-        ${edu.length ? edu.map((r) => row4([r.exam, r.institute, r.result, r.year])).join("") : `<tr><td colspan="4">—</td></tr>`}</tbody></table>`)}
       ${E.box("Work Experience", `<table class="rp ja-tbl"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>
         ${exp.length ? exp.map((r) => row4([r.company, r.position, r.from, r.to])).join("") : `<tr><td colspan="4">No previous experience</td></tr>`}</tbody></table>`)}
       ${E.box("Position Applied For", `<div class="pgrid2">${E.cell("Position", a.position_title, "hl")}${E.cell("Company", a.company_name, "hl")}${E.cell("Monthly Salary (PHP)", a.apply_salary != null ? peso(a.apply_salary) : "")}${E.cell("Duty Hours", a.apply_duty_hours)}
@@ -605,7 +593,7 @@
     const att = await E.attachmentsOf("job_application", id);
     const photo = a.photo_path ? await E.signedUrl(a.photo_path) : "";
     const signed = att.some((x) => x.kind === "signed_form");
-    const edu = Array.isArray(a.education) ? a.education : [], exp = Array.isArray(a.experience) ? a.experience : [];
+    const exp = Array.isArray(a.experience) ? a.experience : [];
     const kv = (rows) => `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
     $(".band h1").textContent = `Job Application — ${a.application_no}`;
     $("#main").innerHTML = `
@@ -629,7 +617,6 @@
           ["Emergency Contact", a.emergency_name], ["Relationship", a.emergency_relation], ["Emergency Contact No", a.emergency_phone], ["Emergency Address", a.emergency_address]])}</div>
         <div><h3>Position Applied For</h3>${kv([["Position", a.position_title], ["Company", a.company_name], ["Monthly Salary (₱)", a.apply_salary != null ? peso(a.apply_salary) : ""], ["Duty Hours", a.apply_duty_hours], ["Joining Date", E.mdy(a.apply_joining_date)]])}</div>
       </div>
-      <h3>Educational Qualifications</h3>${E.grid({ cols: [{ label: "Examination", get: (r) => r.exam || "" }, { label: "Institute / Board", get: (r) => r.institute || "" }, { label: "Result / GPA", get: (r) => r.result || "" }, { label: "Passing Year", get: (r) => r.year || "" }], rows: edu, empty: "None given." })}
       <h3>Work Experience</h3>${E.grid({ cols: [{ label: "Company", get: (r) => r.company || "" }, { label: "Position", get: (r) => r.position || "" }, { label: "From", get: (r) => r.from || "" }, { label: "To", get: (r) => r.to || "" }], rows: exp, empty: "No previous experience." })}
       <h3>Requirements &amp; Files</h3>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No requirements uploaded.")}
       ${rhBox("job_applications", a.id)}
@@ -1145,5 +1132,5 @@
     E.setRecords(`Voucher: ${v.voucher_no}`);
   };
 
-  Object.assign(E, { printJobApp, printBlankJobApp, jobAppPage, EDU_COLS, EXP_COLS, MODULES });
+  Object.assign(E, { printJobApp, printBlankJobApp, jobAppPage, EXP_COLS, MODULES });
 })();
