@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.29";
+  const VERSION = "3.30";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.29.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.30.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -525,8 +525,8 @@
   }
 
   // 3.25: sign in with the employee ID card: SCAN the card (camera only: no photo upload, no typed code).
-  // 3.28: then the password of the portal account linked to the employee profile and Sign In (no PIN). The portal says
-  // what is needed: an account linked to the employee profile (Create Account, or the Director links one), else the password.
+  // 3.28: then the password of the portal account linked to the employee profile and Sign In (no PIN).
+  // 3.30: the first scan (no login yet) makes the password right there: no email, no code; after that scan + password.
   const CARD_CODE = /^EMONID\|EOID-\d{4}-\d{4,}\|[0-9A-F]{40}$/i;
   function renderCardLogin() {
     authFrame("Sign In with ID Card", `<form class="wbody login-form" id="clForm" novalidate>
@@ -540,13 +540,18 @@
         ${pwField("clPass", "Password", "current-password")}
         <button class="btn primary big" type="submit" id="clGo">Sign In</button>
       </div>
+      <div id="clNew" hidden>
+        ${pwField("clNew1", "Make Your Password", "new-password")}
+        ${pwField("clNew2", "Confirm Password", "new-password")}
+        <button class="btn primary big" type="submit">Save Password and Sign In</button>
+      </div>
       <div class="login-links"><button type="button" class="linkbtn" id="clBack">Sign in with email and password</button></div>
     </form>`);
     bindEyes();
     let st = null;
     const show = (sel, on) => ($(sel).hidden = !on);
     const msg = (cls, html) => { const m = $("#clMsg"); m.className = "hint small " + cls; m.innerHTML = html; m.hidden = !html; };
-    const reset = () => { st = null; show("#clRead", false); show("#clStep", false); msg("", ""); };
+    const reset = () => { st = null; show("#clRead", false); show("#clStep", false); show("#clNew", false); msg("", ""); };
     const take = async (t) => {
       const v = String(t || "").trim();
       reset();
@@ -554,18 +559,17 @@
       const r = $("#clRead"); r.hidden = false; r.innerHTML = `<span class="spin sm"></span> Reading the ID card…`;
       const { data, error } = await sb.rpc("card_state", { p_code: v });
       if (error || !data) { r.hidden = true; return toast("The ID card could not be checked. Check the internet and try again.", true); }
-      st = data;
+      st = { ...data, code: v };
       const no = esc(v.split("|")[1].toUpperCase()), who = data.name ? ` · ${esc(data.name)}` : "";
       r.innerHTML = `${ic("check")} ID card ${no}${who}`;
-      r.classList.toggle("bad", !data.email);
+      r.classList.toggle("bad", !data.email && data.state !== "set_password");
       if (data.email) { show("#clStep", true); return $("#clPass").focus(); } // the card is good: the password, with the keyboard
-      if (data.state === "no_account") {
-        msg("warn", `<b>Your portal account is not linked to your employee profile yet.</b> First create your account with your email <b>${esc(data.email_hint || "")}</b>. If you already have an account with another email, ask the Director to link it to your employee profile.
-          <div class="btnrow"><button type="button" class="btn primary" id="clSignup">Create Account</button></div>`);
-        $("#clSignup").onclick = () => renderSignup();
-        return;
+      if (data.state === "set_password") {
+        msg("ok", `<b>Welcome${data.name ? ", " + esc(data.name) : ""}!</b> This is your first sign-in: make your password. Next time, scan your ID card and type this password.`);
+        show("#clNew", true); return $("#clNew1").focus();
       }
-      const why = { ready: "Sign in with your email and password for now: the server needs the database update 038_card_password.sql.", blocked: "Your login is blocked. Ask the Director.",
+      if (data.state === "account_exists") return msg("warn", `<b>You already have a portal account with your email ${esc(data.email_hint || "")}.</b> Sign in with your email and password, and ask the Director to link it to your employee profile.`);
+      const why = { no_account: "The first sign-in with the ID card needs the database update 039_card_first_password.sql. Ask the Director.", blocked: "Your login is blocked. Ask the Director.",
         replaced: "This ID card was replaced by a newer card. Use your new ID card.", ended: "This ID card is no longer valid.",
         expired: `This ID card expired on ${esc(mdy(data.valid_until))}. Ask the Director for a new card.`, invalid: "This ID card is not valid." }[data.state] || "This ID card cannot sign in.";
       msg("err", why);
@@ -576,6 +580,18 @@
     $("#clForm").onsubmit = async (e) => {
       e.preventDefault();
       if (!st) return toast("Scan your ID card first.", true);
+      if (st.state === "set_password") {
+        const p1 = $("#clNew1").value, p2 = $("#clNew2").value;
+        if (p1.length < 6) { toast("Use a password of at least 6 characters.", true); return $("#clNew1").focus(); }
+        if (p1 !== p2) { toast("The two passwords do not match.", true); return $("#clNew2").focus(); }
+        setBusy(e.target, true, "Saving");
+        const { data, error } = await sb.rpc("card_set_password", { p_code: st.code, p_password: p1 });
+        if (error) { setBusy(e.target, false); return fail(error, "Could not save the password"); }
+        const { error: inErr } = await sb.auth.signInWithPassword({ email: data.email, password: p1 });
+        if (!inErr) return toast("Password saved. Welcome!"); // the auth listener opens the portal
+        setBusy(e.target, false);
+        return fail(inErr, "Sign-in failed");
+      }
       if (!st.email) return toast($("#clMsg").textContent || "This ID card cannot sign in.", true);
       const password = $("#clPass").value;
       if (!password) { toast("Type your password.", true); return $("#clPass").focus(); }
