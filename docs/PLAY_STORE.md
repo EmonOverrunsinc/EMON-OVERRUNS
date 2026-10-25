@@ -4,7 +4,7 @@ Everything the Play Store asks for is ready in this repository. This page lists 
 
 | Ready | Where |
 |---|---|
-| Android app 1.4 (Android 16, API 36; App Bundle `.aab`) | GitHub › Actions › **Android app** › newest run |
+| Android app 1.5 (Android 16, API 36; App Bundle `.aab`) | GitHub › Actions › **Android app** › newest run |
 | Privacy Policy | https://www.emonoverruns.online/privacy |
 | Delete Account page | https://www.emonoverruns.online/delete-account |
 | App icon 512 × 512 | `apps/android/play/app-icon-512.png` |
@@ -33,7 +33,7 @@ Everything the Play Store asks for is ready in this repository. This page lists 
        [Convert]::ToBase64String([IO.File]::ReadAllBytes("eportal-release.jks")) | Set-Clipboard
 
    Then GitHub › **Actions › Android app › Run workflow**. When it is done, download **E-Portal-Android-signed**:
-   it holds `EMON-OVERRUNS-E-Portal-1.4.aab` (for the Play Store) and `EMON-OVERRUNS-E-Portal-1.4.apk`.
+   it holds `EMON-OVERRUNS-E-Portal-1.5.aab` (for the Play Store) and `EMON-OVERRUNS-E-Portal-1.5.apk`.
 
 4. **A login for Google's reviewers**: on the E-Portal tap **Create Account** with
    `emonoverruns+playreview@gmail.com` (the code arrives in emonoverruns@gmail.com), name `Play Review`. Then tell
@@ -102,7 +102,7 @@ Everything the Play Store asks for is ready in this repository. This page lists 
 1. **Test and release** › *Production* (Organization account) or *Closed testing* (Personal account) ›
    **Create new release**.
 2. **App signing**: keep **Google-generated key** (recommended) and continue.
-3. Upload `EMON-OVERRUNS-E-Portal-1.4.aab`. Release name `1.4`. Release notes: `First release on Google Play.`
+3. Upload `EMON-OVERRUNS-E-Portal-1.5.aab`. Release name `1.5`. Release notes: `First release on Google Play.`
 4. **Next › Save › Send for review.** Google's review usually takes a few days.
 
 ## 4. After the first upload: full screen without the browser bar

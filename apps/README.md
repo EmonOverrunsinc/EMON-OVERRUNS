@@ -51,7 +51,7 @@ For the **Google Play Store** (from 1.4) the same run also makes `app-release.aa
 with the same key (Java's `jarsigner`) and upload the signed `.aab` in Play Console:
 
     jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore eportal-release.jks \
-      -signedjar EMON-OVERRUNS-E-Portal-1.4.aab app-release.aab eportal
+      -signedjar EMON-OVERRUNS-E-Portal-1.5.aab app-release.aab eportal
 
 Google signs the app for the phones with its own key (Play App Signing). Its fingerprint (Play Console › Test and
 release › App integrity › App signing key certificate › SHA-256) goes into `assetlinks.json` next to ours, so the
