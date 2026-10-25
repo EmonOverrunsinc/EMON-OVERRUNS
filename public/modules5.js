@@ -1,5 +1,5 @@
 /* EMON OVERRUNS E-PORTAL — Purchase Orders (3.0, in place of Community).
-   A purchase order asks to buy one lot: photos (up to 2), lot name, date, processing time, the authorized responsible
+   A purchase order asks to buy one lot: photos (up to 5), lot name, date, processing time, the authorized responsible
    person, up to 20 item lines (item, brand, demand price, quantity, negotiable / fixed, note; price x qty), notes. It is
    numbered LOT-YYYYMM-### and waits for the Director: Approve, Negotiate (new prices, the maker edits and submits
    again) or Cancel (photos deleted, details kept). Approved lots are listed by month with their quantity and average
@@ -10,7 +10,7 @@
   const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, isStaff, pill, toast, fail, ic, busy, num } = E;
   const V = window.EO_VIEWS;
   const meId = () => S.session?.user?.id;
-  const MAX_LINES = 20, MAX_PHOTOS = 2;
+  const MAX_LINES = 20, MAX_PHOTOS = 5; // 3.32: 5 photos (needs 042_po_photos.sql; the server allowed 2 before)
   const ST = { pending: "WAITING FOR REVIEW", negotiation: "PRICE NEGOTIATION", approved: "APPROVED", cancelled: "CANCELLED" };
   const stPill = (p) => `${pill(p.status === "negotiation" ? "pending" : p.status, ST[p.status])}${p.arrived_at ? " " + pill("active", "ARRIVED") : ""}${p.pending_update ? " " + pill("pending", "UPDATE WAITING") : ""}`;
   const avg = (p) => (num(p.total_qty) ? num(p.total_amount) / num(p.total_qty) : 0);
@@ -27,7 +27,9 @@
   V.purchase = async (tab, month) => {
     E.shell("purchase", "Purchase Order", `<div class="btnrow"><a class="btn primary" href="#newpurchase">${ic("plus")} New Purchase Order</a></div>
       <div id="poBody">${busy()}</div>`, "Requests to buy a lot. The Director approves, asks for a new price (negotiation) or cancels. Approved lots are listed by month with their quantity and average price.");
-    const { data, error } = await sb.from("purchase_orders").select("*").order("created_at", { ascending: false }).limit(2000);
+    // 3.32: not the small photo copies kept for the PDF (print_photos, up to 5 per approved order): only the order page needs them
+    const { data, error } = await sb.from("purchase_orders").select("id, po_no, po_date, lot_name, total_qty, total_amount, created_by_name, created_at, status, arrived_at, pending_update, photos, approved_at")
+      .order("created_at", { ascending: false }).limit(2000);
     if (!$("#poBody")) return;
     if (error) { $("#poBody").innerHTML = notSet(error) ? needUpdate : `<div class="empty">${esc(error.message)}</div>`; return; }
     const all = data || [];
@@ -164,7 +166,7 @@
       <form class="window" id="poForm" novalidate><div class="wtitle">${p ? `Purchase Order ${esc(p.po_no)}` : "Purchase Order"}</div><div class="wbody">
         <fieldset class="opt"><legend>Product Photos</legend>
           <div class="po-photos" id="poPics"></div>
-          <label class="po-drop" for="poFiles">${ic("camera")}<b>Please upload the product photos (up to 2)</b><span>অনুগ্রহ করে পণ্যের ছবি আপলোড করুন (সর্বোচ্চ ২টি)</span></label>
+          <label class="po-drop" for="poFiles">${ic("camera")}<b>Please upload the product photos (up to ${MAX_PHOTOS})</b><span>অনুগ্রহ করে পণ্যের ছবি আপলোড করুন (সর্বোচ্চ ৫টি)</span></label>
           <input type="file" id="poFiles" accept="image/*" multiple hidden></fieldset>
         <fieldset class="opt"><legend>Voice Notes</legend><div id="poVoice"></div></fieldset>
         <fieldset class="opt"><legend>Lot</legend><div class="fields wide">
@@ -189,7 +191,11 @@
       $(".po-drop").hidden = keep.length + picked.length >= MAX_PHOTOS;
     };
     showPics();
-    $("#poFiles").onchange = (e) => { picked = picked.concat(Array.from(e.target.files)).slice(0, MAX_PHOTOS - keep.length); e.target.value = ""; showPics(); };
+    $("#poFiles").onchange = (e) => {
+      const all = picked.concat(Array.from(e.target.files)); e.target.value = "";
+      if (keep.length + all.length > MAX_PHOTOS) toast(`Up to ${MAX_PHOTOS} photos: only the first ${MAX_PHOTOS} are kept.`, true);
+      picked = all.slice(0, MAX_PHOTOS - keep.length); showPics();
+    };
     $("#poCancel").onclick = () => history.back();
     $("#poForm").onsubmit = async (e) => {
       e.preventDefault();
@@ -213,8 +219,13 @@
       const gone = (p?.photos || []).filter((x) => !paths.includes(x));
       if (paths.join() !== (p?.photos || []).join()) {
         const r = await sb.rpc("set_purchase_photos", { p_id: po.id, p_photos: paths });
-        if (r.error) toast("The photos could not be saved: " + r.error.message, true);
-        if (gone.length) sb.storage.from("records").remove(gone).then(() => {}, () => {});
+        // 3.32: when the photos are not saved the order keeps its old photos and the new uploads are taken off again
+        if (r.error) {
+          toast(/Up to 2 product photos/.test(r.error.message) ? "The photos could not be saved: more than 2 photos need the database update 042_po_photos.sql. Ask the Director."
+            : "The photos could not be saved: " + r.error.message, true);
+          const added = paths.filter((x) => !keep.includes(x));
+          if (added.length) sb.storage.from("records").remove(added).then(() => {}, () => {});
+        } else if (gone.length) sb.storage.from("records").remove(gone).then(() => {}, () => {});
       }
       // the voice notes: the kept ones and the new ones
       const vpaths = [...vo.keep()];
@@ -256,10 +267,11 @@
     const copies = await printCopies(p.photos.map((x) => urls.get(x)).filter(Boolean));
     if (copies.length) { const r = await sb.rpc("purchase_order_photos", { p_id: p.id, p_action: "print", p_print: copies }); if (!r.error) p.print_photos = copies; }
   };
-  // one month after approval: the full photos are deleted (the PDF keeps the small copies)
+  // one month after approval: the full photos are deleted (the PDF keeps the small copies; the server keeps the photos
+  // of an order that has no small copies)
   async function expirePhotos(rows) {
     if (!isAdmin()) return;
-    const old = rows.filter((p) => p.status === "approved" && p.photos?.length && p.print_photos?.length && Date.now() - new Date(p.approved_at).getTime() > 30 * 86400000);
+    const old = rows.filter((p) => p.status === "approved" && p.photos?.length && Date.now() - new Date(p.approved_at).getTime() > 30 * 86400000);
     for (const p of old) {
       const { data: gone } = await sb.rpc("purchase_order_photos", { p_id: p.id, p_action: "expire", p_print: null });
       if (gone?.length) sb.storage.from("records").remove(gone).then(() => {}, () => {});
