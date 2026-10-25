@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.30";
+  const VERSION = "3.31";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.30.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.31.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -906,7 +906,8 @@
     projects: "projects", newproject: "projects", project: "projects",
     billing: "billing", newpaycompany: "billing", paycompany: "billing", newvoucher: "billing", voucher: "billing", ebill: ["billing", "inventory"],
     inventory: "inventory", newstockbill: "inventory", stockbill: "inventory",
-    eooffice: EO_MODULES, newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice"
+    eooffice: EO_MODULES, newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice",
+    purchase: "purchase", newpurchase: "purchase", po: "purchase", editpo: "purchase" // 3.31: its own menu access
   };
   // Admins see everything; NULL modules = all (older accounts).
   const hasModule = (m) => !m || isAdmin() || !S.profile?.modules || S.profile.modules.includes(m);
@@ -984,7 +985,7 @@
 
   function shell(key, title, body, hint) {
     const cur = ACTIVE_OF[key] ?? (Array.isArray(MODULE_OF[key]) ? MODULE_OF[key][0] : MODULE_OF[key]) ?? key;
-    const items = MENU.filter((m) => m.k === "dashboard" || (m.k === "purchase" ? isStaff() : m.k === "eooffice" ? EO_MODULES.filter((x) => isStaff() || x !== "eooffice").some(hasModule) : hasModule(m.k)));
+    const items = MENU.filter((m) => m.k === "dashboard" || (m.k === "purchase" ? isStaff() && hasModule("purchase") : m.k === "eooffice" ? EO_MODULES.filter((x) => isStaff() || x !== "eooffice").some(hasModule) : hasModule(m.k)));
     const main = items.map((m, i) => `<a href="#${m.k}" style="--i:${i}" class="${m.k === cur ? "active" : ""}"><span class="num">${ic(m.icon)}</span><span class="lbl">${esc(m.label)}</span></a>`).join("");
     const other = OTHER.filter((o) => o[2]()).map(([k, label, , icon], j) => `<a href="#${k}" style="--i:${items.length + j + 1}" class="sub ${k === cur ? "active" : ""}"><span class="num">${ic(icon)}</span><span class="lbl">${esc(label)}</span></a>`).join("");
     const av = avatarUrl();
