@@ -9,7 +9,7 @@
   const VERSION = "3.29";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.29.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.29.1"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -148,9 +148,12 @@
     let y = 16;
     $$(".toast").forEach((t) => { t.style.bottom = `calc(${y}px + env(safe-area-inset-bottom, 0px))`; y += t.offsetHeight + 8; });
   }
+  // 3.29.1: a server that does not answer in time (HTTP 502 / 503 / 504; for sign-up and code emails: the email server)
+  // gives no message of its own
+  const timedOut = (error) => [502, 503, 504].includes(error?.status);
   function fail(error, what) {
     console.error(error);
-    toast(`${what}: ${error?.message || error}`, true);
+    toast(`${what}: ${timedOut(error) ? `the server did not answer in time (HTTP ${error.status}). Please try again in a few minutes.` : error?.message || error}`, true);
   }
 
   // A dialog window over the page. Returns { el, close }.
@@ -633,6 +636,16 @@
       setBusy(e.target, true, "Creating account");
       const { data, error } = await sb.auth.signUp({ email, password: p1, options: { data: { full_name, username }, emailRedirectTo: authRedirect() } });
       setBusy(e.target, false);
+      if (error && timedOut(error)) {
+        // 3.29.1: the email server was slow. The account may still have been made (then its username is taken now):
+        // go on to the code, which can come late; otherwise nothing was made and the person tries again.
+        const { data: free } = await sb.rpc("username_available", { p_username: username });
+        if (free === false) {
+          toast(`Your account was created. The email with the code can take a few minutes to reach ${email}.`);
+          return renderCode(email);
+        }
+        return toast("Could not create the account: the email server did not answer in time. Please try again in a few minutes.", true);
+      }
       if (error) return fail(error, "Could not create the account");
       // Supabase answers an already-registered email with a user that has no identities.
       if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
@@ -1514,7 +1527,7 @@
     // the barcodes are drawn first: a print made while the barcode maker was still loading opens when it is there
     if (!window.bwipjs) { need("bwip").then(() => openPreview(title, pages, opts), (e) => toast(e.message, true)); return; }
     pages = pages.map(fillCodes);
-    const { landscape = false, size = "", undated = false, bare = false } = opts; // bare: only the page itself (no date, no website footer, no page number)
+    const { landscape = false, size = "", undated = false, bare = false, onePage = false } = opts; // bare: only the page itself (no date, no website footer, no page number)
     closePreview();
     const cls = size ? " " + size : landscape ? " landscape" : "";
     // Every printed page shows the date it was printed (report listings and statements already carry their own);
@@ -1537,7 +1550,7 @@
         <select id="pvZoom" style="width:auto"><option value="fit">Fit</option><option>50</option><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
         <button type="button" class="btn" id="pvClose">Close</button>
       </div>
-      <div class="pv-desk" id="pvDesk">${pages.map((p, i) => (bare ? `<div class="page${cls} bare">${p}</div>` : `<div class="page${cls}">${dated(p)}${p}${web}<div class="pg-num">PAGE ${i + 1} OF ${pages.length}</div></div>`)).join("")}</div>
+      <div class="pv-desk" id="pvDesk">${pages.map((p, i) => (bare ? `<div class="page${cls} bare">${p}</div>` : `<div class="page${cls}">${dated(p)}${onePage ? `<div class="pg-fit">${p}</div>` : p}${web}<div class="pg-num">PAGE ${i + 1} OF ${pages.length}</div></div>`)).join("")}</div>
       <div class="statusbar"><span id="pvCur">Current Page No: 1</span><span>Total Page No: ${pages.length}</span><span id="pvZf">Zoom Factor: 100%</span></div>`;
     document.body.appendChild(pv);
     // 3.0: no watermark (company seal) on printed pages
@@ -1558,6 +1571,15 @@
     zoomTo(zs.value);
     pvFit = () => { if (zs.value === "fit") zoomTo("fit"); };
     window.addEventListener("resize", pvFit);
+    // 3.29.1: onePage: a page whose content is longer than one A4 sheet is made smaller, so it prints on one sheet.
+    // Sizes are measured on the screen (all at the same preview zoom), once the fonts and pictures are in.
+    if (onePage) Promise.all([document.fonts?.ready, ...$$("img", desk).map((im) => im.decode().catch(() => {}))]).then(() => $$(".page", desk).forEach((pg) => {
+      const fit = $(".pg-fit", pg), foot = $(".pg-web", pg), r = (el) => el.getBoundingClientRect();
+      fit.style.zoom = "";
+      const mm = r(pg).width / 210; // screen pixels per millimetre
+      const room = 293 * mm - (r(fit).top - r(pg).top) - (foot ? r(foot).height : 0) - 9 * mm; // 9 mm: the bottom margin
+      if (r(fit).height > room) fit.style.zoom = Math.max(0.6, room / r(fit).height).toFixed(3);
+    }));
     desk.onscroll = () => {
       const pg = $$(".page", desk); let cur = 1;
       pg.forEach((p, i) => { if (p.offsetTop - desk.scrollTop < desk.clientHeight / 2) cur = i + 1; });
