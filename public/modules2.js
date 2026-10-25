@@ -318,13 +318,9 @@
       ${E.box("Emergency Contact", `<div class="pgrid2">${E.cell("Name", em.emergency_name)}${E.cell("Relationship", em.emergency_relation)}${E.cell("Contact No", em.emergency_phone)}${E.cell("Address", em.emergency_address)}</div>`)}
       ${E.box("Portal Access", `<div class="pgrid2">${E.cell("Access Level", E.roleName(em.role).toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
       ${em.status === "terminated" ? E.box("Termination", `<div class="pgrid2">${E.cell("Date", mdy(em.termination_date))}${E.cell("Reason", em.termination_reason)}</div>`) : ""}
-      ${(em.experience || []).length ? "" : `${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
-      ${E.sigs("Employee Signature / Date", "Approved by / Date")}`}`,
-      // 3.25: with work experience the record has a second page
-      ...((em.experience || []).length ? [`${E.printHead("EMPLOYEE INFORMATION", `<div class="mono">${esc(em.employee_no)}</div>`)}
       ${(em.experience || []).length ? E.box("Work Experience", `<table class="rp ja-tbl"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${em.experience.map((r) => `<tr>${[r.company, r.position, r.from, r.to].map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`) : ""}
       ${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
-      ${E.sigs("Employee Signature / Date", "Approved by / Date")}`] : [])]);
+      ${E.sigs("Employee Signature / Date", "Approved by / Date")}`], { onePage: true }); // 3.29.1: the whole record on one A4 page
     E.setRecords(`Employee: ${em.employee_no}`);
   };
 
