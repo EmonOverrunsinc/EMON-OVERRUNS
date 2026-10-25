@@ -1801,6 +1801,8 @@ html.eo-overlay .login :is(.login-card, .login-below, a, button, input) { -webki
 html.eo-overlay .preview .pv-title { -webkit-app-region: drag; padding-right: 160px; min-height: 40px; }
 html.eo-overlay .preview .pv-tools { -webkit-app-region: no-drag; }
 html.eo-overlay .boot { -webkit-app-region: drag; }
+/* 3.31: Messages opens below the window buttons, so its ✕ is never under the window's own close button */
+html.eo-overlay .chat-panel { top: env(titlebar-area-height, 54px); }
 
 /* ===================== 2.9: split payment links, negative balances, the customer's Request menu ===================== */
 .neg { color: #c41e3a; }

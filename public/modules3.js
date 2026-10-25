@@ -579,6 +579,7 @@
   // ======================================================================
   const CH = { other: null, contacts: [], msgs: [], timer: null, tick: 0, busy: false };
   function openChat(withId) {
+    clearTimeout(CH.closing); // 3.31: opened again while it was still closing: it stays open
     let p = $(".chat-panel");
     if (!p) {
       p = document.createElement("div");
@@ -592,8 +593,8 @@
       $(".cp-x", p).onclick = closeChat;
       $(".cp-back", p).onclick = () => { p.classList.remove("in-conv"); CH.other = null; };
       $(".cp-q", p).oninput = () => renderContacts();
-      document.addEventListener("keydown", chatKey);
     }
+    document.addEventListener("keydown", chatKey);
     requestAnimationFrame(() => p.classList.add("open"));
     loadContacts().then(() => { if (withId) openConversation(withId); });
     clearInterval(CH.timer);
@@ -605,7 +606,7 @@
     clearInterval(CH.timer); CH.timer = null; CH.other = null;
     p.classList.remove("open");
     document.removeEventListener("keydown", chatKey);
-    setTimeout(() => p.remove(), 320);
+    CH.closing = setTimeout(() => p.remove(), 320);
     E.refreshBadge();
   }
   async function loadContacts() {
