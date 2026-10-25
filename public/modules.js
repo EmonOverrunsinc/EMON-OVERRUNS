@@ -485,7 +485,7 @@
       [E.canWrite("payments") || E.canWrite("invoices"), "#newpayment", "Record Payment", "wallet", "green"],
       [E.canWrite("creditmemos"), "#newcreditmemo", "Credit Memo", "tag", "orange"],
       [E.canWrite("billing"), "#newvoucher", "Payment Voucher", "receipt", "teal"],
-      [isStaff(), "#newpurchase", "Purchase Order", "order", "pink"],
+      [isStaff() && H("purchase"), "#newpurchase", "Purchase Order", "order", "pink"],
       [true, "#verify", "Verify a Record", "shield", "gray"]
     ].filter((q) => q[0]);
     const today = `${new Date().toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(isoToday())}`;
@@ -504,7 +504,7 @@
       <div class="quick">${quick.map((q) => `<a class="qa qa-${q[4]}" href="${q[1]}"><span class="qa-ic">${ic(q[3])}</span><span class="qa-l">${esc(q[2])}</span></a>`).join("")}</div>
       <div class="cols">
         ${H("customers") ? `<div class="box"><h3>Applications Waiting for Review</h3><div class="in" id="dApps">${busy()}</div></div>` : ""}
-        ${isStaff() ? `<div class="box"><h3>Purchase Orders <a href="#purchase" class="box-link">Open</a></h3><div class="in" id="dComm">${busy()}</div></div>` : ""}
+        ${isStaff() && H("purchase") ? `<div class="box"><h3>Purchase Orders <a href="#purchase" class="box-link">Open</a></h3><div class="in" id="dComm">${busy()}</div></div>` : ""}
       </div>
       ${H("invoices") || H("payments") ? `<div class="cols" style="margin-top:10px">
         ${H("invoices") ? `<div class="box"><h3>Invoices <a href="#invoices" class="box-link">Open</a></h3><div class="in">

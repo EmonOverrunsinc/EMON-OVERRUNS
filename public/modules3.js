@@ -579,6 +579,7 @@
   // ======================================================================
   const CH = { other: null, contacts: [], msgs: [], timer: null, tick: 0, busy: false };
   function openChat(withId) {
+    clearTimeout(CH.closing); // 3.31: opened again while it was still closing: it stays open
     let p = $(".chat-panel");
     if (!p) {
       p = document.createElement("div");
@@ -592,8 +593,8 @@
       $(".cp-x", p).onclick = closeChat;
       $(".cp-back", p).onclick = () => { p.classList.remove("in-conv"); CH.other = null; };
       $(".cp-q", p).oninput = () => renderContacts();
-      document.addEventListener("keydown", chatKey);
     }
+    document.addEventListener("keydown", chatKey);
     requestAnimationFrame(() => p.classList.add("open"));
     loadContacts().then(() => { if (withId) openConversation(withId); });
     clearInterval(CH.timer);
@@ -605,7 +606,7 @@
     clearInterval(CH.timer); CH.timer = null; CH.other = null;
     p.classList.remove("open");
     document.removeEventListener("keydown", chatKey);
-    setTimeout(() => p.remove(), 320);
+    CH.closing = setTimeout(() => p.remove(), 320);
     E.refreshBadge();
   }
   async function loadContacts() {
@@ -663,6 +664,8 @@
     }
     await renderMessages();
   }
+  // the time under a message, and for my own messages Sent or Seen
+  const msgFoot = (m, me) => `${esc(new Date(m.created_at).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }))}${m.sender_id === me ? (m.read_at ? ` · <b class="cv-seen">✓✓ Seen</b>` : " · ✓ Sent") : ""}`;
   async function renderMessages() {
     const box = $("#cvMsgs"); if (!box) return;
     const urls = await signedMap(CH.msgs.filter((m) => m.file_path).map((m) => m.file_path));
@@ -676,8 +679,8 @@
       const isImg = /^image\//.test(m.file_mime || "");
       const file = m.file_path ? (isImg && u ? `<button type="button" class="cv-img" data-img="${esc(u)}"><img src="${esc(u)}" alt="${esc(m.file_name || "Photo")}" loading="lazy"></button>`
         : `<a class="cv-file" href="${esc(u || "#")}" target="_blank" rel="noopener" download="${esc(m.file_name || "file")}">${ic("doc")} ${esc(m.file_name || "Document")}</a>`) : "";
-      return `${sep}<div class="cv-msg ${m.sender_id === me ? "me" : "them"}">${file}${m.body ? `<div class="cv-text">${esc(m.body)}</div>` : ""}
-        <small>${esc(new Date(m.created_at).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }))}${m.sender_id === me ? (m.read_at ? " · Seen" : " · Sent") : ""}</small></div>`;
+      return `${sep}<div class="cv-msg ${m.sender_id === me ? "me" : "them"}" data-mid="${esc(m.id)}">${file}${m.body ? `<div class="cv-text">${esc(m.body)}</div>` : ""}
+        <small>${msgFoot(m, me)}</small></div>`;
     }).join("") : `<div class="cp-empty small"><p>No messages yet. Say hello!</p></div>`;
     $$("[data-img]", box).forEach((b) => (b.onclick = () => lightbox(b.dataset.img)));
     box.scrollTop = box.scrollHeight;
@@ -704,10 +707,23 @@
     if (!file && input) input.value = "";
     await loadMessages(false);
   }
+  // 3.31: "Seen" shows by itself when the other person reads a message (not only after opening the chat again)
+  async function refreshSeen() {
+    const other = CH.other, me = meId(), ids = CH.msgs.filter((m) => m.sender_id === me && !m.read_at).map((m) => m.id);
+    if (!ids.length) return;
+    const { data } = await sb.from("messages").select("id, read_at").in("id", ids).not("read_at", "is", null);
+    if (!data?.length || other !== CH.other) return;
+    // only the small line under each message changes (the chat is not drawn again, so nothing flickers)
+    data.forEach((r) => {
+      const m = CH.msgs.find((x) => x.id === r.id); if (!m) return;
+      m.read_at = r.read_at;
+      const s = $(`#cvMsgs .cv-msg[data-mid="${r.id}"] small`); if (s) s.innerHTML = msgFoot(m, me);
+    });
+  }
   async function pollChat() {
     if (!$(".chat-panel") || document.visibilityState !== "visible") return;
     CH.tick++;
-    if (CH.other) await loadMessages(false);
+    if (CH.other) { await loadMessages(false); await refreshSeen(); }
     if (CH.tick % 4 === 0) loadContacts();
   }
 
