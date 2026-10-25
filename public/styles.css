@@ -1053,6 +1053,8 @@ input.cp-q { margin: 8px; width: auto; border-radius: 18px; padding: 7px 12px; }
 .cv-msg.me { align-self: flex-end; border-bottom-right-radius: 4px; background: linear-gradient(135deg, #3d6db5, #1f4a8c); color: #fff; }
 .cv-msg.them { align-self: flex-start; border-bottom-left-radius: 4px; background: #fff; }
 .cv-msg small { align-self: flex-end; font-size: 10px; opacity: .75; }
+.cv-msg small .cv-seen { font-weight: 700; } /* 3.31 */
+.cv-msg.me small:has(.cv-seen) { opacity: 1; }
 .cv-text { white-space: pre-wrap; word-break: break-word; }
 .cv-img { padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: none; cursor: zoom-in; }
 .cv-img img { display: block; max-width: 240px; max-height: 240px; border-radius: 10px; }

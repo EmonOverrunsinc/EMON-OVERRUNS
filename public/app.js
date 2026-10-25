@@ -1902,7 +1902,7 @@
     }
     startTimers();
     if (key === "careers") { location.replace("#" + (isAdmin() ? "positions" : "dashboard")); return; }
-    if (!canOpen(key)) { toast("You do not have access to that section. Ask the Director.", true); location.hash = "dashboard"; return; }
+    if (!canOpen(key)) { location.replace("#dashboard"); return; } // 3.31: no red message (for example a page left open by the person before)
     const view = V[key] || BUILTIN[key];
     if (view) return view(arg, extra);
     return V.dashboard ? V.dashboard() : shell("dashboard", "Dashboard", "");
