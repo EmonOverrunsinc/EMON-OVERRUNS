@@ -10,11 +10,11 @@
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
   const rhBox = (t, id) => (E.rhBox ? E.rhBox(t, id) : "");
   // Menu access an employee can be given (Community, Verification and Download Forms are open to everyone).
-  // 3.31: Purchase Order has its own menu access (5); Employee (HR) is 6
-  const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["purchase", "5 Purchase Order"], ["employees", "6 Employee (HR)"], ["projects", "7 Project"], ["billing", "8 Billing"], ["inventory", "10 E-Bill"], ["eooffice", "11 EO-Office"]];
+  // 3.31: Purchase Order has its own menu access (5); no Employee (HR): 11 EO-Office gives Employees, Payroll and Job Applications
+  const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["purchase", "5 Purchase Order"], ["projects", "7 Project"], ["billing", "8 Billing"], ["inventory", "10 E-Bill"], ["eooffice", "11 EO-Office"]];
   const accessText = (role, mods) => {
     if (role === "admin") return "Everything (Director)";
-    const list = (mods || []).map((m) => (MODULES.find((x) => x[0] === m) || [m, m])[1]).join(", ") || "Dashboard and Community";
+    const list = (mods || []).map((m) => MODULES.find((x) => x[0] === m)?.[1]).filter(Boolean).join(", ") || "Dashboard and Community";
     return role === "viewer" ? `View only — ${list}` : list;
   };
   async function uploadPhoto(folder, id, raw) {

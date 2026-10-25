@@ -910,7 +910,8 @@
     purchase: "purchase", newpurchase: "purchase", po: "purchase", editpo: "purchase" // 3.31: its own menu access
   };
   // Admins see everything; NULL modules = all (older accounts).
-  const hasModule = (m) => !m || isAdmin() || !S.profile?.modules || S.profile.modules.includes(m);
+  // 3.31: Employees, Payroll and Job Applications come with EO-Office (there is no Employee (HR) access any more)
+  const hasModule = (m) => !m || isAdmin() || !S.profile?.modules || S.profile.modules.includes(m === "employees" ? "eooffice" : m);
   const canOpen = (key) => { const m = MODULE_OF[key]; return Array.isArray(m) ? m.some(hasModule) : hasModule(m); };
   // Staff may add records in the sections they can open; viewers only look.
   const canWrite = (m) => isAdmin() || (isStaff() && hasModule(m));
