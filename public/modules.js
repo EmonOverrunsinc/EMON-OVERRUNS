@@ -472,7 +472,7 @@
   // 3.17 certificate style: a top row (left · centre number · right), a thin section title and "Label : value" lines
   const cxTop = (items) => `<div class="cx-top">${items.map(([k, v]) => `<div><small>${esc(k)}</small><b>${val(v)}</b></div>`).join("")}</div>`;
   const cxSec = (title, note = "") => `<div class="cx-sec">${esc(title)}${note ? `<small>${esc(note)}</small>` : ""}</div>`;
-  const cxKv = (pairs) => `<div class="cx-kv">${pairs.map(([k, v, cls = ""]) => `<div class="cx-r ${cls}"><span>${esc(k)}</span><i>:</i><b>${val(v)}</b></div>`).join("")}</div>`;
+  const cxKv = (pairs, cls = "") => `<div class="cx-kv${cls ? " " + cls : ""}">${pairs.map(([k, v, cls = ""]) => `<div class="cx-r ${cls}"><span>${esc(k)}</span><i>:</i><b>${val(v)}</b></div>`).join("")}</div>`; // cls "c3": 3 columns (3.33)
 
   // ======================================================================
   // Dashboard

@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.32";
+  const VERSION = "3.33";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.32.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.33.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -1671,10 +1671,14 @@
             <button type="button" class="btn" id="fmSvfPrint">${ic("print")} Print</button></div></div>
         <div class="doccard"><div class="dc-ic">${ic("doc")}</div>
           <div class="dc-main"><b>EMPLOYEE JOB APPLICATION FORM</b><small>Empty A4 form for a new employee to fill in by hand: photo, address, emergency contact, personal information, work experience, position and signatures</small></div>
-          <div class="dc-act"><button type="button" class="btn primary" id="fmJaPrint">${ic("print")} Print / Download PDF</button></div></div></div></div>
+          <div class="dc-act"><button type="button" class="btn primary" id="fmJaPrint">${ic("print")} Print / Download PDF</button></div></div>
+        <div class="doccard"><div class="dc-ic">${ic("doc")}</div>
+          <div class="dc-main"><b>QC TEST FORM</b><small>Plain A4 form to check the goods by hand (no barcode): goods, Qty by color, the 10 checks, result, notes and a box for the result sticker</small></div>
+          <div class="dc-act"><button type="button" class="btn primary" id="fmQcPrint">${ic("print")} Print / Download PDF</button></div></div></div></div>
       <div id="fmList">${busy()}</div>`, "Blank company forms. Press <b>Download</b> to save a copy.");
     $("#fmSvfPrint").onclick = () => window.EO.openBlankSignatureForm();
     $("#fmJaPrint").onclick = () => window.EO.printBlankJobApp(); // 3.24
+    $("#fmQcPrint").onclick = () => window.EO.printBlankQc(); // 3.33
     const load = async () => {
       const { data, error } = await sb.from("forms").select("*").order("category").order("title");
       if (error) return fail(error, "Could not load forms");
