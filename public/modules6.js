@@ -1,9 +1,10 @@
 /* EMON OVERRUNS E-PORTAL — EO-Office (3.1, QC Test made simple in 3.3, Pass / Fail in 3.8, plain stickers in 3.9): QC Test and Collection Voucher.
    QC TEST: a ticket. A new QC test needs no required field; it gets a number QC-YYYY-#### and its blank QC TEST form (a PDF417 barcode, the
-   10 checks, the Result box; no stickers on it) opens to print. After the check on paper, open it (scan the barcode or search the number)
-   and choose Pass or Fail for each check (a number of pieces for each Fail) and the total score (suggested as 100 minus 10 for each Fail,
-   written by the person); a total of 80 passes. Save = submit: the 2 stickers (nothing else on the page) open to print. The page shows
-   PASS or FAIL and the scan option for the filled form. No lock and no private code.
+   10 checks, the Result box, the Notes box; no stickers on it) opens to print. After the check on paper, open it (scan the barcode or search
+   the number) and choose Pass or Fail for each check (a number of pieces for a Fail when wanted) and the total score (suggested as 100 minus 10
+   for each Fail, written by the person); a total of 80 passes. Save = submit: the 2 stickers (nothing else on the page) open to print. The page
+   shows PASS or FAIL and the scan option for the filled form. No lock and no private code.
+   3.33: the Qty of the goods (in Goods on the form, QTY FOUND on the stickers), the mending limit (MENDING NOT MORE THAN 60 PCS) and Notes.
    COLLECTION VOUCHER: money collected, recorded month by month, with the receipt picture; the empty paper around the
    receipt is cut off before it is saved. The EO-Office page opens with a mini dashboard of both. */
 (() => {
@@ -31,6 +32,11 @@
     ["mending", "MENDING NOT MORE THAN"], ["label_info", "LABEL INFORMATION CORRECT"]];
   const PASS_MARK = 80; // the requirement to pass the QC test: a total score of 80 or more
   const verdict = (score) => (score == null || score === "" ? "" : Number(score) >= PASS_MARK ? "PASS" : "FAIL");
+  // 3.33: a number of pieces as typed (digits only) and as saved (a whole number, or null when empty)
+  const digits = (v) => String(v ?? "").replace(/\D/g, "");
+  const pcs = (v) => (digits(v) === "" ? null : Number(digits(v).slice(0, 9)));
+  // the mending limit as written: a plain number is pieces ("60" → "60 PCS"), anything else stays as written ("35%")
+  const mendText = (v) => { const s = String(v ?? "").trim().toUpperCase(); return /^\d+$/.test(s) ? `${E.qtyText(Number(s))} PCS` : s; };
 
   // ======================================================================
   // EO-Office page: mini dashboard, QC Test tab, Collection Voucher tab
@@ -74,6 +80,7 @@
       <div id="eoTab"></div>`;
     const qcCols = [{ label: "QC No", get: (r) => r.qc_no }, { label: "Date", get: (r) => mdy(r.created_at) }, { label: "Serial No", get: (r) => r.serial_no || "" },
       { label: "Item", get: (r) => r.item || "" }, { label: "Brand", get: (r) => r.brand || "" }, { label: "Batch", get: (r) => r.batch || "" }, { label: "CTN", get: (r) => r.ctn || "" },
+      { label: "Qty", num: true, get: (r) => (r.qty == null ? "" : E.qtyText(r.qty)) },
       { label: "Score", num: true, get: (r) => (r.score == null ? "—" : `${r.score} / 100`) },
       { label: "Result", html: (r) => { const v = verdict(r.score); return v ? pill(v === "PASS" ? "approved" : "rejected", v) : ""; } }, { label: "Status", html: (r) => pill(r.status === "done" ? "approved" : "pending", r.status === "done" ? "TESTED" : "NOT TESTED YET") }];
     const cvCols = [{ label: "Voucher No", get: (r) => r.cv_no }, { label: "Date", get: (r) => mdy(r.cv_date) }, { label: "Received From", get: (r) => r.received_from },
@@ -141,13 +148,17 @@
         <label for="qcItem">Item</label><input type="text" id="qcItem" maxlength="120" placeholder="e.g. Jeans">
         <label for="qcBrand">Brand</label><input type="text" id="qcBrand" maxlength="80">
         <label for="qcBatch">Batch</label><input type="text" id="qcBatch" maxlength="60">
-        <label for="qcCtn">CTN</label><input type="text" id="qcCtn" maxlength="60" placeholder="Carton number"></div></fieldset>
+        <label for="qcCtn">CTN</label><input type="text" id="qcCtn" maxlength="60" placeholder="Carton number">
+        <label for="qcQty">Qty (pcs)</label><input type="text" id="qcQty" inputmode="numeric" maxlength="9" placeholder="e.g. 260">
+        <label for="qcMend">Mending Not More Than</label><input type="text" id="qcMend" maxlength="20" placeholder="e.g. 60 PCS or 35%"></div></fieldset>
       </div><div class="wfoot"><button type="button" class="btn" id="qcCancel">Cancel</button><button type="submit" class="btn primary">Create and Print Form</button></div></form>`);
+    $("#qcQty").oninput = (e) => (e.target.value = digits(e.target.value));
     $("#qcCancel").onclick = () => history.back();
     $("#qcForm").onsubmit = async (e) => {
       e.preventDefault();
       E.setBusy(e.target, true, "Creating");
-      const { data, error } = await sb.rpc("create_qc", { p_data: { serial_no: $("#qcSerial").value, item: $("#qcItem").value, brand: $("#qcBrand").value, batch: $("#qcBatch").value, ctn: $("#qcCtn").value } });
+      const { data, error } = await sb.rpc("create_qc", { p_data: { serial_no: $("#qcSerial").value, item: $("#qcItem").value, brand: $("#qcBrand").value, batch: $("#qcBatch").value, ctn: $("#qcCtn").value,
+        qty: pcs($("#qcQty").value), mending_max: $("#qcMend").value.trim() } });
       if (error) { E.setBusy(e.target, false); return fail(error, notSet(error) ? "Run the database update 025_qc_simple.sql first" : "Could not create the QC form"); }
       FRESH.add(data.id); // the blank form opens for printing
       location.hash = "qc/" + data.id;
@@ -166,38 +177,49 @@
     const score = t.score != null ? Number(t.score) : open ? null : 100 - 10 * fail;
     return { pass, fail, open, score, verdict: verdict(score) };
   };
-  // QTY FOUND (on the sticker only): the pieces written for the Fail checks, added together
+  // QTY FOUND of the Result box: the pieces written for the Fail checks, added together (3.33: the stickers show the goods Qty)
   const qtyFound = (t, r) => CHECKS.reduce((n, [k]) => n + (choiceOf(t, r, k) === "fail" ? parseInt(String(r?.numbers?.[k] ?? "").replace(/[^\d]/g, ""), 10) || 0 : 0), 0);
   // What the stickers and the Result box say: once every check is decided (nothing before that)
   const resultOf = (t, r) => {
     const T = r ? tally(t, r) : null;
     return T && !T.open && T.score != null ? { ...T, qty: qtyFound(t, r), when: t.tested_at || new Date().toISOString(), by: t.tested_by_name || S.profile?.full_name || "" } : null;
   };
-  // The result sticker: the logo, the barcode with the QC number, the date, the pieces found, the result and who checked it.
+  // The result sticker: the logo, the barcode with the QC number, the date, the Qty of the goods (3.33: empty to write by hand when it
+  // was not written), the result and who checked it.
   const qcCard = (t, res) => `<div class="qc-card"><div class="qc-card-h">${E.logoHtml("qc-card-logo")}<b>QC TEST RESULT</b></div>
     <div class="qc-card-code"><img src="${E.pdf417DataUrl("EMONQC|" + t.qc_no)}" alt="" class="ph-bar"><div class="mono">${esc(t.qc_no)}</div></div>
     <div class="qc-card-row"><span>Checked Date</span><b>${res ? esc(mdy(res.when)) : ""}</b></div>
-    <div class="qc-card-row"><span>Qty Found</span><b>${res ? res.qty : ""}</b></div>
+    <div class="qc-card-row"><span>Qty Found</span><b>${res && t.qty != null ? esc(E.qtyText(t.qty)) : ""}</b></div>
     <div class="qc-card-row"><span>Result</span><b class="qc-res">${res ? `Pass ${res.pass} · Fail ${res.fail}` : ""}</b><b class="qc-verdict${res?.verdict === "FAIL" ? " fail" : ""}">${res ? res.verdict : ""}</b></div>
     <div class="qc-card-row"><span>Check By</span><b>${res ? esc(res.by) : ""}</b></div></div>`;
   // The QC form on paper: blank to write on (the form made when the QC test is created), or with the result.
   function qcPage(t, r = null) {
     const T = r ? tally(t, r) : null, res = resultOf(t, r);
     const right = `<img src="${E.pdf417DataUrl("EMONQC|" + t.qc_no)}" alt="" class="ph-bar"><div class="mono">${esc(t.qc_no)}</div>`;
+    // 3.33: the mending limit written for this test, e.g. 60 PCS or 35% (a line to write on when it was not written)
+    const lim = `<span class="qx-lim">${t.mending_max ? esc(mendText(t.mending_max)) : "&nbsp;"}</span>`;
     const rows = CHECKS.map(([k, label], i) => { const c = r ? choiceOf(t, r, k) : "";
-      return `<tr><td class="qx-n">${i + 1}</td><td class="qx-c">${esc(label)}${k === "mending" ? " ___ PCS" : ""}</td>
+      return `<tr><td class="qx-n">${i + 1}</td><td class="qx-c">${esc(label)}${k === "mending" ? ` ${lim}` : ""}</td>
         <td class="qx-b">${boxTick(c === "pass")}</td><td class="qx-b">${boxTick(c === "fail")}</td><td class="qx-q"><span class="qc-line">${c === "fail" ? esc(String(numOf(r, k))) : ""}</span></td></tr>`; }).join("");
     const sum = (k, v) => `<div class="qx-sum"><small>${esc(k)}</small><b>${v ? esc(v) : "&nbsp;"}</b></div>`;
+    // the goods in 3 columns; an empty one gets a line to write on
+    const goods = [["Item", t.item], ["Brand", t.brand], ["Serial No", t.serial_no], ["Batch", t.batch], ["CTN", t.ctn], ["Qty (pcs)", t.qty != null ? E.qtyText(t.qty) : ""]]
+      .map(([k, v]) => [k, v || "", v ? "" : "blank"]);
+    const notes = String(r?.remarks || "").trim();
     // 3.17: certificate style: date · QC no · checks across the top, the goods as "Label : value" lines, the 10 checks with PASS / FAIL / QTY FOUND, the result strip and the signature lines
+    // 3.33: the Qty of the goods, the mending limit and a Notes box (ruled lines to write on; the notes written in the portal on the filled form)
+    // 3.33: the QC result at the top right (in place of "Checks 10"): PASS or FAIL on the filled form, a space to write it on the blank one
     return `${E.printHead("QC TEST", right)}
-      ${E.cxTop([["Date", mdy(t.created_at)], ["QC No", t.qc_no], ["Checks", "10"]])}
-      ${E.cxSec("Goods")}${E.cxKv([["Item", t.item || ""], ["Brand", t.brand || ""], ["Serial No", t.serial_no || ""], ["Batch", t.batch || ""], ["CTN", t.ctn || ""]])}
-      <div class="qx-h">QUALITY CHECK <small>Tick PASS or FAIL for each check. For a FAIL write the Qty Found (pieces).</small></div>
+      ${E.cxTop([["Date", mdy(t.created_at)], ["QC No", t.qc_no], ["QC Result", `<b class="qx-top-res${res?.verdict === "FAIL" ? " fail" : ""}">${res ? res.verdict : "&nbsp;"}</b>`, true]])}
+      ${E.cxSec("Goods")}${E.cxKv(goods, "c3")}
+      <div class="qx-h">QUALITY CHECK <small>Tick PASS or FAIL for each check. For a FAIL the Qty Found (pieces) may be written.</small></div>
       <table class="qx-t"><thead><tr><th class="qx-n">#</th><th class="qx-c">Check</th><th class="qx-b">Pass</th><th class="qx-b">Fail</th><th class="qx-q">Qty Found</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="qx-h">RESULT</div>
-      <div class="qx-res">${sum("Total Pass", T && !T.open ? String(T.pass) : "")}${sum("Total Fail", T && !T.open ? String(T.fail) : "")}${sum("Qty Found", res ? String(res.qty) : "")}
+      <div class="qx-res">${sum("Total Pass", T && !T.open ? String(T.pass) : "")}${sum("Total Fail", T && !T.open ? String(T.fail) : "")}${sum("Qty Found", res?.qty ? String(res.qty) : "")}
         <div class="qx-sum qx-verdict"><small>QC Result</small><span>${boxTick(res?.verdict === "PASS")} PASS</span><span>${boxTick(res?.verdict === "FAIL")} FAIL</span></div></div>
       <p class="qx-need">To PASS the QC test the score must be ${PASS_MARK} or more. Each FAIL takes 10 points off.</p>
+      <div class="qx-h">NOTES</div>
+      <div class="qx-notes">${notes ? esc(notes) : ""}</div>
       <div class="qx-sign"><div><b>${res ? esc(res.by) : "&nbsp;"}</b><span>Checked By · Signature over Printed Name</span></div><div><b>${res ? esc(mdy(res.when)) : "&nbsp;"}</b><span>Checked Date</span></div></div>`;
   }
   // The 2 stickers on plain paper: nothing else on the page (no heading, no footer, no date).
@@ -216,7 +238,7 @@
     const r = rq.data || { checks: {}, numbers: {}, docs: [] };
     $(".band h1") && ($(".band h1").textContent = `QC Test — ${t.qc_no}`);
     draw(t, r);
-    if (FRESH.delete(id)) E.openPreview(`QC Form ${t.qc_no}`, [qcPage(t)]);
+    if (FRESH.delete(id)) E.openPreview(`QC Form ${t.qc_no}`, [qcPage(t)], { onePage: true });
     E.setRecords(`QC test: ${t.qc_no}`);
   };
 
@@ -226,21 +248,26 @@
     const docs = [...(r.docs || [])];
     const start = Object.fromEntries(CHECKS.map(([k]) => [k, choiceOf(t, r, k)]));
     const done = t.status === "done", res = done ? resultOf(t, r) : null;
+    const hasQty = "qty" in t; // 3.33: the server has the Qty and the mending limit (043_qc_qty.sql)
     let manual = t.score != null && t.score !== 100 - 10 * Object.values(start).filter((c) => c === "fail").length;
     const head = `<div class="pgrid2 qc-head">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at))}${E.cell("Serial No", t.serial_no || "")}${E.cell("Item", t.item || "")}
       ${E.cell("Brand", t.brand || "")}${E.cell("Batch", t.batch || "")}${E.cell("CTN", t.ctn || "")}</div>`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(t.qc_no)}${t.item ? ` · ${esc(t.item)}` : ""} ${pill(done ? "approved" : "pending", done ? "TESTED" : "NOT TESTED YET")}</div><div class="wbody">
-      ${res ? `<div class="qc-banner ${res.verdict.toLowerCase()}"><b>${res.verdict}</b><span>${res.score} / 100 · Pass ${res.pass} · Fail ${res.fail}${res.fail ? ` · Qty Found ${res.qty}` : ""}</span><small>Checked ${esc(mdy(res.when))}${res.by ? ` by ${esc(res.by)}` : ""}</small></div>` : ""}
+      ${res ? `<div class="qc-banner ${res.verdict.toLowerCase()}"><b>${res.verdict}</b><span>${res.score} / 100 · Pass ${res.pass} · Fail ${res.fail}${res.qty ? ` · Qty Found ${res.qty}` : ""}</span><small>Checked ${esc(mdy(res.when))}${res.by ? ` by ${esc(res.by)}` : ""}</small></div>` : ""}
       ${head}
       <fieldset class="opt"><legend>Quality Check</legend>
-        <p class="muted" style="margin-top:0">Print the form, check the goods on the paper, then choose Pass or Fail for each check here. For a Fail write the Qty Found (how many pieces); the Qty Found is added up. When you press Save, the 2 stickers open to print.</p>
+        <p class="muted" style="margin-top:0">Print the form, check the goods on the paper, then choose Pass or Fail for each check here. For a Fail you may write the Qty Found (how many pieces); it is added up. When you press Save, the 2 stickers open to print.</p>
+        <div class="qc-qty"><label for="qcQty">Qty (pcs)</label><input type="text" id="qcQty" inputmode="numeric" maxlength="9" placeholder="e.g. 260" value="${esc(digits(t.qty))}"${hasQty ? "" : " disabled"}>
+          <small class="muted">${hasQty ? "The goods quantity: it prints in Goods on the form and as QTY FOUND on the 2 stickers." : "The Qty and the mending number need the database update 043_qc_qty.sql. Ask the Director."}</small></div>
         <div class="btnrow" style="margin:0 0 8px"><button type="button" class="btn small" id="qcAllPass">${ic("check")} All Pass</button><span class="qc-tally" id="qcTally"></span></div>
         <div class="qc-list" id="qcList">${CHECKS.map(([k, label], i) => `<div class="qc-row pf" data-k="${k}"><span class="qc-n">${i + 1}</span>
-          <span class="qc-t"><b>${esc(label)}${k === "mending" ? " PCS" : ""}</b></span>
+          <span class="qc-t"><b>${esc(label)}${k === "mending" ? ` <input type="text" class="qc-lim" id="qcMend" maxlength="20" placeholder="60 PCS / 35%" value="${esc(t.mending_max || "")}" aria-label="Mending not more than (for example 60 PCS or 35%)"${hasQty ? "" : " disabled"}>` : ""}</b></span>
           <span class="qc-pf" role="radiogroup" aria-label="${esc(label)}"><label class="qc-pass"><input type="radio" name="qc_${k}" value="pass"${start[k] === "pass" ? " checked" : ""}><span>Pass</span></label><label class="qc-fail"><input type="radio" name="qc_${k}" value="fail"${start[k] === "fail" ? " checked" : ""}><span>Fail</span></label></span>
-          <input type="text" class="qc-num" data-n="${k}" inputmode="numeric" maxlength="9" placeholder="Qty found" value="${esc(String(numOf(r, k)))}" aria-label="${esc(label)} Qty Found"${start[k] === "fail" ? "" : " hidden"}></div>`).join("")}</div>
+          <input type="text" class="qc-num" data-n="${k}" inputmode="numeric" maxlength="9" placeholder="Pcs" value="${esc(String(numOf(r, k)))}" aria-label="${esc(label)} Qty Found (not required)"${start[k] === "fail" ? "" : " hidden"}></div>`).join("")}</div>
         <div class="qc-score"><label for="qcTotal">Total Score</label><input type="number" id="qcTotal" min="0" max="100" step="1" inputmode="numeric" value="${t.score ?? 100}"><span class="qc-big">/ 100</span>
           <span class="qc-verd" id="qcVerd"></span><small class="muted" id="qcHint"></small></div></fieldset>
+      <fieldset class="opt"><legend>Notes</legend>
+        <textarea id="qcNotes" rows="3" maxlength="1000" placeholder="Notes about the goods or the check. They print in the Notes box of the filled form." aria-label="Notes">${esc(r.remarks || "")}</textarea></fieldset>
       <fieldset class="opt"><legend>Scan the Filled Form</legend>
         <p class="muted" style="margin-top:0">Scan or upload the filled paper form (up to 6 files). Only the form logo is shown; press it to open.</p>
         <div class="qc-docs" id="qcDocs"></div>
@@ -251,14 +278,16 @@
     const read = () => {
       const pick = {}, checks = {}, numbers = {};
       for (const [k] of CHECKS) { const v = choice(k); pick[k] = v; checks[k] = v === "fail"; const n = $(`#qcList input[data-n="${k}"]`).value.trim(); if (v === "fail" && n) numbers[k] = n; }
-      return { choice: pick, checks, numbers, score: $("#qcTotal").value };
+      return { choice: pick, checks, numbers, score: $("#qcTotal").value, qty: $("#qcQty").value, mending: $("#qcMend").value.trim(), notes: $("#qcNotes").value.trim() };
     };
+    // the Qty and the mending limit as they are on the screen (as saved when the server does not have them yet)
+    const goodsNow = (v) => (hasQty ? { qty: pcs(v.qty), mending_max: v.mending || null } : {});
     const refresh = () => {
       let pass = 0, fail = 0, qty = 0;
       for (const [k] of CHECKS) { const v = choice(k), box = $(`#qcList input[data-n="${k}"]`); if (v === "pass") pass++; else if (v === "fail") { fail++; qty += parseInt(box.value, 10) || 0; } box.hidden = v !== "fail"; }
       const open = CHECKS.length - pass - fail;
       if (!manual) $("#qcTotal").value = 100 - 10 * fail;
-      $("#qcTally").innerHTML = `Pass <b>${pass}</b> · Fail <b>${fail}</b>${fail ? ` · Qty Found <b>${qty}</b>` : ""}${open ? ` · Not checked <b>${open}</b>` : ""}`;
+      $("#qcTally").innerHTML = `Pass <b>${pass}</b> · Fail <b>${fail}</b>${qty ? ` · Qty Found <b>${qty}</b>` : ""}${open ? ` · Not checked <b>${open}</b>` : ""}`;
       const v = open || $("#qcTotal").value === "" ? "" : verdict($("#qcTotal").value);
       $("#qcVerd").textContent = v; $("#qcVerd").className = `qc-verd ${v.toLowerCase()}`;
       $("#qcHint").textContent = manual ? `To pass: ${PASS_MARK} or more.` : `Suggested: 100 − 10 for each Fail. You can write another total. To pass: ${PASS_MARK} or more.`;
@@ -269,6 +298,7 @@
       if (e.target.value === "fail") $(`#qcList input[data-n="${e.target.name.slice(3)}"]`)?.focus();
     };
     $("#qcList").oninput = (e) => { if (e.target.classList.contains("qc-num")) { e.target.value = e.target.value.replace(/\D/g, ""); refresh(); } }; // the Qty Found is a whole number
+    $("#qcQty").oninput = (e) => (e.target.value = digits(e.target.value));
     $("#qcTotal").oninput = () => { manual = true; refresh(); };
     $("#qcAllPass").onclick = () => { for (const [k] of CHECKS) { if (!choice(k)) $(`#qcList input[name="qc_${k}"][value="pass"]`).checked = true; } refresh(); };
     refresh();
@@ -278,27 +308,28 @@
       const v = read(); const s = Number(v.score);
       const open = CHECKS.filter(([k]) => !v.choice[k]);
       if (open.length) { $(`#qcList [data-k="${open[0][0]}"]`)?.scrollIntoView({ block: "center" }); return toast(`Choose Pass or Fail for every check (${open.length} not checked).`, true); }
-      const noQty = CHECKS.find(([k]) => v.choice[k] === "fail" && !(parseInt(v.numbers[k], 10) > 0));
-      if (noQty) { const box = $(`#qcList input[data-n="${noQty[0]}"]`); box.scrollIntoView({ block: "center" }); box.focus(); return toast(`Write the Qty Found for: ${noQty[1]}.`, true); }
+      // 3.33: a Fail does not need its Qty Found (pieces)
       if (v.score === "" || !Number.isInteger(s) || s < 0 || s > 100) return toast("Write the total score from 0 to 100.", true);
       if (busyUp) return toast("Wait until the paper copy is uploaded.", true);
       const btn = e.currentTarget; btn.disabled = true;
-      const { data: d, error } = await sb.rpc("qc_save", { p_id: t.id, p_data: { checks: v.checks, numbers: v.numbers, score: s, remarks: r.remarks || "" } });
+      const { data: d, error } = await sb.rpc("qc_save", { p_id: t.id, p_data: { checks: v.checks, numbers: v.numbers, score: s, remarks: v.notes, ...goodsNow(v) } });
       if (error) { btn.disabled = false; return fail(error, /qc_save|schema cache/i.test(error.message) ? "Run the database update 025_qc_simple.sql first" : "Could not save the result"); }
       if (!here()) return; // the person went to another page while it was saved
       toast(`Saved. Total score ${d.score} / 100 — ${verdict(d.score)}.`);
       t.status = "done"; t.score = d.score; t.found_count = d.found_count; t.tested_at = new Date().toISOString(); t.tested_by_name = S.profile?.full_name || "";
-      const saved = { ...r, checks: Object.fromEntries(Object.entries(v.checks).filter(([, x]) => x)), numbers: v.numbers, docs };
+      if ("qty" in d) { t.qty = d.qty; t.mending_max = d.mending_max; }
+      const saved = { ...r, checks: Object.fromEntries(Object.entries(v.checks).filter(([, x]) => x)), numbers: v.numbers, remarks: v.notes || null, docs };
       draw(t, saved);
       openStickers(t, saved);
     };
     $("#qcSticker").onclick = () => {
       if (t.status !== "done") return;
-      if (read().score !== String(t.score) || CHECKS.some(([k]) => choice(k) !== start[k])) return toast("Press Save first: the stickers print the saved result.", true);
+      const v = read();
+      if (v.score !== String(t.score) || CHECKS.some(([k]) => choice(k) !== start[k]) || (hasQty && digits(v.qty) !== digits(t.qty))) return toast("Press Save first: the stickers print the saved result.", true);
       openStickers(t, r);
     };
-    $("#qcBlank").onclick = () => E.openPreview(`QC Form ${t.qc_no}`, [qcPage(t)]);
-    $("#qcPdf").onclick = () => { const v = read(); E.openPreview(`QC Test ${t.qc_no}`, [qcPage({ ...t, score: v.score === "" ? null : Number(v.score) }, { choice: v.choice, numbers: v.numbers })]); };
+    $("#qcBlank").onclick = () => E.openPreview(`QC Form ${t.qc_no}`, [qcPage(t)], { onePage: true });
+    $("#qcPdf").onclick = () => { const v = read(); E.openPreview(`QC Test ${t.qc_no}`, [qcPage({ ...t, score: v.score === "" ? null : Number(v.score), ...goodsNow(v) }, { choice: v.choice, numbers: v.numbers, remarks: v.notes })], { onePage: true }); };
     // paper copies: only the form logo is shown, press to open
     const paintDocs = () => {
       $("#qcDocs").innerHTML = docs.length ? docs.map((p, i) => `<div class="qc-doc"><button type="button" class="qc-doc-open" data-i="${i}" aria-label="Open the paper copy ${i + 1}">${E.logoHtml("qc-doc-logo")}
