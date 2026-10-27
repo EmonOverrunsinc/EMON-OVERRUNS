@@ -2388,3 +2388,9 @@ table.ga-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 :root { --font-arial: Arial, Arimo, "Liberation Sans", Helvetica, sans-serif; }
 .preview, .preview *, .page, .page *, .idc-pair, .idc-pair *,
 input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder { font-family: var(--font-arial) !important; }
+
+/* 3.34: the application data in the Director's Review (step 1) */
+.rv-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px 16px; margin: 8px 0; padding: 10px 12px; border-radius: 12px; background: #fff; border: 1px solid #f0e2b6; }
+.rv-facts > div { min-width: 0; }
+.rv-facts small { display: block; font-size: 11px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .04em; }
+.rv-facts b { display: block; font-weight: 600; word-break: break-word; }
