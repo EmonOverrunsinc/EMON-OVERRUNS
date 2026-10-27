@@ -66,17 +66,20 @@
     const label = kind === "signed_form" ? (["customer", "job_application"].includes(ownerType) ? "Signed Application Form" : "Signed Copy") : (KIND[kind] || "File");
     return `${no ? no + " " : ""}${label}${n > 1 ? " " + n : ""}`;
   }
+  // Returns the number of files that could not be saved (3.35: a file that fails in any way counts; it never stops the rest).
   async function uploadRecords(ownerType, ownerId, kind, files) {
     let failed = 0;
     for (const raw of files) {
       if (raw.size > 50 * 1024 * 1024) { failed++; toast("A file larger than 50 MB was skipped.", true); continue; }
-      const f = await E.slimFile(raw); // 2.2.2: a smaller picture, still clear in print
-      const name = await autoName(ownerType, ownerId, kind);
-      const path = `${ownerType}/${ownerId}/${slug(name)}_${Date.now()}.${extOf(f)}`;
-      const up = await sb.storage.from("records").upload(path, f, { contentType: f.type || "application/octet-stream" });
-      if (up.error) { failed++; console.error(up.error); continue; }
-      const ins = await sb.from("attachments").insert({ owner_type: ownerType, owner_id: ownerId, kind, storage_path: path, file_name: name, mime: f.type, size: f.size });
-      if (ins.error) { failed++; console.error(ins.error); }
+      try {
+        const f = await E.slimFile(raw); // 2.2.2: a smaller picture, still clear in print
+        const name = await autoName(ownerType, ownerId, kind);
+        const path = `${ownerType}/${ownerId}/${slug(name)}_${Date.now()}.${extOf(f)}`;
+        const up = await sb.storage.from("records").upload(path, f, { contentType: f.type || "application/octet-stream" });
+        if (up.error) { failed++; console.error(up.error); continue; }
+        const ins = await sb.from("attachments").insert({ owner_type: ownerType, owner_id: ownerId, kind, storage_path: path, file_name: name, mime: f.type, size: f.size });
+        if (ins.error) { failed++; console.error(ins.error); sb.storage.from("records").remove([path]).catch(() => {}); }
+      } catch (e) { failed++; console.error(e); }
     }
     return failed;
   }
@@ -158,7 +161,8 @@
   async function loadSignatures(force = false) {
     if (!S.session || S.profile?.status !== "active") return [];
     if (!force && SIG.list && Date.now() - SIG.at < 5 * 60e3) return SIG.list;
-    const { data } = await sb.rpc("director_signatures");
+    const { data, error } = await sb.rpc("director_signatures");
+    if (error) return SIG.list || []; // 3.35: not kept for 5 minutes, so the next print asks again
     SIG.list = data || []; SIG.at = Date.now();
     await Promise.all(SIG.list.map((x) => signaturePic(x.signature_path)));
     return SIG.list;
@@ -237,6 +241,8 @@
     DC.set(key, { att: shown.map((a) => ({ ...a, kind })), kind, copyName: title, plain: true, update: !!f, wait });
     const upId = `dcUp_${key.replace(/\W/g, "_")}`;
     const mayUpdate = canUpload && !(wait && !isAdmin());
+    // 3.35: in the Windows app Scan stands next to it, so a copy on file has Scan and Upload File (not two buttons named Update)
+    const upText = f ? (window.EOApp?.scan ? "Upload File" : "Update") : addLabel;
     return `<div class="doccard${f ? " signed" : ""}">
       <div class="dc-ic">${ic("doc")}${f ? `<span class="dc-ok">${ic("check")}</span>` : ""}</div>
       <div class="dc-main">${tag ? `<span class="dc-tag">${esc(tag)}</span>` : ""}<b>${esc(title)}</b><small>${f ? `On file · uploaded ${mdy(f.created_at)}` : esc(sub || "No copy yet")}</small>
@@ -244,8 +250,8 @@
       <div class="dc-act">${f ? `<button type="button" class="btn primary" data-dc-view="${esc(key)}">${ic("eye")} View</button>${rmBtn(f)}` : ""}
         ${wait ? `<button type="button" class="btn" data-dc-viewp="${esc(key)}">${ic("eye")} View Update</button>
           ${isAdmin() ? `<button type="button" class="btn ok" data-dc-ok="${esc(wait.id)}">${ic("check")} Approve</button><button type="button" class="btn danger" data-dc-no="${esc(wait.id)}">${ic("x")} Reject</button>` : ""}` : ""}
-        ${mayUpdate ? `<label class="btn${f ? "" : " primary"}" for="${upId}">${ic("upload")} ${f ? "Update" : esc(addLabel)}</label>
-          <input type="file" id="${upId}" hidden accept="image/*,application/pdf" data-save-now data-dc-up="${esc(key)}" data-owner="${esc(ownerType)}" data-id="${esc(ownerId)}"${f ? ' data-scan-label="Update"' : ""}>` : ""}
+        ${mayUpdate ? `<label class="btn${f ? "" : " primary"}" for="${upId}">${ic("upload")} ${esc(upText)}</label>
+          <input type="file" id="${upId}" hidden accept="image/*,application/pdf" data-save-now data-dc-up="${esc(key)}" data-owner="${esc(ownerType)}" data-id="${esc(ownerId)}">` : ""}
       </div></div>`;
   }
   function bindDocCards(root, reload) {
@@ -478,7 +484,7 @@
   // Dashboard
   // ======================================================================
   V.dashboard = async () => {
-    const H = E.hasModule;
+    const H = E.hasModule, here = E.stillHere();
     const quick = [
       [E.canWrite("customers"), "#newcustomer", "New Customer", "user", "blue"],
       [E.canWrite("invoices"), "#newinvoice", "Record Invoice", "doc", "indigo"],
@@ -520,14 +526,18 @@
     const nextMonth = (m) => { const [y, n] = m.split("-").map(Number); return n === 12 ? `${y + 1}-01-01` : `${y}-${String(n + 1).padStart(2, "0")}-01`; };
     // 2.5: only what the dashboard shows is loaded (the 8 newest invoices and payments, this month's payment amounts)
     // 3.0: the customers waiting (a short list) and the number of active customers are asked for: not 1000 rows
-    const [cust, bal, inv, pay, month, activeN] = await Promise.all([
-      sb.from("customers").select("id,first_name,last_name,account_no,application_no,status,application_date,business_name").in("status", ["pending", "verified"]).order("created_at", { ascending: false }).limit(50),
-      sb.from("customer_balances").select("balance_due"),
+    // 3.35: the numbers count every row (the applications waiting are counted; the balances and this month's payments
+    // are added up from all rows, also past 1000)
+    const [cust, bal, inv, pay, month, activeN, waitN] = await Promise.all([
+      sb.from("customers").select("id,first_name,last_name,account_no,application_no,status,application_date,business_name").in("status", ["pending", "verified"]).order("created_at", { ascending: false }).limit(8),
+      E.allRows(() => sb.from("customer_balances").select("customer_id,balance_due").order("customer_id")),
       sb.from("invoice_balances").select("id,invoice_no,first_name,last_name,balance,pay_status,due_date").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(8),
       sb.from("payments_received").select("id,receipt_no,amount,paid_date,customers(first_name,last_name)").order("created_at", { ascending: false }).limit(8),
-      sb.from("payments_received").select("amount").gte("paid_date", ym + "-01").lt("paid_date", nextMonth(ym)),
-      sb.from("customers").select("id", { count: "exact", head: true }).eq("status", "active")
+      E.allRows(() => sb.from("payments_received").select("id,amount").gte("paid_date", ym + "-01").lt("paid_date", nextMonth(ym)).order("id")),
+      sb.from("customers").select("id", { count: "exact", head: true }).eq("status", "active"),
+      sb.from("customers").select("id", { count: "exact", head: true }).in("status", ["pending", "verified"])
     ]);
+    if (!here()) return;
     if (cust.error) {
       $("#main").insertAdjacentHTML("afterbegin", `<div class="hint err">The customer database is not set up yet. Ask the Director to run the setup script <b>002_customers_invoices_payments.sql</b>.</div>`);
       return;
@@ -537,7 +547,7 @@
     const pays = pay.data || [];
     const monthPaid = (month.data || []).reduce((s, p) => s + num(p.amount), 0);
     const waiting = cs.filter((c) => ["pending", "verified"].includes(c.status));
-    const tiles = [["ok", activeN.count || 0], ["warn", waiting.length], ["", "₱ " + peso(due)], ["ok", "₱ " + peso(monthPaid)]];
+    const tiles = [["ok", activeN.count || 0], ["warn", waitN.count ?? waiting.length], ["", "₱ " + peso(due)], ["ok", "₱ " + peso(monthPaid)]];
     $$("#dTiles .tile").forEach((t, i) => { t.className = "tile " + tiles[i][0]; $(".v", t).textContent = tiles[i][1]; });
     if ($("#dApps")) {
       $("#dApps").innerHTML = E.grid({ cols: [
@@ -615,13 +625,16 @@
       <div class="btnrow"><button type="button" class="btn primary" id="cuGo">${ic("search")} Search</button><button type="button" class="btn" id="cuScan">${ic("scan")} Scan QR</button>
         ${E.canWrite("customers") ? `<a class="btn ok" href="#newcustomer">+ New Customer</a>` : ""}${isAdmin() ? `<a class="btn" href="#statements">All Statements (SOA)</a>` : ""}</div>
       <div id="cuRes">${busy("Searching")}</div>`, "All customer accounts. Closed accounts are shown here with a <b>CLOSED</b> mark but are hidden from the top search bar.");
+    const fresh = E.loadGuard();
     const run = async () => {
+      const ok = fresh(); // 3.35: a newer search wins over a slower older one
       $("#cuRes").innerHTML = busy("Searching");
       const t = cleanQ($("#cuQ").value), st = $("#cuSt").value;
       let q = sb.from("customers").select("*").order("created_at", { ascending: false }).limit(1000);
       if (st) q = q.eq("status", st);
       if (t) { const w = t.split(/\s+/)[0]; q = q.or(`first_name.ilike.%${w}%,last_name.ilike.%${w}%,account_no.ilike.%${w}%,business_name.ilike.%${w}%,phone.ilike.%${w}%,public_id.ilike.%${w}%`); }
-      const [{ data, error }, bal] = await Promise.all([q, sb.from("customer_balances").select("*")]);
+      const [{ data, error }, bal] = await Promise.all([q, E.allRows(() => sb.from("customer_balances").select("customer_id,balance_due").order("customer_id"))]);
+      if (!ok()) return;
       if (error) return fail(error, "Could not load customers");
       const bm = new Map((bal.data || []).map((b) => [b.customer_id, b]));
       const ws = t.toLowerCase().split(/\s+/).filter(Boolean);
@@ -720,9 +733,12 @@
     ["ncFirst", "ncLast", "ncFb", "ncFb2", "ncFbLink"].forEach((k) => $("#" + k).addEventListener("input", () => { clearTimeout(ckTimer); ckTimer = setTimeout(personCheck, 400); }));
     $$("input[name=ncFbx]").forEach((r) => r.addEventListener("change", () => { clearTimeout(ckTimer); ckTimer = setTimeout(personCheck, 100); }));
     $$("input[name=ncFbx]").forEach((r) => (r.onchange = () => $$(".fb2").forEach((x) => (x.hidden = r.value !== "yes" || !r.checked))));
+    let photoUrl = "";
     $("#ncPhoto").onchange = (e) => {
       const f = e.target.files[0];
-      $("#ncPhotoPrev").innerHTML = f ? `<img src="${URL.createObjectURL(f)}" alt="Profile photo preview">` : "No photo";
+      if (photoUrl) URL.revokeObjectURL(photoUrl); // the photo picked before is let go
+      photoUrl = f ? URL.createObjectURL(f) : "";
+      $("#ncPhotoPrev").innerHTML = f ? `<img src="${photoUrl}" alt="Profile photo preview">` : "No photo";
     };
     $("#ncCancel").onclick = () => (location.hash = "customers");
     $("#ncForm").onsubmit = async (e) => {
@@ -740,24 +756,28 @@
       const extra = $("input[name=ncFbx]:checked").value === "yes";
       if (extra && !v("ncFb2")) return toast("Enter the additional Facebook name, or choose No.", true);
       E.setBusy(e.target, true, "Submitting");
-      const id = uuid();
-      let photo_path = null;
-      const photo = await E.slimFile($("#ncPhoto").files[0], "photo");
-      if (photo) {
-        photo_path = `customer/${id}/Profile_Photo_${Date.now()}.${extOf(photo)}`;
-        const up = await sb.storage.from("records").upload(photo_path, photo, { contentType: photo.type });
-        if (up.error) { photo_path = null; toast("The photo could not be uploaded; the application is saved without it.", true); }
-      }
-      const { data: c, error } = await sb.from("customers").insert({
-        id, first_name: v("ncFirst"), last_name: v("ncLast"), photo_path, address: v("ncAddr"),
-        location_check: loc, address_verified: loc === "found",
-        credit_limit: v("ncCredit") ? num(v("ncCredit")) : null, opening_balance: num(v("ncOpen")) || 0,
-        business_start_date: v("ncStart") || null, business_name: v("ncBiz") || null,
-        facebook_name: v("ncFb") || null, facebook_link: v("ncFbLink") || null, has_extra_facebook: extra, extra_facebook_name: extra ? v("ncFb2") : null,
-        facebook_verified: $("input[name=ncFbv]:checked").value === "yes", phone: v("ncPhone"), email: v("ncEmail") || null
-      }).select().single();
-      if (error) { E.setBusy(e.target, false); return fail(error, "Could not submit the application"); }
-      if (photo_path) await sb.from("attachments").insert({ owner_type: "customer", owner_id: c.id, kind: "photo", storage_path: photo_path, file_name: `${c.account_no || c.application_no} Profile Photo`, mime: photo.type, size: photo.size });
+      let c;
+      try {
+        const id = uuid();
+        let photo_path = null;
+        const photo = await E.slimFile($("#ncPhoto").files[0], "photo");
+        if (photo) {
+          photo_path = `customer/${id}/Profile_Photo_${Date.now()}.${extOf(photo)}`;
+          const up = await sb.storage.from("records").upload(photo_path, photo, { contentType: photo.type });
+          if (up.error) { photo_path = null; toast("The photo could not be uploaded; the application is saved without it.", true); }
+        }
+        const ins = await sb.from("customers").insert({
+          id, first_name: v("ncFirst"), last_name: v("ncLast"), photo_path, address: v("ncAddr"),
+          location_check: loc, address_verified: loc === "found",
+          credit_limit: v("ncCredit") ? num(v("ncCredit")) : null, opening_balance: num(v("ncOpen")) || 0,
+          business_start_date: v("ncStart") || null, business_name: v("ncBiz") || null,
+          facebook_name: v("ncFb") || null, facebook_link: v("ncFbLink") || null, has_extra_facebook: extra, extra_facebook_name: extra ? v("ncFb2") : null,
+          facebook_verified: $("input[name=ncFbv]:checked").value === "yes", phone: v("ncPhone"), email: v("ncEmail") || null
+        }).select().single();
+        if (ins.error) { E.setBusy(e.target, false); return fail(ins.error, "Could not submit the application"); }
+        c = ins.data;
+        if (photo_path) await sb.from("attachments").insert({ owner_type: "customer", owner_id: c.id, kind: "photo", storage_path: photo_path, file_name: `${c.account_no || c.application_no} Profile Photo`, mime: photo.type, size: photo.size });
+      } catch (err) { E.setBusy(e.target, false); return fail(err, "Could not submit the application"); } // 3.35: the form never stays disabled
       const failed = await uploadRecords("customer", c.id, "requirement", filesOf("ncReq"));
       if (failed) toast(`${failed} requirement file(s) failed to upload. You can add them from the profile.`, true);
       location.hash = `customer/${c.id}/submitted`;
@@ -840,6 +860,10 @@
   const idBox = (label, value) => `<div class="idbox"><small>${esc(label)}</small><b class="${/^[A-Z0-9][A-Z0-9-]*\d[A-Z0-9-]*$/i.test(String(value || "")) ? "mono" : ""}">${esc(value || "—")}</b></div>`;
 
   V.customer = async (id, extra) => {
+    // 3.35: drawn again after a change (Approve, an upload …) only while this customer's page is still open, never over
+    // the page the person went to while the change was saved
+    const [rk, rid] = location.hash.slice(1).split("/");
+    if (rk !== "customer" || decodeURIComponent(rid || "") !== String(id)) return;
     E.shell("customer", "Customer Profile", busy());
     const here = E.stillHere();
     // 3.0: the customer and everything on the page are asked for at the same time (all need only the id)
@@ -901,7 +925,7 @@
       ${isApprovedAccount(c) && isStaff() ? E.requestsHtml(c, orders) : ""}
       <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", tag: "System Generated", sub: `${c.application_no} · made by the E-Portal · print it for the customer to sign`, ownerType: "customer", ownerId: c.id, att, kind: "__system", canUpload: false, print: () => printApplication(c),
         approved: isApprovedAccount(c) ? (() => { const a = [...(ev.data || [])].reverse().find((x) => x.action === "approve"); return { name: a?.actor_name || "", at: a?.created_at || c.reviewed_at }; })() : null })}
-        ${signed.length ? "" : copyCard({ key: "appcopy", title: "Customer Application Form", tag: "Signed Paper Copy", sub: "Scan or upload the form signed by the customer", ownerType: "customer", ownerId: c.id, att, kind: "signed_form", kinds: ["signed_form", "application"], canUpload: isStaff() && c.status !== "closed" })}</div>
+        ${signed.length && !att.pending.some((a) => ["signed_form", "application"].includes(a.kind)) ? "" : copyCard({ key: "appcopy", title: "Customer Application Form", tag: "Signed Paper Copy", sub: "Scan or upload the form signed by the customer", ownerType: "customer", ownerId: c.id, att, kind: "signed_form", kinds: ["signed_form", "application"], canUpload: isStaff() && c.status !== "closed" })}</div>
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed, att.length) : ""}
       <div class="tabs" id="pfTabs">${tabs.map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes">
@@ -996,19 +1020,24 @@
   };
 
   // 2.7: the account amounts are listed here; the profile shows only the Balance Due
+  // The details of a customer application as [label, text, html] rows, for the Details tab and the Director's Review (3.35)
+  const appRows = (c) => ({
+    phone: ["Phone", c.phone], email: ["Email", c.email], address: ["Full Address", c.address],
+    credit: ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], opening: ["Opening Balance", "₱ " + peso(c.opening_balance)],
+    business: ["Business Name", c.business_name], start: ["Business Start Date", mdy(c.business_start_date)],
+    fb: ["Facebook Name", c.facebook_name], fbLink: ["Facebook Account Link", c.facebook_link, fbLinkHtml(c.facebook_link)],
+    fbExtra: ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"], issued: ["Issued By", c.issued_by_name]
+  });
   function detailsTable(c, b = null) {
     const st = b ? num(b.total_settlement) : 0;
     const money = b ? [["Total Invoiced", "₱ " + peso(b.total_invoiced)], ["Additional Charge", "₱ " + peso(b.total_charges)],
       ["Settlement Adjustment", `${st < 0 ? "− " : st > 0 ? "+ " : ""}₱ ${peso(Math.abs(st))}`], ["Total Paid", "₱ " + peso(b.total_paid)],
       ["Credits / Discounts", "₱ " + peso(b.total_credits)], ["Balance Due", "₱ " + peso(b.balance_due)]] : [];
+    const a = appRows(c);
     const rows = [
-      ["First Name", c.first_name], ["Last Name", c.last_name], ["Phone", c.phone], ["Email", c.email],
-      ["Full Address", c.address],
-      ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], ["Opening Balance", "₱ " + peso(c.opening_balance)], ...money,
-      ["Business Name", c.business_name], ["Business Start Date", mdy(c.business_start_date)],
-      ["Facebook Name", c.facebook_name], ["Facebook Account Link", c.facebook_link, fbLinkHtml(c.facebook_link)],
-      ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
-      [["pending", "verified", "rejected"].includes(c.status) ? "Application Date" : "Opening Date", mdy(c.application_date)], ["Issued By", c.issued_by_name], ["Account Status", c.status.toUpperCase()], ["Status Note", c.status_note]
+      ["First Name", c.first_name], ["Last Name", c.last_name], a.phone, a.email, a.address, a.credit, a.opening, ...money,
+      a.business, a.start, a.fb, a.fbLink, a.fbExtra,
+      [["pending", "verified", "rejected"].includes(c.status) ? "Application Date" : "Opening Date", mdy(c.application_date)], a.issued, ["Account Status", c.status.toUpperCase()], ["Status Note", c.status_note]
     ];
     return `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v, html]) => `<tr><th scope="row">${esc(k)}</th><td>${html || esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
   }
@@ -1021,14 +1050,12 @@
     toast(`Location: ${LOCATION[loc]}.`);
     V.customer(c.id);
   }
-  // 3.33: the Director sees all the data of the application, checks the records (verification), then approves or rejects.
+  // 3.34: the Director sees all the data of the application, checks the records (verification), then approves or rejects.
   // The signed paper form is not needed to approve; it can still be scanned or uploaded on the Signed Paper Copy card.
   function reviewPanel(c, signed, nDocs) {
-    const facts = [["Name", fullName(c)], ["Phone", c.phone], ["Email", c.email], ["Full Address", c.address],
-      ["Business Name", c.business_name], ["Business Start Date", mdy(c.business_start_date)], ["Facebook Name", c.facebook_name],
-      ["Facebook Account Link", c.facebook_link, fbLinkHtml(c.facebook_link)], ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
-      ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], ["Opening Balance", "₱ " + peso(c.opening_balance)],
-      ["Application Date", mdy(c.application_date)], ["Issued By", c.issued_by_name]];
+    const a = appRows(c);
+    const facts = [["Name", fullName(c)], a.phone, a.email, a.address, a.business, a.start, a.fb, a.fbLink, a.fbExtra, a.credit, a.opening,
+      ["Application Date", mdy(c.application_date)], a.issued];
     const verified = c.status === "verified";
     return `<fieldset class="opt review"><legend>Director's Review — ${esc(c.application_no)}</legend>
       <ol class="steps">
@@ -1042,49 +1069,68 @@
         <li><b>Decide:</b>
           <div class="fields wide"><label for="rvNote">Note</label><input type="text" id="rvNote" placeholder="Optional note (shown in history)"></div>
           <div class="btnrow"><button type="button" class="btn ok" id="rvApprove"${verified ? "" : ' disabled title="Press Check &amp; Verify first"'}>Approve — Activate Account</button>
-          <button type="button" class="btn danger" id="rvReject">Reject</button>${verified ? "" : `<small class="muted" id="rvFirst">Press <b>Check &amp; Verify</b> first.</small>`}</div>
+          <button type="button" class="btn danger" id="rvReject">Reject</button><small class="muted" id="rvFirst"${verified ? " hidden" : ""}>Press <b>Check &amp; Verify</b> first.</small></div>
           <small class="muted">The signed paper form is not needed to approve${signed.length ? " (it is on file)" : "; you can still scan or upload it on the Signed Paper Copy card"}. Your signature is printed on the form when you approve.</small></li>
       </ol></fieldset>`;
   }
   function bindReview(c) {
-    $("#rvCheck").onclick = async () => {
-      const out = $("#rvResult");
-      out.innerHTML = busy("Checking records");
-      const { data, error } = await sb.rpc("customer_duplicates", { p_id: c.id });
-      if (error) { out.innerHTML = ""; return fail(error, "Could not check records"); }
-      const verify = async () => {
-        if (c.status !== "verified") {
-          const r = await sb.rpc("customer_action", { p_id: c.id, p_action: "verify", p_note: null });
-          if (r.error) return fail(r.error, "Could not verify");
-          c.status = "verified"; toast("Verification successful.");
-        }
-        // 3.33: verified, so the account can be approved now
-        const ap = $("#rvApprove"); if (ap) { ap.disabled = false; ap.removeAttribute("title"); }
-        $("#rvFirst")?.remove();
-      };
-      if (!data.length) {
-        out.innerHTML = `<div class="addr-msg ok">✔ VERIFICATION SUCCESSFUL — no matching record found.</div>`;
-        await verify();
-      } else if (data.some((r) => r.blocked)) {
-        out.innerHTML = personCheckHtml(data);
-        E.bindGrid(out, data, (r) => window.open("#customer/" + r.id, "_blank"));
-      } else {
-        out.innerHTML = `<div class="addr-msg warn">⚠ ${data.length} account(s) with the same name or Facebook name. Check that it is not the same person:</div>` +
-          E.grid({ cols: [{ label: "Account No", get: (r) => r.account_no }, { label: "Name", get: fullName }, { label: "Phone", get: (r) => r.phone || "" }, { label: "Status", html: (r) => pill(r.status) }, { label: "Matched On", get: (r) => (r.matched_on || "").replace(/\b\w/g, (x) => x.toUpperCase()) }], rows: data, onRow: true })
-          + `<div class="btnrow"><button type="button" class="btn" id="rvAnyway">Not the same person — Verify anyway</button></div>`;
-        E.bindGrid(out, data, (r) => window.open("#customer/" + r.id, "_blank"));
-        $("#rvAnyway").onclick = async () => { await verify(); out.insertAdjacentHTML("beforeend", `<div class="addr-msg ok">✔ Verified by the Director.</div>`); };
+    // 3.35: Approve opens once the application is verified, and closes again when the check finds a BLOCKED person
+    const approveOpen = (on, why = "Press <b>Check &amp; Verify</b> first.") => {
+      const ap = $("#rvApprove"), first = $("#rvFirst");
+      if (ap) { ap.disabled = !on; if (on) ap.removeAttribute("title"); else ap.title = why.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&"); }
+      if (first) { first.hidden = on; first.innerHTML = why; }
+    };
+    // true when the application is verified (verified now, or before)
+    const verify = async () => {
+      if (c.status !== "verified") {
+        const r = await sb.rpc("customer_action", { p_id: c.id, p_action: "verify", p_note: null });
+        if (r.error) { fail(r.error, "Could not verify"); return false; }
+        c.status = "verified"; toast("Verification successful.");
+        // the status at the top shows VERIFIED at once
+        $(".cust-hero")?.classList.replace("st-pending", "st-verified");
+        const p = $(".cust-hero .ch-name .pill"); if (p) p.outerHTML = pill("verified");
       }
+      approveOpen(true);
+      return true;
+    };
+    $("#rvCheck").onclick = async () => {
+      const out = $("#rvResult"), btn = $("#rvCheck");
+      btn.disabled = true; // 3.35: one check at a time
+      out.innerHTML = busy("Checking records");
+      try {
+        const { data, error } = await sb.rpc("customer_duplicates", { p_id: c.id });
+        if (error) { out.innerHTML = ""; return fail(error, "Could not check records"); }
+        if (!data.length) {
+          out.innerHTML = busy("Verifying");
+          out.innerHTML = (await verify()) ? `<div class="addr-msg ok">✔ VERIFICATION SUCCESSFUL — no matching record found.</div>` : "";
+        } else if (data.some((r) => r.blocked)) {
+          out.innerHTML = personCheckHtml(data);
+          E.bindGrid(out, data, (r) => window.open("#customer/" + r.id, "_blank"));
+          approveOpen(false, "BLOCKED: this person cannot open an account (see the check above).");
+        } else {
+          out.innerHTML = `<div class="addr-msg warn">⚠ ${data.length} account(s) with the same name or Facebook name. Check that it is not the same person:</div>` +
+            E.grid({ cols: [{ label: "Account No", get: (r) => r.account_no }, { label: "Name", get: fullName }, { label: "Phone", get: (r) => r.phone || "" }, { label: "Status", html: (r) => pill(r.status) }, { label: "Matched On", get: (r) => (r.matched_on || "").replace(/\b\w/g, (x) => x.toUpperCase()) }], rows: data, onRow: true })
+            + `<div class="btnrow"><button type="button" class="btn" id="rvAnyway">Not the same person — Verify anyway</button></div>`;
+          E.bindGrid(out, data, (r) => window.open("#customer/" + r.id, "_blank"));
+          $("#rvAnyway").onclick = async (e) => {
+            e.currentTarget.disabled = true;
+            if (await verify()) { $("#rvAnyway")?.closest(".btnrow").remove(); out.insertAdjacentHTML("beforeend", `<div class="addr-msg ok">✔ Verified by the Director.</div>`); }
+            else if ($("#rvAnyway")) $("#rvAnyway").disabled = false;
+          };
+        }
+      } finally { btn.disabled = false; }
     };
     $("#rvFb").onclick = async () => {
       const r = await sb.rpc("customer_action", { p_id: c.id, p_action: c.facebook_verified ? "facebook_unverified" : "facebook_verified", p_note: null });
       if (r.error) return fail(r.error, "Could not update"); V.customer(c.id);
     };
     $("#rvLoc").onchange = (e) => setLocation(c, e.target.value);
-    if ($("#rvDocs")) $("#rvDocs").onclick = () => { const t = $$("#pfTabs button").find((b) => /^Documents/.test(b.textContent)); if (t) { t.click(); t.scrollIntoView({ block: "center" }); } };
+    if ($("#rvDocs")) $("#rvDocs").onclick = () => { const t = $('#pfTabs button[data-t="5"]'); if (t) { t.click(); t.scrollIntoView({ block: "center" }); } }; // tab 5: Documents
     const act = async (a) => {
+      const btns = [$("#rvApprove"), $("#rvReject")], was = btns.map((b) => b.disabled);
+      btns.forEach((b) => (b.disabled = true)); // 3.35: one decision at a time
       const r = await sb.rpc("customer_action", { p_id: c.id, p_action: a, p_note: $("#rvNote").value.trim() || null });
-      if (r.error) return fail(r.error, "Could not update the account");
+      if (r.error) { btns.forEach((b, i) => (b.disabled = was[i])); return fail(r.error, "Could not update the account"); }
       toast(a === "approve" ? `Approved. ${r.data?.account_no || c.account_no || "The account"} is now ACTIVE.` : "Application rejected.");
       V.customer(c.id);
     };
@@ -1252,10 +1298,13 @@
       <div class="btnrow"><button type="button" class="btn primary" id="stGo">Show</button><button type="button" class="btn" id="stPrintAll">${ic("print")} Print All for Month</button><a class="btn" href="#customers">Close</a></div>
       <div id="stRes">${busy()}</div>`, "Statements are created automatically on the 1st of each month for the month just ended. Click a row to print it or upload a copy.");
     let rows = [];
+    const fresh = E.loadGuard();
     const load = async () => {
+      const ok = fresh(); // 3.35: the month chosen last wins
       $("#stRes").innerHTML = busy();
       const m = $("#stMonth").value + "-01";
       const { data, error } = await sb.from("statements").select("*, customers(*)").eq("period_start", m).order("statement_no");
+      if (!ok()) return;
       if (error) return fail(error, "Could not load statements");
       rows = data || [];
       const sum = (k) => peso(rows.reduce((s, r) => s + num(r[k]), 0));
@@ -1322,10 +1371,12 @@
       <div class="tabs" id="ivTabs">${INV_TABS.map(([f, l], i) => `<button type="button" class="${i ? "" : "on"}" data-f="${f}">${l} <span data-n="${f}"></span></button>`).join("")}</div>
       <div class="btnrow">${E.canWrite("invoices") ? `<a class="btn primary" href="#newinvoice">+ Record Invoice</a>` : ""}</div>
       <div id="ivRes">${busy()}</div>`, "Every invoice is <b>PAID</b> (in full), <b>PARTIAL PAYMENT</b> or <b>UNPAID</b> (nothing paid yet). Payments, credit memos, discounts and settlement adjustments are for the customer's account: they pay the oldest invoices first. Press <b>Record Invoice</b> to add a sale for an ACTIVE customer.");
-    const { data, error } = await sb.from("invoice_balances").select("*").order("invoice_date", { ascending: false }).order("created_at", { ascending: false }).limit(5000);
+    const here = E.stillHere();
+    // 3.35: every invoice (also past the 1000 rows the server sends at once), so the tabs and the totals count them all
+    const { data, error } = await E.allRows(() => sb.from("invoice_balances").select("*").order("invoice_date", { ascending: false }).order("created_at", { ascending: false }).order("id"));
+    if (!here()) return; // another page was opened while the invoices loaded
     if (error) return fail(error, "Could not load invoices");
     const all = data || [];
-    if (!$("#ivTabs")) return; // another page was opened while the invoices loaded
     $$("#ivTabs [data-n]").forEach((x) => (x.textContent = `(${invPick(all, x.dataset.n).length})`));
     const run = (f) => {
       const rows = invPick(all, f);
@@ -1601,7 +1652,10 @@
     E.shell("payments", "Payment", `
       <div class="btnrow">${E.canWrite("payments") || E.canWrite("invoices") ? `<a class="btn primary" href="#newpayment">+ Record Payment</a>` : ""}</div><div id="pyRes">${busy()}</div>`,
       "All payments received. Each payment gets a receipt number like <b>A-2026-1003-001</b> and a printable acknowledgment.");
-    const { data, error } = await sb.from("payments_received").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).limit(2000);
+    const here = E.stillHere();
+    // 3.35: every payment (also past the 1000 rows the server sends at once), so the total counts them all
+    const { data, error } = await E.allRows(() => sb.from("payments_received").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).order("id"));
+    if (!here()) return;
     if (error) return fail(error, "Could not load payments");
     const rows = data || [];
     $("#pyRes").innerHTML = E.grid({ cols: PAY_COLS, rows, onRow: true, foot: { amount: peso(rows.reduce((s, r) => s + num(r.amount), 0)) }, empty: "No payments yet." });
@@ -1664,11 +1718,15 @@
 
   V.payment = async (id, extra) => {
     E.shell("payment", "Payment", busy());
-    const { data: p } = await sb.from("payments_received").select("*, customers(*)").eq("id", id).maybeSingle();
-    if (!p) { $("#main").innerHTML = `<div class="empty">Payment not found. <a href="#payments">Back to Payments</a></div>`; return; }
+    const here = E.stillHere();
     // 2.9: the invoices this payment is linked to (update 022), and what is still available to link
-    const [att, lk] = await Promise.all([attachmentsOf("payment", id),
+    // 3.35: the payment, its files and its links are asked for at the same time (all need only the id)
+    const [{ data: p }, att, lk] = await Promise.all([
+      sb.from("payments_received").select("*, customers(*)").eq("id", id).maybeSingle(),
+      attachmentsOf("payment", id),
       sb.from("payment_links").select("*, customer_invoices(invoice_no)").eq("payment_id", id).is("removed_at", null).order("linked_at")]);
+    if (!here()) return; // another page was opened while this one loaded
+    if (!p) { $("#main").innerHTML = `<div class="empty">Payment not found. <a href="#payments">Back to Payments</a></div>`; return; }
     const links = lk.data || [], linked = links.reduce((s, l) => s + num(l.amount), 0);
     $(".band h1").textContent = `Payment — ${p.receipt_no}`;
     $("#main").innerHTML = `
@@ -1734,7 +1792,9 @@
     E.shell("creditmemos", "Credit Memo", `${E.eoTabs("creditmemos")}
       <div class="btnrow">${E.canWrite("creditmemos") ? `<a class="btn primary" href="#newcreditmemo">+ New Credit Memo</a>` : ""}</div><div id="cmRes">${busy()}</div>`,
       "Customer complaints and defect claims. Approved <b>Credit</b> and <b>Discount</b> memos reduce the customer's balance due.");
-    const { data, error } = await sb.from("credit_memos").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).limit(2000);
+    const here = E.stillHere();
+    const { data, error } = await E.allRows(() => sb.from("credit_memos").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).order("id"));
+    if (!here()) return;
     if (error) return fail(error, "Could not load credit memos");
     const rows = data || [];
     $("#cmRes").innerHTML = E.grid({ cols: MEMO_COLS, rows, onRow: true, foot: { request_amount: peso(rows.reduce((s, r) => s + num(r.request_amount), 0)) }, empty: "No credit memos yet." });
@@ -1785,10 +1845,13 @@
         <div class="wfoot"><button type="button" class="btn" id="cmCancel">Cancel</button><button type="submit" class="btn primary">Submit for Approval</button></div>
       </form>`, "After you submit it, the Director reviews and approves it. Approved <b>Credit</b> / <b>Discount</b> amounts are deducted from the account balance.");
     let cust = null;
+    const freshPays = E.loadGuard();
     const loadPays = async () => {
+      const ok = freshPays(); // 3.35: only the receipts of the customer chosen last
       const dl = $("#cmPays"); dl.innerHTML = ""; if (!cust) return;
       const { data } = await sb.from("payments_received").select("receipt_no,amount").eq("customer_id", cust.id).order("paid_date", { ascending: false }).limit(20);
-      (data || []).forEach((p) => dl.insertAdjacentHTML("beforeend", `<option value="${esc(p.receipt_no)} ${esc(peso(p.amount))} RECEIVED">`));
+      if (!ok()) return;
+      dl.innerHTML = (data || []).map((p) => `<option value="${esc(p.receipt_no)} ${esc(peso(p.amount))} RECEIVED">`).join("");
     };
     customerPicker($("#cmCust"), { statuses: ["active", "suspended"], onPick: (c) => { cust = c; loadPays(); }, preset: (await getCustomer(custId)) || undefined });
     const calc = () => {
@@ -1830,9 +1893,10 @@
 
   V.creditmemo = async (id) => {
     E.shell("creditmemo", "Credit Memo", busy());
-    const { data: m } = await sb.from("credit_memos").select("*, customers(*)").eq("id", id).maybeSingle();
+    const here = E.stillHere();
+    const [{ data: m }, att] = await Promise.all([sb.from("credit_memos").select("*, customers(*)").eq("id", id).maybeSingle(), attachmentsOf("credit_memo", id)]);
+    if (!here()) return; // another page was opened while this one loaded
     if (!m) { $("#main").innerHTML = `<div class="empty">Credit memo not found. <a href="#creditmemos">Back to Credit Memos</a></div>`; return; }
-    const att = await attachmentsOf("credit_memo", id);
     $(".band h1").textContent = `Credit Memo — ${m.memo_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(m.memo_no)} ${pill(m.status)}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
@@ -1943,6 +2007,7 @@
   V.find = async (q) => {
     const t = cleanQ(q);
     E.shell("find", `Search: ${t}`, `<div id="fdRes">${busy("Searching")}</div>`);
+    const here = E.stillHere(); // 3.35: an older, slower search never replaces a newer one
     const tq = $("#tbQ"); if (tq) tq.value = t;
     const done = () => { const sp = $("#tbSpin"); if (sp) sp.hidden = true; };
     if (!t) { done(); $("#fdRes").innerHTML = `<div class="empty">Type something in the search bar.</div>`; return; }
@@ -1960,8 +2025,8 @@
       isStaff() && H("eooffice") ? sb.from("qc_tests").select("*").or(`qc_no.ilike.%${w}%,serial_no.ilike.%${w}%,item.ilike.%${w}%,brand.ilike.%${w}%,batch.ilike.%${w}%`).limit(30) : none,
       isStaff() && H("eooffice") ? sb.from("collection_vouchers").select("*").or(`cv_no.ilike.%${w}%,received_from.ilike.%${w}%,reference_no.ilike.%${w}%`).limit(30) : none
     ]);
+    if (!here()) return; // another search or page came after this one
     done();
-    if (!$("#fdRes")) return; // navigated away
     const ws = t.toLowerCase().split(/\s+/);
     const custs = (cs.data || []).filter((c) => ws.every((x) => `${fullName(c)} ${c.account_no || ""} ${c.public_id} ${c.business_name || ""} ${c.phone || ""}`.toLowerCase().includes(x)));
     const pays = (py.data || []).filter((p) => p.customers?.status !== "closed");
@@ -2059,12 +2124,20 @@
   V.profile = async () => {
     const av = E.publicUrl("avatars", S.profile.avatar_path);
     E.shell("profile", "My Profile", busy());
+    const here = E.stillHere();
     // the signature's status may have changed since sign-in (the Director approves it)
-    const { data: fresh } = await sb.from("profiles").select("signature_path, signature_status, signature_at, signature_approved_by, signature_approved_by_name, signature_approved_at, signature_note").eq("id", S.profile.id).maybeSingle();
+    // 3.35: asked two at a time (what needs nothing from the other together), and drawn only while the page is open
+    const [{ data: fresh }, { data: emp }] = await Promise.all([
+      sb.from("profiles").select("signature_path, signature_status, signature_at, signature_approved_by, signature_approved_by_name, signature_approved_at, signature_note").eq("id", S.profile.id).maybeSingle(),
+      sb.from("employees").select("*").eq("profile_id", S.profile.id).maybeSingle()
+    ]);
     if (fresh) Object.assign(S.profile, fresh);
-    const sp = S.profile, myPic = await signaturePic(sp.signature_path);
-    const { data: emp } = await sb.from("employees").select("*").eq("profile_id", S.profile.id).maybeSingle();
-    const slips = emp ? (await sb.from("payslips").select("*").eq("employee_id", emp.id).order("pay_date", { ascending: false })).data || [] : [];
+    const sp = S.profile;
+    const [myPic, slips] = await Promise.all([
+      signaturePic(sp.signature_path),
+      emp ? sb.from("payslips").select("*").eq("employee_id", emp.id).order("pay_date", { ascending: false }).then((r) => r.data || []) : []
+    ]);
+    if (!here()) return;
     const netTotal = slips.reduce((s, p) => s + num(p.net_pay), 0);
     $("#main").innerHTML = `
       <section class="me-card">

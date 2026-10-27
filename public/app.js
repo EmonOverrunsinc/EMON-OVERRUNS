@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.34";
+  const VERSION = "3.35";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.34.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.35.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
   const app = document.getElementById("app");
@@ -157,6 +157,7 @@
   }
 
   // A dialog window over the page. Returns { el, close }.
+  const modalClose = new WeakMap(); // 3.35: a dialog taken away with its page (sign-in) is closed properly (camera off, listener gone)
   function modal(title, body, foot = "", { wide = false, onClose, cls = "" } = {}) {
     const d = document.createElement("div");
     d.className = "modal " + cls;
@@ -176,6 +177,7 @@
     document.addEventListener("keydown", onKey);
     $(".wclose", d).onclick = close;
     d.addEventListener("mousedown", (e) => { if (e.target === d) close(); });
+    modalClose.set(d, close);
     return { el: d, close };
   }
   function confirmBox(message, { title = "Please confirm", ok = "OK", danger = false } = {}) {
@@ -215,8 +217,9 @@
   }
 
   // ---------- libraries loaded when needed (2.5) ----------
-  // The barcode maker (bwip-js, 1.1 MB) starts loading with the page but no longer holds it up (index.html preloads
-  // it); the code reader (ZXing) loads the first time something is scanned or read from a photo.
+  // The barcode maker (bwip-js, 1.1 MB) loads once the first page is up and the browser is idle (3.35: no longer with
+  // the page, so the first page comes sooner); a print or a barcode wanted before then waits for it. The code reader
+  // (ZXing) loads the first time something is scanned or read from a photo without the phone's own barcode reader.
   const LIBS = { bwip: ["vendor/bwip-js-min.js", "bwipjs"], zxing: ["vendor/zxing.min.js", "ZXing"] };
   const libs = {};
   function need(name) {
@@ -230,7 +233,8 @@
       document.head.appendChild(s);
     }));
   }
-  need("bwip").catch(() => {});
+  const whenIdle = (f) => (window.requestIdleCallback ? requestIdleCallback(f, { timeout: 4000 }) : setTimeout(f, 1500));
+  addEventListener("load", () => whenIdle(() => need("bwip").catch(() => {})), { once: true });
 
   // ---------- Enter goes to the next box (2.6.2) ----------
   // On a computer, Enter in a box of a form moves to the next box, like a spreadsheet, instead of saving the form;
@@ -296,8 +300,25 @@
     catch (e) { console.error(e); }
     return webQrUrl;
   }
+  // 3.35: the phone's own barcode reader (Chrome on Android and on a Mac) reads a QR code or a PDF417 at once, also a
+  // small or dense one; without it (Windows, iPhone) ZXing reads the code. null: there is none.
+  let nativeFormats = null;
+  async function nativeReader() {
+    if (!nativeFormats) {
+      try { nativeFormats = "BarcodeDetector" in window ? (await window.BarcodeDetector.getSupportedFormats()).filter((f) => f === "qr_code" || f === "pdf417") : []; }
+      catch (_) { nativeFormats = []; }
+    }
+    return nativeFormats.length === 2 ? new window.BarcodeDetector({ formats: nativeFormats }) : null;
+  }
   // Try the image as-is and rotated, with a white quiet zone around it.
   async function decodeImageFile(file) {
+    const det = await nativeReader();
+    if (det) {
+      try {
+        const bmp = await createImageBitmap(file);
+        try { const [code] = await det.detect(bmp); if (code?.rawValue) return code.rawValue; } finally { bmp.close?.(); }
+      } catch (_) { /* ZXing tries next */ }
+    }
     await need("zxing");
     const url = URL.createObjectURL(file);
     try {
@@ -360,7 +381,8 @@
       if (kind === "doc") clearInk(g, c.width, c.height);
       const encode = (type, q) => new Promise((res) => c.toBlob(res, type, q));
       let best = await encode("image/jpeg", 0.82);
-      if (k < 1 && /png/i.test(file.type)) { const png = await encode("image/png"); if (png && (!best || png.size < best.size)) best = png; }
+      // a PNG picture (a clean scan) stays a PNG when that file is smaller (3.35: also when it keeps its size)
+      if (/png/i.test(file.type)) { const png = await encode("image/png"); if (png && (!best || png.size < best.size)) best = png; }
       if (!best || (kind !== "doc" && best.size >= file.size)) return file;
       const ext = best.type === "image/png" ? ".png" : ".jpg";
       return new File([best], (file.name || "Picture").replace(/\.[^.]*$/, "") + ext, { type: best.type, lastModified: Date.now() });
@@ -435,6 +457,8 @@
   const authRedirect = () => location.origin + location.pathname;
   function authFrame(title, inner) {
     closePreview();
+    window.EO.closeChat?.();
+    $$(".modal").forEach((x) => modalClose.get(x)?.());
     $$(".chat-panel, .modal").forEach((x) => x.remove());
     app.innerHTML = `
       <div class="login">
@@ -647,9 +671,9 @@
       if (p1.length < 6) return toast("Use a password of at least 6 characters.", true);
       if (p1 !== p2) return toast("The two passwords do not match.", true);
       clearTimeout(timer);
+      setBusy(e.target, true, "Creating account"); // 3.35: at once, so a second press cannot send the form twice
       await check();
-      if (!unameOk) return toast(`The username “${username}” is not available. Choose another.`, true);
-      setBusy(e.target, true, "Creating account");
+      if (!unameOk) { setBusy(e.target, false); return toast(`The username “${username}” is not available. Choose another.`, true); }
       const { data, error } = await sb.auth.signUp({ email, password: p1, options: { data: { full_name, username }, emailRedirectTo: authRedirect() } });
       setBusy(e.target, false);
       if (error && timedOut(error)) {
@@ -803,6 +827,7 @@
       setBusy(e.target, false);
       if (error) return fail(error, "Could not save the password");
       toast("Password saved.");
+      recovering = false; // 3.35: the email link is used up, so the next page is not this form again
       history.replaceState(null, "", location.pathname + "#dashboard");
       route();
     };
@@ -984,6 +1009,14 @@
     document.addEventListener("touchcancel", end, { passive: true });
   }
 
+  // 3.35: a page drawn again (after an upload, Approve …) stays where it was read: its old height is held until its new
+  // content is in, so the screen does not jump to the top
+  function holdHeight(main, h) {
+    main.style.minHeight = h + "px";
+    const free = () => { mo.disconnect(); clearTimeout(t); requestAnimationFrame(() => (main.style.minHeight = "")); };
+    const mo = new MutationObserver(free), t = setTimeout(free, 15000);
+    setTimeout(() => mo.observe(main, { childList: true, subtree: true }), 0); // after the page's own "Loading" boxes
+  }
   function shell(key, title, body, hint) {
     const cur = ACTIVE_OF[key] ?? (Array.isArray(MODULE_OF[key]) ? MODULE_OF[key][0] : MODULE_OF[key]) ?? key;
     const items = MENU.filter((m) => m.k === "dashboard" || (m.k === "purchase" ? isStaff() && hasModule("purchase") : m.k === "eooffice" ? EO_MODULES.filter((x) => isStaff() || x !== "eooffice").some(hasModule) : hasModule(m.k)));
@@ -1009,7 +1042,9 @@
       const sb2 = $$(".statusbar > span", app);
       if (sb2[1]) sb2[1].textContent = "Records: –";
       if (sb2[2]) sb2[2].textContent = "Currency: " + currency;
+      const oldH = samePage ? $("#main", content)?.offsetHeight || 0 : 0;
       content.innerHTML = bandHtml + mainHtml;
+      if (oldH) holdHeight($("#main", content), oldH);
       slideIn(content);
       if (!samePage) window.scrollTo({ top: 0 });
       bindBack("#dashboard");
@@ -1143,10 +1178,13 @@
   const getCam = (video) => navigator.mediaDevices.getUserMedia({ video, audio: false });
   const isFront = (track) => track.getSettings?.().facingMode === "user" || /front|selfie/i.test(track.label);
   const cameras = async () => (await navigator.mediaDevices.enumerateDevices()).filter((c) => c.kind === "videoinput");
-  async function openCamera(deviceId) {
-    if (deviceId) return getCam({ deviceId: { exact: deviceId } }); // Switch Camera
+  // 3.35: a sharp picture (asked for; a phone gives 640 × 480 otherwise, too little for a dense PDF417): full HD for the
+  // phone's own barcode reader, HD for ZXing (a bigger picture would make each try slower)
+  const CAM_SIZE = { hd: { width: { ideal: 1920 }, height: { ideal: 1080 } }, sd: { width: { ideal: 1280 }, height: { ideal: 720 } } };
+  async function openCamera(deviceId, size = {}) {
+    if (deviceId) return getCam({ deviceId: { exact: deviceId }, ...size }); // Switch Camera
     let stream, last;
-    for (const video of [{ facingMode: { ideal: "environment" } }, true]) {
+    for (const video of [{ facingMode: { ideal: "environment" }, ...size }, true]) {
       try { stream = await getCam(video); break; }
       catch (e) { last = e; if (CAMERA_PROBLEM[e.name] === CAM_BLOCKED) break; } // blocked: another camera will not help
     }
@@ -1156,19 +1194,27 @@
     if (!backs.length) return stream; // only a front camera (a laptop)
     stream.getTracks().forEach((t) => t.stop()); // a phone opens one camera at a time
     await new Promise((ok) => setTimeout(ok, 400));
-    for (const c of backs) { try { return await getCam({ deviceId: { exact: c.deviceId } }); } catch (_) { /* the next back camera */ } }
+    for (const c of backs) { try { return await getCam({ deviceId: { exact: c.deviceId }, ...size }); } catch (_) { /* the next back camera */ } }
     stream = await getCam(true);
     stream.backFailed = true;
     return stream;
   }
   function scanDialog(onText, { title = "Scan QR Code / Barcode", hint = "Point the camera at the QR code or barcode.", photo = true } = {}) {
-    let reader = null, done = false;
+    let reader = null, stream = null, run = 0, done = false;
+    // 3.35: one camera at a time: Try Again, Switch Camera and Close first stop the camera in use (also one still starting)
+    const stop = () => {
+      run++;
+      try { reader?.reset(); } catch (_) {}
+      reader = null;
+      stream?.getTracks().forEach((t) => t.stop());
+      stream = null;
+    };
     const m = modal(title, `<div class="scan-view"><video id="scVideo" playsinline muted></video><div class="scan-frame"><i></i></div></div>
       <div id="scMsg" class="scan-msg">${esc(hint)}</div>`,
       `${photo ? `<label class="btn" for="scImg">${ic("image")} Use a Photo</label>` : ""}<input type="file" id="scImg" accept="image/*" hidden>
       <button type="button" class="btn" id="scSwitch" hidden>Switch Camera</button><button type="button" class="btn" id="scRetry" hidden>Try Again</button><label class="btn primary" for="scCap" id="scCapL" hidden>${ic("camera")} Open Camera</label><input type="file" id="scCap" accept="image/*" capture="environment" hidden>
       <button type="button" class="btn" data-close>Close</button>`,
-      { cls: "scan-modal", onClose: () => { try { reader?.reset(); } catch (_) {} } });
+      { cls: "scan-modal", onClose: stop });
     const d = m.el;
     const msg = (t) => { const el = $("#scMsg", d); if (el) el.textContent = t; };
     const finish = (text) => { if (done) return; done = true; m.close(); onText(text); };
@@ -1187,21 +1233,42 @@
     };
     let cams = [], current = "";
     const start = async (deviceId) => {
+      stop(); // the camera in use is closed first
+      const my = run, live = () => my === run && !done && d.isConnected;
       d.classList.remove("nocam", "front"); $("#scRetry", d).hidden = true; msg(hint);
-      try { reader?.reset(); } catch (_) {} // the camera in use is closed first
       if (!navigator.mediaDevices?.getUserMedia) return noCamera(null);
-      let Z, stream;
-      try { Z = await need("zxing"); } catch (err) { return msg(err.message); }
-      try { stream = await openCamera(deviceId); } catch (e) { return noCamera(e); }
-      if (done || !d.isConnected) return stream.getTracks().forEach((t) => t.stop()); // closed while the camera started
-      const track = stream.getVideoTracks()[0];
+      const det = await nativeReader();
+      const lib = det ? null : need("zxing"); // ZXing loads while the camera starts
+      lib?.catch(() => {});
+      let s;
+      try { s = await openCamera(deviceId, det ? CAM_SIZE.hd : CAM_SIZE.sd); }
+      catch (e) { if (live()) noCamera(e); return; }
+      if (!live()) return s.getTracks().forEach((t) => t.stop()); // closed, or started again, while the camera started
+      stream = s;
+      const track = s.getVideoTracks()[0];
       current = track.getSettings?.().deviceId || "";
-      cams = await cameras().catch(() => []);
-      $("#scSwitch", d).hidden = cams.length < 2;
       d.classList.toggle("front", isFront(track)); // the front camera is shown like a mirror
-      if (stream.backFailed) { $("#scCapL", d).hidden = false; msg("The back camera did not start, so the front camera is on. Press Switch Camera to try another camera, or Open Camera."); }
+      if (s.backFailed) { $("#scCapL", d).hidden = false; msg("The back camera did not start, so the front camera is on. Press Switch Camera to try another camera, or Open Camera."); }
+      cameras().then((list) => { if (live()) { cams = list; $("#scSwitch", d).hidden = cams.length < 2; } }, () => {});
+      const video = $("#scVideo", d);
+      if (det) {
+        video.srcObject = s;
+        video.play().catch(() => {});
+        const look = async () => {
+          if (!live()) return;
+          if (video.readyState >= 2) {
+            try { const [code] = await det.detect(video); if (code?.rawValue && live()) return finish(code.rawValue); }
+            catch (_) { /* the next picture */ }
+          }
+          setTimeout(look, 80);
+        };
+        return look();
+      }
+      let Z;
+      try { Z = await lib; } catch (err) { if (live()) msg(err.message); return; }
+      if (!live()) return;
       reader = new Z.BrowserMultiFormatReader(new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.QR_CODE, Z.BarcodeFormat.PDF_417]]]));
-      reader.decodeFromStream(stream, $("#scVideo", d), (res) => { if (res) finish(res.getText()); }).catch(noCamera);
+      reader.decodeFromStream(s, video, (res) => { if (res && live()) finish(res.getText()); }).catch((e) => { if (live()) noCamera(e); });
     };
     $("#scRetry", d).onclick = () => start();
     $("#scSwitch", d).onclick = () => { const i = cams.findIndex((c) => c.deviceId === current); start(cams[(i + 1) % cams.length]?.deviceId); };
@@ -1216,7 +1283,7 @@
     if (!t) return;
     if (/#verify\//i.test(t)) { location.hash = "verify/" + encodeURIComponent(t.replace(/^.*#verify\//i, "")); return; }
     // 3.21: an employee ID card: whose it is and whether it is valid (its private code never goes into the address bar)
-    if (/^EMONID\|/i.test(t)) { if (E.showCardCheck) E.showCardCheck(t); return true; }
+    if (/^EMONID\|/i.test(t)) { window.EO.showCardCheck?.(t); return true; }
     const key = isCustKey(t);
     if (key || t.startsWith("EMONCUST|")) {
       const q = sb.from("customers").select("id");
@@ -1279,9 +1346,29 @@
     if (OPEN_TAB.i && b && !b.classList.contains("on")) b.click();
   }
   addEventListener("hashchange", () => { OPEN_TAB.key = ""; });
-  // For work that ends later (an upload): true while the person is still on the same page, so the page is drawn again
-  // only then (not over the page they went to).
-  const stillHere = () => { const h = location.hash; return () => location.hash === h; };
+  // For work that ends later (an upload, a page that loads): true while the person is still on the same page, so the
+  // page is drawn only then (not over the page they went to). 3.35: the same page opened again (the menu pressed again)
+  // counts as a new page, so the older drawing of it stops.
+  let navs = 0; // counted by the router
+  const stillHere = () => { const h = location.hash, n = navs; return () => location.hash === h && navs === n; };
+  // 3.35: for a list that loads again (a filter, a tab, a search): only the reply of its newest load is used, and only
+  // while its page is open; an older, slower reply is dropped. const fresh = loadGuard(); … const ok = fresh(); await …; if (!ok()) return;
+  function loadGuard() {
+    const here = stillHere();
+    let n = 0;
+    return () => { const me = ++n; return () => me === n && here(); };
+  }
+  // 3.35: every row of a list, also past the 1000 rows the server sends at once (the list is asked for in parts).
+  // make() builds the query again for each part; it must be ordered by something unique (an id last).
+  async function allRows(make, part = 1000) {
+    const rows = [];
+    for (let from = 0; ; from += part) {
+      const { data, error } = await make().range(from, from + part - 1);
+      if (error) return { data: rows, error };
+      rows.push(...(data || []));
+      if (!data || data.length < part) return { data: rows, error: null };
+    }
+  }
 
   // ---------- scanning (the E-Portal app for Windows) ----------
   // In the Windows app every document upload gets a Scan button: it opens the Windows scanner window, where the scanner
@@ -1307,7 +1394,7 @@
       if (!scanFits(inp)) continue;
       const wrap = document.createElement("span");
       wrap.className = "scan-wrap" + (inp.hidden ? " for-hidden" : "");
-      wrap.innerHTML = `<button type="button" class="btn scan-btn" title="Opens the Windows scanner window: choose the scanner, then press Scan there">${ic("doc")} ${esc(inp.dataset.scanLabel || "Scan")}</button>
+      wrap.innerHTML = `<button type="button" class="btn scan-btn" title="Opens the Windows scanner window: choose the scanner, then press Scan there">${ic("doc")} Scan</button>
         <span class="scan-prog" role="progressbar" aria-label="Scan" aria-valuemin="0" aria-valuemax="100" hidden>
           <span class="ring"><svg viewBox="0 0 40 40" aria-hidden="true"><circle class="rb" cx="20" cy="20" r="17"/><circle class="rf" cx="20" cy="20" r="17"
             stroke-dasharray="${RING.toFixed(2)}" stroke-dashoffset="${RING.toFixed(2)}"/></svg><b class="rp">0%</b><span class="rc">${ic("check")}</span></span>
@@ -1679,8 +1766,11 @@
     $("#fmSvfPrint").onclick = () => window.EO.openBlankSignatureForm();
     $("#fmJaPrint").onclick = () => window.EO.printBlankJobApp(); // 3.24
     $("#fmQcPrint").onclick = () => window.EO.printBlankQc(); // 3.33
+    const fresh = loadGuard();
     const load = async () => {
+      const ok = fresh();
       const { data, error } = await sb.from("forms").select("*").order("category").order("title");
+      if (!ok()) return;
       if (error) return fail(error, "Could not load forms");
       const rows = data || [];
       const cols = [
@@ -1711,10 +1801,10 @@
       e.preventDefault();
       const title = $("#fmTitle").value.trim(), category = $("#fmCat").value.trim() || "General";
       if (!title || !$("#fmFile").files[0]) return toast("Enter a title and choose a file.", true);
-      const file = await slimFile($("#fmFile").files[0]);
-      const path = `${Date.now()}_${file.name.replace(/[^\w.\-]+/g, "_")}`;
-      setBusy(e.target, true, "Uploading");
+      setBusy(e.target, true, "Uploading"); // 3.35: before the picture is made smaller, so a second press cannot upload it twice
       try {
+        const file = await slimFile($("#fmFile").files[0]);
+        const path = `${Date.now()}_${file.name.replace(/[^\w.\-]+/g, "_")}`;
         const up = await sb.storage.from("forms").upload(path, file, { contentType: file.type || "application/octet-stream" });
         if (up.error) return fail(up.error, "Upload failed");
         const { error } = await sb.from("forms").insert({ title, category, storage_path: path, file_name: file.name });
@@ -1734,10 +1824,13 @@
       </div></fieldset></div>
       <div id="uList">${busy()}</div>`,
       "Everyone who signed up. New sign-ups are <b>Pending</b> applicants. When you approve their job application under <b>Employee → Job Applications</b>, they can use the portal. You can also change an access level or status here, or <b>Delete</b> an account when the person asks for it (their request arrives in <b>Contact Messages</b>).");
+    const fresh = loadGuard();
     const load = async () => {
+      const ok = fresh();
       let q = sb.from("profiles").select("*").order("created_at", { ascending: false });
       if ($("#uStatus").value) q = q.eq("status", $("#uStatus").value);
       const [{ data, error }, { data: emps }] = await Promise.all([q, sb.from("employees").select("profile_id, position, employee_no, phone").not("profile_id", "is", null)]);
+      if (!ok()) return;
       const posOf = new Map((emps || []).map((e) => [e.profile_id, e.position]));
       const empOf = new Map((emps || []).map((e) => [e.profile_id, e]));
       if (error) return fail(error, "Could not load users");
@@ -1860,6 +1953,7 @@
     requestAnimationFrame(go);
   }
   async function route() {
+    navs++;
     const h = location.hash || "#dashboard";
     const back = trail.length > 1 && trail[trail.length - 2] === h;
     if (h !== shownHash) memoPage();
@@ -1882,6 +1976,7 @@
     const V = window.EO_VIEWS || {};
     if (!S.session) {
       stopTimers();
+      window.EO.closeChat?.();
       $$(".chat-panel").forEach((x) => x.remove());
       if (key === "verify" && V.verify) return V.verify(arg);
       if (key === "contact" && V.contact) return V.contact();
@@ -1946,7 +2041,7 @@
     APP, VERSION, sb, S, C, esc, peso, pad, num, fullName, qtyText, bdt, verifyUrl, isoToday, isoDay, mdy, stamp, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, 
-    drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, slimFile, scanDialog, openScanned, isCustKey, keepTab, stillHere,
+    drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, slimFile, scanDialog, openScanned, isCustKey, keepTab, stillHere, loadGuard, allRows,
     roleName, personTitle, publicUrl, logoHtml, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
     requestDeletion, TERMS, termsDue, changePassword: () => renderSetPassword(false)
   });

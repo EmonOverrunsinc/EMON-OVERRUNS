@@ -99,7 +99,12 @@
     if (f.type === "bool") return `<span>${esc(f.label)}</span><label class="sw"><input type="checkbox" id="${id}" ${v ? "checked" : ""}> Yes</label>`;
     const lab = `<label for="${id}">${esc(f.label)}</label>`;
     if (f.type === "textarea") return `${lab}<textarea id="${id}" rows="3">${esc(v ?? "")}</textarea>`;
-    if (f.type === "select") return `${lab}<select id="${id}">${f.opts.map(([k, l]) => `<option value="${k}" ${k === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+    if (f.type === "select") {
+      // 3.35: an empty value (or an old one not in the list) shows as it is, so Save does not change it by itself
+      const blank = v == null || v === "", known = f.opts.some(([k]) => k === v);
+      const keep = blank ? `<option value="" selected>—</option>` : known ? "" : `<option value="${esc(v)}" selected>${esc(v)}</option>`;
+      return `${lab}<select id="${id}">${keep}${f.opts.map(([k, l]) => `<option value="${k}" ${k === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+    }
     // 2.4: the Terms of Payment of an invoice: the usual terms, or other terms typed in
     if (f.type === "terms") {
       const other = !!v && !E.TERMS.includes(v);
@@ -188,7 +193,7 @@
     const admin = isAdmin();
     const fix = !!FIELDS[table] && !opts.noFix, del = admin && DELETABLE.includes(table);
     if (!fix && !del) return "";
-    if (RT.size > 300) RT.clear();
+    if (RT.size > 2000) RT.delete(RT.keys().next().value); // 3.35: the oldest goes (never the buttons of the page being drawn)
     const id = "rt" + Math.random().toString(36).slice(2, 9);
     RT.set(id, { table, row, label, ...opts });
     const fixLabel = table === "customers" && S.mainDirector ? "Edit Customer" : correctsAtOnce(table) ? "Edit" : "Request Correction";
@@ -218,11 +223,13 @@
       <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="log">Change Log</button></div>
       <div id="crRes">${busy()}</div>`,
       "Employees send <b>corrections</b> (wrong details) here. <b>Approve</b> puts the new details on the record; <b>Reject</b> leaves the record as it is. Either way the person who asked is told, with your name, and the correction is removed: the record keeps only a line naming the details changed and that you approved them (no old details). You edit records yourself with <b>Edit</b>: the record changes straight away. A customer's details are changed by the main Director only (<b>Edit Customer</b> on the customer).");
+    const fresh = E.loadGuard();
     const run = async (f) => {
+      const ok = fresh(); // 3.35: the tab chosen last wins
       $("#crRes").innerHTML = busy();
       if (f === "log") {
         const { data, error } = await sb.from("record_changes").select("*").order("created_at", { ascending: false }).limit(500);
-        if (!$("#crRes")) return; // another page was opened meanwhile
+        if (!ok()) return; // another tab or page was opened meanwhile
         if (error) return fail(error, "Could not load the change log");
         const rows = data || [];
         $("#crRes").innerHTML = E.grid({ cols: [
@@ -235,7 +242,7 @@
       // a decided correction is removed (2.2): only the ones waiting are here
       const q = sb.from("change_requests").select("*").eq("status", "pending").order("created_at", { ascending: false }).limit(300);
       const { data, error } = await q;
-      if (!$("#crRes")) return; // another page was opened meanwhile
+      if (!ok()) return; // another tab or page was opened meanwhile
       if (error) return fail(error, "Could not load corrections");
       const rows = data || [];
       $("#crRes").innerHTML = rows.length ? rows.map((r) => `<article class="cr-card st-${esc(r.status)}">
@@ -544,11 +551,14 @@
       <div class="tabs" id="ctF"><button type="button" class="on" data-f="new">New</button><button type="button" data-f="replied">Replied</button><button type="button" data-f="">All</button></div>
       <div id="ctRes">${busy()}</div>`,
       "Messages sent with <b>Contact Us</b> on the sign-in page, each with its reference number. Reply the way the person asked (press the email, number or Facebook link), then press <b>Mark Replied</b>.");
+    const fresh = E.loadGuard();
     const run = async (f) => {
+      const ok = fresh(); // 3.35: the tab chosen last wins
       $("#ctRes").innerHTML = busy();
       let q = sb.from("contact_messages").select("*").order("created_at", { ascending: false }).limit(500);
       if (f) q = q.eq("status", f);
       const { data, error } = await q;
+      if (!ok()) return;
       if (error) return fail(error, "Could not load the messages");
       const rows = data || [];
       $("#ctRes").innerHTML = rows.length ? rows.map((m) => `<article class="cr-card ct-card ${m.status === "replied" ? "st-approved" : ""}">
@@ -607,7 +617,7 @@
     p.classList.remove("open");
     document.removeEventListener("keydown", chatKey);
     CH.closing = setTimeout(() => p.remove(), 320);
-    E.refreshBadge();
+    if (E.S.session) E.refreshBadge();
   }
   async function loadContacts() {
     const { data, error } = await sb.rpc("chat_contacts");
@@ -651,12 +661,14 @@
     if (!other) return;
     let q = sb.from("messages").select("*").or(`and(sender_id.eq.${me},recipient_id.eq.${other}),and(sender_id.eq.${other},recipient_id.eq.${me})`).order("created_at", { ascending: true });
     const last = CH.msgs[CH.msgs.length - 1];
-    if (!full && last) q = q.gt("created_at", last.created_at); else q = q.limit(300);
+    // 3.35: the last 2 minutes are asked again, so a message sent at the same moment as the last one shown (saved a
+    // moment earlier, but stored a moment later) still comes; each message shows once, in time order
+    if (!full && last) q = q.gt("created_at", new Date(new Date(last.created_at).getTime() - 120000).toISOString()); else q = q.limit(300);
     const { data, error } = await q;
     if (error || other !== CH.other) return;
     const fresh = (data || []).filter((m) => !CH.msgs.some((x) => x.id === m.id));
     if (!full && !fresh.length) return;
-    CH.msgs = full ? data || [] : CH.msgs.concat(fresh);
+    CH.msgs = full ? data || [] : CH.msgs.concat(fresh).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
     if (CH.msgs.some((m) => m.sender_id === other && !m.read_at)) {
       sb.rpc("mark_messages_read", { p_other: other }).then(() => { E.refreshBadge(); }, () => {});
       const c = CH.contacts.find((x) => x.id === other);
@@ -666,16 +678,22 @@
   }
   // the time under a message, and for my own messages Sent or Seen
   const msgFoot = (m, me) => `${esc(new Date(m.created_at).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }))}${m.sender_id === me ? (m.read_at ? ` · <b class="cv-seen">✓✓ Seen</b>` : " · ✓ Sent") : ""}`;
+  // 3.35: the address of each file in the chat is kept for 50 minutes (it is valid for an hour), so a new message does
+  // not load every photo again; the chat stays where it was read unless the newest message was in view
+  const chatUrls = new Map(); // path → { url, at }
   async function renderMessages() {
+    const old = Date.now() - 50 * 60e3;
+    const want = [...new Set(CH.msgs.map((m) => m.file_path).filter((p) => p && !(chatUrls.get(p)?.at > old)))];
+    if (want.length) (await signedMap(want)).forEach((url, p) => chatUrls.set(p, { url, at: Date.now() }));
     const box = $("#cvMsgs"); if (!box) return;
-    const urls = await signedMap(CH.msgs.filter((m) => m.file_path).map((m) => m.file_path));
+    const atEnd = !box.querySelector(".cv-msg") || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
     const me = meId();
     let lastDay = "";
     box.innerHTML = CH.msgs.length ? CH.msgs.map((m) => {
       const day = new Date(m.created_at).toDateString();
       const sep = day !== lastDay ? `<div class="cv-day">${esc(E.mdy(m.created_at))}</div>` : "";
       lastDay = day;
-      const u = m.file_path ? urls.get(m.file_path) : "";
+      const u = m.file_path ? chatUrls.get(m.file_path)?.url || "" : "";
       const isImg = /^image\//.test(m.file_mime || "");
       const file = m.file_path ? (isImg && u ? `<button type="button" class="cv-img" data-img="${esc(u)}"><img src="${esc(u)}" alt="${esc(m.file_name || "Photo")}" loading="lazy"></button>`
         : `<a class="cv-file" href="${esc(u || "#")}" target="_blank" rel="noopener" download="${esc(m.file_name || "file")}">${ic("doc")} ${esc(m.file_name || "Document")}</a>`) : "";
@@ -683,7 +701,7 @@
         <small>${msgFoot(m, me)}</small></div>`;
     }).join("") : `<div class="cp-empty small"><p>No messages yet. Say hello!</p></div>`;
     $$("[data-img]", box).forEach((b) => (b.onclick = () => lightbox(b.dataset.img)));
-    box.scrollTop = box.scrollHeight;
+    if (atEnd) box.scrollTop = box.scrollHeight;
   }
   async function sendMessage(file) {
     const other = CH.other; if (!other || CH.busy) return;
@@ -706,6 +724,7 @@
     if (error) return fail(error, "Could not send the message");
     if (!file && input) input.value = "";
     await loadMessages(false);
+    const box = $("#cvMsgs"); if (box) box.scrollTop = box.scrollHeight; // a message just sent is always in view
   }
   // 3.31: "Seen" shows by itself when the other person reads a message (not only after opening the chat again)
   async function refreshSeen() {

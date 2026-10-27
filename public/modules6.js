@@ -105,8 +105,14 @@
           $("#qcGrid").innerHTML = E.grid({ cols: qcCols, rows: shown, onRow: true, empty: w ? "No QC test matches that." : "No QC tests yet." });
           E.bindGrid($("#qcGrid"), shown, (r) => (location.hash = "qc/" + r.id));
         };
-        $("#qcFind").oninput = paint;
-        $("#qcFind").onkeydown = (e) => { if (e.key === "Enter" && shown.length === 1) { e.preventDefault(); location.hash = "qc/" + shown[0].id; } };
+        // 3.35: a long list is drawn once typing pauses; Enter (a barcode scanner ends with it) draws it at once
+        let timer = null;
+        $("#qcFind").oninput = () => { clearTimeout(timer); if (tests.length > 300) timer = setTimeout(paint, 120); else paint(); };
+        $("#qcFind").onkeydown = (e) => {
+          if (e.key !== "Enter") return;
+          clearTimeout(timer); paint();
+          if (shown.length === 1) { e.preventDefault(); location.hash = "qc/" + shown[0].id; }
+        };
         $("#qcScan").onclick = () => E.scanDialog((text) => E.openScanned(text));
         $("#qcPlain").onclick = printBlankQc;
         paint();
