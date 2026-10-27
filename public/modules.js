@@ -244,7 +244,7 @@
       <div class="dc-act">${f ? `<button type="button" class="btn primary" data-dc-view="${esc(key)}">${ic("eye")} View</button>${rmBtn(f)}` : ""}
         ${wait ? `<button type="button" class="btn" data-dc-viewp="${esc(key)}">${ic("eye")} View Update</button>
           ${isAdmin() ? `<button type="button" class="btn ok" data-dc-ok="${esc(wait.id)}">${ic("check")} Approve</button><button type="button" class="btn danger" data-dc-no="${esc(wait.id)}">${ic("x")} Reject</button>` : ""}` : ""}
-        ${mayUpdate ? `<label class="btn${f ? "" : " primary"}" for="${upId}"${window.EOApp ? " hidden" : ""}>${ic("upload")} ${f ? "Update" : esc(addLabel)}</label>
+        ${mayUpdate ? `<label class="btn${f ? "" : " primary"}" for="${upId}">${ic("upload")} ${f ? "Update" : esc(addLabel)}</label>
           <input type="file" id="${upId}" hidden accept="image/*,application/pdf" data-save-now data-dc-up="${esc(key)}" data-owner="${esc(ownerType)}" data-id="${esc(ownerId)}"${f ? ' data-scan-label="Update"' : ""}>` : ""}
       </div></div>`;
   }
@@ -902,7 +902,7 @@
       <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", tag: "System Generated", sub: `${c.application_no} · made by the E-Portal · print it for the customer to sign`, ownerType: "customer", ownerId: c.id, att, kind: "__system", canUpload: false, print: () => printApplication(c),
         approved: isApprovedAccount(c) ? (() => { const a = [...(ev.data || [])].reverse().find((x) => x.action === "approve"); return { name: a?.actor_name || "", at: a?.created_at || c.reviewed_at }; })() : null })}
         ${signed.length ? "" : copyCard({ key: "appcopy", title: "Customer Application Form", tag: "Signed Paper Copy", sub: "Scan or upload the form signed by the customer", ownerType: "customer", ownerId: c.id, att, kind: "signed_form", kinds: ["signed_form", "application"], canUpload: isStaff() && c.status !== "closed" })}</div>
-      ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed) : ""}
+      ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed, att.length) : ""}
       <div class="tabs" id="pfTabs">${tabs.map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes">
         <div data-p="0">${detailsTable(c, b)}${rhBox("customers", c.id)}</div>
@@ -1021,20 +1021,29 @@
     toast(`Location: ${LOCATION[loc]}.`);
     V.customer(c.id);
   }
-  function reviewPanel(c, signed) {
+  // 3.33: the Director sees all the data of the application, checks the records (verification), then approves or rejects.
+  // The signed paper form is not needed to approve; it can still be scanned or uploaded on the Signed Paper Copy card.
+  function reviewPanel(c, signed, nDocs) {
+    const facts = [["Name", fullName(c)], ["Phone", c.phone], ["Email", c.email], ["Full Address", c.address],
+      ["Business Name", c.business_name], ["Business Start Date", mdy(c.business_start_date)], ["Facebook Name", c.facebook_name],
+      ["Facebook Account Link", c.facebook_link, fbLinkHtml(c.facebook_link)], ["Additional Facebook", c.has_extra_facebook ? "Yes — " + (c.extra_facebook_name || "") : "No"],
+      ["Credit Limit", c.credit_limit != null ? "₱ " + peso(c.credit_limit) : ""], ["Opening Balance", "₱ " + peso(c.opening_balance)],
+      ["Application Date", mdy(c.application_date)], ["Issued By", c.issued_by_name]];
+    const verified = c.status === "verified";
     return `<fieldset class="opt review"><legend>Director's Review — ${esc(c.application_no)}</legend>
       <ol class="steps">
+        <li><b>Application details:</b> everything written on the customer application form.
+          <div class="rv-facts">${facts.map(([k, v, html]) => `<div><small>${esc(k)}</small><b>${html || esc(v || "—")}</b></div>`).join("")}</div>
+          ${nDocs ? `<button type="button" class="btn small" id="rvDocs">${ic("doc")} Documents (${nDocs})</button>` : ""}</li>
         <li><b>Check records:</b> look for the same name, Facebook name or Facebook link in other accounts. A person whose account was CLOSED, or whose Facebook link is already on another account, cannot open an account.
           <div class="btnrow"><button type="button" class="btn primary" id="rvCheck">Check &amp; Verify</button>
           <button type="button" class="btn" id="rvFb">${c.facebook_verified ? "Mark Facebook NOT verified" : "Mark Facebook verified"}</button>
-          ${locSelect(c, "rvLoc")}</div><div id="rvResult">${c.status === "verified" ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
-        <li><b>Application form signed by the customer:</b> ${signed.length ? `<span class="ok-txt">✔ Uploaded.</span>`
-          : `<span class="bad-txt">not uploaded yet.</span> Print the form from the <b>System Generated</b> card above, have the customer sign it, then scan or upload it on the <b>Signed Paper Copy</b> card.`}
-          You do not sign it by hand: your signature is printed on the form when you approve.</li>
+          ${locSelect(c, "rvLoc")}</div><div id="rvResult">${verified ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
         <li><b>Decide:</b>
           <div class="fields wide"><label for="rvNote">Note</label><input type="text" id="rvNote" placeholder="Optional note (shown in history)"></div>
-          <div class="btnrow"><button type="button" class="btn ok" id="rvApprove" ${signed.length ? "" : "disabled title=\"Upload the signed application form first\""}>Approve — Activate Account</button>
-          <button type="button" class="btn danger" id="rvReject">Reject</button></div></li>
+          <div class="btnrow"><button type="button" class="btn ok" id="rvApprove"${verified ? "" : ' disabled title="Press Check &amp; Verify first"'}>Approve — Activate Account</button>
+          <button type="button" class="btn danger" id="rvReject">Reject</button>${verified ? "" : `<small class="muted" id="rvFirst">Press <b>Check &amp; Verify</b> first.</small>`}</div>
+          <small class="muted">The signed paper form is not needed to approve${signed.length ? " (it is on file)" : "; you can still scan or upload it on the Signed Paper Copy card"}. Your signature is printed on the form when you approve.</small></li>
       </ol></fieldset>`;
   }
   function bindReview(c) {
@@ -1044,10 +1053,14 @@
       const { data, error } = await sb.rpc("customer_duplicates", { p_id: c.id });
       if (error) { out.innerHTML = ""; return fail(error, "Could not check records"); }
       const verify = async () => {
-        if (c.status === "verified") return;
-        const r = await sb.rpc("customer_action", { p_id: c.id, p_action: "verify", p_note: null });
-        if (r.error) return fail(r.error, "Could not verify");
-        c.status = "verified"; toast("Verification successful.");
+        if (c.status !== "verified") {
+          const r = await sb.rpc("customer_action", { p_id: c.id, p_action: "verify", p_note: null });
+          if (r.error) return fail(r.error, "Could not verify");
+          c.status = "verified"; toast("Verification successful.");
+        }
+        // 3.33: verified, so the account can be approved now
+        const ap = $("#rvApprove"); if (ap) { ap.disabled = false; ap.removeAttribute("title"); }
+        $("#rvFirst")?.remove();
       };
       if (!data.length) {
         out.innerHTML = `<div class="addr-msg ok">✔ VERIFICATION SUCCESSFUL — no matching record found.</div>`;
@@ -1068,6 +1081,7 @@
       if (r.error) return fail(r.error, "Could not update"); V.customer(c.id);
     };
     $("#rvLoc").onchange = (e) => setLocation(c, e.target.value);
+    if ($("#rvDocs")) $("#rvDocs").onclick = () => { const t = $$("#pfTabs button").find((b) => /^Documents/.test(b.textContent)); if (t) { t.click(); t.scrollIntoView({ block: "center" }); } };
     const act = async (a) => {
       const r = await sb.rpc("customer_action", { p_id: c.id, p_action: a, p_note: $("#rvNote").value.trim() || null });
       if (r.error) return fail(r.error, "Could not update the account");
