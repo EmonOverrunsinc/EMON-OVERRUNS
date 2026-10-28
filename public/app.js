@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.36";
+  const VERSION = "3.38";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.36.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.38.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -150,7 +150,8 @@
     folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
     building: '<rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M10 21v-3h4v3"/>',
     stamp: '<path d="M9 3h6l-1 7h-4z"/><path d="M5 14h14v3H5zM4 21h16"/>',
-    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+    ai: '<circle cx="5" cy="6.5" r="2"/><circle cx="5" cy="17.5" r="2"/><circle cx="12" cy="12" r="2.2"/><circle cx="19" cy="6.5" r="2"/><circle cx="19" cy="17.5" r="2"/><path d="m6.8 7.6 3.4 3.2M6.8 16.4l3.4-3.2M13.8 10.8l3.4-3.2M13.8 13.2l3.4 3.2"/>'
   };
   const ic = (name, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
@@ -957,7 +958,8 @@
     billing: "billing", newpaycompany: "billing", paycompany: "billing", newvoucher: "billing", voucher: "billing", ebill: ["billing", "inventory"],
     inventory: "inventory", newstockbill: "inventory", stockbill: "inventory",
     eooffice: EO_MODULES, newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice",
-    purchase: "purchase", newpurchase: "purchase", po: "purchase", editpo: "purchase" // 3.31: its own menu access
+    purchase: "purchase", newpurchase: "purchase", po: "purchase", editpo: "purchase", // 3.31: its own menu access
+    custorders: "eooffice", newcustorder: "eooffice", editcustorder: "eooffice", custorder: ["eooffice", "customers"] // 3.37: Customer Order (an order opens from the customer's profile too)
   };
   // Admins see everything; NULL modules = all (older accounts).
   // 3.31: Employees, Payroll and Job Applications come with EO-Office (there is no Employee (HR) access any more)
@@ -970,9 +972,10 @@
     ["changes", "Corrections", () => isAdmin(), "edit"],
     ["contacts", "Contact Messages", () => isAdmin(), "mail"],
     ["logins", "Login Accounts", () => isAdmin(), "key"],
-    ["forms", "Download Forms", () => true, "download"]
+    ["forms", "Download Forms", () => true, "download"],
+    ["gateai", "Gate Pass AI", () => isAdmin(), "ai"] // 3.38
   ];
-  const ACTIVE_OF = { employees: "eooffice", newemployee: "eooffice", editemployee: "eooffice", employee: "eooffice", payroll: "eooffice", payslip: "eooffice", creditmemos: "eooffice", newcreditmemo: "eooffice", creditmemo: "eooffice", projects: "eooffice", newproject: "eooffice", project: "eooffice", jobapps: "eooffice", jobapp: "eooffice", positions: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", ebill: "inventory", find: "", profile: "", settings: "" };
+  const ACTIVE_OF = { employees: "eooffice", newemployee: "eooffice", editemployee: "eooffice", employee: "eooffice", payroll: "eooffice", payslip: "eooffice", creditmemos: "eooffice", newcreditmemo: "eooffice", creditmemo: "eooffice", projects: "eooffice", newproject: "eooffice", project: "eooffice", jobapps: "eooffice", jobapp: "eooffice", positions: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", ebill: "inventory", custorders: "eooffice", newcustorder: "eooffice", editcustorder: "eooffice", custorder: "eooffice", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
   const ALIAS = { users: "employees", userres: "employees", resolutions: "purchase", resolution: "purchase", community: "purchase", orders: "dashboard", neworder: "dashboard", editorder: "dashboard", verification: "verify", supplier: "billing", newsupplier: "billing", search: "dashboard" };
   const avatarUrl = () => publicUrl("avatars", S.profile?.avatar_path);
@@ -1225,8 +1228,11 @@
     stream.backFailed = true;
     return stream;
   }
-  function scanDialog(onText, { title = "Scan QR Code / Barcode", hint = "Point the camera at the QR code or barcode.", photo = true } = {}) {
+  // 3.37 keep: the camera stays open and every new code is given at once (the boxes of an order, one after another); what
+  // onText gives back shows under the picture, and a code read before is not given again. onClose: when the scanner closes.
+  function scanDialog(onText, { title = "Scan QR Code / Barcode", hint = "Point the camera at the QR code or barcode.", photo = true, keep = false, onClose = null } = {}) {
     let reader = null, stream = null, run = 0, done = false;
+    const seen = new Set();
     // 3.35: one camera at a time: Try Again, Switch Camera and Close first stop the camera in use (also one still starting)
     const stop = () => {
       run++;
@@ -1240,10 +1246,17 @@
       `${photo ? `<label class="btn" for="scImg">${ic("image")} Use a Photo</label>` : ""}<input type="file" id="scImg" accept="image/*" hidden>
       <button type="button" class="btn" id="scSwitch" hidden>Switch Camera</button><button type="button" class="btn" id="scRetry" hidden>Try Again</button><label class="btn primary" for="scCap" id="scCapL" hidden>${ic("camera")} Open Camera</label><input type="file" id="scCap" accept="image/*" capture="environment" hidden>
       <button type="button" class="btn" data-close>Close</button>`,
-      { cls: "scan-modal", onClose: stop });
+      { cls: "scan-modal", onClose: () => { stop(); if (onClose) onClose(); } });
     const d = m.el;
     const msg = (t) => { const el = $("#scMsg", d); if (el) el.textContent = t; };
-    const finish = (text) => { if (done) return; done = true; m.close(); onText(text); };
+    const finish = (text) => {
+      if (done) return;
+      if (!keep) { done = true; m.close(); onText(text); return; }
+      if (seen.has(text)) return;
+      seen.add(text);
+      try { navigator.vibrate?.(60); } catch (_) {}
+      Promise.resolve(onText(text)).then((note) => { if (note && d.isConnected) msg(note); }, (e) => { if (d.isConnected) msg(e?.message || String(e)); });
+    };
     $("[data-close]", d).onclick = m.close;
     $("#scImg", d).onchange = $("#scCap", d).onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
@@ -1283,7 +1296,7 @@
         const look = async () => {
           if (!live()) return;
           if (video.readyState >= 2) {
-            try { const [code] = await det.detect(video); if (code?.rawValue && live()) return finish(code.rawValue); }
+            try { const [code] = await det.detect(video); if (code?.rawValue && live()) { finish(code.rawValue); if (!keep) return; } }
             catch (_) { /* the next picture */ }
           }
           setTimeout(look, 80);
@@ -1317,6 +1330,9 @@
       if (data && canOpen("customer")) { location.hash = "customer/" + data.id; return; }
       if (key) { location.hash = "verify/" + encodeURIComponent(t); return; }
     }
+    // 3.37: a customer order's barcode opens that order
+    const co = /^EMONCO\|(CO-\d{6}-\d+)/i.exec(t);
+    if (co && canOpen("custorder")) { location.hash = "custorder/" + co[1].toUpperCase(); return true; }
     // 3.1: a QC form barcode opens that QC form
     const qc = /^EMONQCK?\|(QC-\d{4}-\d+)/i.exec(t);
     if (qc && canOpen("qc")) {
