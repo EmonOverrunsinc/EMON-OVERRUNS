@@ -24,6 +24,8 @@
   const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
   const days = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 864e5);
   const dayOf = (ts) => (ts ? isoDay(new Date(ts)) : null);
+  // how sure, in %: never shown as 100% (it only gives an idea)
+  const surePct = (v) => Math.min(99, Math.round(v * 100));
 
   // ======================================================================
   // The record of a customer as it was on day t, and the 12 inputs made from it
@@ -94,9 +96,12 @@
   function forward(m, x) {
     const z = m.mean.map((mu, j) => (x[j] - mu) / m.std[j]);
     const h = m.W1.map((row, i) => Math.tanh(row.reduce((s, w, j) => s + w * z[j], m.b1[i])));
-    return { z, h, p: sigmoid(h.reduce((s, v, i) => s + v * m.W2[i], m.b2)) };
+    const s = h.reduce((t, v, i) => t + v * m.W2[i], m.b2);
+    return { z, h, s, p: sigmoid(s) };
   }
   const predict = (m, x) => forward(m, x).p;
+  // the score before the sigmoid (how strongly it leans to CLEAR): it still moves when the network is very sure
+  const score = (m, x) => forward(m, x).s;
   async function train(X, y, w, { epochs = X.length > 2000 ? 400 : 900, lr = 0.02, l2 = 2e-3, seed = 20261028, onEpoch } = {}) {
     const n = X.length, d = X[0].length, rnd = seeded(seed);
     const mean = Array.from({ length: d }, (_, j) => X.reduce((s, x) => s + x[j], 0) / n);
@@ -240,8 +245,8 @@
       case "age": return `Business with us ${r.months} month${r.months === 1 ? "" : "s"}`;
       case "invoices": return `${r.nInv} invoice${r.nInv === 1 ? "" : "s"} so far`;
       case "overdue": return r.nOver ? `${r.nOver} overdue invoice${r.nOver === 1 ? "" : "s"} (₱ ${peso(r.overAmt)})` : "No overdue invoice";
-      case "overdueShare": return r.nOver ? `${pct(r.overAmt / Math.max(r.invoiced, 1))} of all invoiced is overdue` : "Nothing invoiced is overdue";
-      case "oldest": return r.nOver ? `The oldest overdue is ${r.oldest} day${r.oldest === 1 ? "" : "s"} late` : "Nothing late";
+      case "overdueShare": return r.nOver ? `${pct(r.overAmt / Math.max(r.invoiced, 1))} of all invoiced is overdue` : "No overdue invoice";
+      case "oldest": return r.nOver ? `The oldest overdue is ${r.oldest} day${r.oldest === 1 ? "" : "s"} late` : "No overdue invoice";
       case "balance": return r.limit != null ? `Balance ₱ ${peso(r.bal)} is ${r.limit > 0 ? pct(r.bal / r.limit) : "over"} of the credit limit ₱ ${peso(r.limit)}` : `Balance ₱ ${peso(r.bal)} (no credit limit)`;
       case "lastPay": return r.lastPay ? `Last payment ${r.sinceLast} day${r.sinceLast === 1 ? "" : "s"} ago (${mdy(r.lastPay)})` : "No payment yet";
       case "onTime": return r.paidN ? `${pct(r.onTime / r.paidN)} of paid invoices were paid on time (${r.onTime} of ${r.paidN})` : "No invoice paid yet";
@@ -254,13 +259,16 @@
   }
   function idea(model, c, recs) {
     const r = recordAt(c, recs, isoToday()), x = inputs(r), p = predict(model, x), clear = p >= 0.5;
-    // what moves the idea most: the inputs that would most raise CLEAR if they were at their best (for HOLD), or most lower it
-    // if they were at their worst (for CLEAR)
-    const pushes = FEATURES.map(([k], j) => {
-      const alt = x.slice(); alt[j] = clear ? BAD[j] : GOOD[j];
-      return { k, effect: clear ? p - predict(model, alt) : predict(model, alt) - p };
-    }).filter((f) => f.effect > 0.02).sort((a, b) => b.effect - a.effect).slice(0, 3);
-    return { p, clear, sure: clear ? p : 1 - p, reasons: pushes.map((f) => said(f.k, r)), rule: ruleClear(r), record: r };
+    // why: how much each input moves the score, seen two ways and averaged: this customer with that one input at its best (for
+    // HOLD) or worst (for CLEAR), and the best (or worst) customer with this customer's value of that input. On the score, not
+    // on how sure it is, so a reason still shows when it is very sure.
+    const far = clear ? BAD : GOOD, sign = clear ? -1 : 1, s = score(model, x), sFar = score(model, far);
+    const with1 = (base, j, v) => { const a = base.slice(); a[j] = v; return a; };
+    const pushes = FEATURES.map(([k], j) => ({ k, effect: sign * (score(model, with1(x, j, far[j])) - s + sFar - score(model, with1(far, j, x[j]))) / 2 }))
+      .filter((f) => f.effect > 0).sort((a, b) => b.effect - a.effect);
+    const strong = pushes.filter((f) => f.effect > 0.1);
+    const reasons = [...new Set((strong.length ? strong : pushes).map((f) => said(f.k, r)))].slice(0, 3);
+    return { p, clear, sure: clear ? p : 1 - p, reasons, rule: ruleClear(r), record: r };
   }
 
   // The AI box in the Gate Pass window: CLEAR or HOLD, how sure, why; the idea is kept to be written with the decision.
@@ -274,7 +282,7 @@
     const d = idea(cur.model, c, recs);
     last.set(c.id, { row: cur.row, idea: d });
     return `<div class="ai-box ${d.clear ? "clear" : "hold"}"><span class="ai-ic">${ic("ai")}</span><div>
-      <b>AI SUGGESTS: ${d.clear ? "CLEAR" : "HOLD"}</b> <span class="ai-sure">${Math.round(d.sure * 100)}% sure</span>
+      <b>AI SUGGESTS: ${d.clear ? "CLEAR" : "HOLD"}</b> <span class="ai-sure">${surePct(d.sure)}% sure</span>
       ${d.reasons.length ? `<ul>${d.reasons.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
       <small>Learned ${esc(mdy(cur.row.created_at))} from ${cur.row.samples} records and ${cur.row.decisions} Director decision${cur.row.decisions === 1 ? "" : "s"}. The AI only gives an idea; the Director decides.</small></div></div>`;
   }
@@ -316,7 +324,7 @@
       <h3 class="sec">Every Open Customer Today</h3><div id="aiNow">${top ? busy("The AI is reading every customer") : `<div class="empty">The AI has not learned yet. Press <b>Learn Now</b>.</div>`}</div>
       <h3 class="sec">Suggestions and Decisions</h3>
       ${E.grid({ cols: [{ label: "Date / Time", get: (x) => E.dateTime(x.created_at) }, { label: "Customer", html: (x) => `<b>${esc(fullName(x.customers || {}))}</b> <small class="mono">${esc(x.customers?.account_no || "")}</small>` },
-        { label: "AI Idea", html: (x) => `${E.pill(x.suggestion === "CLEAR" ? "approved" : "rejected", x.suggestion)} <small>${Math.round((x.suggestion === "CLEAR" ? num(x.p_clear) : 1 - num(x.p_clear)) * 100)}%</small>` },
+        { label: "AI Idea", html: (x) => `${E.pill(x.suggestion === "CLEAR" ? "approved" : "rejected", x.suggestion)} <small>${surePct(x.suggestion === "CLEAR" ? num(x.p_clear) : 1 - num(x.p_clear))}%</small>` },
         { label: "Decision", html: (x) => (x.decision ? E.pill(x.decision === "CLEAR" ? "approved" : "rejected", x.decision) : "") }, { label: "Agreed", get: (x) => (x.decision ? (x.decision === x.suggestion ? "✔" : "✖") : "") },
         { label: "By", get: (x) => x.decided_by_name || "" }], rows: lg, empty: "No gate pass decided with the AI's idea yet." })}
       <h3 class="sec">The AI's Folder on the Server</h3>
@@ -345,7 +353,7 @@
       if (!here() || !$("#aiNow")) return;
       const list = all.cust.filter((c) => c.status === "active").map((c) => ({ c, d: idea(cur.model, c, recsOf(all, c.id)) })).sort((a, b) => a.d.p - b.d.p);
       $("#aiNow").innerHTML = E.grid({ cols: [{ label: "Customer", html: (x) => `<b>${esc(fullName(x.c))}</b> <small class="mono">${esc(x.c.account_no || "")}</small>` },
-        { label: "AI Idea", html: (x) => `${E.pill(x.d.clear ? "approved" : "rejected", x.d.clear ? "CLEAR" : "HOLD")} <small>${Math.round(x.d.sure * 100)}%</small>` },
+        { label: "AI Idea", html: (x) => `${E.pill(x.d.clear ? "approved" : "rejected", x.d.clear ? "CLEAR" : "HOLD")} <small>${surePct(x.d.sure)}%</small>` },
         { label: "Why", get: (x) => x.d.reasons[0] || "" }, { label: "Portal Rule", get: (x) => (x.d.rule ? "CLEAR" : "NOT CLEARED") }], rows: list, onRow: true, empty: "No open customer." });
       E.bindGrid($("#aiNow"), list, (x) => (location.hash = "customer/" + x.c.id));
     } catch (err) { if ($("#aiNow")) $("#aiNow").innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
