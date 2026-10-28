@@ -16,7 +16,7 @@
   const V = window.EO_VIEWS;
   const BUCKET = "ai", FOLDER = "gate-pass";
   const notSet = (e) => ["PGRST205", "PGRST202", "42P01"].includes(e?.code) || /ai_models|ai_gate_log|schema cache|Bucket not found/i.test(e?.message || "");
-  const needUpdate = `<div class="empty">EVA needs the database update <b>RUN_041_TO_046.sql</b>. Run it in the Supabase SQL Editor.</div>`;
+  const needUpdate = `<div class="empty">EVA AI needs the database update <b>RUN_041_TO_046.sql</b>. Run it in the Supabase SQL Editor.</div>`;
   // the 14 inputs: [key, what it means]; each is scaled to 0 … 1
   const FEATURES = [["age", "Business with us"], ["invoices", "Invoices"], ["overdue", "Overdue invoices"], ["overdueShare", "Overdue part of all invoiced"],
     ["oldest", "Oldest overdue"], ["balance", "Balance against the credit limit"], ["lastPay", "Days since the last payment"], ["onTime", "Invoices paid on time"],
@@ -331,15 +331,15 @@
   async function box(c, ctx) {
     let cur;
     try { cur = await current(); }
-    catch (e) { return notSet(e) ? "" : `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>EVA</b><small>Could not be read: ${esc(e.message)}</small></div></div>`; }
-    if (!cur.model) return `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>EVA</b><small>${cur.old ? "It reads more of your records now and must learn again." : "It has not learned yet."} ${isAdmin() ? `Open <a href="#gateai">EVA AI</a> and press <b>Learn Now</b>.` : "The Director makes it learn on the EVA AI page."}</small></div></div>`;
+    catch (e) { return notSet(e) ? "" : `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>EVA AI</b><small>Could not be read: ${esc(e.message)}</small></div></div>`; }
+    if (!cur.model) return `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>EVA AI</b><small>${cur.old ? "It reads more of your records now and must learn again." : "It has not learned yet."} ${isAdmin() ? `Open <a href="#gateai">EVA AI</a> and press <b>Learn Now</b>.` : "The Director makes it learn on the EVA AI page."}</small></div></div>`;
     // the customer's orders still open (the rest comes with the customer's page)
     const co = await sb.from("customer_orders").select("id, status, total_amount, created_at, completed_at, cancelled_at").eq("customer_id", c.id).then((r) => r.data || [], () => []);
     const recs = { invs: ctx.invs || [], pays: ctx.pays || [], memos: ctx.memos || [], letters: ctx.orders || [], corders: co };
     const d = idea(cur.model, c, recs);
     last.set(c.id, { row: cur.row, idea: d });
     return `<div class="ai-box ${d.clear ? "clear" : "hold"}"><span class="ai-ic">${ic("ai")}</span><div>
-      <b>EVA SUGGESTS: ${d.clear ? "CLEAR" : "HOLD"}</b> <span class="ai-sure">${surePct(d.sure)}% sure</span>
+      <b>EVA AI SUGGESTS: ${d.clear ? "CLEAR" : "HOLD"}</b> <span class="ai-sure">${surePct(d.sure)}% sure</span>
       ${d.reasons.length ? `<ul>${d.reasons.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
       <small>Learned ${esc(mdy(cur.row.created_at))} from ${cur.row.samples} records and ${cur.row.decisions} Director decision${cur.row.decisions === 1 ? "" : "s"}. The AI only gives an idea; the Director decides.</small></div></div>`;
   }
@@ -368,8 +368,8 @@
     const v = vers.data || [], lg = logs.data || [], top = v[0];
     const decided = lg.filter((x) => x.decision), agreed = decided.filter((x) => x.decision === x.suggestion).length;
     $("#aiBody").innerHTML = `
-      <section class="ai-hero"><span class="ai-ic big">${ic("ai")}</span><div><h2>EVA · EMON Virtual Assistant</h2>
-        <p>An artificial neural network (14 inputs, 8 neurons, 1 answer) that reads every customer record on your server — invoices, payments and the invoices they pay, overdue days, credit memos and returns, charges and settlement adjustments, customer orders still open, suspensions, collection letters, gate pass holds — and learns from every gate pass decision. When a Gate Pass is asked for, it gives its idea: <b>CLEAR</b> or <b>HOLD</b>, how sure it is, and why. You decide; each decision is learned the next time it learns.</p></div></section>
+      <section class="ai-hero"><span class="ai-ic big">${ic("ai")}</span><div><h2>EVA AI</h2>
+        <p>EMON Virtual Assistant: an artificial neural network (14 inputs, 8 neurons, 1 answer) that reads every customer record on your server — invoices, payments and the invoices they pay, overdue days, credit memos and returns, charges and settlement adjustments, customer orders still open, suspensions, collection letters, gate pass holds — and learns from every gate pass decision. When a Gate Pass is asked for, it gives its idea: <b>CLEAR</b> or <b>HOLD</b>, how sure it is, and why. You decide; each decision is learned the next time it learns.</p></div></section>
       <div class="tiles ai-tiles">
         <div class="tile"><span class="tile-ic">${ic("clock")}</span><div class="k">Last Learned</div><div class="v ai-v">${top ? esc(E.dateTime(top.created_at)) : "Not yet"}</div><small>${top ? `by ${esc(top.trained_by_name || "")}` : "Press Learn Now"}</small></div>
         <div class="tile"><span class="tile-ic">${ic("doc")}</span><div class="k">Records Learned From</div><div class="v">${top ? top.samples : 0}</div><small>${top ? `${top.decisions} Director decision${top.decisions === 1 ? "" : "s"}` : ""}</small></div>
