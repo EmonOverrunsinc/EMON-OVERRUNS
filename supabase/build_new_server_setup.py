@@ -43,6 +43,7 @@ select case when to_regclass('public.customers') is not null
              and to_regprocedure('public.director_edit_customer(uuid,jsonb)') is not null
              and exists (select 1 from storage.buckets where id = 'records')
              and exists (select 1 from pg_trigger where tgname = 'statements_follow')
+             and to_regclass('public.customer_orders') is not null and to_regclass('public.ai_gate_log') is not null
         then 'E-PORTAL SERVER READY - ' || (select count(*) from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE')
              || ' tables, ' || (select count(*) from pg_proc where pronamespace = 'public'::regnamespace) || ' functions. Next: sign up on the E-Portal.'
         else 'NOT COMPLETE: tell Claude' end as result;

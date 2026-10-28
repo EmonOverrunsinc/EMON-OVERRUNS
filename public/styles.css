@@ -1537,7 +1537,7 @@ a.todo-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 
 .tile .k { font-size: 12.5px; font-weight: 500; color: var(--ink-soft); text-transform: none; letter-spacing: 0; }
 .tile .v { font: 700 28px/1.15 inherit; font-family: inherit; letter-spacing: -.02em; color: var(--ink); margin-top: 3px; }
 .tile.ok .v, .tile.warn .v { color: var(--ink); }
-.quick { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 24px; }
+.quick { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin-bottom: 24px; }
 .qa { --c: var(--accent); display: flex; align-items: center; gap: 10px; padding: 7px 10px 7px 7px; border-radius: 14px; line-height: 1.2;
   background: #fff; color: var(--ink) !important; text-decoration: none; font-weight: 600; font-size: 13.5px; box-shadow: var(--shadow-1);
   transition: transform .35s var(--spring), box-shadow .35s var(--ease); animation: rise .5s var(--spring) backwards; }
@@ -2404,3 +2404,55 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 .rv-facts > div { min-width: 0; }
 .rv-facts small { display: block; font-size: 11px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .04em; }
 .rv-facts b { display: block; font-weight: 600; word-break: break-word; }
+
+/* ---------- 3.37 Customer Order (EO-Office) ---------- */
+.co-tiles { margin-bottom: 8px; }
+.co-find { display: block; width: 100%; max-width: 520px; margin: 0 0 10px; }
+.co-wrap { overflow-x: auto; }
+.co-lines input { width: 100%; min-width: 64px; }
+.co-lines td:nth-child(4) input, .co-lines td:nth-child(6) input { min-width: 76px; }
+.co-lines td:nth-child(7) input { min-width: 170px; }
+.co-lines input.auto { background: #f2f2f7; color: var(--ink-soft); }
+.co-lines tfoot td { font-weight: 700; }
+.co-lines .cDel { padding: 4px 10px; }
+.co-xcol { border: 0; background: none; color: var(--bad); font-weight: 700; font-size: 15px; cursor: pointer; padding: 0 2px; }
+.co-words { margin-top: 6px; }
+.co-st { margin-left: 8px; }
+.co-count { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 8px; }
+.co-chip { display: inline-block; padding: 2px 9px; border-radius: 980px; background: #f2f2f7; font-size: 12px; }
+.co-chip.ok { background: #e3f5e8; color: var(--ok); }
+.co-chip.over { background: #fdeceb; color: var(--bad); }
+.co-bact { display: inline-flex; gap: 4px; }
+.co-h4 { margin: 14px 0 6px; font-size: 14px; }
+.po-pic button.co-ph { position: static; display: block; width: 100%; height: 100%; padding: 0; border-radius: 0; background: none; cursor: zoom-in; }
+.co-done { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--panel-line); }
+.co-done small { flex: 1 1 260px; color: var(--ink-soft); }
+/* the printed order: the number of boxes big under the barcode; the Delivery Sheet's empty lines and its footer */
+.co-bigbox { margin-top: 4px; padding: 3px 10px; border: 2px solid #000; font: 700 15px/1.2 var(--font-arial); text-align: center; letter-spacing: .04em; }
+.cs-empty td { height: 21px; }
+.cs-foot { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 8px; border-top: 1px solid #000; border-left: 1px solid #000; }
+.cs-f { min-height: 34px; padding: 3px 6px; border-right: 1px solid #000; border-bottom: 1px solid #000; }
+.cs-f small { display: block; font-size: 8.5px; letter-spacing: .04em; text-transform: uppercase; }
+.cs-f b { font-size: 11px; }
+
+/* ---------- 3.38 Gate Pass AI ---------- */
+.ai-box { display: flex; align-items: flex-start; gap: 12px; margin: 10px 0; padding: 12px 14px; border-radius: 14px; background: #f5f3ff; box-shadow: inset 4px 0 0 #7c3aed; }
+.ai-box.clear { background: #effaf2; box-shadow: inset 4px 0 0 var(--ok); }
+.ai-box.hold { background: #fff2f2; box-shadow: inset 4px 0 0 var(--bad); }
+.ai-box b { font-size: 15px; letter-spacing: .02em; }
+.ai-box ul { margin: 6px 0; padding-left: 18px; }
+.ai-box small { display: block; color: var(--ink-soft); }
+.ai-sure { margin-left: 6px; padding: 1px 8px; border-radius: 980px; background: rgba(0,0,0,.07); font-size: 12px; font-weight: 600; }
+.ai-ic { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; background: #7c3aed; color: #fff; }
+.ai-ic .ic { width: 22px; height: 22px; }
+.ai-box.clear .ai-ic { background: var(--ok); }
+.ai-box.hold .ai-ic { background: var(--bad); }
+.ai-ic.big { width: 56px; height: 56px; border-radius: 16px; }
+.ai-ic.big .ic { width: 32px; height: 32px; }
+.ai-hero { display: flex; align-items: flex-start; gap: 16px; margin: 4px 0 14px; padding: 18px; border-radius: var(--card-r); background: #fff; box-shadow: var(--shadow-1); }
+.ai-hero h2 { margin: 0 0 4px; font-size: 20px; }
+.ai-hero p { margin: 0; color: var(--ink-soft); }
+.ai-tiles .ai-v { font-size: 17px; }
+.ai-prog { height: 8px; margin: 4px 0 12px; overflow: hidden; border-radius: 980px; background: #ece9fb; }
+.ai-prog i { display: block; width: 0; height: 100%; background: #7c3aed; transition: width .2s; }
+@media (max-width: 620px) { .ai-hero { padding: 14px; gap: 12px; } .ai-ic.big { width: 44px; height: 44px; } }

@@ -500,6 +500,7 @@
       [E.canWrite("creditmemos"), "#newcreditmemo", "Credit Memo", "tag", "orange"],
       [E.canWrite("billing"), "#newvoucher", "Payment Voucher", "receipt", "teal"],
       [isStaff() && H("purchase"), "#newpurchase", "Purchase Order", "order", "pink"],
+      [E.canWrite("eooffice"), "#newcustorder", "Customer Order", "box", "purple"],
       [true, "#verify", "Verify a Record", "shield", "gray"]
     ].filter((q) => q[0]);
     const now = new Date(), today = `${now.toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(isoToday())}`;
@@ -612,18 +613,19 @@
   async function loadTodo() {
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
-    const [apps, jobs, changes, memos, contacts, copies, pos] = await Promise.all([
+    const [apps, jobs, changes, memos, contacts, copies, pos, cords] = await Promise.all([
       cnt(sb.from("customers").select("id", head).in("status", ["pending", "verified"])),
       cnt(sb.from("job_applications").select("id", head).eq("status", "submitted")),
       cnt(sb.from("change_requests").select("id", head).eq("status", "pending")),
       cnt(sb.from("credit_memos").select("id", head).eq("status", "pending")),
       cnt(sb.from("contact_messages").select("id", head).eq("status", "new")),
       sb.from("attachments").select("owner_type, owner_id").eq("pending", true).order("created_at").limit(50).then((r) => r.data || [], () => []),
-      cnt(sb.from("purchase_orders").select("id", head).eq("status", "pending"))
+      cnt(sb.from("purchase_orders").select("id", head).eq("status", "pending")),
+      cnt(sb.from("customer_orders").select("id", head).eq("status", "pending"))
     ]);
     const el = $("#dTodo"); if (!el) return;
     const items = [[apps, "Customer application", "#customers"], [jobs, "Job application", "#jobapps"], [changes, "Correction", "#changes"], [memos, "Credit memo", "#creditmemos"],
-      [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
+      [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [cords, "Customer order", "#custorders"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
     el.hidden = !items.length;
     el.innerHTML = items.length ? `<div class="todo-h">${ic("bell")} Waiting for you <b>${items.reduce((s, [n]) => s + n, 0)}</b></div>
       <div class="todo-list">${items.map(([n, label, href]) => `<a class="todo-chip" href="${href}"><b>${n}</b> ${esc(label)}${n === 1 ? "" : "s"}${ic("next")}</a>`).join("")}</div>` : "";
@@ -913,6 +915,8 @@
     const rets = [], cms = [];
     for (const m of memos.data || []) (m.is_return ? rets : cms).push(m);
     const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${cms.length})`, `Documents (${att.length})`, "History", `Overdue (${overdue.length})`, `Returns (${rets.length})`, `Gate Pass (${E.gateHistoryRows ? E.gateHistoryRows(orders, ev.data || []).length : 0})`];
+    const showOrders = isStaff() && !!E.customerOrdersOf; // 3.37: the customer's orders (tab 10)
+    if (showOrders) tabs.push("Customer Orders");
     $(".band h1").textContent = `Customer — ${fullName(c)}`;
     $("#main").innerHTML = `
       ${statusBanner(c)}
@@ -935,6 +939,7 @@
         ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">${ic("plus")} Record Invoice</a>` : ""}
         ${canPay ? `<a class="btn" href="#newpayment/${c.id}">${ic("plus")} Record Payment</a>` : ""}
         ${canMemo ? `<a class="btn" href="#newcreditmemo/${c.id}">${ic("plus")} Credit Memo</a>` : ""}
+        ${c.status === "active" && E.canWrite("eooffice") && E.customerOrdersOf ? `<a class="btn" href="#newcustorder/${c.id}">${ic("box")} Customer Order</a>` : ""}
         ${isApprovedAccount(c) && isStaff() ? `<button type="button" class="btn" id="pfRequest">${ic("stamp")} Request</button>` : ""}
         <span class="grow"></span>
         ${tools("customers", c, `${c.account_no || c.application_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers"), noFix: isApprovedAccount(c) && isStaff() && !S.mainDirector })}
@@ -955,6 +960,7 @@
         <div data-p="7" hidden>${overdue.length ? `<div class="btnrow"><button type="button" class="btn small" data-hprint="od">${ic("print")} Print</button></div>` : ""}${E.grid({ cols: OD_HIST, rows: overdue, onRow: true, empty: "No overdue invoice." })}</div>
         <div data-p="8" hidden>${rets.length ? `<div class="btnrow"><button type="button" class="btn small" data-hprint="rt">${ic("print")} Print</button></div>` : ""}${E.grid({ cols: RET_HIST, rows: rets, onRow: true, empty: "No returns." })}</div>
         <div data-p="9" hidden>${E.gateHistoryHtml ? E.gateHistoryHtml(orders, ev.data || []) : ""}</div>
+        ${showOrders ? `<div data-p="10" hidden id="pfOrders">${busy()}</div>` : ""}
         <div data-p="6" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note },
           ...(isAdmin() ? [{ label: "", html: (r) => `<button type="button" class="btn small danger" data-hdel="${r.src}:${r.id}" aria-label="Delete this history line">${ic("trash")}</button>` }] : [])], rows: history })}</div>
       </div>`;
@@ -992,6 +998,13 @@
       $$(".tabpanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t));
     }));
     E.keepTab("#pfTabs", "customer:" + c.id);
+    if (showOrders) E.customerOrdersOf(c.id).then((rows) => {
+      const el = $("#pfOrders"); if (!el || !here()) return;
+      if (!rows) { el.innerHTML = `<div class="empty">Customer orders need the database update <b>RUN_041_TO_046.sql</b>.</div>`; return; }
+      el.innerHTML = E.customerOrdersHtml(rows, c.id);
+      E.bindGrid(el, rows, (o) => (location.hash = "custorder/" + o.id));
+      const t = $('#pfTabs button[data-t="10"]'); if (t) t.textContent = `Customer Orders (${rows.length})`;
+    });
     E.bindGrid($('[data-p="2"]'), invs.data || [], (r) => (location.hash = "invoice/" + r.id));
     E.bindGrid($('[data-p="3"]'), pays.data || [], (r) => (location.hash = "payment/" + r.id));
     // payments with money not yet linked to an invoice, and the credit (overpaid) that is ready for other invoices
@@ -1514,7 +1527,7 @@
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>
-        <span>PO Number</span><span>${esc(inv.po_number || "—")}</span>
+        <span>PO Number</span><span>${/^CO-\d{6}-\d+$/.test(inv.po_number || "") && E.canOpen("custorder") ? `<a href="#custorder/${esc(inv.po_number)}">${esc(inv.po_number)}</a> <small class="muted">Customer Order</small>` : esc(inv.po_number || "—")}</span>
         <span>Terms of Payment</span><span>${esc(inv.payment_terms || "—")}</span><span>Due Date</span><span>${mdy(inv.due_date) || "—"}</span>
         <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>

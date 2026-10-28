@@ -167,6 +167,7 @@
       <div class="rp-foot"><span>Scan the QR code to check this account online.</span><span>${esc(no)}</span></div>`;
   }
   async function issueGate(c, a, approved = null) {
+    E.gateAI?.logDecision(c, "CLEAR"); // 3.38: the decision is written with the AI's idea
     await E.loadSignatures().catch(() => {});
     const no = stampNo(c);
     issueDoc(c, "Gate Pass", no, gatePage(c, no, a, approved), approved ? `Cleared by the Director (${approved.order_no})` : `${a.byTrust ? "Cleared as a trusted customer" : "Cleared for delivery"} · balance PHP ${peso(a.bal)}`);
@@ -196,6 +197,7 @@
       ${analysisHtml(a)}
       ${!a.ok ? (wait ? `<div class="rq-item"><span>${ic("clock")}</span><div><b>Request for Clearance · ${esc(wait.order_no)}</b><small>Sent by ${esc(wait.created_by_name || "")} · waiting for the Director</small></div></div>`
         : `<div class="fields wide" style="margin-top:10px"><label for="gaNote">${isAdmin() ? "Director's note" : "Note for the Director"}</label><textarea id="gaNote" rows="2" maxlength="600" placeholder="e.g. customer promised to pay on Friday; delivery is needed today"></textarea></div>`) : ""}`;
+    aiIdea(c, ctx, out);
     const foot = $(".wfoot", m.el);
     const add = (html) => { foot.insertAdjacentHTML("beforeend", html); };
     if (a.ok) {
@@ -237,6 +239,7 @@
     const here = E.stillHere();
     const { data: r, error } = await sb.rpc("review_order_letter", { p_id: o.id, p_action: action, p_note: note || null });
     if (error) return error;
+    E.gateAI?.logDecision(c, action === "approve" ? "CLEAR" : "HOLD");
     toast(action === "approve" ? "Clearance approved." : "HOLD FOR DELIVERY recorded.");
     if (!here()) return null; // 3.35: the person went to another page meanwhile: the decision is saved, nothing pops up there
     await V.customer(c.id);
@@ -252,6 +255,7 @@
       <div class="fields wide" style="margin-top:10px"><label for="gdNote">Director's note${action === "reject" ? " *" : ""}</label><textarea id="gdNote" rows="2" maxlength="600" placeholder="${action === "approve" ? "e.g. approved for today's delivery only" : "e.g. hold until the overdue invoices are paid"}"></textarea></div>`,
       `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn ${action === "approve" ? "primary" : "danger"}" data-ok>${action === "approve" ? `${ic("check")} Approve &amp; Print Gate Pass` : `${ic("x")} Hold for Delivery`}</button>`, { wide: true });
     $("[data-x]", m.el).onclick = m.close;
+    aiIdea(c, ctx, m.el);
     $("[data-ok]", m.el).onclick = async (e) => {
       const note = $("#gdNote", m.el).value.trim();
       if (action === "reject" && !note) { $("#gdNote", m.el).focus(); return toast("Write why the delivery is on hold.", true); }
@@ -261,6 +265,11 @@
       if (error) fail(error, "Could not record the decision");
     };
   }
+  // 3.38: the Gate Pass AI's idea (CLEAR or HOLD, how sure, why), under the portal's own check
+  const aiIdea = (c, ctx, root) => {
+    if (!E.gateAI) return;
+    E.gateAI.box(c, ctx).then((html) => { const v = $(".gp-verdict", root); if (html && v && root.isConnected) v.insertAdjacentHTML("afterend", html); }, () => {});
+  };
   // The Gate Pass history of the customer: every Request for Clearance (waiting / approved / on hold) and every gate pass issued
   function gateHistoryRows(orders, events) {
     return [
