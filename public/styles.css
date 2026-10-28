@@ -2566,3 +2566,26 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 .page table.ptl tr.ad-r td, .page table.ad-t td { padding: 2px 5px; font-size: 9px; }
 .ad-pics { display: flex; gap: 6px; padding: 6px; }
 .ad-pics img { height: 34mm; max-width: 32%; object-fit: cover; border: 1px solid #ccc; }
+/* 3.42: the order list: search at the top, the months; the box check (missing / extra by code); VERIFICATION under the QR */
+.co-top-search { position: sticky; top: 0; z-index: 3; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 0; background: var(--chrome-1, #f5f5f7); }
+.co-top-search .co-find { flex: 1 1 280px; min-width: 0; margin: 0; }
+.co-months { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.co-months button { border: 0; border-radius: 980px; padding: 6px 13px; background: #e8e8ed; color: var(--ink); font-weight: 600; font-size: 13px; cursor: pointer; }
+.co-months button small { color: var(--ink-soft); font-weight: 500; margin-left: 3px; }
+.co-months button.on { background: var(--accent, #0071e3); color: #fff; }
+.co-months button.on small { color: rgba(255,255,255,.85); }
+.bx-check { margin: 6px 0 10px; border-radius: 14px; background: #fff; box-shadow: var(--shadow-1); overflow: hidden; }
+.bx-sum { padding: 9px 12px; font-size: 13.5px; }
+.bx-sum.ok { background: #e8f6ec; color: #17642c; }
+.bx-sum.miss { background: #fff4e0; color: #8a4b00; }
+.bx-sum.extra { background: #fdecea; color: #9b1c12; }
+.bx-list { list-style: none; margin: 0; padding: 0; }
+.bx-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 12px; border-top: 1px solid #f3f3f5; border-left: 4px solid #f0a020; }
+.bx-list li.extra { border-left-color: var(--bad); }
+.bx-list li b { font-size: 14px; letter-spacing: .02em; }
+.bx-list li small { flex-basis: 100%; color: var(--ink-soft); font-size: 12px; }
+.bx-st { display: inline-block; padding: 2px 9px; border-radius: 980px; font-size: 11.5px; font-weight: 700; letter-spacing: .03em; white-space: nowrap; }
+.bx-st.ok { background: #e3f5e8; color: var(--ok); }
+.bx-st.miss { background: #ffe7c2; color: #8a4b00; }
+.bx-st.extra { background: #fdeceb; color: var(--bad); }
+.co-qr small.co-verify { display: inline-block; margin-top: 3px; padding: 1px 6px; background: #000; color: #fff; font: 700 7.5px/1.4 var(--font-arial, Arial); letter-spacing: .12em; }

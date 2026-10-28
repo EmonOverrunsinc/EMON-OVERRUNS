@@ -276,7 +276,7 @@
   const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 864e5);
   const isOver = (i) => i.pay_status !== "paid" && num(i.balance) > 0.004 && i.due_date && i.due_date < isoToday();
   const table = (head, rows) => `<table class="eva-t"><thead><tr>${head.map((h) => `<th${/₱|Boxes|Pcs|Days|#/.test(h) ? ' class="num"' : ""}>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((v, i) => `<td${/₱|Boxes|Pcs|Days|#/.test(head[i]) ? ' class="num"' : ""}>${v}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
-  const ORDER_ST = { pending: "1 · CREATE ORDER (waits for your approval)", approved: "2 · PREPARED (ready to deliver)", completed: "3 · COMPLETE (delivered)", cancelled: "CANCELLED" };
+  const ORDER_ST = { pending: "CREATE ORDER (waits for your approval)", approved: "PREPARED (ready to deliver)", completed: "COMPLETE (delivered)", cancelled: "CANCELLED" };
   const rows = async (make) => { const r = await E.allRows(make); if (r.error) throw r.error; return r.data; };
   const one = async (q) => { const { data, error } = await q; if (error) throw error; return data; };
 
