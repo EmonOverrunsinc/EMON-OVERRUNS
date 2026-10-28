@@ -9,7 +9,7 @@
   const VERSION = "3.38";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.38.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.38.1"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -973,7 +973,7 @@
     ["contacts", "Contact Messages", () => isAdmin(), "mail"],
     ["logins", "Login Accounts", () => isAdmin(), "key"],
     ["forms", "Download Forms", () => true, "download"],
-    ["gateai", "Gate Pass AI", () => isAdmin(), "ai"] // 3.38
+    ["gateai", "EVA AI", () => isAdmin(), "ai"] // 3.38 (3.38.1: named EVA, EMON Virtual Assistant)
   ];
   const ACTIVE_OF = { employees: "eooffice", newemployee: "eooffice", editemployee: "eooffice", employee: "eooffice", payroll: "eooffice", payslip: "eooffice", creditmemos: "eooffice", newcreditmemo: "eooffice", creditmemo: "eooffice", projects: "eooffice", newproject: "eooffice", project: "eooffice", jobapps: "eooffice", jobapp: "eooffice", positions: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", ebill: "inventory", custorders: "eooffice", newcustorder: "eooffice", editcustorder: "eooffice", custorder: "eooffice", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
@@ -1330,8 +1330,8 @@
       if (data && canOpen("customer")) { location.hash = "customer/" + data.id; return; }
       if (key) { location.hash = "verify/" + encodeURIComponent(t); return; }
     }
-    // 3.37: a customer order's barcode opens that order
-    const co = /^EMONCO\|(CO-\d{6}-\d+)/i.exec(t);
+    // 3.37: a customer order's barcode opens that order (3.38.1: OR-202610-0001; CO- on the orders printed before)
+    const co = /^EMONCO\|((?:CO|OR)-\d{6}-\d+)/i.exec(t);
     if (co && canOpen("custorder")) { location.hash = "custorder/" + co[1].toUpperCase(); return true; }
     // 3.1: a QC form barcode opens that QC form
     const qc = /^EMONQCK?\|(QC-\d{4}-\d+)/i.exec(t);

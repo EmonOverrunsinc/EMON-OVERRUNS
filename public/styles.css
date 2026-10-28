@@ -2419,6 +2419,7 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 .co-xcol { border: 0; background: none; color: var(--bad); font-weight: 700; font-size: 15px; cursor: pointer; padding: 0 2px; }
 .co-words { margin-top: 6px; }
 .co-st { margin-left: 8px; }
+.co-top { justify-content: flex-end; margin: 0 0 8px; } /* 3.38.1: Download All Details, at the top of the order */
 .co-count { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 8px; }
 .co-chip { display: inline-block; padding: 2px 9px; border-radius: 980px; background: #f2f2f7; font-size: 12px; }
 .co-chip.ok { background: #e3f5e8; color: var(--ok); }
@@ -2436,7 +2437,7 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 .cs-f small { display: block; font-size: 8.5px; letter-spacing: .04em; text-transform: uppercase; }
 .cs-f b { font-size: 11px; }
 
-/* ---------- 3.38 Gate Pass AI ---------- */
+/* ---------- 3.38 EVA, the AI (the Gate Pass AI) ---------- */
 .ai-box { display: flex; align-items: flex-start; gap: 12px; margin: 10px 0; padding: 12px 14px; border-radius: 14px; background: #f5f3ff; box-shadow: inset 4px 0 0 #7c3aed; }
 .ai-box.clear { background: #effaf2; box-shadow: inset 4px 0 0 var(--ok); }
 .ai-box.hold { background: #fff2f2; box-shadow: inset 4px 0 0 var(--bad); }
