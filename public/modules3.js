@@ -48,7 +48,7 @@
   const FIELDS = {
     customers: [F("first_name", "First Name"), F("last_name", "Last Name"), F("phone", "Phone"), F("email", "Email", "email"), F("address", "Full Address"), F("business_name", "Business Name"), F("business_start_date", "Business Start Date", "date"), F("facebook_name", "Facebook Name"), F("facebook_link", "Facebook Account Link", "url"), F("has_extra_facebook", "Has Additional Facebook Account", "bool"), F("extra_facebook_name", "Additional Facebook Name"), F("facebook_verified", "Facebook Verified", "bool"), F("credit_limit", "Credit Limit (₱)", "money")],
     customer_invoices: [F("invoice_date", "Invoice Date", "date"), F("total_amount", "Total Amount (₱)", "money"), F("payment_terms", "Terms of Payment", "terms"), F("total_boxes", "Total Boxes", "int"), F("total_pcs", "Total Pcs", "int"),
-      F("po_number", "PO Number")], // 2.6: every detail of an invoice; 2.6.1: PO Number only
+      F("po_number", "Order No")], // 2.6: every detail of an invoice; 2.6.1: PO Number only; 3.39: named Order No (OR-…)
     payments_received: [F("method", "Method", "select", METHODS), F("bank_name", "Bank Name"), F("bank_account", "Deposit Account"), F("reference_no", "Reference No"), F("notes", "Notes")],
     credit_memos: [F("payment_ref", "Payment Reference"), F("po_number", "Purchase Order"), F("article", "Article"), F("brand", "Brand"), F("style", "Style"), F("batch_no", "Batch No"), F("serial_no", "Serial No"), F("purchase_date", "Purchase Date", "date"),
       F("defect_category", "Defect Category", "select", [["fabric_damage", "Fabric Damage"], ["color_issue", "Color Issue"], ["wrong_box", "Wrong Box Delivered"], ["wrong_bundle", "Wrong Bundle"], ["other", "Other"]]), F("defect_detail", "Defect Details"),
@@ -386,6 +386,8 @@
     const run = async (raw) => {
       const t = String(raw || "").trim();
       if (!t) return toast("Type a record number or scan its code.", true);
+      const dv = E.deliveryHashOf?.(t); // 3.39: an order paper: its Complete Delivery page
+      if (dv) { location.hash = dv; return; }
       // 3.21: an employee ID card is checked by its full code; only the card no shows (the code never goes into the address)
       if (/^EMONID\|/i.test(t) && E.cardCheck) {
         $("#vfCode").value = (t.split("|")[1] || "").toUpperCase();

@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.38";
+  const VERSION = "3.39";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.38.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.39.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -485,7 +485,8 @@
     closePreview();
     window.EO.closeChat?.();
     $$(".modal").forEach((x) => modalClose.get(x)?.());
-    $$(".chat-panel, .modal").forEach((x) => x.remove());
+    $$(".chat-panel, .eva-panel, .modal").forEach((x) => x.remove());
+    window.EO.eva?.reset();
     app.innerHTML = `
       <div class="login">
         <div class="login-card window">
@@ -1091,6 +1092,7 @@
           <button type="button" class="scanbtn" id="tbScan" title="Scan a QR code or barcode">${ic("scan")}<span>Scan</span></button>
         </form>
         <div class="tb-right">
+          ${isAdmin() ? `<button type="button" class="iconbtn tb-eva" id="tbEva" aria-label="Ask EVA AI" title="Ask EVA AI">${ic("ai")}</button>` : ""}
           <button type="button" class="iconbtn" id="tbChat" aria-label="Messages" title="Messages">${ic("chat")}<span class="badge" id="tbChatBadge" hidden>0</span></button>
           <button type="button" class="iconbtn" id="tbBell" aria-label="Notifications" title="Notifications" aria-haspopup="true">${ic("bell")}<span class="badge" id="tbBadge" hidden>0</span></button>
           <button type="button" class="avatar-btn" id="tbUser" aria-haspopup="true" aria-label="Your account">
@@ -1143,6 +1145,7 @@
     };
     $("#tbScan").onclick = () => scanDialog((text) => openScanned(text));
     $("#tbChat").onclick = () => { if (window.EO.openChat) window.EO.openChat(); else toast("Messages are not available yet.", true); };
+    if ($("#tbEva")) $("#tbEva").onclick = () => window.EO.eva?.open();
     const toggle = (id) => { const el = $(id); const show = el.hidden; $$(".pop").forEach((p) => (p.hidden = true)); el.hidden = !show; if (show && id === "#mailPop") loadMail(); };
     $("#tbBell").onclick = (e) => { e.stopPropagation(); toggle("#mailPop"); };
     $("#tbUser").onclick = (e) => { e.stopPropagation(); toggle("#userPop"); };
@@ -1320,6 +1323,9 @@
   async function openScanned(text) {
     const t = String(text || "").trim();
     if (!t) return;
+    // 3.39: an order paper (the secret code in its barcode, or its QR code) opens its Complete Delivery page, for anyone
+    const dv = window.EO.deliveryHashOf?.(t);
+    if (dv) { location.hash = dv; return true; }
     if (/#verify\//i.test(t)) { location.hash = "verify/" + encodeURIComponent(t.replace(/^.*#verify\//i, "")); return; }
     // 3.21: an employee ID card: whose it is and whether it is valid (its private code never goes into the address bar)
     if (/^EMONID\|/i.test(t)) { window.EO.showCardCheck?.(t); return true; }
@@ -2019,8 +2025,9 @@
     if (!S.session) {
       stopTimers();
       window.EO.closeChat?.();
-      $$(".chat-panel").forEach((x) => x.remove());
+      $$(".chat-panel, .eva-panel").forEach((x) => x.remove());
       if (key === "verify" && V.verify) return V.verify(arg);
+      if (key === "delivery" && V.delivery) return V.delivery(arg, extra); // 3.39: Complete Delivery by the order paper, no login
       if (key === "contact" && V.contact) return V.contact();
       if (key === "careers" && V.careers) return V.careers();
       if (key === "signup") return renderLogin("signup");
@@ -2038,6 +2045,7 @@
     if (S.profile.status === "disabled") return renderDisabled();
     if (S.profile.status !== "active") {
       if (key === "verify" && V.verify) return V.verify(arg);
+      if (key === "delivery" && V.delivery) return V.delivery(arg, extra);
       if (key === "contact" && V.contact) return V.contact();
       if (key === "careers" && V.careers) return V.careers();
       return V.applicant ? V.applicant(key, arg) : renderPending();

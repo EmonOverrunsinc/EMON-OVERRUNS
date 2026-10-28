@@ -332,7 +332,7 @@
         <p class="muted" style="margin:4px 0">To negotiate, change the prices in the table above, then press <b>Negotiate</b>: ${esc(p.created_by_name || "the maker")} is told (notice and message) and submits again.</p>
         <div class="btnrow"><button type="button" class="btn ok" data-d="approve">${ic("check")} Approve</button><button type="button" class="btn" data-d="negotiate">${ic("edit")} Negotiate</button><button type="button" class="btn danger" data-d="cancel">Cancel Order</button></div></fieldset>` : ""}
       </div><div class="wfoot">
-        ${open && (mine || isAdmin()) ? `<a class="btn" href="#editpo/${p.id}">${ic("edit")} Edit</a>` : ""}${open && isAdmin() ? `<button type="button" class="btn danger" id="poDel">${ic("trash")} Delete</button>` : ""}
+        ${open && (mine || isAdmin()) ? `<a class="btn" href="#editpo/${p.id}">${ic("edit")} Edit</a>` : ""}${isAdmin() ? `<button type="button" class="btn danger" id="poDel">${ic("trash")} Delete</button>` : ""}
         ${p.status === "approved" ? `<button type="button" class="btn primary" id="poPdf">${ic("print")} PDF</button>${!p.arrived_at ? `<button type="button" class="btn" id="poArr">${ic("box")} Mark Arrived at Warehouse</button>` : ""}${(mine || isAdmin()) && !p.pending_update ? `<button type="button" class="btn" id="poUpd">${ic("edit")} Request Update</button>` : ""}` : ""}
         <a class="btn" href="#purchase">Close</a></div></div>`;
     $$("[data-img]").forEach((b) => (b.onclick = () => b.dataset.img && E.lightbox(b.dataset.img)));
@@ -360,7 +360,8 @@
       toast(b.dataset.up === "accept_update" ? "Update approved: the purchase order shows the new details." : "Update refused."); V.po(id);
     }));
     if ($("#poDel")) $("#poDel").onclick = async () => {
-      if (!(await E.confirmBox(`Delete purchase order <b>${esc(p.po_no)}</b>? This cannot be undone.`, { ok: "Delete", danger: true }))) return;
+      // 3.39: the Director deletes any lot, also an approved one (a wrong or test lot), with its photos and voice notes
+      if (!(await E.confirmBox(`Delete purchase order <b>${esc(p.po_no)}</b>${p.status === "approved" ? " (APPROVED)" : ""}? Its photos and voice notes are deleted too. This cannot be undone.`, { ok: "Delete", danger: true }))) return;
       const { data: gone, error: e2 } = await sb.rpc("delete_purchase_order", { p_id: p.id });
       if (e2) return fail(e2, "Could not delete");
       if (gone?.length) sb.storage.from("records").remove(gone).then(() => {}, () => {});

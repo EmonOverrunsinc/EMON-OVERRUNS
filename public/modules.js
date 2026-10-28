@@ -1441,8 +1441,8 @@
             <label for="niTermsX" class="nitx" hidden>Other Terms *</label><input type="text" id="niTermsX" class="nitx" maxlength="60" placeholder="e.g. 2 POST-DATED CHECKS" hidden>
             <span>Due Date</span><b id="niDue">—</b></div>
             <small class="muted">Payments are recorded with <b>Record Payment</b> for the customer's account: they pay the oldest invoices first.</small></fieldset>
-          <fieldset class="opt"><legend>Purchase Order</legend><div class="fields wide">
-            <label for="niPo">PO Number</label><input type="text" id="niPo" maxlength="60" placeholder="e.g. PO-2026-0145"></div></fieldset>
+          <fieldset class="opt"><legend>Customer Order</legend><div class="fields wide">
+            <label for="niPo">Order No</label><input type="text" id="niPo" maxlength="60" placeholder="e.g. OR-202610-0001"></div></fieldset>
           <fieldset class="opt"><legend>Documents</legend><div class="fields wide">
             ${fileField("niInvF", "Invoice Paper Copy (scan or upload)", 'accept="image/*,application/pdf"')}
             ${fileField("niDr", "Delivery Receipt", 'multiple accept="image/*,application/pdf"')}</div></fieldset>
@@ -1527,7 +1527,7 @@
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>
-        <span>PO Number</span><span>${/^(CO|OR)-\d{6}-\d+$/.test(inv.po_number || "") && E.canOpen("custorder") ? `<a href="#custorder/${esc(inv.po_number)}">${esc(inv.po_number)}</a> <small class="muted">Customer Order</small>` : esc(inv.po_number || "—")}</span>
+        <span>Order No</span><span>${/^(CO|OR)-\d{6}-\d+$/.test(inv.po_number || "") && E.canOpen("custorder") ? `<a href="#custorder/${esc(inv.po_number)}">${esc(inv.po_number)}</a> <small class="muted">Customer Order</small>` : esc(inv.po_number || "—")}</span>
         <span>Terms of Payment</span><span>${esc(inv.payment_terms || "—")}</span><span>Due Date</span><span>${mdy(inv.due_date) || "—"}</span>
         <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
@@ -1659,7 +1659,7 @@
       ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}</div>`)}
       ${box("Invoice", `<div class="prow3">${cell("Invoice No", inv.invoice_no)}${cell("Invoice Date", mdy(inv.invoice_date))}${cell("Total Boxes", inv.total_boxes)}</div>
         <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Terms of Payment", inv.payment_terms || "—")}${cell("Due Date", mdy(inv.due_date) || "—")}</div>
-        ${inv.po_number ? `<div class="pcell"><div class="pl">PO Number</div><div class="pv">${esc(inv.po_number)}</div></div>` : ""}
+        ${inv.po_number ? `<div class="pcell"><div class="pl">Order No</div><div class="pv">${esc(inv.po_number)}</div></div>` : ""}
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
       ${fix}
       ${box("Payment", `<div class="pgrid2">${cell("Payment Status", ({ paid: "PAID", partial: "PARTIAL PAYMENT", unpaid: "UNPAID" }[inv.pay_status] || String(inv.pay_status || "").toUpperCase()) + (isOverdue(inv) ? ` · OVERDUE ${daysOver(inv)} DAY(S)` : "") + (bal < 0 ? " (OVERPAID)" : ""))}${cell("Total Amount (₱)", peso(inv.total_amount))}${num(inv.amount_returned) > 0 ? cell("Returned (₱)", peso(inv.amount_returned)) : ""}${cell("Paid (₱)", peso(inv.amount_paid))}${cell("Balance (₱)", peso(bal))}</div>
