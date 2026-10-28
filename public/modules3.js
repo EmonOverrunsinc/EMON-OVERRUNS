@@ -386,6 +386,8 @@
     const run = async (raw) => {
       const t = String(raw || "").trim();
       if (!t) return toast("Type a record number or scan its code.", true);
+      const dv = E.deliveryHashOf?.(t); // 3.39: an order paper: its Complete Delivery page
+      if (dv) { location.hash = dv; return; }
       // 3.21: an employee ID card is checked by its full code; only the card no shows (the code never goes into the address)
       if (/^EMONID\|/i.test(t) && E.cardCheck) {
         $("#vfCode").value = (t.split("|")[1] || "").toUpperCase();

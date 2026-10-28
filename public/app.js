@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.38";
+  const VERSION = "3.39";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.38.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.39.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -1320,6 +1320,9 @@
   async function openScanned(text) {
     const t = String(text || "").trim();
     if (!t) return;
+    // 3.39: an order paper (the secret code in its barcode, or its QR code) opens its Complete Delivery page, for anyone
+    const dv = window.EO.deliveryHashOf?.(t);
+    if (dv) { location.hash = dv; return true; }
     if (/#verify\//i.test(t)) { location.hash = "verify/" + encodeURIComponent(t.replace(/^.*#verify\//i, "")); return; }
     // 3.21: an employee ID card: whose it is and whether it is valid (its private code never goes into the address bar)
     if (/^EMONID\|/i.test(t)) { window.EO.showCardCheck?.(t); return true; }
@@ -2021,6 +2024,7 @@
       window.EO.closeChat?.();
       $$(".chat-panel").forEach((x) => x.remove());
       if (key === "verify" && V.verify) return V.verify(arg);
+      if (key === "delivery" && V.delivery) return V.delivery(arg, extra); // 3.39: Complete Delivery by the order paper, no login
       if (key === "contact" && V.contact) return V.contact();
       if (key === "careers" && V.careers) return V.careers();
       if (key === "signup") return renderLogin("signup");
@@ -2038,6 +2042,7 @@
     if (S.profile.status === "disabled") return renderDisabled();
     if (S.profile.status !== "active") {
       if (key === "verify" && V.verify) return V.verify(arg);
+      if (key === "delivery" && V.delivery) return V.delivery(arg, extra);
       if (key === "contact" && V.contact) return V.contact();
       if (key === "careers" && V.careers) return V.careers();
       return V.applicant ? V.applicant(key, arg) : renderPending();
