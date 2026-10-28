@@ -1330,8 +1330,8 @@
       if (data && canOpen("customer")) { location.hash = "customer/" + data.id; return; }
       if (key) { location.hash = "verify/" + encodeURIComponent(t); return; }
     }
-    // 3.37: a customer order's barcode opens that order
-    const co = /^EMONCO\|(CO-\d{6}-\d+)/i.exec(t);
+    // 3.37: a customer order's barcode opens that order (3.38.1: OR-202610-0001; CO- on the orders printed before)
+    const co = /^EMONCO\|((?:CO|OR)-\d{6}-\d+)/i.exec(t);
     if (co && canOpen("custorder")) { location.hash = "custorder/" + co[1].toUpperCase(); return true; }
     // 3.1: a QC form barcode opens that QC form
     const qc = /^EMONQCK?\|(QC-\d{4}-\d+)/i.exec(t);

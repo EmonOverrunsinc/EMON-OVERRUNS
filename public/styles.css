@@ -2419,6 +2419,7 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 .co-xcol { border: 0; background: none; color: var(--bad); font-weight: 700; font-size: 15px; cursor: pointer; padding: 0 2px; }
 .co-words { margin-top: 6px; }
 .co-st { margin-left: 8px; }
+.co-top { justify-content: flex-end; margin: 0 0 8px; } /* 3.38.1: Download All Details, at the top of the order */
 .co-count { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 8px; }
 .co-chip { display: inline-block; padding: 2px 9px; border-radius: 980px; background: #f2f2f7; font-size: 12px; }
 .co-chip.ok { background: #e3f5e8; color: var(--ok); }

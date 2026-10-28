@@ -106,7 +106,7 @@
           <div class="fields wide">
             <label for="coAddr">Address</label><input type="text" id="coAddr" maxlength="300" value="${esc(o?.address || "")}" placeholder="The customer's address when empty">
             <label for="coNote">Note</label><input type="text" id="coNote" maxlength="500" value="${esc(o?.note || "")}">
-            <span>Order No</span><small>${o ? `<b class="mono">${esc(o.order_no)}</b>` : "Given by the system when you save (CO-YYYYMM-####)."}</small>
+            <span>Order No</span><small>${o ? `<b class="mono">${esc(o.order_no)}</b>` : "Given by the system when you save (OR-YYYYMM-####)."}</small>
           </div></div></fieldset>
         <fieldset class="opt"><legend>Order Lines</legend><div id="coLines"></div></fieldset>
       </div><div class="wfoot"><button type="button" class="btn" id="coCancel">Cancel</button><button type="submit" class="btn primary">${o ? "Save" : isAdmin() ? "Save Order" : "Save and Send to the Director"}</button></div></form>`,
@@ -216,13 +216,13 @@
   // ======================================================================
   // The page of an order: details, lines, boxes, the Director's decision, delivery, invoice, prints
   // ======================================================================
-  // id: the order's id, or its number (CO-202610-0001: from an invoice or a scanned order)
+  // id: the order's id, or its number (OR-202610-0001: from an invoice or a scanned order; 3.38.1: CO- before, both are found)
   V.custorder = async (id) => {
     E.shell("custorder", "Customer Order", busy());
-    const here = E.stillHere(), no = /^CO-\d{6}-\d+$/i.test(id || "") ? id.toUpperCase() : null;
+    const here = E.stillHere(), m = /^(?:CO|OR)-(\d{6}-\d+)$/i.exec(id || ""), nos = m ? [`OR-${m[1]}`, `CO-${m[1]}`] : null;
     const boxesOf = (oid) => sb.from("customer_order_boxes").select("*").eq("order_id", oid).order("created_at").order("id");
     const [{ data: o, error }, bx0] = await Promise.all([
-      sb.from("customer_orders").select("*, customers(*)").eq(no ? "order_no" : "id", no || id).maybeSingle(), no ? null : boxesOf(id)]);
+      (nos ? sb.from("customer_orders").select("*, customers(*)").in("order_no", nos) : sb.from("customer_orders").select("*, customers(*)").eq("id", id)).maybeSingle(), nos ? null : boxesOf(id)]);
     if (!here()) return;
     if (error && notSet(error)) { $("#main").innerHTML = needUpdate; return; }
     if (!o) { $("#main").innerHTML = `<div class="empty">Order not found. <a href="#custorders">All orders</a></div>`; return; }
@@ -242,6 +242,7 @@
       : o.status === "cancelled" ? `<div class="banner closed">CANCELLED${o.cancelled_by_name ? ` by ${esc(o.cancelled_by_name)}` : ""}${o.cancelled_at ? ` on ${esc(mdy(o.cancelled_at))}` : ""}${o.cancel_note ? ` — ${esc(o.cancel_note)}` : ""}</div>`
       : o.status === "completed" ? `<div class="banner ok">✔ DELIVERED and COMPLETED${o.completed_at ? ` on ${esc(mdy(o.completed_at))}` : ""}${o.completed_by_name ? ` by ${esc(o.completed_by_name)}` : ""}${inv ? ` — invoice <b>${esc(inv.invoice_no)}</b> was made for the customer` : ""}</div>` : "";
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(o.order_no)} · ₱ ${peso(o.total_amount)} <span class="co-st">${stPill(o)}</span></div><div class="wbody">
+      <div class="btnrow co-top"><button type="button" class="btn primary" id="coAll">${ic("download")} Download All Details (PDF)</button></div>
       ${banner}
       ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>Director's Decision</legend><div class="btnrow"><button type="button" class="btn ok" id="coApprove">${ic("check")} Approve Order</button><button type="button" class="btn danger" id="coCancelO">Cancel Order</button></div></fieldset>` : ""}
       <div class="pgrid2 qc-head">${E.cell("Order No", o.order_no)}${E.cell("Date", mdy(o.order_date))}
@@ -261,7 +262,7 @@
           <div class="pcell"><div class="pl">Invoice No</div><div class="pv">${E.canOpen("invoice") ? `<a href="#invoice/${inv.id}"><b>${esc(inv.invoice_no)}</b></a>` : `<b>${esc(inv.invoice_no)}</b>`}</div></div>
           ${E.cell("Invoice Date", mdy(inv.invoice_date))}${E.cell("Terms of Payment", inv.payment_terms || "")}${E.cell("Due Date", mdy(inv.due_date))}${E.cell("Amount (₱)", peso(inv.total_amount), "hl")}${E.cell("Balance (₱)", peso(inv.balance))}
           <div class="pcell"><div class="pl">Status</div><div class="pv">${payPill(inv)}</div></div></div>` : `<div class="empty small">The invoice is on the customer's account.</div>`}</fieldset>` : ""}
-    </div><div class="wfoot"><button type="button" class="btn primary" id="coPdf">${ic("print")} Print Order</button><button type="button" class="btn" id="coSheet">${ic("print")} Delivery Sheet</button>
+    </div><div class="wfoot"><button type="button" class="btn primary" id="coPdf">${ic("print")} Print / Download Order</button><button type="button" class="btn" id="coSheet">${ic("print")} Delivery Sheet</button>
       ${canEdit(o) ? `<a class="btn" href="#editcustorder/${o.id}">${ic("edit")} Edit</a>` : ""}
       ${(isAdmin() ? o.status === "approved" : o.status === "pending" && o.created_by === meId()) ? `<button type="button" class="btn danger" id="coCancelO">Cancel Order</button>` : ""}
       ${isAdmin() && o.status !== "completed" ? `<button type="button" class="btn danger" id="coDelO">${ic("trash")} Delete</button>` : ""}
@@ -284,6 +285,8 @@
     };
     $("#coPdf").onclick = async () => { await E.loadSignatures().catch(() => {}); E.openPreview(`Customer Order ${o.order_no}`, orderPages(o, inv)); };
     $("#coSheet").onclick = () => E.openPreview(`Delivery Sheet ${o.order_no}`, sheetPages(o, boxes));
+    // 3.38.1: everything in one PDF: the order (with its invoice and delivery), the Delivery Sheet with the boxes, the check photos
+    $("#coAll").onclick = async () => { await E.loadSignatures().catch(() => {}); E.openPreview(`Customer Order ${o.order_no} — All Details`, [...orderPages(o, inv), ...sheetPages(o, boxes), ...photoPages(o, urls)]); };
     bindBoxes(o, boxes, reload);
     if (o.status === "approved" && w) bindDelivery(o, boxes, urls, reload);
     $$("[data-ph]").forEach((b) => (b.onclick = () => E.lightbox(b.dataset.ph)));
@@ -527,6 +530,12 @@
         ${line("ID No", o.rider_id_no || "")}${line("Plate No", o.plate_no || "")}${line("Date", o.delivered_at ? mdy(o.delivered_at) : "")}${line("Time", o.delivered_at ? new Date(o.delivered_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "")}
         ${line("Type", o.vehicle_type || "")}${line("Total Boxes", String(o.total_boxes))}${line("Order No", o.order_no)}${line("Verified By", "")}</div>`,
       caps: { single: 24, first: 28, next: 34, last: 22 } });
+  }
+
+  // the delivery check photos on a page of their own (none: no page)
+  function photoPages(o, urls) {
+    const pics = (o.delivery_photos || []).map((x) => urls.get(x)).filter(Boolean);
+    return pics.length ? [`${E.printHead("DELIVERY PHOTOS", codesHtml(o))}${E.box("Check Photos", `<div class="po-print-pics n${pics.length}">${pics.map((u) => `<img src="${esc(u)}" alt="Delivery photo">`).join("")}</div>`)}`] : [];
   }
 
   // A customer's orders (on the customer's profile)

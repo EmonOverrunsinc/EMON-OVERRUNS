@@ -1527,7 +1527,7 @@
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>
-        <span>PO Number</span><span>${/^CO-\d{6}-\d+$/.test(inv.po_number || "") && E.canOpen("custorder") ? `<a href="#custorder/${esc(inv.po_number)}">${esc(inv.po_number)}</a> <small class="muted">Customer Order</small>` : esc(inv.po_number || "—")}</span>
+        <span>PO Number</span><span>${/^(CO|OR)-\d{6}-\d+$/.test(inv.po_number || "") && E.canOpen("custorder") ? `<a href="#custorder/${esc(inv.po_number)}">${esc(inv.po_number)}</a> <small class="muted">Customer Order</small>` : esc(inv.po_number || "—")}</span>
         <span>Terms of Payment</span><span>${esc(inv.payment_terms || "—")}</span><span>Due Date</span><span>${mdy(inv.due_date) || "—"}</span>
         <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
