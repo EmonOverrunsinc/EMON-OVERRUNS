@@ -117,6 +117,12 @@
             <label for="coNote">Note</label><input type="text" id="coNote" maxlength="500" value="${esc(o?.note || "")}">
             <span>Order No</span><small>${o ? `<b class="mono">${esc(o.order_no)}</b>` : "Given by the system when you save (OR-YYYYMM-####)."}</small>
           </div></div></fieldset>
+        <fieldset class="opt"><legend>Scan Boxes</legend>
+          <div class="btnrow cf-scan"><button type="button" class="btn primary" id="cfScan">${ic("scan")} Scan Boxes</button>
+            <label class="btn" for="cfPhoto">${ic("image")} Box Label Photo</label><input type="file" id="cfPhoto" accept="image/*" multiple hidden>
+            <span class="cf-type"><input type="text" id="cfSer" maxlength="60" placeholder="or type a serial no, e.g. U20261238" aria-label="Box serial no"><button type="button" class="btn" id="cfAdd">${ic("plus")} Add</button></span></div>
+          <p class="muted" style="margin:6px 0">Each box scanned fills the order lines from the box database (your Google Sheet): product and brand, code (style), pcs and lot no (batch). Then write the price. The boxes go on the order when you save it.</p>
+          <div id="cfList"></div></fieldset>
         <fieldset class="opt"><legend>Order Lines</legend><div id="coLines"></div></fieldset>
       </div><div class="wfoot"><button type="button" class="btn" id="coCancel">Cancel</button><button type="submit" class="btn primary">${o ? "Save" : isAdmin() ? "Save Order" : "Save and Send to the Director"}</button></div></form>`,
       isAdmin() ? "" : "1 CREATE ORDER: the order goes to the Director to approve. Approved, it is 2 PREPARED: the Director's signature is on the printed order and the delivery can start.");
@@ -125,6 +131,44 @@
     E.customerPicker($("#coCust"), { statuses: ["active"], onPick: (c) => { cust = c; fillFrom(c); }, preset: cust || undefined });
     if (preset && !cust) toast(`${fullName(preset)}'s account is ${String(preset.status).toUpperCase()}: an order is made only for an ACTIVE account.`, true);
     const ed = linesEditor($("#coLines"), o?.lines || [], o?.extra_columns || []);
+    // 3.40: boxes scanned (or typed) on the form: each fills the lines from the box database and goes on the order when saved
+    const picked = [];
+    const listBoxes = () => {
+      const pcs = picked.reduce((t, b) => t + num(b.qty), 0);
+      $("#cfList").innerHTML = picked.length ? `<p class="cf-sum"><b>${boxesText(picked.length)}</b> scanned · ${qtyText(pcs)} pcs</p>${E.grid({ cols: [{ label: "#", get: (b) => String(picked.indexOf(b) + 1) },
+        { label: "Serial No", html: (b) => `<b class="mono">${esc(b.serial_no)}</b>` }, { label: "Product", get: (b) => b.product || "" }, { label: "Brand", get: (b) => b.brand || "" }, { label: "CTN", get: (b) => b.ctn || "" },
+        { label: "Code", get: (b) => b.style || "" }, { label: "Pcs", num: true, get: (b) => qtyText(b.qty) }, { label: "Batch", get: (b) => b.batch || "" },
+        { label: "", html: (b) => `<button type="button" class="btn small danger" data-cfx="${esc(b.serial_no)}" aria-label="Remove box ${esc(b.serial_no)}">×</button>` }], rows: picked })}` : "";
+      $$("[data-cfx]").forEach((x) => (x.onclick = () => { const i = picked.findIndex((b) => b.serial_no === x.dataset.cfx); if (i < 0) return; ed.addBox(picked[i], -1); picked.splice(i, 1); listBoxes(); }));
+    };
+    const scanBox = async (raw) => {
+      const ser = String(raw || "").trim().toUpperCase().replace(/\s+/g, " ").slice(0, 60);
+      if (!ser) return "✖ No serial no in that code.";
+      if (picked.some((b) => b.serial_no === ser)) return `✖ Box ${ser} is scanned already.`;
+      const [st, on] = await Promise.all([sb.from("box_stock").select("*").eq("serial_no", ser).maybeSingle(),
+        sb.from("customer_order_boxes").select("order_id, customer_orders(order_no, status)").eq("serial_no", ser)]);
+      if (st.error) return `✖ ${/box_stock|schema cache/i.test(st.error.message || "") ? "The box database needs the database update RUN_048_TO_051.sql." : st.error.message}`;
+      if (!st.data) return `✖ Box ${ser} is not in the box database (the Google Sheet). ${isAdmin() ? "Press Read Sheet on the EVA AI page." : "The Director reads the sheet on the EVA AI page."}`;
+      const other = (on.data || []).find((x) => x.customer_orders && x.customer_orders.status !== "cancelled" && x.order_id !== o?.id);
+      if (other) return `✖ Box ${ser} is on order ${other.customer_orders.order_no} already.`;
+      const b = st.data;
+      if (!ed.addBox(b, 1)) return `✖ The order has up to ${MAX_LINES} lines.`;
+      picked.push(b); listBoxes();
+      if (!$("#coRef").value.trim()) $("#coRef").value = [...new Set(picked.map((x) => x.batch).filter(Boolean))].join(", ").slice(0, 60);
+      return `✔ Box ${ser}: ${[b.product, b.brand && b.brand !== "-" ? b.brand : "", b.qty ? `${qtyText(b.qty)} pcs` : "", b.batch].filter(Boolean).join(" · ")} · ${boxesText(picked.length)}`;
+    };
+    $("#cfScan").onclick = () => E.scanDialog((text) => scanBox(readLabel(text).serial_no), {
+      title: "Scan Boxes — Customer Order", hint: "Point the camera at the QR or PDF417 code of each box label. Each box fills the order lines; press Close when done.", keep: true });
+    const typed = async () => { const r = await scanBox($("#cfSer").value); toast(r.slice(2), r.startsWith("✖")); if (r.startsWith("✔")) $("#cfSer").value = ""; $("#cfSer").focus(); };
+    $("#cfAdd").onclick = typed;
+    $("#cfSer").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); typed(); } };
+    $("#cfPhoto").onchange = async (e) => {
+      const files = Array.from(e.target.files); e.target.value = "";
+      const notes = [];
+      for (const f of files) { try { notes.push(await scanBox(readLabel(await E.decodeImageFile(f)).serial_no)); } catch (err) { notes.push(`✖ ${f.name}: ${err.message}`); } }
+      const bad = notes.filter((n) => n.startsWith("✖"));
+      if (notes.length) toast(bad.length ? bad.map((n) => n.slice(2)).join(" ") : notes[notes.length - 1].slice(2), !!bad.length);
+    };
     const terms = () => ($("#coTerms").value === "OTHER" ? $("#coTermsX").value.trim().replace(/\s+/g, " ").toUpperCase() : $("#coTerms").value);
     $("#coTerms").onchange = () => $$(".cotx").forEach((x) => (x.hidden = $("#coTerms").value !== "OTHER"));
     $("#coCancel").onclick = () => history.back();
@@ -136,10 +180,13 @@
       const bad = lines.findIndex((l) => !l.product || !(l.qty > 0));
       if (bad >= 0) return toast(`Line ${bad + 1}: write the product, and the boxes and pcs (or the quantity).`, true);
       E.setBusy(e.target, true, "Saving");
-      const { data: row, error } = await sb.rpc("save_customer_order", { p_id: o?.id || null, p_data: { customer_id: cust.id, order_date: $("#coDate").value || null, due_date: $("#coDue").value || null,
-        reference: $("#coRef").value, payment_terms: terms(), address: $("#coAddr").value, note: $("#coNote").value, extra_columns: cols, lines } });
-      if (error) { E.setBusy(e.target, false); return fail(error, notSet(error) ? "Run the database update RUN_041_TO_046.sql first" : "Could not save the order"); }
-      toast(o ? "Saved." : row.status === "approved" ? `Order ${row.order_no} saved and approved.` : `Order ${row.order_no} saved and sent to the Director.`);
+      const p_data = { customer_id: cust.id, order_date: $("#coDate").value || null, due_date: $("#coDue").value || null,
+        reference: $("#coRef").value, payment_terms: terms(), address: $("#coAddr").value, note: $("#coNote").value, extra_columns: cols, lines };
+      const { data: row, error } = picked.length ? await sb.rpc("save_order_with_boxes", { p_id: o?.id || null, p_data, p_boxes: picked.map((b) => b.serial_no) })
+        : await sb.rpc("save_customer_order", { p_id: o?.id || null, p_data });
+      if (error) { E.setBusy(e.target, false); return fail(error, /save_order_with_boxes/.test(error.message || "") && notSet(error) ? "Run the database update 052_order_scan.sql first" : notSet(error) ? "Run the database update RUN_041_TO_046.sql first" : "Could not save the order"); }
+      const withB = picked.length ? ` with ${boxesText(picked.length)}` : "";
+      toast(o ? `Saved${withB}.` : row.status === "approved" ? `Order ${row.order_no} saved and approved${withB}.` : `Order ${row.order_no} saved and sent to the Director${withB}.`);
       location.hash = "custorder/" + row.id;
     };
   }
@@ -204,7 +251,26 @@
       $(".co-addc", box).onclick = () => addColumn((name) => { const ls = all(); cols.push(name); draw(ls); });
     };
     draw(lines);
-    return { read: () => ({ lines: all().filter((l) => !blank(l)), cols }) };
+    const keyOf = (l) => [l.code, l.lot, l.product, l.pcs || ""].map((v) => String(v ?? "").trim().toUpperCase()).join("|");
+    // d = 1: the box goes on its line; d = -1: it comes off (an empty line goes); false when there is no room for a new line
+    const addBox = (b, d = 1) => {
+      const f = { code: String(b.style || "").toUpperCase(), lot: String(b.batch || "").toUpperCase(), product: [b.product, b.brand && b.brand !== "-" ? b.brand : ""].filter(Boolean).join(" · ").toUpperCase(), pcs: num(b.qty) };
+      const k = keyOf(f), tr = $$(".co-line", box).find((r) => keyOf(read1(r)) === k);
+      if (tr) {
+        const n = Math.max(0, num($(".cB", tr).value) + d);
+        if (n) $(".cB", tr).value = n; else if ($$(".co-line", box).length > 1) tr.remove(); else $$("input", tr).forEach((x) => (x.value = ""));
+        sum(); return true;
+      }
+      if (d < 0) return true;
+      let row = $$(".co-line", box).find((r) => blank(read1(r)));
+      if (!row) {
+        if ($$(".co-line", box).length >= MAX_LINES) return false;
+        $("tbody", box).insertAdjacentHTML("beforeend", lineRow({})); bind(); row = $(".co-line:last-child", box);
+      }
+      $(".cB", row).value = 1; $(".cC", row).value = f.code; $(".cP", row).value = f.pcs || ""; $(".cL", row).value = f.lot; $(".cN", row).value = f.product;
+      sum(); return true;
+    };
+    return { read: () => ({ lines: all().filter((l) => !blank(l)), cols }), addBox };
   }
   // the name of a new column (in capitals, once, not a column the order has already)
   function addColumn(done) {
@@ -392,7 +458,7 @@
       const box = fill(d);
       if (!box.serial_no) return "✖ No serial no in that code.";
       const { data, error } = await sb.rpc("add_order_box", { p_order: o.id, p_data: { ...box, added_how: how } });
-      if (error) return `✖ ${error.message}`;
+      if (error) return /on this order already/i.test(error.message || "") ? `✔ Box ${box.serial_no} is on this order (checked)` : `✖ ${error.message}`;
       boxes.push(data); added++;
       return `✔ Box ${data.serial_no} added${boxSays(data)} · ${boxes.length} of ${qtyText(o.total_boxes)} boxes`;
     };
@@ -696,7 +762,7 @@
       const b = fill(x);
       if (!b.serial_no) return "✖ No serial no in that code.";
       const { data, error } = await rpc("delivery_add_box", { p_data: { ...b, added_how: how } });
-      if (error) return `✖ ${error.message}`;
+      if (error) return /on this order already/i.test(error.message || "") ? `✔ Box ${b.serial_no} is on this order (checked)` : `✖ ${error.message}`;
       boxes.push(data); added++;
       return `✔ Box ${data.serial_no} added${boxSays(data)} · ${boxes.length} of ${qtyText(d.total_boxes)} boxes`;
     };
