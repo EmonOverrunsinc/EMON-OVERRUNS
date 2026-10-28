@@ -6,12 +6,28 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.35";
+  const VERSION = "3.36";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.35.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.36.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
-  const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey);
+  // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
+  // the same request (address and content) sent again while the first is on its way, or up to 2 seconds after it was
+  // saved, gets the answer of the first. Reading (GET) and file uploads always go to the server.
+  const sent = new Map();
+  function sendOnce(input, init = {}) {
+    const method = String(init.method || "GET").toUpperCase();
+    if (method === "GET" || method === "HEAD" || typeof init.body !== "string") return fetch(input, init);
+    const key = `${method} ${String(input?.url || input)} ${init.body}`;
+    let answer = sent.get(key);
+    if (!answer) {
+      answer = fetch(input, init);
+      sent.set(key, answer);
+      answer.then((r) => setTimeout(() => sent.delete(key), r.ok ? 2000 : 0), () => sent.delete(key));
+    }
+    return answer.then((r) => r.clone());
+  }
+  const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey, { global: { fetch: sendOnce } });
   const app = document.getElementById("app");
   const S = { session: null, profile: null, lastResult: [] };
 
@@ -38,6 +54,9 @@
     const [y, m, d] = s.slice(0, 10).split("-");
     return MON[Number(m) - 1] && d ? `${MON[Number(m) - 1]}\u00a0${d}\u00a0${y}` : s;
   };
+  // 3.36: a month as OCTOBER 2026 (from 2026-10 or any date in it), in every section
+  const monthOf = (d) => String(d || "").slice(0, 7);
+  const monthText = (d) => { const [y, m] = monthOf(d).split("-"); return MON[Number(m) - 1] ? `${MON[Number(m) - 1]} ${y}` : ""; };
   const stamp = (d = new Date()) => `${mdy(isoDay(d))} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   const dateTime = (iso) => { if (!iso) return ""; const d = new Date(iso), h = d.getHours(); return `${mdy(isoDay(d))} ${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "AM" : "PM"}`; };
   // Dates the database writes as "20 Jun 2026" (record verification) show as JUNE 20 2026 too.
@@ -50,6 +69,9 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const isAdmin = () => S.profile?.role === "admin";
   const isStaff = () => ["admin", "staff"].includes(S.profile?.role);
+  const meId = () => S.session?.user?.id;
+  // a "label | value" table; a row [label, value, html] shows html as it is instead of the value; an empty value shows —
+  const kvTable = (rows) => `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v, html]) => `<tr><th scope="row">${esc(k)}</th><td>${html || esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
   // 2.4: the Terms of Payment of an invoice, and its due date (none for other terms)
   const TERMS = ["CASH ON DELIVERY", "7 DAYS", "15 DAYS", "30 DAYS", "45 DAYS", "60 DAYS", "90 DAYS"];
   const termsDue = (iso, terms) => {
@@ -106,6 +128,7 @@
     trash: '<path d="M4 7h16M9.5 7V4h5v3M6 7l1 13.5h10L18 7"/>',
     x: '<path d="M6 6l12 12M18 6 6 18"/>',
     back: '<path d="M15 5.5 8.5 12l6.5 6.5"/>',
+    next: '<path d="m9 5.5 6.5 6.5L9 18.5"/>',
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
     out: '<path d="M14.5 4H19v16h-4.5M10 8l-4 4 4 4M6 12h10"/>',
     key: '<circle cx="8" cy="15" r="4.2"/><path d="m11 12 9-9M16.5 6.5 19 9"/>',
@@ -1025,7 +1048,8 @@
     const av = avatarUrl();
     const who = S.profile.full_name || S.session.user.email;
     const currency = ["inventory", "newstockbill", "stockbill", "ebill"].includes(key) ? "BDT" : "PHP (₱)";
-    const bandHtml = `<div class="band">${key === "dashboard" ? "" : backBtn()}<h1>${esc(title)}</h1><span class="help" title="${esc(hint ? hint.replace(/<[^>]+>/g, "") : title)}">?</span></div>`;
+    // 3.36: no "?" on any page; the dashboard has no title (its greeting stands in its place)
+    const bandHtml = key === "dashboard" ? "" : `<div class="band">${backBtn()}<h1>${esc(title)}</h1></div>`;
     const mainHtml = `<main id="main">${hint ? `<div class="hint"><b>Hint:</b> ${hint}</div>` : ""}${body}</main>`;
     // 2.7.2: moving between pages keeps the top bar and the side menu in place (no flash); only the page itself is
     // swapped, with a soft fade. The whole frame is drawn again only when the menu or the person changes.
@@ -2038,8 +2062,8 @@
   window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words, need };
   // shared with modules.js to modules4.js
   Object.assign(window.EO, {
-    APP, VERSION, sb, S, C, esc, peso, pad, num, fullName, qtyText, bdt, verifyUrl, isoToday, isoDay, mdy, stamp, dateTime, fixDates, timeAgo, online, $, $$,
-    isAdmin, isStaff, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
+    APP, VERSION, sb, S, C, esc, peso, pad, num, fullName, qtyText, bdt, verifyUrl, isoToday, isoDay, mdy, monthOf, monthText, stamp, dateTime, fixDates, timeAgo, online, $, $$,
+    isAdmin, isStaff, meId, kvTable, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, 
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, slimFile, scanDialog, openScanned, isCustKey, keepTab, stillHere, loadGuard, allRows,
     roleName, personTitle, publicUrl, logoHtml, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,

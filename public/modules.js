@@ -4,7 +4,7 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, isoDay, mdy, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy, num, fullName } = E;
+  const { sb, S, C, esc, peso, isoToday, isoDay, mdy, monthText, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy, num, fullName } = E;
   const V = (window.EO_VIEWS = window.EO_VIEWS || {});
 
   const METHOD = { cash: "Cash", bank_transfer: "Bank Transfer", online_transfer: "Online Transfer", deposit: "Bank Deposit" };
@@ -25,7 +25,6 @@
   // Edit / Delete (Director) buttons and the corrections box (modules3.js).
   const tools = (...a) => (E.recordTools ? E.recordTools(...a) : "");
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
-  const rhBox = (t, id) => (E.rhBox ? E.rhBox(t, id) : "");
 
   // ---------- files (records bucket + attachments table) ----------
   // Uploaded files are renamed automatically from the record number and what they are,
@@ -344,17 +343,24 @@
   // A Facebook link (facebook.com, m.facebook.com, fb.com …); only these open as a link.
   const FB_LINK = /^(https?:\/\/)?((www|m|web|mbasic|touch|mobile)\.)?(facebook\.com|fb\.com|fb\.me)\/\S+$/i;
   const fbLinkHtml = (u) => (u && FB_LINK.test(u) ? `<a href="${esc(/^https?:\/\//i.test(u) ? u : "https://" + u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a>` : "");
+  // 3.36: the same person check also asks for the phone number (database update 044); an older database is asked without it
+  async function personMatches(args) {
+    const r = await sb.rpc("customer_person_check", args);
+    if (r.error?.code !== "PGRST202") return r;
+    const { p_phone, ...older } = args;
+    return sb.rpc("customer_person_check", older);
+  }
   // Why a match stops the application (the database says the same when the form is sent).
   const blockReason = (r) => `This person cannot open an account: ${/Facebook link/.test(r.matched_on || "")
     ? `the same Facebook link is on account ${r.account_no || ""} (${String(r.status || "").toUpperCase()})`
     : `account ${r.account_no || ""} with the same ${r.matched_on} was CLOSED`}.`;
   // The accounts that may be the same person: BLOCKED (the same Facebook link, or the same name or Facebook name as a
-  // CLOSED account), or only similar (the same name or Facebook name as an open account).
+  // CLOSED account), or only similar (the same name, Facebook name or phone as an open account; 3.36: the phone).
   function personCheckHtml(rows) {
     if (!rows.length) return "";
     const first = rows.find((r) => r.blocked);
     const head = first ? `<div class="addr-msg bad">✖ BLOCKED — ${esc(blockReason(first))}</div>`
-      : `<div class="addr-msg warn">⚠ ${rows.length} account(s) with the same name or Facebook name. Check that it is not the same person.</div>`;
+      : `<div class="addr-msg warn">⚠ ${rows.length} account(s) with the same name, Facebook name or phone. Check that it is not the same person.</div>`;
     return head + E.grid({ cols: [{ label: "Account No", get: (r) => r.account_no || "" }, { label: "Name", get: fullName }, { label: "Facebook Name", get: (r) => r.facebook_name || "" },
       { label: "Status", html: (r) => pill(r.status) }, { label: "Same", get: (r) => r.matched_on || "" },
       { label: "Check", html: (r) => (r.blocked ? `<b class="bad-txt">BLOCKED</b>` : "Similar") }], rows });
@@ -410,13 +416,13 @@
     let timer = null, seq = 0;
     const check = async () => {
       const my = ++seq;
-      const first = val("ecFirst"), last = val("ecLast"), fb = val("ecFb"), link = val("ecFbLink"), fb2 = radio("ecFbx") === "yes" ? val("ecFb2") : "";
-      if (!(first && last) && !fb && !fb2 && !link) return ($("#ecCheck", el).innerHTML = "");
-      const { data, error } = await sb.rpc("customer_person_check", { p_first: first, p_last: last, p_fb_name: fb || null, p_fb_extra: fb2 || null, p_fb_link: link || null });
+      const first = val("ecFirst"), last = val("ecLast"), fb = val("ecFb"), link = val("ecFbLink"), fb2 = radio("ecFbx") === "yes" ? val("ecFb2") : "", phone = val("ecPhone");
+      if (!(first && last) && !fb && !fb2 && !link && !phone) return ($("#ecCheck", el).innerHTML = "");
+      const { data, error } = await personMatches({ p_first: first, p_last: last, p_fb_name: fb || null, p_fb_extra: fb2 || null, p_fb_link: link || null, p_phone: phone || null });
       if (my !== seq || !el.isConnected) return;
       $("#ecCheck", el).innerHTML = personCheckHtml(error ? [] : (data || []).filter((r) => r.id !== c.id));
     };
-    ["ecFirst", "ecLast", "ecFb", "ecFb2", "ecFbLink"].forEach((k) => $("#" + k, el).addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(check, 400); }));
+    ["ecFirst", "ecLast", "ecPhone", "ecFb", "ecFb2", "ecFbLink"].forEach((k) => $("#" + k, el).addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(check, 400); }));
     check();
     $("[data-x]", el).onclick = m.close;
     $("[data-ok]", el).onclick = async () => {
@@ -483,6 +489,8 @@
   // ======================================================================
   // Dashboard
   // ======================================================================
+  // 3.36: a clean business dashboard without a page title: the greeting, what waits for the Director (only what has
+  // something), the key numbers (each opens its list), the quick actions and the latest records
   V.dashboard = async () => {
     const H = E.hasModule, here = E.stillHere();
     const quick = [
@@ -494,29 +502,34 @@
       [isStaff() && H("purchase"), "#newpurchase", "Purchase Order", "order", "pink"],
       [true, "#verify", "Verify a Record", "shield", "gray"]
     ].filter((q) => q[0]);
-    const today = `${new Date().toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(isoToday())}`;
+    const now = new Date(), today = `${now.toLocaleDateString("en-US", { weekday: "long" })}, ${mdy(isoToday())}`;
     // 2.7: a greeting by the time of day (Manila time, as every date in the portal)
-    const hr = new Date().getHours(), greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
+    const hr = now.getHours(), greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
     const first = String(myName() || "").trim().split(/\s+/)[0] || "";
-    const tileIc = ["users", "order", "wallet", "check"];
+    // the key numbers: [name, icon, the list it opens, the line under the number]
+    const tiles = [["Active Customers", "users", "customers", "Open accounts"], ["Applications to Review", "order", "customers", "Waiting for a decision"],
+      ["Balance Due", "wallet", "invoices", "Still to collect"], ["Payments This Month", "check", "payments", `Received in ${now.toLocaleDateString("en-US", { month: "long" }).toUpperCase()}`]];
+    const tile = ([k, icon, page, sub]) => {
+      const tag = E.canOpen(page) ? "a" : "div";
+      return `<${tag} class="tile"${tag === "a" ? ` href="#${page}"` : ""}><div class="tile-top"><span class="k">${k}</span><span class="tile-ic">${ic(icon)}</span></div>
+        <div class="v"><span class="spin sm"></span></div><div class="s">${esc(sub)}</div></${tag}>`;
+    };
+    const box = (id, title, page, attrs = "") => `<div class="box"${attrs}><h3>${title}${page && E.canOpen(page) ? `<a href="#${page}" class="box-link">View all ${ic("next")}</a>` : ""}</h3><div class="in" id="${id}">${busy()}</div></div>`;
     E.shell("dashboard", "Dashboard", `
       <section class="hero home-hero">${E.logoHtml("hero-logo")}<div>
         <p class="hero-date">${esc(today)}</p>
         <h2>${esc(greet)}${first ? `, ${esc(first.charAt(0) + first.slice(1).toLowerCase())}` : ""}</h2>
-        <p class="welcome">Welcome to the ${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span> · <b>${esc(E.personTitle(S.profile.role, S.position))}</b></p></div></section>
-      ${isAdmin() ? `<div class="todo" id="dTodo"></div>` : ""}
-      ${H("customers") ? `<div class="tiles" id="dTiles">${["Active Customers", "Applications to Review", "Balance Due (₱)", "Payments This Month (₱)"].map((k, i) => `<div class="tile"><span class="tile-ic">${ic(tileIc[i])}</span><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>` : ""}
+        <p class="welcome">${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span> · <b>${esc(E.personTitle(S.profile.role, S.position))}</b></p></div></section>
+      ${isAdmin() ? `<section class="todo" id="dTodo" hidden></section>` : ""}
+      ${H("customers") ? `<div class="tiles" id="dTiles">${tiles.map(tile).join("")}</div>` : ""}
       <h3 class="home-h">Quick Actions</h3>
       <div class="quick">${quick.map((q) => `<a class="qa qa-${q[4]}" href="${q[1]}"><span class="qa-ic">${ic(q[3])}</span><span class="qa-l">${esc(q[2])}</span></a>`).join("")}</div>
-      <div class="cols">
-        ${H("customers") ? `<div class="box"><h3>Applications Waiting for Review</h3><div class="in" id="dApps">${busy()}</div></div>` : ""}
-        ${isStaff() && H("purchase") ? `<div class="box"><h3>Purchase Orders <a href="#purchase" class="box-link">Open</a></h3><div class="in" id="dComm">${busy()}</div></div>` : ""}
-      </div>
-      ${H("invoices") || H("payments") ? `<div class="cols" style="margin-top:10px">
-        ${H("invoices") ? `<div class="box"><h3>Invoices <a href="#invoices" class="box-link">Open</a></h3><div class="in">
-          <div id="dInv">${busy()}</div></div></div>` : ""}
-        ${H("payments") ? `<div class="box"><h3>Recent Payments</h3><div class="in" id="dPay">${busy()}</div></div>` : ""}
-      </div>` : ""}`);
+      <div class="dash-grid">
+        ${H("invoices") ? box("dInv", "Latest Invoices", "invoices") : ""}
+        ${H("payments") ? box("dPay", "Latest Payments", "payments") : ""}
+        ${H("customers") ? box("dApps", "Applications to Review", "", ` id="dAppsBox" hidden`) : ""}
+        ${isStaff() && H("purchase") ? box("dComm", "Purchase Orders", "purchase") : ""}
+      </div>`);
     const ym = isoToday().slice(0, 7);
     let soaDone = false; try { soaDone = sessionStorage.getItem("eoSoa") === ym; } catch (_) {}
     if (!soaDone) sb.rpc("generate_statements", {}).then(({ error }) => { if (!error) { try { sessionStorage.setItem("eoSoa", ym); } catch (_) {} } }, () => {});
@@ -546,15 +559,16 @@
     const due = (bal.data || []).reduce((s, b) => s + Math.max(0, num(b.balance_due)), 0);
     const pays = pay.data || [];
     const monthPaid = (month.data || []).reduce((s, p) => s + num(p.amount), 0);
-    const waiting = cs.filter((c) => ["pending", "verified"].includes(c.status));
-    const tiles = [["ok", activeN.count || 0], ["warn", waitN.count ?? waiting.length], ["", "₱ " + peso(due)], ["ok", "₱ " + peso(monthPaid)]];
-    $$("#dTiles .tile").forEach((t, i) => { t.className = "tile " + tiles[i][0]; $(".v", t).textContent = tiles[i][1]; });
-    if ($("#dApps")) {
+    const waiting = cs.filter((c) => ["pending", "verified"].includes(c.status)), waitCount = waitN.count ?? waiting.length;
+    const vals = [["ok", activeN.count || 0], [waitCount ? "warn" : "", waitCount], ["", "₱ " + peso(due)], ["ok", "₱ " + peso(monthPaid)]];
+    $$("#dTiles .tile").forEach((t, i) => { t.className = "tile " + vals[i][0]; $(".v", t).textContent = vals[i][1]; });
+    if ($("#dApps") && waiting.length) { // shown only when an application waits
+      $("#dAppsBox").hidden = false;
       $("#dApps").innerHTML = E.grid({ cols: [
-        { label: "Application", get: (r) => r.application_no },
-        { label: "Name", get: fullName }, { label: "Date", get: (r) => mdy(r.application_date) }, { label: "Status", html: (r) => pill(r.status) }],
-        rows: waiting.slice(0, 8), onRow: true, empty: "No applications waiting." });
-      E.bindGrid($("#dApps"), waiting.slice(0, 8), (r) => (location.hash = "customer/" + r.id));
+        { label: "Application / Name", html: (r) => `<b>${esc(r.application_no || "")}</b><br><small>${esc(fullName(r))}</small>` },
+        { label: "Date", get: (r) => mdy(r.application_date) }, { label: "Status", html: (r) => pill(r.status) }],
+        rows: waiting, onRow: true });
+      E.bindGrid($("#dApps"), waiting, (r) => (location.hash = "customer/" + r.id));
     }
     if ($("#dInv")) {
       // 2.4.3: the newest invoices with their status (PAID / PARTIAL PAYMENT / UNPAID); three columns, so the status
@@ -593,7 +607,8 @@
       <div class="po-dh">Approved this month · ${appr.length} lot${appr.length === 1 ? "" : "s"} · ${q.toLocaleString("en-PH")} pcs · average BDT ${peso(q ? a / q : 0)}</div>
       ${appr.length ? appr.slice(0, 5).map(line).join("") : `<div class="empty small">No approved purchase orders this month. <a href="#newpurchase">New Purchase Order</a></div>`}`;
   }
-  // Admin to-do: everything waiting for a decision.
+  // Admin to-do: everything waiting for a decision. 3.36: only what has something shows (1 Customer application,
+  // 2 Corrections …); with nothing waiting the box stays hidden.
   async function loadTodo() {
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
@@ -607,9 +622,11 @@
       cnt(sb.from("purchase_orders").select("id", head).eq("status", "pending"))
     ]);
     const el = $("#dTodo"); if (!el) return;
-    const items = [[apps, "Customer applications", "#customers"], [jobs, "Job applications", "#jobapps"], [changes, "Corrections", "#changes"], [memos, "Credit memos", "#creditmemos"], [contacts, "Contact messages", "#contacts"], [pos, "Purchase orders", "#purchase"]];
-    if (copies.length) items.push([copies.length, "Paper copy updates", `#${copies[0].owner_type}/${copies[0].owner_id}`]);
-    el.innerHTML = `<span class="todo-h">Waiting for you:</span>` + items.map(([n, label, href]) => `<a class="todo-chip ${n ? "hot" : ""}" href="${href}"><b>${n}</b> ${esc(label)}</a>`).join("");
+    const items = [[apps, "Customer application", "#customers"], [jobs, "Job application", "#jobapps"], [changes, "Correction", "#changes"], [memos, "Credit memo", "#creditmemos"],
+      [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
+    el.hidden = !items.length;
+    el.innerHTML = items.length ? `<div class="todo-h">${ic("bell")} Waiting for you <b>${items.reduce((s, [n]) => s + n, 0)}</b></div>
+      <div class="todo-list">${items.map(([n, label, href]) => `<a class="todo-chip" href="${href}"><b>${n}</b> ${esc(label)}${n === 1 ? "" : "s"}${ic("next")}</a>`).join("")}</div>` : "";
   }
 
   // ======================================================================
@@ -722,15 +739,15 @@
     const personCheck = async () => {
       const my = ++ckSeq;
       const first = $("#ncFirst")?.value.trim() || "", last = $("#ncLast")?.value.trim() || "", fb = $("#ncFb")?.value.trim() || "", link = $("#ncFbLink")?.value.trim() || "";
-      const fb2 = $("input[name=ncFbx]:checked")?.value === "yes" ? $("#ncFb2").value.trim() : "";
-      if (!(first && last) && !fb && !fb2 && !link) { blockedWhy = ""; if ($("#ncCheck")) $("#ncCheck").innerHTML = ""; return; }
-      const { data, error } = await sb.rpc("customer_person_check", { p_first: first, p_last: last, p_fb_name: fb || null, p_fb_extra: fb2 || null, p_fb_link: link || null });
+      const fb2 = $("input[name=ncFbx]:checked")?.value === "yes" ? $("#ncFb2").value.trim() : "", phone = $("#ncPhone")?.value.trim() || "";
+      if (!(first && last) && !fb && !fb2 && !link && !phone) { blockedWhy = ""; if ($("#ncCheck")) $("#ncCheck").innerHTML = ""; return; }
+      const { data, error } = await personMatches({ p_first: first, p_last: last, p_fb_name: fb || null, p_fb_extra: fb2 || null, p_fb_link: link || null, p_phone: phone || null });
       if (my !== ckSeq || !$("#ncCheck")) return;
       const rows = error ? [] : data || []; // a failed check is made again by the database when the form is sent
       blockedWhy = rows.find((r) => r.blocked) ? blockReason(rows.find((r) => r.blocked)) : "";
       $("#ncCheck").innerHTML = personCheckHtml(rows);
     };
-    ["ncFirst", "ncLast", "ncFb", "ncFb2", "ncFbLink"].forEach((k) => $("#" + k).addEventListener("input", () => { clearTimeout(ckTimer); ckTimer = setTimeout(personCheck, 400); }));
+    ["ncFirst", "ncLast", "ncPhone", "ncFb", "ncFb2", "ncFbLink"].forEach((k) => $("#" + k).addEventListener("input", () => { clearTimeout(ckTimer); ckTimer = setTimeout(personCheck, 400); }));
     $$("input[name=ncFbx]").forEach((r) => r.addEventListener("change", () => { clearTimeout(ckTimer); ckTimer = setTimeout(personCheck, 100); }));
     $$("input[name=ncFbx]").forEach((r) => (r.onchange = () => $$(".fb2").forEach((x) => (x.hidden = r.value !== "yes" || !r.checked))));
     let photoUrl = "";
@@ -929,7 +946,7 @@
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed, att.length) : ""}
       <div class="tabs" id="pfTabs">${tabs.map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes">
-        <div data-p="0">${detailsTable(c, b)}${rhBox("customers", c.id)}</div>
+        <div data-p="0">${detailsTable(c, b)}</div>
         <div data-p="1" hidden id="pfSoa">${busy("Loading statements")}</div>
         <div data-p="2" hidden>${E.grid({ cols: INV_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: invs.data || [], onRow: true, empty: "No invoices yet." })}</div>
         <div data-p="3" hidden><div id="pfFree"></div>${E.grid({ cols: PAY_COLS.filter((x) => x.label !== "Customer" && x.label !== "Account No"), rows: pays.data || [], onRow: true, empty: "No payments yet." })}</div>
@@ -1039,7 +1056,7 @@
       a.business, a.start, a.fb, a.fbLink, a.fbExtra,
       [["pending", "verified", "rejected"].includes(c.status) ? "Application Date" : "Opening Date", mdy(c.application_date)], a.issued, ["Account Status", c.status.toUpperCase()], ["Status Note", c.status_note]
     ];
-    return `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v, html]) => `<tr><th scope="row">${esc(k)}</th><td>${html || esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
+    return E.kvTable(rows);
   }
 
   // The Director sets the location check: found, no need to check, or not found.
@@ -1062,7 +1079,7 @@
         <li><b>Application details:</b> everything written on the customer application form.
           <div class="rv-facts">${facts.map(([k, v, html]) => `<div><small>${esc(k)}</small><b>${html || esc(v || "—")}</b></div>`).join("")}</div>
           ${nDocs ? `<button type="button" class="btn small" id="rvDocs">${ic("doc")} Documents (${nDocs})</button>` : ""}</li>
-        <li><b>Check records:</b> look for the same name, Facebook name or Facebook link in other accounts. A person whose account was CLOSED, or whose Facebook link is already on another account, cannot open an account.
+        <li><b>Check records:</b> look for the same name, Facebook name, Facebook link or phone number in other accounts. A person whose account was CLOSED, or whose Facebook link is already on another account, cannot open an account.
           <div class="btnrow"><button type="button" class="btn primary" id="rvCheck">Check &amp; Verify</button>
           <button type="button" class="btn" id="rvFb">${c.facebook_verified ? "Mark Facebook NOT verified" : "Mark Facebook verified"}</button>
           ${locSelect(c, "rvLoc")}</div><div id="rvResult">${verified ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
@@ -1108,7 +1125,7 @@
           E.bindGrid(out, data, (r) => window.open("#customer/" + r.id, "_blank"));
           approveOpen(false, "BLOCKED: this person cannot open an account (see the check above).");
         } else {
-          out.innerHTML = `<div class="addr-msg warn">⚠ ${data.length} account(s) with the same name or Facebook name. Check that it is not the same person:</div>` +
+          out.innerHTML = `<div class="addr-msg warn">⚠ ${data.length} account(s) with the same name, Facebook name or phone. Check that it is not the same person:</div>` +
             E.grid({ cols: [{ label: "Account No", get: (r) => r.account_no }, { label: "Name", get: fullName }, { label: "Phone", get: (r) => r.phone || "" }, { label: "Status", html: (r) => pill(r.status) }, { label: "Matched On", get: (r) => (r.matched_on || "").replace(/\b\w/g, (x) => x.toUpperCase()) }], rows: data, onRow: true })
             + `<div class="btnrow"><button type="button" class="btn" id="rvAnyway">Not the same person — Verify anyway</button></div>`;
           E.bindGrid(out, data, (r) => window.open("#customer/" + r.id, "_blank"));
@@ -1166,7 +1183,6 @@
   const monthStart = (iso) => String(iso).slice(0, 7) + "-01";
   const nextMonth = (iso) => { const d = new Date(monthStart(iso) + "T00:00:00"); d.setMonth(d.getMonth() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; };
   const dayBefore = (iso) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
-  const monthName = (iso) => new Date(monthStart(iso) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
   // Same rules as the database: invoices, approved Additional Charge orders and Settlement Adjustments that add
   // (on the day they were carried out) debit; payments, approved credit/discount memos (on approval date) and
   // Settlement Adjustments that take money off credit. Each line is named in short business words in capitals (2.2):
@@ -1240,7 +1256,7 @@
     const pages = [page1];
     for (let i = 0; i < images.length; i += 4) {
       const chunk = images.slice(i, i + 4);
-      pages.push(`<div class="soa-pg">Page ${pages.length + 1}</div><div class="ph-title" style="text-align:left">ATTACHED DOCUMENTS — ${esc(monthName(p.start).toUpperCase())}</div>
+      pages.push(`<div class="soa-pg">Page ${pages.length + 1}</div><div class="ph-title" style="text-align:left">ATTACHED DOCUMENTS — ${esc(monthText(p.start))}</div>
         <div class="soa-imgs">${chunk.map((im) => `<figure>${im.url ? `<img src="${esc(im.url)}" alt="${esc(im.label)} ${esc(im.no)}">` : `<div class="soa-pdf">${esc(im.label)} ${esc(im.no)} — COPY ON FILE (PDF)</div>`}
           <figcaption>ACCOUNT NO. ${esc(c.account_no)} &nbsp;·&nbsp; ${esc(im.label)} ${esc(im.no)} &nbsp;·&nbsp; ₱ ${peso(im.amount)}</figcaption></figure>`).join("")}</div>`);
     }
@@ -1253,7 +1269,7 @@
     const invs = allInvs.filter((i) => i.invoice_date >= from && i.invoice_date <= p.end);
     const pays = txns.filter((x) => x.pay).map((x) => x.pay);
     const images = await monthCopies(invs, pays);
-    E.openPreview(`SOA ${p.no || monthName(p.start)}`, soaPages(c, { ...p, from }, txns, images));
+    E.openPreview(`SOA ${p.no || monthText(p.start)}`, soaPages(c, { ...p, from }, txns, images));
   }
 
   // One SOA a month, from the month the account was opened to this month (the first one also has the entries dated
@@ -1277,7 +1293,7 @@
     rows.reverse();
     box.innerHTML = `<div class="btnrow"><button type="button" class="btn" id="soaAll">${ic("print")} Print All Transactions</button>${isAdmin() ? `<a class="btn" href="#statements">All Statements (SOA)</a>` : ""}</div>
       ${E.grid({ cols: [
-        { label: "Period", get: (r) => (r.live ? `${monthName(r.start)} (to date)` : monthName(r.start)).toUpperCase() }, { label: "Statement No", get: (r) => r.no },
+        { label: "Period", get: (r) => (r.live ? `${monthText(r.start)} (to date)` : monthText(r.start)).toUpperCase() }, { label: "Statement No", get: (r) => r.no },
         { label: "Opening (₱)", num: true, get: (r) => peso(r.opening) }, { label: "Debit (₱)", num: true, get: (r) => peso(r.debit) },
         { label: "Credit (₱)", num: true, get: (r) => peso(r.credit) }, { label: "Closing (₱)", num: true, get: (r) => peso(r.closing) },
         { label: "", html: () => `<span class="btn">Print SOA</span>` }], rows, onRow: true })}
@@ -1312,7 +1328,7 @@
         { label: "Statement No", get: (r) => r.statement_no }, { label: "Account No", get: (r) => r.customers?.account_no || "" }, { label: "Customer", get: (r) => fullName(r.customers || {}) },
         { label: "Opening (₱)", key: "opening_balance", num: true, get: (r) => peso(r.opening_balance) }, { label: "Debit (₱)", key: "total_debit", num: true, get: (r) => peso(r.total_debit) },
         { label: "Credit (₱)", key: "total_credit", num: true, get: (r) => peso(r.total_credit) }, { label: "Closing (₱)", key: "closing_balance", num: true, get: (r) => peso(r.closing_balance) }],
-        rows, onRow: true, foot: { opening_balance: sum("opening_balance"), total_debit: sum("total_debit"), total_credit: sum("total_credit"), closing_balance: sum("closing_balance") }, empty: `No statements for ${monthName(m)} yet.` });
+        rows, onRow: true, foot: { opening_balance: sum("opening_balance"), total_debit: sum("total_debit"), total_credit: sum("total_credit"), closing_balance: sum("closing_balance") }, empty: `No statements for ${monthText(m)} yet.` });
       E.bindGrid($("#stRes"), rows, statementDialog);
       E.setRecords(`Statements: ${rows.length}`);
     };
@@ -1327,7 +1343,7 @@
     async function statementDialog(r) {
       const att = await attachmentsOf("statement", r.id);
       const m = E.modal(`${r.statement_no} — ${fullName(r.customers || {})}`,
-        `<div class="docgrid">${docCard({ key: "soa-" + r.id, title: `Statement of Account ${r.statement_no}`, sub: monthName(r.period_start), ownerType: "statement", ownerId: r.id, att,
+        `<div class="docgrid">${docCard({ key: "soa-" + r.id, title: `Statement of Account ${r.statement_no}`, sub: monthText(r.period_start), ownerType: "statement", ownerId: r.id, att,
           print: async () => { m.close(); const x = await dataFor(r.customer_id); printSoa(r.customers, asPeriod(r), x.txns, x.invs); }, uploadLabel: "Upload Copy", copyName: "Copy" })}</div>`,
         `<button type="button" class="btn" data-x>Close</button>`);
       $("[data-x]", m.el).onclick = m.close;
@@ -1338,7 +1354,7 @@
       if (!rows.length) return toast("No statements for this month.", true);
       const pages = [];
       for (const r of rows) { const x = await dataFor(r.customer_id); const p = asPeriod(r); p.from = coveredFrom(r.customers, p.start, x.txns); pages.push(...soaPages(r.customers, p, within(x.txns, p.from, p.end), [])); }
-      E.openPreview(`All SOA ${monthName(rows[0].period_start)}`, pages);
+      E.openPreview(`All SOA ${monthText(rows[0].period_start)}`, pages);
     };
     load();
   };
@@ -1521,7 +1537,7 @@
       <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}${deds.length ? ` · CORRECTED: ₱ ${peso(num(inv.total_amount) - deds.reduce((t, m) => t + num(m.request_amount), 0))}` : ""}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, active, deds)]) })}
         ${copyCard({ key: "invcopy", title: `Invoice ${inv.invoice_no}`, tag: "Paper Copy", sub: "Scan or upload the paper invoice", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}</div>
       <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
-      ${rhBox("customer_invoices", inv.id)}</div>
+      </div>
       <div class="wfoot">${tools("customer_invoices", inv, `Invoice ${inv.invoice_no}`, { reload: () => V.invoice(id), afterDelete: () => (location.hash = "invoices") })}
         ${(E.canWrite("payments") || E.canWrite("invoices")) && ["active", "suspended", "closed"].includes(inv.customer_status) ? `<a class="btn" href="#newpayment/${inv.customer_id}">Record Payment</a>` : ""}
         <a class="btn" href="#invoices">Close</a></div></div>`;
@@ -1746,7 +1762,7 @@
         <div class="lp-sum"><span>Available to link</span><b>₱ ${peso(num(p.amount) - linked)}</b></div></div>`}
       <div class="docgrid">${docCard({ key: "ack", title: `Acknowledgment Receipt ${p.receipt_no}`, sub: `₱ ${peso(p.amount)} · ${mdy(p.paid_date)}`, ownerType: "payment", ownerId: p.id, att, print: () => E.openPreview(`Acknowledgment ${p.receipt_no}`, [ackPage(p)]), uploadLabel: "Upload Copy", copyName: "Copy" })}</div>
       <div><b>Uploaded Receipts &amp; Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No receipts uploaded.")}</div>
-      ${rhBox("payments_received", p.id)}</div>
+      </div>
       <div class="wfoot">${tools("payments_received", p, `Receipt ${p.receipt_no}`, { reload: () => V.payment(id), afterDelete: () => (location.hash = "payments") })}<a class="btn" href="#payments">Close</a></div></div>`;
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.payment(id));
@@ -1921,7 +1937,6 @@
       ${isAdmin() && ["pending", "approved"].includes(m.status) ? `<fieldset class="opt review"><legend>Director's Decision</legend>
         <div class="fields wide"><label for="cmNote">Note</label><input type="text" id="cmNote"></div>
         <div class="btnrow">${m.status === "pending" ? `<button type="button" class="btn ok" data-a="approve">Approve</button><button type="button" class="btn danger" data-a="reject">Reject</button>` : `<button type="button" class="btn ok" data-a="paid">Mark as PAID / Settled</button>`}</div></fieldset>` : ""}
-      ${rhBox("credit_memos", m.id)}
       </div><div class="wfoot">${tools("credit_memos", m, `Credit Memo ${m.memo_no}`, { reload: () => V.creditmemo(id), afterDelete: () => (location.hash = "creditmemos") })}<a class="btn" href="#creditmemos">Close</a></div></div>`;
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.creditmemo(id));

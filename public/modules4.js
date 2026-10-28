@@ -10,7 +10,6 @@
   const V = window.EO_VIEWS;
   const tools = (...a) => (E.recordTools ? E.recordTools(...a) : "");
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
-  const rhBox = (t, id) => (E.rhBox ? E.rhBox(t, id) : "");
   const signed = (n) => (num(n) < 0 ? "−" : "") + peso(Math.abs(num(n)));
   const cap = (s) => String(s || "").replace(/^./, (x) => x.toUpperCase());
 
@@ -34,7 +33,7 @@
   const totalCost = (b) => num(b.total_cost) + num(b.release_bdt) + num(b.shipping_cost);
   const rate = (n) => Number(n || 0).toLocaleString("en-PH", { maximumFractionDigits: 4 });
   // "45 boxes × PHP 3,200.00 = PHP 144,000.00 × 2" — how the released charge was counted
-  const chargeText = (b) => `${b.total_boxes ?? "?"} boxes × PHP ${peso(b.release_price_per_box)} = PHP ${peso(b.release_php)} × ${rate(b.release_exchange_rate)}`;
+  const chargeText = (b) => `${b.total_boxes ?? 0} boxes × PHP ${peso(b.release_price_per_box)} = PHP ${peso(b.release_php)} × ${rate(b.release_exchange_rate)}`;
   const feesOf = (b) => num(b.eoo_fees) + num(b.other_fees) + num(b.penalties);
   const expensesOf = (b) => totalCost(b) + feesOf(b);
   const profitOf = (b) => num(b.net_sales) - expensesOf(b);
@@ -342,7 +341,7 @@
           ${w ? `<div class="sb-up"><label for="sbUpKind">Add File</label><select id="sbUpKind">${[["bill", "E-Bill Copy"], ["shipping_bill", "Shipping Fee Receipt"], ["sales_report", "Sales Report"], ["receipt", "Receipt"], ["other", "Other"]].map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>
             <label class="btn" for="sbUpFile">${ic("upload")} Choose File</label><input type="file" id="sbUpFile" hidden multiple accept="image/*,application/pdf" data-save-now></div>` : ""}</div>
         <div data-p="5" hidden>${E.grid({ cols: evCols, rows: events, empty: "No history yet." })}</div>
-      </div>${rhBox("stock_bills", b.id)}`;
+      </div>`;
     $$("#sbTabs button").forEach((t) => (t.onclick = () => { $$("#sbTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#sbPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
     E.keepTab("#sbTabs", "ebill:" + id);
     E.bindGrid($("#sbPays"), payRows, (r) => {

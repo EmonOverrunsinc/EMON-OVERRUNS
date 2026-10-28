@@ -3,12 +3,10 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy, num, fullName, bdt } = E;
+  const { sb, S, C, esc, peso, isoToday, mdy, monthText, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy, num, fullName, bdt } = E;
   const V = window.EO_VIEWS;
-  const monthLabel = (iso) => iso ? new Date(String(iso).slice(0, 10) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) : "";
   const tools = (...a) => (E.recordTools ? E.recordTools(...a) : "");
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
-  const rhBox = (t, id) => (E.rhBox ? E.rhBox(t, id) : "");
   // Menu access an employee can be given (Community, Verification and Download Forms are open to everyone).
   // 3.31: Purchase Order has its own menu access (5); no Employee (HR): 11 EO-Office gives Employees, Payroll and Job Applications
   const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["purchase", "5 Purchase Order"], ["projects", "7 Project"], ["billing", "8 Billing"], ["inventory", "10 E-Bill"], ["eooffice", "11 EO-Office"]];
@@ -246,11 +244,11 @@
             <div class="fields wide"><label for="emLinkSel">Login Account</label><select id="emLinkSel"><option value="">Loading…</option></select></div>
             <div class="btnrow"><button type="button" class="btn" id="emLink">${ic("key")} Link Login Account</button></div>`}</fieldset></div>` : ""}
         ${isAdmin() ? `<div data-p="3" hidden id="emCard"></div>` : ""}
-        <div data-p="${isAdmin() ? 4 : 2}" hidden><div class="grid-wrap"><table class="grid kv-table"><tbody>${[["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Present Address", em.address], ["Permanent Address", em.permanent_address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Duty Hours", em.duty_hours],
+        <div data-p="${isAdmin() ? 4 : 2}" hidden>${E.kvTable([["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Present Address", em.address], ["Permanent Address", em.permanent_address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Duty Hours", em.duty_hours],
           ["Father's Name", em.father_name], ["Mother's Name", em.mother_name], ["Wife's / Husband's Name", em.spouse_name], ["Date of Birth", mdy(em.date_of_birth)], ["Birth Place", em.birth_place],
           ["BRC / NID / Passport No", em.id_number], ["Gender", (em.gender || "").toUpperCase()], ["Religion", em.religion], ["Blood Group", em.blood_group],
           ["Work Experience", (em.experience || []).map((r) => [r.company, r.position, [r.from, r.to].filter(Boolean).join("–")].filter(Boolean).join(" · ")).join(" | ")], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""],
-          ["Emergency Contact", em.emergency_name], ["Relationship", em.emergency_relation], ["Emergency Contact No", em.emergency_phone], ["Emergency Address", em.emergency_address], ["Created By", em.created_by_name]].map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>${rhBox("employees", em.id)}</div>
+          ["Emergency Contact", em.emergency_name], ["Relationship", em.emergency_relation], ["Emergency Contact No", em.emergency_phone], ["Emergency Address", em.emergency_address], ["Created By", em.created_by_name]])}</div>
       </div>`;
     $$("#emTabs button").forEach((t) => (t.onclick = () => { $$("#emTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#emPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
     E.keepTab("#emTabs", "employee:" + id);
@@ -340,7 +338,7 @@
   // ---------- payslips: salary, advance, bonus ----------
   const PAY_TYPE = { salary: "Salary", advance: "Advance", bonus: "Bonus", other: "Other" };
   const SLIP_COLS = [
-    { label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => PAY_TYPE[r.pay_type] || r.pay_type }, { label: "For Month", get: (r) => monthLabel(r.period_month) },
+    { label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => PAY_TYPE[r.pay_type] || r.pay_type }, { label: "For Month", get: (r) => monthText(r.period_month) },
     { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Method", get: (r) => r.method || "" }, { label: "Net Pay (₱)", key: "net_pay", num: true, get: (r) => peso(r.net_pay) },
     { label: "Recorded By", get: (r) => r.created_by_name || "" }
   ];
@@ -416,7 +414,7 @@
     const gross = earn.reduce((s, x) => s + num(x[1]), 0), less = ded.reduce((s, x) => s + num(x[1]), 0);
     return `${E.printHead(title, `<img src="${E.pdf417DataUrl("EMONPS|" + p.payslip_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.payslip_no)}</div>`)}
       ${E.box("Employee", `<div class="pgrid2">${E.cell("Employee Name", fullName(em), "hl")}${E.cell("Employee No", em.employee_no)}${E.cell("Position", em.position)}${E.cell("Payslip No", p.payslip_no)}
-        ${E.cell("For Month", monthLabel(p.period_month))}${E.cell("Pay Date", mdy(p.pay_date))}${E.cell("Payment Method", p.method)}${E.cell("Reference No", p.reference_no)}</div>`)}
+        ${E.cell("For Month", monthText(p.period_month))}${E.cell("Pay Date", mdy(p.pay_date))}${E.cell("Payment Method", p.method)}${E.cell("Reference No", p.reference_no)}</div>`)}
       <div class="pgrid2 slip-cols">
         ${E.box("Earnings", `<table class="rp"><tbody>${earn.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${peso(v)}</td></tr>`).join("")}<tr class="sub"><td>Total</td><td class="num">${peso(gross)}</td></tr></tbody></table>`)}
         ${E.box("Deductions", `<table class="rp"><tbody>${ded.length ? ded.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${peso(v)}</td></tr>`).join("") : `<tr><td>None</td><td class="num">0.00</td></tr>`}<tr class="sub"><td>Total</td><td class="num">${peso(less)}</td></tr></tbody></table>`)}
@@ -438,13 +436,12 @@
     $(".band h1").textContent = `Payslip — ${p.payslip_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(p.payslip_no)} · ${esc(PAY_TYPE[p.pay_type])}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide"><span>Employee</span><span>${hr ? `<a href="#employee/${em.id}"><b>${esc(fullName(em))}</b></a>` : `<b>${esc(fullName(em))}</b>`} (${esc(em.employee_no)})</span>
-        <span>Position</span><span>${esc(em.position || "—")}</span><span>For Month</span><span>${esc(monthLabel(p.period_month))}</span><span>Pay Date</span><span>${mdy(p.pay_date)}</span>
+        <span>Position</span><span>${esc(em.position || "—")}</span><span>For Month</span><span>${esc(monthText(p.period_month))}</span><span>Pay Date</span><span>${mdy(p.pay_date)}</span>
         <span>Method</span><span>${esc(p.method || "—")}${p.reference_no ? " · Ref " + esc(p.reference_no) : ""}</span></div>
         <div class="fields wide"><span>Basic Pay</span><span>₱ ${peso(p.basic_pay)}</span><span>Allowances</span><span>₱ ${peso(p.allowances)}</span><span>Overtime Pay</span><span>₱ ${peso(p.overtime_pay)}</span>
         <span>Bonus</span><span>₱ ${peso(p.bonus)}</span><span>Advance Given</span><span>₱ ${peso(p.advance_amount)}</span><span>Deductions</span><span>₱ ${peso(num(p.advance_deduction) + num(p.other_deductions))}</span>
         <span>Net Pay</span><b class="big">₱ ${peso(p.net_pay)}</b></div></div>
-      <div class="docgrid">${E.docCard({ key: "slip", title: `Payslip ${p.payslip_no}`, sub: `Net ₱ ${peso(p.net_pay)} · ${monthLabel(p.period_month)}`, ownerType: "payslip", ownerId: p.id, att, print: () => E.openPreview(`Payslip ${p.payslip_no}`, [payslipPage(p)]), canUpload: E.canWrite("employees") })}</div>
-      ${hr ? rhBox("payslips", p.id) : ""}
+      <div class="docgrid">${E.docCard({ key: "slip", title: `Payslip ${p.payslip_no}`, sub: `Net ₱ ${peso(p.net_pay)} · ${monthText(p.period_month)}`, ownerType: "payslip", ownerId: p.id, att, print: () => E.openPreview(`Payslip ${p.payslip_no}`, [payslipPage(p)]), canUpload: E.canWrite("employees") })}</div>
       </div><div class="wfoot">${hr ? tools("payslips", p, `Payslip ${p.payslip_no}`, { reload: () => V.payslip(id), afterDelete: () => (location.hash = "employee/" + em.id) }) : ""}
         <a class="btn" href="${hr ? "#employee/" + em.id : "#profile"}">Close</a></div></div>`;
     E.bindDocCards($("#main"), () => V.payslip(id));
@@ -479,15 +476,15 @@
         rows: staff, onRow: true, foot: { monthly_salary: peso(staff.reduce((t, e) => t + num(e.monthly_salary), 0)), paid: peso(staff.reduce((t, e) => t + e.paid, 0)) }, empty: "No active employees." });
       E.bindGrid($("#prActive"), staff, (r) => (location.hash = "employee/" + r.id));
       const cols = [SLIP_COLS[0], { label: "Employee", get: (r) => fullName(r.employees || {}) }, { label: "Employee No", get: (r) => r.employees?.employee_no || "" }, ...SLIP_COLS.slice(1, 6)];
-      $("#prRes").innerHTML = E.grid({ cols, rows, onRow: true, foot: { net_pay: peso(rows.reduce((s, r) => s + num(r.net_pay), 0)) }, empty: `No payments for ${monthLabel(m)}.` });
+      $("#prRes").innerHTML = E.grid({ cols, rows, onRow: true, foot: { net_pay: peso(rows.reduce((s, r) => s + num(r.net_pay), 0)) }, empty: `No payments for ${monthText(m)}.` });
       E.bindGrid($("#prRes"), rows, (r) => (location.hash = "payslip/" + r.id));
       E.setRecords(`Payslips: ${rows.length}`);
     };
     $("#prMonth").onchange = load;
     $("#prPrint").onclick = () => {
       const byType = new Map(); rows.forEach((r) => { const t = byType.get(r.pay_type) || [0, 0]; t[0]++; t[1] += num(r.net_pay); byType.set(r.pay_type, t); });
-      E.openPreview(`Payroll ${monthLabel($("#prMonth").value + "-01")}`, E.listingPages({
-        title: "Payroll Listing", range: `For the month of ${monthLabel($("#prMonth").value + "-01")}`,
+      E.openPreview(`Payroll ${monthText($("#prMonth").value + "-01")}`, E.listingPages({
+        title: "Payroll Listing", range: `For the month of ${monthText($("#prMonth").value + "-01")}`,
         cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Employee", get: (r) => fullName(r.employees || {}) }, { label: "Employee No", get: (r) => r.employees?.employee_no || "" }, { label: "Type", get: (r) => PAY_TYPE[r.pay_type] }, { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Method", get: (r) => r.method || "" }, { label: "Net Pay", num: true, get: (r) => peso(r.net_pay) }],
         rows, summary: { title: "Summary by Type (PHP)", cols: ["Type", "Count", "Net Pay (₱)"], rows: [...byType].map(([t, v]) => [PAY_TYPE[t], String(v[0]), peso(v[1])]), total: ["Total:", String(rows.length), peso(rows.reduce((s, r) => s + num(r.net_pay), 0))] },
         criteria: `Month: ${$("#prMonth").value}`
@@ -617,7 +614,6 @@
     if (!here()) return;
     const signed = att.some((x) => x.kind === "signed_form");
     const exp = Array.isArray(a.experience) ? a.experience : [];
-    const kv = (rows) => `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
     $(".band h1").textContent = `Job Application — ${a.application_no}`;
     $("#main").innerHTML = `
       ${a.status === "approved" ? `<div class="banner ok">✔ APPROVED ${esc(a.approval_no || "")} on ${mdy(a.approved_at)} by ${esc(a.approved_by_name || "")}${a.employee_id ? ` — <a href="#employee/${a.employee_id}">open employee record</a>` : ""}</div>` : ""}
@@ -636,13 +632,12 @@
           <div class="btnrow"><button type="button" class="btn ok" id="jaApprove" ${signed ? "" : 'disabled title="Upload the signed application form first"'}>Approve — Create Employee</button><button type="button" class="btn danger" id="jaReject">Reject</button></div></li>
       </ol></fieldset>` : ""}
       <div class="cols">
-        <div><h3>Address &amp; Personal Information</h3>${kv([["Present Address", a.present_address], ["Permanent Address", a.permanent_address], ["Father's Name", a.father_name], ["Mother's Name", a.mother_name], ["Wife's / Husband's Name", a.spouse_name], ["Date of Birth", E.mdy(a.date_of_birth)], ["Birth Place", a.birth_place], ["BRC / NID / Passport No", a.id_number], ["Gender", (a.gender || "").toUpperCase()], ["Religion", a.religion], ["Blood Group", a.blood_group],
+        <div><h3>Address &amp; Personal Information</h3>${E.kvTable([["Present Address", a.present_address], ["Permanent Address", a.permanent_address], ["Father's Name", a.father_name], ["Mother's Name", a.mother_name], ["Wife's / Husband's Name", a.spouse_name], ["Date of Birth", E.mdy(a.date_of_birth)], ["Birth Place", a.birth_place], ["BRC / NID / Passport No", a.id_number], ["Gender", (a.gender || "").toUpperCase()], ["Religion", a.religion], ["Blood Group", a.blood_group],
           ["Emergency Contact", a.emergency_name], ["Relationship", a.emergency_relation], ["Emergency Contact No", a.emergency_phone], ["Emergency Address", a.emergency_address]])}</div>
-        <div><h3>Position Applied For</h3>${kv([["Position", a.position_title], ["Company", a.company_name], ["Monthly Salary (₱)", a.apply_salary != null ? peso(a.apply_salary) : ""], ["Duty Hours", a.apply_duty_hours], ["Joining Date", E.mdy(a.apply_joining_date)]])}</div>
+        <div><h3>Position Applied For</h3>${E.kvTable([["Position", a.position_title], ["Company", a.company_name], ["Monthly Salary (₱)", a.apply_salary != null ? peso(a.apply_salary) : ""], ["Duty Hours", a.apply_duty_hours], ["Joining Date", E.mdy(a.apply_joining_date)]])}</div>
       </div>
       <h3>Work Experience</h3>${E.grid({ cols: [{ label: "Company", get: (r) => r.company || "" }, { label: "Position", get: (r) => r.position || "" }, { label: "From", get: (r) => r.from || "" }, { label: "To", get: (r) => r.to || "" }], rows: exp, empty: "No previous experience." })}
       <h3>Requirements &amp; Files</h3>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No requirements uploaded.")}
-      ${rhBox("job_applications", a.id)}
       <div class="btnrow">${tools("job_applications", a, `Job application ${a.application_no}`, { reload: () => V.jobapp(id), afterDelete: () => (location.hash = "jobapps") })}<a class="btn" href="#jobapps">Close</a></div>`;
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), () => V.jobapp(id));
@@ -805,14 +800,14 @@
           { label: "Receipt", html: (r) => rcptOf[r.id] ? `<button type="button" class="btn small" data-open="${esc(rcptOf[r.id].storage_path)}" data-mime="${esc(rcptOf[r.id].mime || "")}" data-name="${esc(rcptOf[r.id].file_name)}">${ic("eye")} View</button>` : "—" },
           { label: "", html: (r) => tools("project_payments", r, `Project payment ${r.payment_no}`, { reload: () => V.project(id) }) }], rows: payments, foot: { amount: peso(pr.total_paid) }, empty: pr.status === "approved" ? "No payments yet." : "Payments can be recorded after the project is approved." })}</div>
         <div><b>Other Files</b>${E.filesHtml(att.filter((a) => a.kind !== "approval"), "No other files.")}</div>
-        ${rhBox("projects", pr.id)}
       </div><div class="wfoot">${tools("projects", pr, `Project ${pr.project_no}`, { reload: () => V.project(id), afterDelete: () => (location.hash = "projects") })}<button type="button" class="btn" id="pjStmt">${ic("print")} Print Payment Record</button><a class="btn" href="#projects">Close</a></div></div>`;
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), () => V.project(id));
     bindTools($("#main"));
     $$("[data-pa]").forEach((b) => (b.onclick = async () => {
+      b.disabled = true; // 3.36: one decision at a time
       const r = await sb.rpc("project_action", { p_id: id, p_action: b.dataset.pa, p_note: $("#pjNote")?.value.trim() || null });
-      if (r.error) return fail(r.error, "Could not update the project");
+      if (r.error) { b.disabled = false; return fail(r.error, "Could not update the project"); }
       toast(`${pr.project_no} is now ${r.data.status.toUpperCase()}.`); V.project(id);
     }));
     if ($("#ppForm")) $("#ppForm").onsubmit = async (e) => {
@@ -970,7 +965,7 @@
       <div class="tabs" id="pcTabs"><button type="button" class="on" data-t="0">Payment Vouchers (${vouchers.length})</button><button type="button" data-t="1">Monthly Records (${months.length})</button><button type="button" data-t="2">Accounts (${accounts.length})</button></div>
       <div class="tabpanes" id="pcPanes">
         <div data-p="0"><div id="pcVouchers">${E.grid({ cols: voucherCols(cur), rows: vouchers, onRow: true, foot: { amount_php: peso(c.total_php), amount_bdt: `<b class="bdt">${peso(c.total_bdt)}</b>` }, empty: "No payments yet." })}</div></div>
-        <div data-p="1" hidden><div id="pcMonths">${E.grid({ cols: [{ label: "Month", get: (r) => monthLabel(r.month) }, { label: "Vouchers", num: true, get: (r) => r.count },
+        <div data-p="1" hidden><div id="pcMonths">${E.grid({ cols: [{ label: "Month", get: (r) => monthText(r.month) }, { label: "Vouchers", num: true, get: (r) => r.count },
           ...(showPhp(cur) ? [{ label: "Total (PHP)", num: true, get: (r) => peso(r.php) }] : []), ...(showBdt(cur) ? [{ label: "Total (BDT)", num: true, html: (r) => `<b class="bdt">${peso(r.bdt)}</b>` }] : []),
           { label: "", html: () => `<span class="btn">${ic("download")} Download</span>` }], rows: months, onRow: true, empty: "No payments yet." })}</div></div>
         <div data-p="2" hidden>
@@ -983,11 +978,11 @@
             ...(showBdt(cur) ? [{ label: "Paid (BDT)", num: true, html: (r) => `<b class="bdt">${peso((accTotals.get(r.id) || [0, 0])[1])}</b>` }] : []),
             { label: "", html: (r) => tools("pay_accounts", r, `${r.account_name} (${c.name})`, { reload: () => V.paycompany(id) }) }], rows: accounts, empty: "No accounts yet." })}</div>
         </div>
-      </div>${rhBox("pay_companies", c.id)}`;
+      </div>`;
     $$("#pcTabs button").forEach((t) => (t.onclick = () => { $$("#pcTabs button").forEach((x) => x.classList.toggle("on", x === t)); $$("#pcPanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t)); }));
     E.keepTab("#pcTabs", "paycompany:" + id);
     E.bindGrid($("#pcVouchers"), vouchers, (r) => (location.hash = "voucher/" + r.id));
-    E.bindGrid($("#pcMonths"), months, (r) => printRecord(c, r.list, `For the month of ${monthLabel(r.month)}`));
+    E.bindGrid($("#pcMonths"), months, (r) => printRecord(c, r.list, `For the month of ${monthText(r.month)}`));
     bindTools($("#main"));
     $("#pcRecord").onclick = () => printRecord(c, vouchers, "All payments");
     if ($("#pcPhoto")) $("#pcPhoto").onchange = async (e) => {
@@ -1001,8 +996,9 @@
       e.preventDefault();
       const v = (i) => $("#" + i).value.trim();
       if (!v("paName")) return toast("Enter the account name.", true);
+      E.setBusy(e.target, true, "Saving"); // 3.36: saved once
       const { error } = await sb.from("pay_accounts").insert({ company_id: id, account_name: v("paName"), account_number: v("paNo") || null, bank_name: v("paBank") || null, branch_name: v("paBranch") || null });
-      if (error) return fail(error, "Could not save the account");
+      if (error) { E.setBusy(e.target, false); return fail(error, "Could not save the account"); }
       toast(`Account ${v("paName")} added.`); V.paycompany(id);
     };
     E.setRecords(`Vouchers: ${vouchers.length}`);
@@ -1020,7 +1016,7 @@
         ...(showBdt(cur) ? [{ label: "BDT", num: true, html: (r) => `<b>${money(r.amount_bdt)}</b>` }] : [])],
       rows,
       summary: { title: "Monthly Totals", cols: ["Month", "Vouchers", ...(showPhp(cur) ? ["PHP"] : []), ...(showBdt(cur) ? ["BDT"] : [])],
-        rows: [...byMonth].map(([m, t]) => [monthLabel(m + "-01"), String(t[0]), ...pick(t[1], t[2])]),
+        rows: [...byMonth].map(([m, t]) => [monthText(m + "-01"), String(t[0]), ...pick(t[1], t[2])]),
         total: ["Total:", String(rows.length), ...pick(rows.reduce((s, v) => s + num(v.amount_php), 0), rows.reduce((s, v) => s + num(v.amount_bdt), 0))] },
       criteria: `Company: ${c.name}${c.contact_person ? "\nContact Person: " + c.contact_person : ""}\nCurrency: ${CUR[cur]}\nRange: ${range}`, logo: true
     }));
@@ -1165,7 +1161,7 @@
       <div class="docgrid">${E.docCard({ key: "pv", title: `Payment Voucher ${v.voucher_no}`, sub: `${amountText(v)} · ${mdy(v.pay_date)}`, ownerType: "pay_voucher", ownerId: v.id, att, print, canUpload: E.canWrite("billing"), uploadLabel: "Upload Copy", copyName: "Copy" })}</div>
       <div><b>Receipt</b>${E.filesHtml(att.filter((x) => x.kind !== "signed_form"), "No receipt uploaded.")}
         ${E.canWrite("billing") ? `<div class="fields wide" style="margin-top:6px">${E.fileField("vAddRcpt", "Add Receipt", 'accept="image/*,application/pdf" data-save-now')}</div>` : ""}</div>
-      ${rhBox("pay_vouchers", v.id)}</div>
+      </div>
       <div class="wfoot">${tools("pay_vouchers", v, `Voucher ${v.voucher_no}`, { reload: () => V.voucher(id), afterDelete: () => (location.hash = "paycompany/" + v.company_id) })}<a class="btn" href="#paycompany/${v.company_id}">Close</a></div></div>`;
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), () => V.voucher(id));

@@ -7,9 +7,8 @@
 (() => {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, isStaff, pill, toast, fail, ic, busy, num } = E;
+  const { sb, S, C, esc, peso, isoToday, mdy, monthOf, monthText, $, $$, isAdmin, isStaff, meId, pill, toast, fail, ic, busy, num } = E;
   const V = window.EO_VIEWS;
-  const meId = () => S.session?.user?.id;
   const MAX_LINES = 20, MAX_PHOTOS = 5; // 3.32: 5 photos (needs 042_po_photos.sql; the server allowed 2 before)
   const ST = { pending: "WAITING FOR REVIEW", negotiation: "PRICE NEGOTIATION", approved: "APPROVED", cancelled: "CANCELLED" };
   const stPill = (p) => `${pill(p.status === "negotiation" ? "pending" : p.status, ST[p.status])}${p.arrived_at ? " " + pill("active", "ARRIVED") : ""}${p.pending_update ? " " + pill("pending", "UPDATE WAITING") : ""}`;
@@ -18,8 +17,6 @@
   const netBox = (p) => `<div class="po-net"><small>TOTAL NET COST · ALL ITEMS INCLUDED</small><b>BDT ${peso(p.total_amount)}</b>
     <span>${esc(E.words(p.total_amount, "TAKA"))}</span><span class="po-net-s">${qtyText(p.total_qty)} pcs · ${(p.items || []).length} item${(p.items || []).length === 1 ? "" : "s"} · average BDT ${peso(avg(p))} each</span></div>`;
   const qtyText = E.qtyText;
-  const monthOf = (d) => String(d || "").slice(0, 7);
-  const monthName = (m) => new Date(m + "-01T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase();
   const notSet = (e) => /purchase_orders|save_purchase_order|schema cache/i.test(e?.message || "");
   const needUpdate = `<div class="empty">Purchase Orders need the database update <b>023_purchase_orders.sql</b>. Run it in the Supabase SQL Editor.</div>`;
 
@@ -58,14 +55,14 @@
       if (k === "cancelled") { box.innerHTML = E.grid({ cols, rows: cancelled, onRow: true, empty: "No cancelled purchase orders." }); E.bindGrid(box, cancelled, (r) => (location.hash = "po/" + r.id)); return; }
       if (m) {
         const rs = approved.filter((p) => mOf(p) === m), q = rs.reduce((s, p) => s + num(p.total_qty), 0), a = rs.reduce((s, p) => s + num(p.total_amount), 0);
-        box.innerHTML = `<div class="btnrow"><button type="button" class="btn small" id="poBack">${ic("back")} All months</button><b class="po-mh">${esc(monthName(m))}</b></div>
+        box.innerHTML = `<div class="btnrow"><button type="button" class="btn small" id="poBack">${ic("back")} All months</button><b class="po-mh">${esc(monthText(m))}</b></div>
           ${E.grid({ cols, rows: rs, onRow: true, foot: {}, empty: "No approved purchase orders this month." })}
           <div class="lp-sum"><span>Lots</span><b>${rs.length}</b><span>Total quantity</span><b>${qtyText(q)}</b><span>Average price</span><b>BDT ${peso(q ? a / q : 0)}</b><span>Total</span><b>BDT ${peso(a)}</b></div>`;
         E.bindGrid(box, rs, (r) => (location.hash = "po/" + r.id));
         $("#poBack").onclick = () => show("approved");
         return;
       }
-      box.innerHTML = E.grid({ cols: [{ label: "Month", get: (r) => monthName(r.m) }, { label: "Approved Lots", num: true, get: (r) => r.n }, { label: "Total Quantity", num: true, get: (r) => qtyText(r.q) },
+      box.innerHTML = E.grid({ cols: [{ label: "Month", get: (r) => monthText(r.m) }, { label: "Approved Lots", num: true, get: (r) => r.n }, { label: "Total Quantity", num: true, get: (r) => qtyText(r.q) },
         { label: "Average Price (BDT)", num: true, get: (r) => peso(r.avg) }, { label: "Total (BDT)", num: true, get: (r) => peso(r.a) }], rows: monthRows, onRow: true, empty: "No approved purchase orders yet." });
       E.bindGrid(box, monthRows, (r) => show("approved", r.m));
     };
@@ -335,7 +332,7 @@
         <p class="muted" style="margin:4px 0">To negotiate, change the prices in the table above, then press <b>Negotiate</b>: ${esc(p.created_by_name || "the maker")} is told (notice and message) and submits again.</p>
         <div class="btnrow"><button type="button" class="btn ok" data-d="approve">${ic("check")} Approve</button><button type="button" class="btn" data-d="negotiate">${ic("edit")} Negotiate</button><button type="button" class="btn danger" data-d="cancel">Cancel Order</button></div></fieldset>` : ""}
       </div><div class="wfoot">
-        ${open && (mine || isAdmin()) ? `<a class="btn" href="#editpo/${p.id}">${ic("edit")} Edit</a><button type="button" class="btn danger" id="poDel">${ic("trash")} Delete</button>` : ""}
+        ${open && (mine || isAdmin()) ? `<a class="btn" href="#editpo/${p.id}">${ic("edit")} Edit</a>` : ""}${open && isAdmin() ? `<button type="button" class="btn danger" id="poDel">${ic("trash")} Delete</button>` : ""}
         ${p.status === "approved" ? `<button type="button" class="btn primary" id="poPdf">${ic("print")} PDF</button>${!p.arrived_at ? `<button type="button" class="btn" id="poArr">${ic("box")} Mark Arrived at Warehouse</button>` : ""}${(mine || isAdmin()) && !p.pending_update ? `<button type="button" class="btn" id="poUpd">${ic("edit")} Request Update</button>` : ""}` : ""}
         <a class="btn" href="#purchase">Close</a></div></div>`;
     $$("[data-img]").forEach((b) => (b.onclick = () => b.dataset.img && E.lightbox(b.dataset.img)));
