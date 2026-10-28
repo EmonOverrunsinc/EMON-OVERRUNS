@@ -2554,3 +2554,15 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 .cf-type input { flex: 1; min-width: 0; }
 .cf-type .btn { flex: none; }
 .cf-sum { margin: 4px 0 6px; }
+/* 3.41: find a box by its serial no (the result stays under it) */
+.box-find { display: flex; gap: 8px; margin: 4px 0 6px; max-width: 560px; }
+.box-find input { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 15px; letter-spacing: .03em; }
+.box-find .btn { flex: none; }
+.bf-res { margin: 0 0 10px; padding: 8px 12px; border-radius: 12px; font-size: 13px; }
+.bf-res.ok { background: #e8f6ec; color: #17642c; box-shadow: inset 4px 0 0 var(--ok); }
+.bf-res.bad { background: #fdecea; color: #9b1c12; box-shadow: inset 4px 0 0 var(--bad); }
+/* 3.41: the status under a print's title; Download All Details made small to fit few pages */
+.page .co-stline, .co-stline { margin: -4px 0 8px; text-align: center; font: 600 11px var(--font-arial, Arial); letter-spacing: .08em; }
+.page table.ptl tr.ad-r td, .page table.ad-t td { padding: 2px 5px; font-size: 9px; }
+.ad-pics { display: flex; gap: 6px; padding: 6px; }
+.ad-pics img { height: 34mm; max-width: 32%; object-fit: cover; border: 1px solid #ccc; }
