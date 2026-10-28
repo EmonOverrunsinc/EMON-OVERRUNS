@@ -24,7 +24,7 @@
   const VEHICLES = ["MOTORCYCLE", "TRICYCLE", "CAR", "VAN", "TRUCK", "OTHER"];
   // the status of an order in 3 steps (3.39): 1 CREATE ORDER (made, waiting for the Director) → 2 PREPARED (approved: ready to
   // deliver) → 3 COMPLETE (delivered); or CANCELLED
-  const STATUS = { pending: ["pending", "1 · CREATE ORDER"], approved: ["approved", "2 · PREPARED"], completed: ["applied", "3 · COMPLETE"], cancelled: ["rejected", "CANCELLED"] };
+  const STATUS = { pending: ["pending", "CREATE ORDER"], approved: ["approved", "PREPARED"], completed: ["applied", "COMPLETED"], cancelled: ["rejected", "CANCELLED"] };
   const stPill = (o) => pill(...(STATUS[o.status] || ["pending", String(o.status).toUpperCase()]));
   const open = (o) => ["pending", "approved"].includes(o.status);
   const boxesText = (n) => `${qtyText(n)} BOX${num(n) === 1 ? "" : "ES"}`;
@@ -38,8 +38,7 @@
   // ======================================================================
   // The list (EO-Office › Customer Order)
   // ======================================================================
-  const TABS = [["open", "Open"], ["pending", "1 Create Order"], ["approved", "2 Prepared"], ["completed", "3 Complete"], ["cancelled", "Cancelled"], ["all", "All"]];
-  V.custorders = async (tab) => {
+  V.custorders = async () => {
     E.shell("custorders", "Customer Order", `${E.eoTabs("custorders")}<div id="coBody">${busy()}</div>`);
     if (!E.hasModule("eooffice") || !E.isStaff()) { location.hash = "eooffice"; return; }
     const here = E.stillHere();
@@ -49,28 +48,33 @@
     if (error) { $("#coBody").innerHTML = notSet(error) ? needUpdate : `<div class="empty">${esc(error.message)}</div>`; return; }
     const rows = data || [], count = (st) => rows.filter((o) => st.includes(o.status)).length;
     const m = isoToday().slice(0, 7), doneM = rows.filter((o) => o.status === "completed" && String(o.order_date).slice(0, 7) === m);
-    let t = TABS.some((x) => x[0] === tab) ? tab : "open";
+    // 3.42: every order (newest first); the months with orders to open one month; the search finds in every order
+    const months = [...new Set(rows.map((o) => String(o.order_date || "").slice(0, 7)).filter(Boolean))].sort().reverse();
+    const mLabel = (k) => E.monthText ? E.monthText(k) : k;
+    let month = "";
     $("#coBody").innerHTML = `
+      <div class="co-top-search"><input type="search" id="coFind" class="co-find" placeholder="Search every order: order no, customer, account no, batch no" aria-label="Search orders" autocomplete="off">
+        <button type="button" class="btn" id="coScan">${ic("scan")} Scan</button>${canW() ? `<a class="btn primary" href="#newcustorder">${ic("plus")} New Customer Order</a>` : ""}</div>
       <div class="tiles co-tiles">
-        <div class="tile ${count(["pending"]) ? "warn" : ""}"><span class="tile-ic">${ic("clock")}</span><div class="k">1 Create Order · Waiting for Approval</div><div class="v">${count(["pending"])}</div></div>
-        <div class="tile"><span class="tile-ic">${ic("box")}</span><div class="k">2 Prepared · To Deliver</div><div class="v">${count(["approved"])}</div></div>
-        <div class="tile ok"><span class="tile-ic">${ic("check")}</span><div class="k">3 Complete This Month (₱)</div><div class="v">${peso(doneM.reduce((s, o) => s + num(o.total_amount), 0))}</div><small>${doneM.length} order(s)</small></div>
+        <div class="tile ${count(["pending"]) ? "warn" : ""}"><span class="tile-ic">${ic("clock")}</span><div class="k">Waiting for Approval</div><div class="v">${count(["pending"])}</div></div>
+        <div class="tile"><span class="tile-ic">${ic("box")}</span><div class="k">Prepared · To Deliver</div><div class="v">${count(["approved"])}</div></div>
+        <div class="tile ok"><span class="tile-ic">${ic("check")}</span><div class="k">Completed This Month (₱)</div><div class="v">${peso(doneM.reduce((s, o) => s + num(o.total_amount), 0))}</div><small>${doneM.length} order(s)</small></div>
       </div>
-      <div class="btnrow">${canW() ? `<a class="btn primary" href="#newcustorder">${ic("plus")} New Customer Order</a>` : ""}<button type="button" class="btn" id="coScan">${ic("scan")} Scan</button></div>
-      <div class="tabs" id="coTabs">${TABS.map(([k, l]) => `<button type="button" data-t="${k}" class="${k === t ? "on" : ""}">${l}</button>`).join("")}</div>
-      <input type="search" id="coFind" class="co-find" placeholder="Search: order no, customer, account no, batch no" aria-label="Search orders" autocomplete="off">
+      <div class="co-months" id="coMonths"><button type="button" data-m="" class="on">All Orders <small>${rows.length}</small></button>${months.map((k) => `<button type="button" data-m="${k}">${esc(mLabel(k))} <small>${rows.filter((o) => String(o.order_date).startsWith(k)).length}</small></button>`).join("")}</div>
       <div id="coGrid"></div>`;
-    const hay = rows.map((o) => [o.order_no, custName(o), o.customers?.account_no, o.reference].join(" ").toLowerCase());
+    const hay = rows.map((o) => [o.order_no, custName(o), o.customers?.account_no, o.reference, STATUS[o.status]?.[1]].join(" ").toLowerCase());
     const cols = [{ label: "Order No", get: (o) => o.order_no }, { label: "Date", get: (o) => mdy(o.order_date) }, { label: "Customer", html: (o) => `<b>${esc(custName(o))}</b><br><small class="mono">${esc(o.customers?.account_no || "")}</small>` },
-      { label: "Boxes", num: true, get: (o) => qtyText(o.total_boxes) }, { label: "Pcs", num: true, get: (o) => qtyText(o.total_pcs) }, { label: "Amount (₱)", num: true, get: (o) => peso(o.total_amount) },
+      { label: "Batch No", get: (o) => o.reference || "" }, { label: "Boxes", num: true, get: (o) => qtyText(o.total_boxes) }, { label: "Pcs", num: true, get: (o) => qtyText(o.total_pcs) }, { label: "Amount (₱)", num: true, get: (o) => peso(o.total_amount) },
       { label: "Status", html: stPill }];
     const paint = () => {
       const w = $("#coFind").value.trim().toLowerCase();
-      const shown = rows.filter((o, i) => (t === "all" || (t === "open" ? open(o) : o.status === t)) && (!w || hay[i].includes(w)));
-      $("#coGrid").innerHTML = E.grid({ cols, rows: shown, onRow: true, empty: w ? "No order matches that." : "No orders here." });
+      // a search looks in every month; a month shows its orders
+      const shown = rows.filter((o, i) => (w ? hay[i].includes(w) : !month || String(o.order_date).startsWith(month)));
+      $("#coGrid").innerHTML = (w ? `<p class="muted">${shown.length} order(s) match “${esc(w)}” (every month)</p>` : month ? `<h3 class="sec">${esc(mLabel(month))} · ${shown.length} order(s)</h3>` : "")
+        + E.grid({ cols, rows: shown, onRow: true, empty: w ? "No order matches that." : "No orders here." });
       E.bindGrid($("#coGrid"), shown, (o) => (location.hash = "custorder/" + o.id));
     };
-    $$("#coTabs button").forEach((b) => (b.onclick = () => { t = b.dataset.t; $$("#coTabs button").forEach((x) => x.classList.toggle("on", x === b)); paint(); }));
+    $$("#coMonths button").forEach((b) => (b.onclick = () => { month = b.dataset.m; $("#coFind").value = ""; $$("#coMonths button").forEach((x) => x.classList.toggle("on", x === b)); paint(); }));
     $("#coFind").oninput = paint;
     $("#coScan").onclick = () => E.scanDialog((text) => E.openScanned(text));
     paint();
@@ -125,7 +129,7 @@
           <div id="cfList"></div></fieldset>
         <fieldset class="opt"><legend>Order Lines</legend><div id="coLines"></div></fieldset>
       </div><div class="wfoot"><button type="button" class="btn" id="coCancel">Cancel</button><button type="submit" class="btn primary">${o ? "Save" : isAdmin() ? "Save Order" : "Save and Send to the Director"}</button></div></form>`,
-      isAdmin() ? "" : "1 CREATE ORDER: the order goes to the Director to approve. Approved, it is 2 PREPARED: the Director's signature is on the printed order and the delivery can start.");
+      isAdmin() ? "" : "CREATE ORDER: the order goes to the Director to approve. Approved, it is PREPARED: the Director's signature is on the printed order and the delivery can start.");
     let cust = preset && preset.status === "active" ? preset : null;
     const fillFrom = (c) => { if (!$("#coAddr").value.trim()) $("#coAddr").placeholder = c.address || ""; };
     E.customerPicker($("#coCust"), { statuses: ["active"], onPick: (c) => { cust = c; fillFrom(c); }, preset: cust || undefined });
@@ -319,14 +323,14 @@
     const step = o.status === "completed" ? 3 : o.status === "approved" ? 2 : 1;
     const steps = [["CREATE ORDER", `${o.created_by_name ? esc(o.created_by_name) + " · " : ""}${esc(mdy(o.created_at || o.order_date))}`],
       ["PREPARED", o.approved_at ? `Approved by ${esc(o.approved_by_name || "")} · ${esc(mdy(o.approved_at))}` : "Waiting for the Director's approval"],
-      ["COMPLETE", o.completed_at ? `Delivered · ${esc(mdy(o.completed_at))}` : step === 2 ? "Ready for delivery" : "Delivery"]];
+      ["COMPLETED", o.completed_at ? `Delivered · ${esc(mdy(o.completed_at))}` : step === 2 ? "Ready for delivery" : "Delivery"]];
     const stepper = `<ol class="co-steps${o.status === "cancelled" ? " off" : ""}">${steps.map(([l, sub], i) => {
       const k = i + 1, done = k < step || o.status === "completed", now = !done && k === step;
-      return `<li class="${done ? "done" : now ? "now" : ""}"><span class="co-sn">${done ? "✓" : k}</span><div><b>${k} · ${l}</b><small>${sub}</small></div></li>`;
+      return `<li class="${done ? "done" : now ? "now" : ""}"><span class="co-sn">${done ? "✓" : k}</span><div><b>${l}</b><small>${sub}</small></div></li>`;
     }).join("")}</ol>`;
-    const banner = o.status === "pending" ? `<div class="banner warn">${ic("clock")} 1 · CREATE ORDER — waiting for the Director's approval. Approved, the order is PREPARED: the Director's signature is on the printed order and the delivery can start.</div>`
+    const banner = o.status === "pending" ? `<div class="banner warn">${ic("clock")} CREATE ORDER — waiting for the Director's approval. Approved, the order is PREPARED: the Director's signature is on the printed order and the delivery can start.</div>`
       : o.status === "cancelled" ? `<div class="banner closed">CANCELLED${o.cancelled_by_name ? ` by ${esc(o.cancelled_by_name)}` : ""}${o.cancelled_at ? ` on ${esc(mdy(o.cancelled_at))}` : ""}${o.cancel_note ? ` — ${esc(o.cancel_note)}` : ""}</div>`
-      : o.status === "completed" ? `<div class="banner ok">✔ 3 · COMPLETE — DELIVERED${o.completed_at ? ` on ${esc(mdy(o.completed_at))}` : ""}${o.completed_by_name ? ` by ${esc(o.completed_by_name)}` : ""}${inv ? ` — invoice <b>${esc(inv.invoice_no)}</b> was made for the customer` : ""}</div>` : "";
+      : o.status === "completed" ? `<div class="banner ok">✔ COMPLETED — DELIVERED${o.completed_at ? ` on ${esc(mdy(o.completed_at))}` : ""}${o.completed_by_name ? ` by ${esc(o.completed_by_name)}` : ""}${inv ? ` — invoice <b>${esc(inv.invoice_no)}</b> was made for the customer` : ""}</div>` : "";
     const head = `<section class="cust-hero co-hero">
       <div class="ch-pic"><div class="ch-photo co-ic">${ic("box")}</div></div>
       <div class="ch-main">
@@ -334,14 +338,14 @@
         <div class="ch-sub">${E.canOpen("customer") ? `<a href="#customer/${c.id}"><b>${esc(fullName(c))}</b></a>` : `<b>${esc(fullName(c))}</b>`}${c.account_no ? ` · <span class="mono">${esc(c.account_no)}</span>` : ""}${o.address || c.address ? ` · ${esc(o.address || c.address)}` : ""}</div>
         <div class="ch-ids">${E.idBox("Date", mdy(o.order_date))}${E.idBox("Batch No", o.reference || "")}${E.idBox("Terms of Payment", o.payment_terms || "")}${E.idBox("Due Date", mdy(dueOf(o)))}${E.idBox("Boxes · Pcs", `${qtyText(o.total_boxes)} · ${qtyText(o.total_pcs)}`)}</div>
       </div>
-      ${deliverNow ? `<div class="ch-qr"><canvas id="coQr" aria-label="QR code: Complete Delivery"></canvas><small>Scan to deliver</small></div>` : ""}
+      ${deliverNow ? `<div class="ch-qr"><canvas id="coQr" aria-label="QR code: Complete Delivery"></canvas><small>Verification</small></div>` : ""}
     </section>`;
     const deliverBtn = (cls = "") => `<a class="btn ok ${cls}" href="#${deliveryHash(o.order_no, o.delivery_code)}">${ic("check")} Complete Delivery</a>`;
     const linesHtml = `<div class="grid-wrap co-wrap"><table class="grid co-lines"><thead><tr><th>#</th><th class="num">Boxes</th><th class="num">Pcs</th><th>Code</th><th>Lot No.</th><th>Product</th>${cols.map((x) => `<th>${esc(x)}</th>`).join("")}<th class="num">Price (₱)</th><th class="num">Amount (₱)</th></tr></thead>
         <tbody>${(o.lines || []).map((l, i) => `<tr><td>${i + 1}</td><td class="num">${l.boxes ? qtyText(l.boxes) : ""}</td><td class="num">${qtyText(l.qty)}</td><td>${esc(l.code || "")}</td><td>${esc(l.lot || "")}</td><td>${esc(l.product)}</td>
           ${cols.map((x) => `<td>${esc(l.extra?.[x] || "")}</td>`).join("")}<td class="num">${peso(l.price)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}</tbody>
         <tfoot><tr><td></td><td class="num">${qtyText(o.total_boxes)}</td><td class="num">${qtyText(o.total_pcs)}</td><td colspan="${3 + cols.length}"><b>TOTAL AMOUNT</b></td><td></td><td class="num"><b>${peso(o.total_amount)}</b></td></tr></tfoot></table></div>`;
-    const delHtml = o.status === "pending" ? `<div class="empty">The delivery starts when the order is 2 · PREPARED (approved by the Director).</div>`
+    const delHtml = o.status === "pending" ? `<div class="empty">The delivery starts when the order is PREPARED (approved by the Director).</div>`
       : o.status === "cancelled" ? `<div class="empty">CANCELLED: no delivery.</div>`
       : deliverNow ? `${o.rider_name || (o.delivery_photos || []).length ? deliveryHtml(o, urls, false) : ""}<div class="co-done">${deliverBtn("big")}
           <small>Scan or add the boxes, add the rider and the photos (the car, the proof of delivery), then COMPLETE DELIVERY. Whoever holds the printed order can do it too: scan its QR code (no login needed).</small></div>`
@@ -378,11 +382,11 @@
     if (deliverNow) E.drawQr($("#coQr"), deliveryUrl(o.order_no, o.delivery_code));
     const reload = () => V.custorder(o.id);
     if ($("#coApprove")) $("#coApprove").onclick = async (e) => {
-      if (!(await E.confirmBox(`Approve order <b>${esc(o.order_no)}</b> for <b>${esc(fullName(c))}</b> (₱ ${peso(o.total_amount)}, ${esc(boxesText(o.total_boxes))})? It becomes 2 · PREPARED and your signature goes on the printed order.`, { ok: "Approve Order" }))) return;
+      if (!(await E.confirmBox(`Approve order <b>${esc(o.order_no)}</b> for <b>${esc(fullName(c))}</b> (₱ ${peso(o.total_amount)}, ${esc(boxesText(o.total_boxes))})? It becomes PREPARED and your signature goes on the printed order.`, { ok: "Approve Order" }))) return;
       e.target.disabled = true;
       const { error } = await sb.rpc("decide_customer_order", { p_id: o.id, p_action: "approve", p_note: null });
       if (error) { e.target.disabled = false; return fail(error, "Could not approve"); }
-      toast(`Order ${o.order_no} approved: 2 · PREPARED.`); reload();
+      toast(`Order ${o.order_no} approved: PREPARED.`); reload();
     };
     if ($("#coCancelO")) $("#coCancelO").onclick = () => cancelOrder(o, reload);
     if ($("#coDelO")) $("#coDelO").onclick = async () => {
@@ -416,14 +420,31 @@
   }
 
   // ---------- the boxes (Delivery Sheet) ----------
+  // 3.42: which boxes are still missing and which are not on the order, by code (the order's lines against the boxes added).
+  // A code with all its boxes here is not listed; the others read "1 BOX OF RR-17" (the batch / lot no of the code).
+  function boxCheck(lines, boxes) {
+    const want = new Map(), got = new Map(), name = new Map(), lot = new Map();
+    const lotOf = (k, v) => { v = String(v || "").trim().toUpperCase(); if (!v) return; if (!lot.has(k)) lot.set(k, new Set()); lot.get(k).add(v); };
+    lines.forEach((l) => { const k = String(l.code || "—").toUpperCase(); want.set(k, (want.get(k) || 0) + num(l.boxes)); if (!name.has(k)) name.set(k, l.product || ""); lotOf(k, l.lot); });
+    boxes.forEach((b) => { const k = String(b.code || "—").toUpperCase(); got.set(k, (got.get(k) || 0) + 1); if (!name.has(k)) name.set(k, b.items || ""); if (!want.get(k)) lotOf(k, b.batch_no); });
+    const keys = [...new Set([...want.keys(), ...got.keys()])].filter((k) => want.get(k) || got.get(k));
+    if (!keys.length) return "";
+    let miss = 0, extra = 0;
+    const rows = keys.map((k) => {
+      const w = want.get(k) || 0, g = got.get(k) || 0, d = g - w;
+      if (!d) return "";
+      if (d < 0) miss -= d; else extra += d;
+      const of = lot.get(k)?.size ? [...lot.get(k)].join(", ") : `CODE ${k}`;
+      const st = !w ? "NOT ON THE ORDER" : d < 0 ? "MISSING" : "EXTRA";
+      return `<li class="${d < 0 ? "miss" : "extra"}"><b>${boxesText(Math.abs(d)).toUpperCase()} OF ${esc(of)}</b><span class="bx-st ${d < 0 ? "miss" : "extra"}">${st}</span>
+        <small>${[lot.get(k)?.size ? `Code ${esc(k)}` : "", esc(name.get(k) || ""), w ? `${g} of ${w} here` : ""].filter(Boolean).join(" · ")}</small></li>`;
+    }).join("");
+    const sum = !miss && !extra ? `<div class="bx-sum ok">✔ Every box of the order is here.</div>`
+      : `<div class="bx-sum ${miss ? "miss" : "extra"}">${miss ? `<b>${boxesText(miss)} missing</b>` : ""}${miss && extra ? " · " : ""}${extra ? `<b>${boxesText(extra)} extra / not on the order</b>` : ""}</div>`;
+    return `<div class="bx-check">${sum}${rows ? `<ul class="bx-list">${rows}</ul>` : ""}</div>`;
+  }
   function boxesHtml(o, boxes, sumPcs, w) {
-    const codes = new Map();
-    (o.lines || []).forEach((l) => { const k = l.code || "—"; codes.set(k, (codes.get(k) || 0) + num(l.boxes)); });
-    const got = new Map();
-    boxes.forEach((b) => { const k = b.code || "—"; got.set(k, (got.get(k) || 0) + 1); });
-    const chips = [...new Set([...codes.keys(), ...got.keys()])].filter((k) => codes.get(k) || got.get(k))
-      .map((k) => { const n = got.get(k) || 0, want = codes.get(k) || 0; return `<span class="co-chip ${want && n === want ? "ok" : n > want ? "over" : ""}">Code ${esc(k)}: <b>${n}</b>${want ? ` / ${want}` : ""}</span>`; }).join("");
-    return `<div class="co-count"><b>${boxes.length}</b> of ${qtyText(o.total_boxes)} boxes · <b>${qtyText(sumPcs)}</b> of ${qtyText(o.total_pcs)} pcs ${chips}</div>
+    return `<div class="co-count"><b>${boxes.length}</b> of ${qtyText(o.total_boxes)} boxes · <b>${qtyText(sumPcs)}</b> of ${qtyText(o.total_pcs)} pcs</div>${boxCheck(o.lines || [], boxes)}
       ${w && open(o) ? `<div class="btnrow"><button type="button" class="btn primary" id="cbScan">${ic("scan")} Scan Boxes</button><label class="btn" for="cbPhoto">${ic("image")} Box Label Photo</label><input type="file" id="cbPhoto" accept="image/*" multiple hidden>
         <button type="button" class="btn" id="cbType">📦 Add Box</button></div>
         <div class="box-find"><input type="text" id="cbFind" maxlength="60" placeholder="Serial no, e.g. U20261238" aria-label="Find a box by its serial no" autocomplete="off"><button type="button" class="btn primary" id="cbFindGo">${ic("search")} Find &amp; Add</button></div>
@@ -664,7 +685,7 @@
   // 3.39: the barcode carries the paper's secret code, and the QR code opens its Complete Delivery page (any phone camera)
   const codesHtml = (o, extra = "") => {
     const bar = `<img src="${E.pdf417DataUrl("EMONCO|" + o.order_no + (o.delivery_code ? "|" + o.delivery_code : ""))}" alt="" class="ph-bar"><div class="mono">${esc(o.order_no)}</div>${extra}`;
-    return o.delivery_code ? `<div class="ph-codes co-codes"><div>${bar}</div><div class="co-qr"><img src="${E.qrDataUrl(deliveryUrl(o.order_no, o.delivery_code))}" alt="QR code: Complete Delivery" class="ph-qr"><small>SCAN TO DELIVER</small></div></div>` : bar;
+    return o.delivery_code ? `<div class="ph-codes co-codes"><div>${bar}</div><div class="co-qr"><img src="${E.qrDataUrl(deliveryUrl(o.order_no, o.delivery_code))}" alt="QR code: verification" class="ph-qr"><small class="co-verify">VERIFICATION</small></div></div>` : bar;
   };
   function orderPages(o, inv) {
     const c = o.customers || {}, cols = o.extra_columns || [];
@@ -673,11 +694,9 @@
     const bottom = `<p class="pdecl">${esc(E.words(o.total_amount))} · ${esc(boxesText(o.total_boxes))} · ${qtyText(o.total_pcs)} PCS</p>
       ${done && inv ? E.box("Invoice", `<div class="pgrid2">${E.cell("Invoice No", inv.invoice_no)}${E.cell("Invoice Date", mdy(inv.invoice_date))}${E.cell("Terms of Payment", inv.payment_terms || "")}${E.cell("Due Date", mdy(inv.due_date))}
         ${E.cell("Amount (₱)", peso(inv.total_amount), "hl")}${E.cell("Status", inv.pay_status === "paid" ? "PAID" : inv.pay_status === "partial" ? "PARTIAL PAYMENT" : "UNPAID")}</div>`) : ""}
-      ${o.rider_name ? E.box(done ? "Done Delivery · Delivery By" : "Delivery By", `<div class="pgrid2">${E.cell("Rider Name", o.rider_name)}${E.cell("ID No", o.rider_id_no || "")}${E.cell("Plate No", o.plate_no || "")}${E.cell("Type", o.vehicle_type || "")}
-        ${E.cell("Date and Time", o.delivered_at ? E.dateTime(o.delivered_at) : "")}${E.cell("Note", o.delivery_note || "")}</div>`) : ""}
       ${o.status === "cancelled" ? `<p class="po-warn"><b>CANCELLED</b>${o.cancel_note ? ` — ${esc(o.cancel_note)}` : ""}</p>` : ""}
       <div class="psig one"><div></div>${E.sigCol("Authorized Signature", sign)}</div>`; // 3.39: only the Director's approval signature
-    const extraBoxes = (done && inv ? 1 : 0) + (o.rider_name ? 1 : 0);
+    const extraBoxes = done && inv ? 1 : 0;
     return E.pagedDoc({
       head: E.printHead("CUSTOMER ORDER", codesHtml(o, `<div class="co-bigbox">${esc(boxesText(o.total_boxes))}</div>`)), contHead: E.printHead(`CUSTOMER ORDER ${o.order_no} (CONTINUED)`, ""),
       // 3.39: no address on the order (the customer's account says where it goes)
@@ -708,7 +727,7 @@
   }
 
   // 3.41: the order's status, under the title of a print
-  const ST_PRINT = { pending: "1 · CREATE ORDER (WAITING FOR APPROVAL)", approved: "2 · PREPARED", completed: "3 · COMPLETED", cancelled: "CANCELLED" };
+  const ST_PRINT = { pending: "CREATE ORDER (WAITING FOR APPROVAL)", approved: "PREPARED", completed: "COMPLETED", cancelled: "CANCELLED" };
   const stLine = (o) => `<p class="co-stline">STATUS: <b>${esc(ST_PRINT[o.status] || String(o.status || "").toUpperCase())}</b></p>`;
   // 3.41 Download All Details: everything of the order in one PDF, on as few pages as it takes (1 page for a small order):
   // the order and its lines, every box (no empty lines), the invoice, the delivery, the photos and the approval signature
@@ -782,23 +801,17 @@
         <div class="ch-ids">${E.idBox("Batch No", d.reference || "")}${E.idBox("Boxes", `${boxes.length} of ${qtyText(d.total_boxes)}`)}${E.idBox("Pcs", `${qtyText(pcs)} of ${qtyText(d.total_pcs)}`)}</div></div>
     </section>`;
     if (d.status !== "approved") { // completed, waiting or cancelled: what was done; nothing to change
-      $("#pdBody").innerHTML = `${head}<div class="banner ${d.status === "completed" ? "ok" : d.status === "cancelled" ? "closed" : "warn"}">${d.status === "completed" ? "✔ 3 · COMPLETE — " : ""}${esc(d.state)}</div>
+      $("#pdBody").innerHTML = `${head}<div class="banner ${d.status === "completed" ? "ok" : d.status === "cancelled" ? "closed" : "warn"}">${d.status === "completed" ? "✔ COMPLETED — " : ""}${esc(d.state)}</div>
         ${d.status === "completed" ? `<div class="pgrid2 qc-head">${E.cell("Rider Name", d.rider_name || "")}${E.cell("ID No", d.rider_id_no || "")}${E.cell("Plate No", d.plate_no || "")}${E.cell("Type", d.vehicle_type || "")}
           ${E.cell("Date and Time", d.delivered_at ? E.dateTime(d.delivered_at) : "")}${E.cell("Completed By", d.completed_by_name || "")}${E.cell("Boxes", String(boxes.length))}${E.cell("Photos", String(photos.length))}</div>` : ""}
         <div class="btnrow">${orderLink}</div>`;
       return;
     }
-    // the boxes asked for by code, and the boxes scanned
-    const want = new Map(), got = new Map();
-    lines.forEach((l) => { const k = l.code || "—"; want.set(k, (want.get(k) || 0) + num(l.boxes)); });
-    boxes.forEach((b) => { const k = b.code || "—"; got.set(k, (got.get(k) || 0) + 1); });
-    const chips = [...new Set([...want.keys(), ...got.keys()])].filter((k) => want.get(k) || got.get(k))
-      .map((k) => { const n = got.get(k) || 0, x = want.get(k) || 0; return `<span class="co-chip ${x && n === x ? "ok" : n > x ? "over" : ""}">Code ${esc(k)}: <b>${n}</b>${x ? ` / ${x}` : ""}</span>`; }).join("");
     const tick = (on, label) => `<li class="${on ? "ok" : ""}">${on ? "✔" : "○"} ${esc(label)}</li>`;
     $("#pdBody").innerHTML = `${head}
-      <div class="banner">${ic("box")} 2 · PREPARED — ready for delivery. Do the 3 steps below.</div>
+      <div class="banner">${ic("box")} PREPARED — ready for delivery. Do the steps below.</div>
       <section class="pd-step"><h3><span class="pd-n">1</span> Boxes <small>${boxes.length} of ${qtyText(d.total_boxes)} boxes · ${qtyText(pcs)} of ${qtyText(d.total_pcs)} pcs</small></h3>
-        ${chips ? `<div class="co-count">${chips}</div>` : ""}
+        ${boxCheck(lines, boxes)}
         <div class="btnrow"><button type="button" class="btn primary" id="pdScan">${ic("scan")} Scan Boxes</button><label class="btn" for="pdLabel">${ic("image")} Box Label Photo</label><input type="file" id="pdLabel" accept="image/*" multiple hidden>
           <button type="button" class="btn" id="pdType">📦 Add Box</button></div>
         <div class="box-find"><input type="text" id="pdFind" maxlength="60" placeholder="Serial no, e.g. U20261238" aria-label="Find a box by its serial no" autocomplete="off"><button type="button" class="btn primary" id="pdFindGo">${ic("search")} Find &amp; Add</button></div>
@@ -822,7 +835,7 @@
       </section>
       <section class="pd-step"><h3><span class="pd-n">3</span> Complete Delivery</h3>
         <ul class="pd-check">${tick(boxes.length > 0, `Boxes: ${boxes.length} of ${qtyText(d.total_boxes)}`)}${tick(!!d.rider_name, "Rider details")}${tick(photos.length > 0, "A photo of the delivery")}</ul>
-        <div class="co-done"><button type="button" class="btn ok big" id="pdDone">${ic("check")} Complete Delivery</button><small>The order becomes 3 · COMPLETE and the customer's invoice is made and billed by itself.</small></div>
+        <div class="co-done"><button type="button" class="btn ok big" id="pdDone">${ic("check")} Complete Delivery</button><small>The order becomes COMPLETED and the customer's invoice is made and billed by itself.</small></div>
       </section>
       <div class="btnrow">${orderLink}</div>`;
     // step 1: the boxes (what a label does not say comes from the order's line of that code, or the box before)
@@ -914,12 +927,12 @@
       if (!photos.length) return toast("Add a photo of the delivery first (the car or the proof of delivery).", true);
       const short = boxes.length !== num(d.total_boxes);
       const msg = `Complete the delivery of <b>${esc(d.order_no)}</b> for <b>${esc(d.customer)}</b>?`
-        + (short ? `<br><br><b>Note:</b> ${boxes.length} box(es) were scanned, the order has ${qtyText(d.total_boxes)}.` : "") + "<br><br>The order becomes 3 · COMPLETE and the invoice is made. This cannot be undone.";
+        + (short ? `<br><br><b>Note:</b> ${boxes.length} box(es) were scanned, the order has ${qtyText(d.total_boxes)}.` : "") + "<br><br>The order becomes COMPLETED and the invoice is made. This cannot be undone.";
       if (!(await E.confirmBox(msg, { title: "Complete Delivery", ok: "Complete Delivery" }))) return;
       e.target.disabled = true;
       const { error } = await rpc("delivery_complete");
       if (error) { e.target.disabled = false; return fail(error, "Could not complete the delivery"); }
-      toast(`Order ${d.order_no}: 3 · COMPLETE. Thank you!`);
+      toast(`Order ${d.order_no}: COMPLETED. Thank you!`);
       if (inside && E.canOpen("custorder")) location.hash = "custorder/" + d.id; else reload();
     };
     $$("[data-ph]").forEach((b) => (b.onclick = () => E.lightbox(b.dataset.ph)));
