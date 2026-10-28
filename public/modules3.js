@@ -4,9 +4,8 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy, num, fullName, verifyUrl, qtyText } = E;
+  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, isStaff, meId, pill, toast, fail, words, ic, busy, num, fullName, verifyUrl, qtyText } = E;
   const V = window.EO_VIEWS;
-  const meId = () => S.session?.user?.id;
 
   // Large phone photos are resized before upload (max 1600 px, JPEG).
   async function shrinkImage(file, max = 1600, quality = 0.85) {
@@ -211,8 +210,6 @@
       if (dl) dl.onclick = (e) => { e.stopPropagation(); deleteRecord(o.table, o.row, o.label, o.afterDelete || o.reload); };
     });
   }
-  // 3.22: record pages show no change history
-  const rhBox = () => "";
 
   // ======================================================================
   // Corrections (requests and the log) — the Director only
@@ -746,5 +743,5 @@
     if (CH.tick % 4 === 0) loadContacts();
   }
 
-  Object.assign(E, { showVal, recordTools, bindRecordTools, correctRecord, deleteRecord, rhBox, fieldLabel, openChat, closeChat, shrinkImage, signedMap, lightbox });
+  Object.assign(E, { showVal, recordTools, bindRecordTools, correctRecord, deleteRecord, fieldLabel, openChat, closeChat, shrinkImage, signedMap, lightbox });
 })();

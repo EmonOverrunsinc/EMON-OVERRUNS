@@ -9,14 +9,11 @@
 (() => {
   "use strict";
   const E = window.EO;
-  const { sb, S, esc, peso, isoToday, mdy, $, $$, isAdmin, pill, toast, fail, ic, busy, num } = E;
+  const { sb, S, esc, peso, isoToday, mdy, monthOf, monthText, $, $$, isAdmin, meId, pill, toast, fail, ic, busy, num } = E;
   const V = window.EO_VIEWS;
-  const meId = () => S.session?.user?.id;
   const canW = () => E.canWrite("eooffice");
   const notSet = (e) => /qc_tests|collection_vouchers|create_qc|save_collection|qc_open|schema cache/i.test(e?.message || "");
   const needUpdate = `<div class="empty">EO-Office needs the database update <b>024_eo_office.sql</b>. Run it in the Supabase SQL Editor.</div>`;
-  const monthOf = (d) => String(d || "").slice(0, 7);
-  const monthName = (m) => new Date(m + "-01T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase();
   const monthShort = (m) => new Date(m + "-01T00:00:00").toLocaleDateString("en-US", { month: "short" }).toUpperCase();
   const thisMonth = () => isoToday().slice(0, 7);
   const prevMonth = (m, n = 1) => { const d = new Date(m + "-01T00:00:00"); d.setMonth(d.getMonth() - n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
@@ -68,9 +65,9 @@
         <div class="tiles">
           <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">QC Tests This Month</div><div class="v">${qNow.length}</div><small>${avgScore == null ? "No result yet" : `${passNow} pass · ${scored.length - passNow} fail · average ${avgScore} / 100`}</small></div>
           <div class="tile"><span class="tile-ic">${ic("wallet")}</span><div class="k">Collection This Month (₱)</div><div class="v">${peso(sum(byMonth.get(now) || []))}</div><small>${(byMonth.get(now) || []).length} voucher(s)</small></div>
-          <div class="tile"><span class="tile-ic">${ic("wallet")}</span><div class="k">Collection Last Month (₱)</div><div class="v">${peso(sum(byMonth.get(last) || []))}</div><small>${monthName(last)}</small></div>
+          <div class="tile"><span class="tile-ic">${ic("wallet")}</span><div class="k">Collection Last Month (₱)</div><div class="v">${peso(sum(byMonth.get(last) || []))}</div><small>${monthText(last)}</small></div>
         </div>
-        <div class="eo-bars" aria-label="Collection by month">${six.map((x) => `<button type="button" class="eo-bar${x.m === now ? " now" : ""}" data-m="${x.m}" title="${esc(monthName(x.m))}: ₱ ${peso(x.total)}">
+        <div class="eo-bars" aria-label="Collection by month">${six.map((x) => `<button type="button" class="eo-bar${x.m === now ? " now" : ""}" data-m="${x.m}" title="${esc(monthText(x.m))}: ₱ ${peso(x.total)}">
           <span class="eo-fill" style="height:${Math.max(3, Math.round((x.total / top) * 100))}%"></span><small>₱ ${short(x.total)}</small><b>${monthShort(x.m)}</b></button>`).join("")}</div>
       </div>
       <div class="tabs" id="eoTabs"><button type="button" data-t="qc" class="${t === "qc" ? "on" : ""}">QC Test</button><button type="button" data-t="cv" class="${t === "cv" ? "on" : ""}">Collection Voucher</button></div>
@@ -120,17 +117,17 @@
       }
       if (m) {
         const rs = byMonth.get(m) || [];
-        box.innerHTML = `<div class="btnrow"><button type="button" class="btn small" id="cvBack">${ic("back")} All months</button><b class="po-mh">${esc(monthName(m))}</b>
+        box.innerHTML = `<div class="btnrow"><button type="button" class="btn small" id="cvBack">${ic("back")} All months</button><b class="po-mh">${esc(monthText(m))}</b>
           <button type="button" class="btn small" id="cvPrintM">${ic("print")} PDF</button></div>
           ${E.grid({ cols: cvCols, rows: rs, onRow: true, empty: "No collection this month." })}
           <div class="lp-sum"><span>Vouchers</span><b>${rs.length}</b><span>Total collected</span><b>₱ ${peso(sum(rs))}</b></div>`;
         E.bindGrid(box, rs, (r) => (location.hash = "collection/" + r.id));
         $("#cvBack").onclick = () => show("cv");
-        $("#cvPrintM").onclick = () => E.openPreview(`Collection ${monthName(m)}`, monthPages(m, rs));
+        $("#cvPrintM").onclick = () => E.openPreview(`Collection ${monthText(m)}`, monthPages(m, rs));
         return;
       }
       box.innerHTML = `${canW() ? `<div class="btnrow"><a class="btn primary" href="#newcollection">${ic("plus")} New Collection Voucher</a></div>` : ""}
-        ${E.grid({ cols: [{ label: "Month", get: (r) => monthName(r.m) }, { label: "Vouchers", num: true, get: (r) => r.n }, { label: "Total Collected (₱)", num: true, get: (r) => peso(r.total) }],
+        ${E.grid({ cols: [{ label: "Month", get: (r) => monthText(r.m) }, { label: "Vouchers", num: true, get: (r) => r.n }, { label: "Total Collected (₱)", num: true, get: (r) => peso(r.total) }],
           rows: monthRows, onRow: true, empty: "No collection recorded yet." })}`;
       E.bindGrid(box, monthRows, (r) => show("cv", r.m));
     };
@@ -585,8 +582,8 @@
     const sorted = [...rs].sort((a, b) => String(a.cv_date).localeCompare(String(b.cv_date)) || String(a.cv_no).localeCompare(String(b.cv_no)));
     const total = sorted.reduce((s, v) => s + num(v.amount), 0);
     return E.pagedDoc({
-      head: E.printHead("MONTHLY COLLECTION", `<div class="sb-no"><small>Month</small><b>${esc(monthName(m))}</b></div>`), contHead: E.printHead(`MONTHLY COLLECTION ${monthName(m)} (CONTINUED)`, ""),
-      top: "", boxTitle: `Collection Vouchers — ${monthName(m)}`,
+      head: E.printHead("MONTHLY COLLECTION", `<div class="sb-no"><small>Month</small><b>${esc(monthText(m))}</b></div>`), contHead: E.printHead(`MONTHLY COLLECTION ${monthText(m)} (CONTINUED)`, ""),
+      top: "", boxTitle: `Collection Vouchers — ${monthText(m)}`,
       thead: `<tr><th>#</th><th>Voucher No</th><th>Date</th><th>Received From</th><th>Method</th><th class="num">Amount (₱)</th></tr>`,
       rows: sorted, rowHtml: (v, i) => `<tr><td>${i + 1}</td><td>${esc(v.cv_no)}</td><td>${esc(mdy(v.cv_date))}</td><td>${esc(v.received_from)}</td><td>${esc(METHODS[v.method] || v.method)}</td><td class="num">${peso(v.amount)}</td></tr>`,
       totalRow: `<tr class="ptl-tot"><td colspan="5">TOTAL COLLECTED · ${sorted.length} VOUCHER(S)</td><td class="num">${peso(total)}</td></tr>`,
