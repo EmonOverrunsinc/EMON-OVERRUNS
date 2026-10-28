@@ -209,12 +209,12 @@
       <td class="num cA">0.00</td>
       <td><button type="button" class="btn small cDel" aria-label="Remove line">×</button></td></tr>`;
     const draw = (ls) => {
-      box.innerHTML = `<div class="grid-wrap co-wrap"><table class="grid co-lines edit"><thead><tr><th>#</th><th class="num">Quantity</th><th class="num">Boxes</th><th>Code</th><th class="num">Pcs</th><th>Lot No.</th><th>Product *</th>
+      box.innerHTML = `<div class="grid-wrap co-wrap"><table class="grid co-lines edit"><thead><tr><th>#</th><th class="num">Total Pcs</th><th class="num">Boxes</th><th>Code</th><th class="num">Pcs / Box</th><th>Lot No.</th><th>Product *</th>
           ${cols.map((c, i) => `<th>${esc(c)} <button type="button" class="co-xcol" data-xc="${i}" aria-label="Remove the column ${esc(c)}" title="Remove the column">×</button></th>`).join("")}<th class="num">Price (₱)</th><th class="num">Amount (₱)</th><th></th></tr></thead>
         <tbody>${(ls.length ? ls : [{}]).map(lineRow).join("")}</tbody>
         <tfoot><tr><td></td><td class="num co-tq">0</td><td class="num co-tb">0</td><td colspan="${4 + cols.length}"><b>TOTAL AMOUNT</b></td><td></td><td class="num co-ta">0.00</td><td></td></tr></tfoot></table></div>
         <div class="btnrow"><button type="button" class="btn small co-add">${ic("plus")} Add Line</button><button type="button" class="btn small co-addc">${ic("plus")} Add Column</button>
-          <small class="muted">Quantity = boxes × pcs. Up to ${MAX_LINES} lines and ${MAX_COLS} added columns (for example COLOR or SIZE).</small></div>
+          <small class="muted">Total Pcs = boxes × pcs per box (or type the total pcs). Up to ${MAX_LINES} lines and ${MAX_COLS} added columns (for example COLOR or SIZE).</small></div>
         <div class="summary-box co-words"></div>`;
       bind(); sum();
     };
@@ -337,10 +337,10 @@
       ${deliverNow ? `<div class="ch-qr"><canvas id="coQr" aria-label="QR code: Complete Delivery"></canvas><small>Scan to deliver</small></div>` : ""}
     </section>`;
     const deliverBtn = (cls = "") => `<a class="btn ok ${cls}" href="#${deliveryHash(o.order_no, o.delivery_code)}">${ic("check")} Complete Delivery</a>`;
-    const linesHtml = `<div class="grid-wrap co-wrap"><table class="grid co-lines"><thead><tr><th>#</th><th class="num">Quantity</th><th class="num">Boxes</th><th>Code</th><th class="num">Pcs</th><th>Lot No.</th><th>Product</th>${cols.map((x) => `<th>${esc(x)}</th>`).join("")}<th class="num">Price (₱)</th><th class="num">Amount (₱)</th></tr></thead>
-        <tbody>${(o.lines || []).map((l, i) => `<tr><td>${i + 1}</td><td class="num">${qtyText(l.qty)}</td><td class="num">${l.boxes ? qtyText(l.boxes) : ""}</td><td>${esc(l.code || "")}</td><td class="num">${l.pcs ? qtyText(l.pcs) : ""}</td><td>${esc(l.lot || "")}</td><td>${esc(l.product)}</td>
+    const linesHtml = `<div class="grid-wrap co-wrap"><table class="grid co-lines"><thead><tr><th>#</th><th class="num">Boxes</th><th class="num">Pcs</th><th>Code</th><th>Lot No.</th><th>Product</th>${cols.map((x) => `<th>${esc(x)}</th>`).join("")}<th class="num">Price (₱)</th><th class="num">Amount (₱)</th></tr></thead>
+        <tbody>${(o.lines || []).map((l, i) => `<tr><td>${i + 1}</td><td class="num">${l.boxes ? qtyText(l.boxes) : ""}</td><td class="num">${qtyText(l.qty)}</td><td>${esc(l.code || "")}</td><td>${esc(l.lot || "")}</td><td>${esc(l.product)}</td>
           ${cols.map((x) => `<td>${esc(l.extra?.[x] || "")}</td>`).join("")}<td class="num">${peso(l.price)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}</tbody>
-        <tfoot><tr><td></td><td class="num">${qtyText(o.total_pcs)}</td><td class="num">${qtyText(o.total_boxes)}</td><td colspan="${4 + cols.length}"><b>TOTAL AMOUNT</b></td><td></td><td class="num"><b>${peso(o.total_amount)}</b></td></tr></tfoot></table></div>`;
+        <tfoot><tr><td></td><td class="num">${qtyText(o.total_boxes)}</td><td class="num">${qtyText(o.total_pcs)}</td><td colspan="${3 + cols.length}"><b>TOTAL AMOUNT</b></td><td></td><td class="num"><b>${peso(o.total_amount)}</b></td></tr></tfoot></table></div>`;
     const delHtml = o.status === "pending" ? `<div class="empty">The delivery starts when the order is 2 · PREPARED (approved by the Director).</div>`
       : o.status === "cancelled" ? `<div class="empty">CANCELLED: no delivery.</div>`
       : deliverNow ? `${o.rider_name || (o.delivery_photos || []).length ? deliveryHtml(o, urls, false) : ""}<div class="co-done">${deliverBtn("big")}
@@ -395,7 +395,7 @@
     $("#coPdf").onclick = async () => { await E.loadSignatures().catch(() => {}); E.openPreview(`Customer Order ${o.order_no}`, orderPages(o, inv)); };
     $("#coSheet").onclick = () => E.openPreview(`Delivery Sheet ${o.order_no}`, sheetPages(o, boxes));
     // 3.38.1: everything in one PDF: the order (with its invoice and delivery), the Delivery Sheet with the boxes, the check photos
-    $("#coAll").onclick = async () => { await E.loadSignatures().catch(() => {}); E.openPreview(`Customer Order ${o.order_no} — All Details`, [...orderPages(o, inv), ...sheetPages(o, boxes), ...photoPages(o, urls)]); };
+    $("#coAll").onclick = async () => { await E.loadSignatures().catch(() => {}); E.openPreview(`Customer Order ${o.order_no} — All Details`, allPages(o, inv, boxes, urls)); };
     bindBoxes(o, boxes, reload);
     if (o.status === "approved" && w && !deliverNow) bindDelivery(o, boxes, urls, reload);
     $$("[data-ph]").forEach((b) => (b.onclick = () => E.lightbox(b.dataset.ph)));
@@ -425,8 +425,10 @@
       .map((k) => { const n = got.get(k) || 0, want = codes.get(k) || 0; return `<span class="co-chip ${want && n === want ? "ok" : n > want ? "over" : ""}">Code ${esc(k)}: <b>${n}</b>${want ? ` / ${want}` : ""}</span>`; }).join("");
     return `<div class="co-count"><b>${boxes.length}</b> of ${qtyText(o.total_boxes)} boxes · <b>${qtyText(sumPcs)}</b> of ${qtyText(o.total_pcs)} pcs ${chips}</div>
       ${w && open(o) ? `<div class="btnrow"><button type="button" class="btn primary" id="cbScan">${ic("scan")} Scan Boxes</button><label class="btn" for="cbPhoto">${ic("image")} Box Label Photo</label><input type="file" id="cbPhoto" accept="image/*" multiple hidden>
-        <button type="button" class="btn" id="cbType">${ic("edit")} Type a Box</button></div>
-        <p class="muted" style="margin:0 0 8px">Scan the QR or PDF417 code on each box label (the camera stays open: one box after another), read it from a photo, or type the serial no (for example L20260667) and the pcs.</p>` : ""}
+        <button type="button" class="btn" id="cbType">📦 Add Box</button></div>
+        <div class="box-find"><input type="text" id="cbFind" maxlength="60" placeholder="Serial no, e.g. U20261238" aria-label="Find a box by its serial no" autocomplete="off"><button type="button" class="btn primary" id="cbFindGo">${ic("search")} Find &amp; Add</button></div>
+        <div id="cbFound" class="box-found" aria-live="polite">${foundHtml(o.id)}</div>
+        <p class="muted" style="margin:0 0 8px">Scan each box label (the camera stays open: scan, scan, scan) or find it by its serial no: a box found in the box database (your Google Sheet) is added with all its details at once. Add Box: type a box that is not in the sheet by hand.</p>` : ""}
       ${E.grid({ cols: [{ label: "#", get: (b) => String(boxes.indexOf(b) + 1) }, { label: "Serial No", html: (b) => `<b class="mono">${esc(b.serial_no)}</b>` }, { label: "Code", get: (b) => b.code || "" },
         { label: "Batch No", get: (b) => b.batch_no || "" }, { label: "Items", get: (b) => b.items || "" }, { label: "Brand", get: (b) => b.brand || "" }, { label: "CTN", get: (b) => b.ctn || "" },
         { label: "Pcs", num: true, get: (b) => qtyText(b.pcs) }, { label: "Remarks", get: (b) => b.remarks || "" },
@@ -435,6 +437,45 @@
   }
   // what a box added says: its items, brand and pcs (3.39: filled from the box database when the serial no is there)
   const boxSays = (b) => { const t = [b.items, b.brand, b.pcs ? `${qtyText(b.pcs)} pcs` : ""].filter(Boolean).join(" · "); return t ? `: ${t}` : ""; };
+  // 3.41: a box is found in the box database (the Google Sheet) by its serial no before it is added; the last result stays
+  // shown under the Find box (the page is drawn again after each box)
+  const FOUND = new Map(); // order id → [ok, text]
+  const foundHtml = (oid) => { const f = FOUND.get(oid); return f ? `<div class="bf-res ${f[0] ? "ok" : "bad"}">${esc(f[1])}</div>` : ""; };
+  const serialOf = (raw) => String(raw || "").trim().toUpperCase().replace(/\s+/g, " ").slice(0, 60);
+  async function findBox(ser, rpc) {
+    const r = rpc ? await rpc("delivery_find_box", { p_serial: ser }) : await sb.from("box_stock").select("*").eq("serial_no", ser).maybeSingle();
+    if (r.error) throw new Error(/delivery_find_box/.test(r.error.message || "") && notSet(r.error) ? "Finding boxes needs the database update 053_box_find.sql." : /box_stock/.test(r.error.message || "") ? "The box database needs the database update RUN_048_TO_051.sql." : r.error.message);
+    return r.data || null;
+  }
+  const foundSays = (b) => [b.product, b.brand && b.brand !== "-" ? b.brand : "", b.ctn ? `CTN ${b.ctn}` : "", b.style ? `Code ${b.style}` : "", b.qty ? `${qtyText(b.qty)} pcs` : "", b.batch].filter(Boolean).join(" · ");
+  // a serial no (scanned or typed): found in the box database → added with its details; not found → not added
+  async function addFound(raw, how, add, rpc, boxes) {
+    const ser = serialOf(raw);
+    if (!ser) return "✖ No serial no in that code.";
+    if (boxes.some((x) => x.serial_no === ser)) return `✔ Box ${ser} is on this order (checked)`;
+    let b;
+    try { b = await findBox(ser, rpc); } catch (e) { return `✖ ${e.message}`; }
+    if (!b) return `✖ Box ${ser} is not in the box database (the Google Sheet). Press Add Box to type its details.`;
+    const r = await add({ serial_no: ser, code: b.style || "", batch_no: b.batch || "", items: b.product || "", pcs: b.qty || "" }, how);
+    const n = (/(\d[\d,]* of [\d,]+ boxes)$/.exec(r) || [])[1];
+    return r.startsWith("✔") && !/checked/.test(r) ? `✔ Found and added: ${ser} · ${foundSays(b)}${n ? ` · ${n}` : ""}` : r;
+  }
+  // the Find box: Enter or Find & Add; the result stays under it, ready for the next serial no
+  function bindFind(pre, oid, run, reload) {
+    const input = $(`#${pre}Find`);
+    if (!input) return;
+    const go = async () => {
+      const v = input.value.trim();
+      if (!v) return input.focus();
+      $(`#${pre}FindGo`).disabled = true;
+      const r = await run(v);
+      FOUND.set(oid, [r.startsWith("✔"), r.slice(2)]);
+      if (r.startsWith("✔")) { await reload(); setTimeout(() => $(`#${pre}Find`)?.focus(), 50); }
+      else { $(`#${pre}Found`).innerHTML = foundHtml(oid); $(`#${pre}FindGo`).disabled = false; input.select(); }
+    };
+    $(`#${pre}FindGo`).onclick = go;
+    input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } };
+  }
   // A box label read: the serial no (L20260667) and what else the code carries (QTY: 252 PCS, STYLE: 01, ITEMS: …, BATCH …).
   function readLabel(text) {
     const t = String(text || "").replace(/\s+/g, " ").trim();
@@ -462,19 +503,21 @@
       boxes.push(data); added++;
       return `✔ Box ${data.serial_no} added${boxSays(data)} · ${boxes.length} of ${qtyText(o.total_boxes)} boxes`;
     };
-    $("#cbScan").onclick = () => E.scanDialog((text) => add(readLabel(text), "scan"), {
-      title: `Scan Boxes — ${o.order_no}`, hint: "Point the camera at the QR or PDF417 code of each box label. Every box is added at once; press Close when done.", keep: true,
+    const found = (raw, how) => addFound(raw, how, add, null, boxes);
+    bindFind("cb", o.id, (v) => found(v, "typed"), reload);
+    $("#cbScan").onclick = () => E.scanDialog((text) => found(readLabel(text).serial_no, "scan"), {
+      title: `Scan Boxes — ${o.order_no}`, hint: "Point the camera at the code of each box label (QR, PDF417 or barcode). Each box found in the box database is added at once: scan the next one. Press Close when done.", keep: true,
       onClose: () => { if (added) { toast(`${added} box(es) added.`); reload(); } } });
     $("#cbPhoto").onchange = async (e) => {
       const files = Array.from(e.target.files); e.target.value = "";
       if (!files.length) return;
       const notes = [];
       for (const f of files) {
-        try { notes.push(await add(readLabel(await E.decodeImageFile(f)), "photo")); }
+        try { notes.push(await found(readLabel(await E.decodeImageFile(f)).serial_no, "photo")); }
         catch (err) { notes.push(`✖ ${f.name}: ${err.message}`); }
       }
       const bad = notes.filter((n) => n.startsWith("✖"));
-      if (bad.length) toast(bad.join(" "), true); else toast(`${added} box(es) added.`);
+      if (bad.length) toast(bad.map((n) => n.slice(2)).join(" "), true); else toast(`${added} box(es) added.`);
       if (added) reload();
     };
     $("#cbType").onclick = () => boxForm(o, null, async (d) => { const r = await add(d, "typed"); if (r.startsWith("✖")) { toast(r.slice(2), true); return false; } toast(r.slice(2)); reload(); return true; });
@@ -498,7 +541,7 @@
   // Type a box (x null) or change one; save(d) gives true when it is saved.
   function boxForm(o, x, save) {
     const codes = [...new Set((o.lines || []).map((l) => l.code).filter(Boolean))];
-    const m = E.modal(x ? `Box ${x.serial_no}` : "Type a Box", `<div class="fields wide">
+    const m = E.modal(x ? `Box ${x.serial_no}` : "📦 Add Box", `<div class="fields wide">
         <label for="bfSer">Serial No *</label><input type="text" id="bfSer" maxlength="60" value="${esc(x?.serial_no || "")}" ${x ? "readonly" : ""} placeholder="e.g. L20260667">
         <label for="bfCode">Code</label><input type="text" id="bfCode" maxlength="30" list="bfCodes" value="${esc(x?.code || (codes.length === 1 ? codes[0] : ""))}"><datalist id="bfCodes">${codes.map((k) => `<option value="${esc(k)}">`).join("")}</datalist>
         <label for="bfBatch">Batch No</label><input type="text" id="bfBatch" maxlength="40" value="${esc(x?.batch_no || "")}">
@@ -638,12 +681,12 @@
     return E.pagedDoc({
       head: E.printHead("CUSTOMER ORDER", codesHtml(o, `<div class="co-bigbox">${esc(boxesText(o.total_boxes))}</div>`)), contHead: E.printHead(`CUSTOMER ORDER ${o.order_no} (CONTINUED)`, ""),
       // 3.39: no address on the order (the customer's account says where it goes)
-      top: E.box("Order", `<div class="pgrid2">${E.cell("Customer", fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Order No", o.order_no)}${E.cell("Batch No", o.reference || "")}
+      top: stLine(o) + E.box("Order", `<div class="pgrid2">${E.cell("Customer", fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Order No", o.order_no)}${E.cell("Batch No", o.reference || "")}
         ${E.cell("Date", mdy(o.order_date))}${E.cell("Due Date", mdy(dueOf(o)))}${E.cell("Terms of Payment", o.payment_terms || "")}${E.cell("Note", o.note || "")}</div>`),
-      boxTitle: "Order Lines (₱)", thead: `<tr><th class="num">Quantity</th><th class="num">Boxes</th><th>Code</th><th class="num">Pcs</th><th>Lot No.</th><th>Product</th>${cols.map((x) => `<th>${esc(x)}</th>`).join("")}<th class="num">Price</th><th class="num">Amount</th></tr>`,
-      rows: o.lines || [], rowHtml: (l) => `<tr><td class="num">${qtyText(l.qty)}</td><td class="num">${l.boxes ? qtyText(l.boxes) : ""}</td><td>${esc(l.code || "")}</td><td class="num">${l.pcs ? qtyText(l.pcs) : ""}</td><td>${esc(l.lot || "")}</td><td>${esc(l.product)}</td>
+      boxTitle: "Order Lines (₱)", thead: `<tr><th class="num">Boxes</th><th class="num">Pcs</th><th>Code</th><th>Lot No.</th><th>Product</th>${cols.map((x) => `<th>${esc(x)}</th>`).join("")}<th class="num">Price</th><th class="num">Amount</th></tr>`,
+      rows: o.lines || [], rowHtml: (l) => `<tr><td class="num">${l.boxes ? qtyText(l.boxes) : ""}</td><td class="num">${qtyText(l.qty)}</td><td>${esc(l.code || "")}</td><td>${esc(l.lot || "")}</td><td>${esc(l.product)}</td>
         ${cols.map((x) => `<td>${esc(l.extra?.[x] || "")}</td>`).join("")}<td class="num">${peso(l.price)}</td><td class="num">${peso(l.amount)}</td></tr>`,
-      totalRow: `<tr class="ptl-tot"><td class="num">${qtyText(o.total_pcs)}</td><td class="num">${qtyText(o.total_boxes)}</td><td colspan="${4 + cols.length}">TOTAL · ${esc(boxesText(o.total_boxes))} · ${qtyText(o.total_pcs)} PCS</td><td></td><td class="num">${peso(o.total_amount)}</td></tr>`,
+      totalRow: `<tr class="ptl-tot"><td class="num">${qtyText(o.total_boxes)}</td><td class="num">${qtyText(o.total_pcs)}</td><td colspan="${3 + cols.length}">TOTAL · ${esc(boxesText(o.total_boxes))} · ${qtyText(o.total_pcs)} PCS</td><td></td><td class="num">${peso(o.total_amount)}</td></tr>`,
       bottom, caps: { single: extraBoxes === 2 ? 6 : extraBoxes ? 9 : 13, first: 18, next: 26, last: extraBoxes === 2 ? 8 : extraBoxes ? 11 : 15 } });
   }
   function sheetPages(o, boxes) {
@@ -653,7 +696,7 @@
     return E.pagedDoc({
       head: E.printHead("DELIVERY SHEET", codesHtml(o)), contHead: E.printHead(`DELIVERY SHEET ${o.order_no} (CONTINUED)`, ""),
       top: E.box("Customer", `<div class="pgrid2">${E.cell("Customer", fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Order No", o.order_no)}${E.cell("Batch No", o.reference || "")}</div>`),
-      boxTitle: "Boxes", thead: `<tr><th>#</th><th>Serial No.</th><th>Code</th><th>Batch No.</th><th>Items</th><th>Brand</th><th>CTN</th><th class="num">Qty (Pcs)</th><th>Remarks</th></tr>`,
+      boxTitle: "Boxes", thead: `<tr><th>#</th><th>Serial No.</th><th>Code</th><th>Batch No.</th><th>Items</th><th>Brand</th><th>CTN</th><th class="num">Pcs</th><th>Remarks</th></tr>`,
       rows, rowHtml: (b, i) => b ? `<tr><td>${i + 1}</td><td class="mono">${esc(b.serial_no)}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td>${esc(b.brand || "")}</td><td>${esc(b.ctn || "")}</td><td class="num">${qtyText(b.pcs)}</td><td>${esc(b.remarks || "")}</td></tr>`
         : `<tr class="cs-empty"><td>${i + 1}</td>${"<td></td>".repeat(8)}</tr>`,
       // 3.39: no boxes scanned yet: the total is written by hand with the lines; one TOTAL BOXES below (the order's)
@@ -664,10 +707,39 @@
       caps: { single: 24, first: 28, next: 34, last: 22 } });
   }
 
-  // the delivery check photos on a page of their own (none: no page)
-  function photoPages(o, urls) {
+  // 3.41: the order's status, under the title of a print
+  const ST_PRINT = { pending: "1 · CREATE ORDER (WAITING FOR APPROVAL)", approved: "2 · PREPARED", completed: "3 · COMPLETED", cancelled: "CANCELLED" };
+  const stLine = (o) => `<p class="co-stline">STATUS: <b>${esc(ST_PRINT[o.status] || String(o.status || "").toUpperCase())}</b></p>`;
+  // 3.41 Download All Details: everything of the order in one PDF, on as few pages as it takes (1 page for a small order):
+  // the order and its lines, every box (no empty lines), the invoice, the delivery, the photos and the approval signature
+  function allPages(o, inv, boxes, urls) {
+    const c = o.customers || {}, cols = o.extra_columns || [], done = o.status === "completed";
+    const sign = o.approved_by ? E.approvedBy(o.approved_by, o.approved_by_name, o.approved_at) : null;
     const pics = (o.delivery_photos || []).map((x) => urls.get(x)).filter(Boolean);
-    return pics.length ? [`${E.printHead("DELIVERY PHOTOS", codesHtml(o))}${E.box("Check Photos", `<div class="po-print-pics n${pics.length}">${pics.map((u) => `<img src="${esc(u)}" alt="Delivery photo">`).join("")}</div>`)}`] : [];
+    const lines = o.lines || [];
+    const top = `${stLine(o)}${E.box("Order", `<div class="pgrid2">${E.cell("Customer", fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Order No", o.order_no)}${E.cell("Batch No", o.reference || "")}
+        ${E.cell("Date", mdy(o.order_date))}${E.cell("Due Date", mdy(dueOf(o)))}${E.cell("Terms of Payment", o.payment_terms || "")}${E.cell("Note", o.note || "")}</div>`)}
+      ${E.box("Order Lines (₱)", `<table class="ptl ad-t"><thead><tr><th class="num">Boxes</th><th class="num">Pcs</th><th>Code</th><th>Lot No.</th><th>Product</th>${cols.map((x) => `<th>${esc(x)}</th>`).join("")}<th class="num">Price</th><th class="num">Amount</th></tr></thead><tbody>
+        ${lines.map((l) => `<tr><td class="num">${l.boxes ? qtyText(l.boxes) : ""}</td><td class="num">${qtyText(l.qty)}</td><td>${esc(l.code || "")}</td><td>${esc(l.lot || "")}</td><td>${esc(l.product)}</td>${cols.map((x) => `<td>${esc(l.extra?.[x] || "")}</td>`).join("")}<td class="num">${peso(l.price)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
+        <tr class="ptl-tot"><td class="num">${qtyText(o.total_boxes)}</td><td class="num">${qtyText(o.total_pcs)}</td><td colspan="${4 + cols.length}">TOTAL · ${esc(E.words(o.total_amount))}</td><td class="num">${peso(o.total_amount)}</td></tr></tbody></table>`)}`;
+    const bottom = `${done && inv ? E.box("Invoice", `<div class="prow3">${E.cell("Invoice No", inv.invoice_no)}${E.cell("Invoice Date", mdy(inv.invoice_date))}${E.cell("Due Date", mdy(inv.due_date))}</div>
+        <div class="prow3">${E.cell("Amount (₱)", peso(inv.total_amount))}${E.cell("Terms of Payment", inv.payment_terms || "")}${E.cell("Status", inv.pay_status === "paid" ? "PAID" : inv.pay_status === "partial" ? "PARTIAL PAYMENT" : "UNPAID")}</div>`) : ""}
+      ${o.rider_name ? E.box(done ? "Done Delivery · Delivery By" : "Delivery By", `<div class="prow3">${E.cell("Rider Name", o.rider_name)}${E.cell("ID No", o.rider_id_no || "")}${E.cell("Plate No", o.plate_no || "")}</div>
+        <div class="prow3">${E.cell("Type", o.vehicle_type || "")}${E.cell("Date and Time", o.delivered_at ? E.dateTime(o.delivered_at) : "")}${E.cell("Note", o.delivery_note || "")}</div>`) : ""}
+      ${pics.length ? E.box("Delivery Photos", `<div class="ad-pics">${pics.map((u) => `<img src="${esc(u)}" alt="Delivery photo">`).join("")}</div>`) : ""}
+      ${o.status === "cancelled" ? `<p class="po-warn"><b>CANCELLED</b>${o.cancel_note ? ` — ${esc(o.cancel_note)}` : ""}</p>` : ""}
+      <div class="psig one"><div></div>${E.sigCol("Authorized Signature", sign)}</div>`;
+    // how many box lines go on a page: what the order, its lines and the end take is left out
+    const used = 9 + lines.length + (done && inv ? 4 : 0) + (o.rider_name ? 4 : 0) + (pics.length ? 7 : 0);
+    const rows = boxes.length ? boxes : [null];
+    return E.pagedDoc({
+      head: E.printHead("CUSTOMER ORDER — ALL DETAILS", codesHtml(o, `<div class="co-bigbox">${esc(boxesText(o.total_boxes))}</div>`)), contHead: E.printHead(`CUSTOMER ORDER ${o.order_no} — ALL DETAILS (CONTINUED)`, ""),
+      top, boxTitle: `Boxes (${boxes.length} of ${qtyText(o.total_boxes)})`,
+      thead: `<tr><th>#</th><th>Serial No.</th><th>Code</th><th>Batch No.</th><th>Items</th><th>Brand</th><th>CTN</th><th class="num">Pcs</th></tr>`,
+      rows, rowHtml: (b, i) => b ? `<tr class="ad-r"><td>${i + 1}</td><td class="mono">${esc(b.serial_no)}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td>${esc(b.brand || "")}</td><td>${esc(b.ctn || "")}</td><td class="num">${qtyText(b.pcs)}</td></tr>`
+        : `<tr class="ad-r"><td colspan="8">No boxes yet.</td></tr>`,
+      totalRow: boxes.length ? `<tr class="ptl-tot"><td colspan="7">TOTAL · ${esc(boxesText(boxes.length))}</td><td class="num">${qtyText(boxes.reduce((t, b) => t + num(b.pcs), 0))}</td></tr>` : "",
+      bottom, caps: { single: Math.max(4, 40 - used), first: Math.max(8, 46 - 9 - lines.length), next: 52, last: Math.max(6, 50 - used + 9 + lines.length) } });
   }
 
   // ======================================================================
@@ -728,7 +800,9 @@
       <section class="pd-step"><h3><span class="pd-n">1</span> Boxes <small>${boxes.length} of ${qtyText(d.total_boxes)} boxes · ${qtyText(pcs)} of ${qtyText(d.total_pcs)} pcs</small></h3>
         ${chips ? `<div class="co-count">${chips}</div>` : ""}
         <div class="btnrow"><button type="button" class="btn primary" id="pdScan">${ic("scan")} Scan Boxes</button><label class="btn" for="pdLabel">${ic("image")} Box Label Photo</label><input type="file" id="pdLabel" accept="image/*" multiple hidden>
-          <button type="button" class="btn" id="pdType">${ic("edit")} Type a Box</button></div>
+          <button type="button" class="btn" id="pdType">📦 Add Box</button></div>
+        <div class="box-find"><input type="text" id="pdFind" maxlength="60" placeholder="Serial no, e.g. U20261238" aria-label="Find a box by its serial no" autocomplete="off"><button type="button" class="btn primary" id="pdFindGo">${ic("search")} Find &amp; Add</button></div>
+        <div id="pdFound" class="box-found" aria-live="polite">${foundHtml(d.id)}</div>
         ${E.grid({ cols: [{ label: "#", get: (b) => String(boxes.indexOf(b) + 1) }, { label: "Serial No", html: (b) => `<b class="mono">${esc(b.serial_no)}</b>` }, { label: "Code", get: (b) => b.code || "" },
           { label: "Items", get: (b) => b.items || "" }, { label: "Brand", get: (b) => b.brand || "" }, { label: "Pcs", num: true, get: (b) => qtyText(b.pcs) },
           { label: "", html: (b) => `<button type="button" class="btn small danger" data-pdx="${b.id}" aria-label="Remove box ${esc(b.serial_no)}">×</button>` }], rows: boxes, empty: "No boxes yet: scan the QR or PDF417 code on each box label." })}
@@ -766,19 +840,21 @@
       boxes.push(data); added++;
       return `✔ Box ${data.serial_no} added${boxSays(data)} · ${boxes.length} of ${qtyText(d.total_boxes)} boxes`;
     };
-    $("#pdScan").onclick = () => E.scanDialog((text) => add(readLabel(text), "scan"), {
-      title: `Scan Boxes — ${d.order_no}`, hint: "Point the camera at the QR or PDF417 code of each box label. Every box is added at once; press Close when done.", keep: true,
+    const found = (raw, how) => addFound(raw, how, add, rpc, boxes);
+    bindFind("pd", d.id, (v) => found(v, "typed"), reload);
+    $("#pdScan").onclick = () => E.scanDialog((text) => found(readLabel(text).serial_no, "scan"), {
+      title: `Scan Boxes — ${d.order_no}`, hint: "Point the camera at the code of each box label (QR, PDF417 or barcode). Each box found in the box database is added at once: scan the next one. Press Close when done.", keep: true,
       onClose: () => { if (added) { toast(`${added} box(es) added.`); reload(); } } });
     $("#pdLabel").onchange = async (e) => {
       const files = Array.from(e.target.files); e.target.value = "";
       if (!files.length) return;
       const notes = [];
       for (const f of files) {
-        try { notes.push(await add(readLabel(await E.decodeImageFile(f)), "photo")); }
+        try { notes.push(await found(readLabel(await E.decodeImageFile(f)).serial_no, "photo")); }
         catch (err) { notes.push(`✖ ${f.name}: ${err.message}`); }
       }
       const bad = notes.filter((n) => n.startsWith("✖"));
-      if (bad.length) toast(bad.join(" "), true); else toast(`${added} box(es) added.`);
+      if (bad.length) toast(bad.map((n) => n.slice(2)).join(" "), true); else toast(`${added} box(es) added.`);
       if (added) reload();
     };
     $("#pdType").onclick = () => boxForm({ lines }, null, async (x) => { const r = await add(x, "typed"); if (r.startsWith("✖")) { toast(r.slice(2), true); return false; } toast(r.slice(2)); reload(); return true; });

@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.40";
+  const VERSION = "3.41";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.40.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.41.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -299,9 +299,12 @@
     const c = document.createElement("canvas");
     return drawPdf417(c, text) ? c.toDataURL("image/png") : "";
   }
+  // 3.41: every code a box label or a paper can carry: QR, PDF417, Data Matrix, Aztec and the line barcodes (Code 128 …)
+  const ZX_FORMATS = ["QR_CODE", "PDF_417", "DATA_MATRIX", "AZTEC", "CODE_128", "CODE_39", "CODE_93", "EAN_13", "EAN_8", "UPC_A", "UPC_E", "ITF", "CODABAR"];
+  const zxFormats = (Z) => ZX_FORMATS.map((f) => Z.BarcodeFormat[f]).filter((f) => f !== undefined);
   function decodeCanvas(canvas) { // needs the code reader loaded first: await need("zxing")
     const Z = window.ZXing;
-    const hints = new Map([[Z.DecodeHintType.TRY_HARDER, true], [Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.PDF_417, Z.BarcodeFormat.QR_CODE]]]);
+    const hints = new Map([[Z.DecodeHintType.TRY_HARDER, true], [Z.DecodeHintType.POSSIBLE_FORMATS, zxFormats(Z)]]);
     const bmp = new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)));
     const r = new Z.MultiFormatReader(); r.setHints(hints);
     return r.decode(bmp).getText();
@@ -331,10 +334,12 @@
   let nativeFormats = null;
   async function nativeReader() {
     if (!nativeFormats) {
-      try { nativeFormats = "BarcodeDetector" in window ? (await window.BarcodeDetector.getSupportedFormats()).filter((f) => f === "qr_code" || f === "pdf417") : []; }
+      const want = ["qr_code", "pdf417", "data_matrix", "aztec", "code_128", "code_39", "code_93", "ean_13", "ean_8", "upc_a", "upc_e", "itf", "codabar"];
+      try { nativeFormats = "BarcodeDetector" in window ? (await window.BarcodeDetector.getSupportedFormats()).filter((f) => want.includes(f)) : []; }
       catch (_) { nativeFormats = []; }
     }
-    return nativeFormats.length === 2 ? new window.BarcodeDetector({ formats: nativeFormats }) : null;
+    // the phone's reader is used when it reads QR codes and PDF417 (3.41: and every other code it knows too)
+    return nativeFormats.includes("qr_code") && nativeFormats.includes("pdf417") ? new window.BarcodeDetector({ formats: nativeFormats }) : null;
   }
   // Try the image as-is and rotated, with a white quiet zone around it.
   async function decodeImageFile(file) {
@@ -1309,7 +1314,7 @@
       let Z;
       try { Z = await lib; } catch (err) { if (live()) msg(err.message); return; }
       if (!live()) return;
-      reader = new Z.BrowserMultiFormatReader(new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.QR_CODE, Z.BarcodeFormat.PDF_417]]]));
+      reader = new Z.BrowserMultiFormatReader(new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, zxFormats(Z)], [Z.DecodeHintType.TRY_HARDER, true]]));
       reader.decodeFromStream(s, video, (res) => { if (res && live()) finish(res.getText()); }).catch((e) => { if (live()) noCamera(e); });
     };
     $("#scRetry", d).onclick = () => start();
