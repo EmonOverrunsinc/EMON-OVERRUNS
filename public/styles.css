@@ -2410,6 +2410,7 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 .co-find { display: block; width: 100%; max-width: 520px; margin: 0 0 10px; }
 .co-wrap { overflow-x: auto; }
 .co-lines input { width: 100%; min-width: 64px; }
+.co-lines .cQ, .co-lines .cR, .co-lines .cX { min-width: 84px; } /* 12,000 pcs, ₱ 1,250.50 and a color fit without cutting */
 .co-lines td:nth-child(4) input, .co-lines td:nth-child(6) input { min-width: 76px; }
 .co-lines td:nth-child(7) input { min-width: 170px; }
 .co-lines input.auto { background: #f2f2f7; color: var(--ink-soft); }
