@@ -3,7 +3,7 @@ import re, sys
 SRC = "/home/user/emon-overruns/supabase/"
 FILES = ["portal_init", "002_customers_invoices_payments", "003_statements", "004_update_1_1", "005_update_1_2", "006_update_1_3",
          "007_update_1_4", "008_update_1_5", "009_update_1_6", "010_update_1_7", "011_update_1_8", "012_update_1_9",
-         "013_update_2_0", "014_update_2_1", "015_update_2_2", "016_update_2_3", "017_play_store", "018_invoice_po", "019_link_payment", "020_invoice_return", "021_join_us", "022_update_2_9", "023_purchase_orders", "024_eo_office", "025_qc_simple", "026_eo_office_fixes", "027_ebill_release", "028_eportal_name", "029_qc_optional", "030_delete_history", "031_settle_by", "032_employee_id", "033_employee_photo", "034_employee_details", "035_employee_approval", "036_employee_corrections", "037_edit_employee", "038_card_password", "039_card_first_password", "040_purchase_access", "041_eooffice_hr", "042_po_photos", "043_qc_qty", "044_duplicate_check", "045_customer_orders", "046_gate_pass_ai", "047_order_no", "048_delivery_paper", "049_lot_delete"]
+         "013_update_2_0", "014_update_2_1", "015_update_2_2", "016_update_2_3", "017_play_store", "018_invoice_po", "019_link_payment", "020_invoice_return", "021_join_us", "022_update_2_9", "023_purchase_orders", "024_eo_office", "025_qc_simple", "026_eo_office_fixes", "027_ebill_release", "028_eportal_name", "029_qc_optional", "030_delete_history", "031_settle_by", "032_employee_id", "033_employee_photo", "034_employee_details", "035_employee_approval", "036_employee_corrections", "037_edit_employee", "038_card_password", "039_card_first_password", "040_purchase_access", "041_eooffice_hr", "042_po_photos", "043_qc_qty", "044_duplicate_check", "045_customer_orders", "046_gate_pass_ai", "047_order_no", "048_delivery_paper", "049_lot_delete", "050_eva_boxes", "051_order_invoice"]
 parts = []
 for f in FILES:
     t = open(SRC + f + ".sql", encoding="utf-8").read().replace("\r", "")
@@ -43,7 +43,7 @@ select case when to_regclass('public.customers') is not null
              and to_regprocedure('public.director_edit_customer(uuid,jsonb)') is not null
              and exists (select 1 from storage.buckets where id = 'records')
              and exists (select 1 from pg_trigger where tgname = 'statements_follow')
-             and to_regclass('public.customer_orders') is not null and to_regclass('public.ai_gate_log') is not null
+             and to_regclass('public.customer_orders') is not null and to_regclass('public.ai_gate_log') is not null and to_regclass('public.box_stock') is not null
         then 'E-PORTAL SERVER READY - ' || (select count(*) from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE')
              || ' tables, ' || (select count(*) from pg_proc where pronamespace = 'public'::regnamespace) || ' functions. Next: sign up on the E-Portal.'
         else 'NOT COMPLETE: tell Claude' end as result;
