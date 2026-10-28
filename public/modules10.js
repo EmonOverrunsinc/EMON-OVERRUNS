@@ -1,5 +1,6 @@
 /* EMON OVERRUNS E-PORTAL — Customer Order (3.37), in EO-Office.
-   An order for a customer, like the paper order: DELIVERED TO, ADDRESS, ACCOUNT NO, REFERENCES, DATE, DUE DATE, TERMS, NOTE and the
+   An order for a customer, like the paper order: the CUSTOMER (3.38.1: no Delivered To, the order goes to the customer it is for),
+   ADDRESS, ACCOUNT NO, REFERENCES, DATE, DUE DATE, TERMS, NOTE and the
    lines QUANTITY | BOXES | CODE | PCS | LOT NO. | PRODUCT | PRICE | AMOUNT (QUANTITY = BOXES × PCS, AMOUNT = QUANTITY × PRICE), with up
    to 4 columns of its own (COLOR, SIZE …). The page of the order holds its boxes (the Delivery Sheet): each box is scanned from the QR
    or PDF417 code on its label (one after another, the camera stays open), read from a photo of the label, or typed. The Director
@@ -103,7 +104,6 @@
             <label for="coDue">Due Date</label><input type="date" id="coDue" value="${esc(o?.due_date || "")}">
           </div>
           <div class="fields wide">
-            <label for="coTo">Delivered To</label><input type="text" id="coTo" maxlength="120" value="${esc(o?.delivered_to || "")}" placeholder="The customer's name when empty">
             <label for="coAddr">Address</label><input type="text" id="coAddr" maxlength="300" value="${esc(o?.address || "")}" placeholder="The customer's address when empty">
             <label for="coNote">Note</label><input type="text" id="coNote" maxlength="500" value="${esc(o?.note || "")}">
             <span>Order No</span><small>${o ? `<b class="mono">${esc(o.order_no)}</b>` : "Given by the system when you save (CO-YYYYMM-####)."}</small>
@@ -112,10 +112,7 @@
       </div><div class="wfoot"><button type="button" class="btn" id="coCancel">Cancel</button><button type="submit" class="btn primary">${o ? "Save" : isAdmin() ? "Save Order" : "Save and Send to the Director"}</button></div></form>`,
       isAdmin() ? "" : "The order goes to the Director to approve. After the approval the Director's signature is on the printed order, and the delivery can start.");
     let cust = preset && preset.status === "active" ? preset : null;
-    const fillFrom = (c) => {
-      if (!$("#coTo").value.trim()) $("#coTo").placeholder = fullName(c);
-      if (!$("#coAddr").value.trim()) $("#coAddr").placeholder = c.address || "";
-    };
+    const fillFrom = (c) => { if (!$("#coAddr").value.trim()) $("#coAddr").placeholder = c.address || ""; };
     E.customerPicker($("#coCust"), { statuses: ["active"], onPick: (c) => { cust = c; fillFrom(c); }, preset: cust || undefined });
     if (preset && !cust) toast(`${fullName(preset)}'s account is ${String(preset.status).toUpperCase()}: an order is made only for an ACTIVE account.`, true);
     const ed = linesEditor($("#coLines"), o?.lines || [], o?.extra_columns || []);
@@ -131,7 +128,7 @@
       if (bad >= 0) return toast(`Line ${bad + 1}: write the product, and the boxes and pcs (or the quantity).`, true);
       E.setBusy(e.target, true, "Saving");
       const { data: row, error } = await sb.rpc("save_customer_order", { p_id: o?.id || null, p_data: { customer_id: cust.id, order_date: $("#coDate").value || null, due_date: $("#coDue").value || null,
-        reference: $("#coRef").value, payment_terms: terms(), delivered_to: $("#coTo").value, address: $("#coAddr").value, note: $("#coNote").value, extra_columns: cols, lines } });
+        reference: $("#coRef").value, payment_terms: terms(), address: $("#coAddr").value, note: $("#coNote").value, extra_columns: cols, lines } });
       if (error) { E.setBusy(e.target, false); return fail(error, notSet(error) ? "Run the database update RUN_041_TO_046.sql first" : "Could not save the order"); }
       toast(o ? "Saved." : row.status === "approved" ? `Order ${row.order_no} saved and approved.` : `Order ${row.order_no} saved and sent to the Director.`);
       location.hash = "custorder/" + row.id;
@@ -249,7 +246,7 @@
       ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>Director's Decision</legend><div class="btnrow"><button type="button" class="btn ok" id="coApprove">${ic("check")} Approve Order</button><button type="button" class="btn danger" id="coCancelO">Cancel Order</button></div></fieldset>` : ""}
       <div class="pgrid2 qc-head">${E.cell("Order No", o.order_no)}${E.cell("Date", mdy(o.order_date))}
         <div class="pcell"><div class="pl">Customer</div><div class="pv">${E.canOpen("customer") ? `<a href="#customer/${c.id}"><b>${esc(fullName(c))}</b></a>` : `<b>${esc(fullName(c))}</b>`}</div></div>${E.cell("Account No", c.account_no || "")}
-        ${E.cell("Delivered To", o.delivered_to || fullName(c))}${E.cell("Address", o.address || c.address || "")}${E.cell("References", o.reference || "")}${E.cell("Terms of Payment", o.payment_terms || "")}
+        ${E.cell("Address", o.address || c.address || "")}${E.cell("References", o.reference || "")}${E.cell("Terms of Payment", o.payment_terms || "")}
         ${E.cell("Due Date", mdy(dueOf(o)))}${E.cell("Total", `${boxesText(o.total_boxes)} · ${qtyText(o.total_pcs)} PCS`, "hl")}${E.cell("Made By", o.created_by_name || "")}${E.cell("Approved By", o.approved_by_name ? `${o.approved_by_name} · ${mdy(o.approved_at)}` : "")}
         ${o.note ? E.cell("Note", o.note) : ""}</div>
       <h3 class="sec">Order Lines</h3>
@@ -507,7 +504,7 @@
     const extraBoxes = (done && inv ? 1 : 0) + (o.rider_name ? 1 : 0);
     return E.pagedDoc({
       head: E.printHead("CUSTOMER ORDER", codesHtml(o, `<div class="co-bigbox">${esc(boxesText(o.total_boxes))}</div>`)), contHead: E.printHead(`CUSTOMER ORDER ${o.order_no} (CONTINUED)`, ""),
-      top: E.box("Order", `<div class="pgrid2">${E.cell("Delivered To", o.delivered_to || fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Address", o.address || c.address || "")}${E.cell("References", o.reference || "")}
+      top: E.box("Order", `<div class="pgrid2">${E.cell("Customer", fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Address", o.address || c.address || "")}${E.cell("References", o.reference || "")}
         ${E.cell("Date", mdy(o.order_date))}${E.cell("Due Date", mdy(dueOf(o)))}${E.cell("Terms of Payment", o.payment_terms || "")}${E.cell("Note", o.note || "")}</div>`),
       boxTitle: "Order Lines (₱)", thead: `<tr><th class="num">Quantity</th><th class="num">Boxes</th><th>Code</th><th class="num">Pcs</th><th>Lot No.</th><th>Product</th>${cols.map((x) => `<th>${esc(x)}</th>`).join("")}<th class="num">Price</th><th class="num">Amount</th></tr>`,
       rows: o.lines || [], rowHtml: (l) => `<tr><td class="num">${qtyText(l.qty)}</td><td class="num">${l.boxes ? qtyText(l.boxes) : ""}</td><td>${esc(l.code || "")}</td><td class="num">${l.pcs ? qtyText(l.pcs) : ""}</td><td>${esc(l.lot || "")}</td><td>${esc(l.product)}</td>
@@ -521,7 +518,7 @@
     const line = (k, v) => `<div class="cs-f"><small>${esc(k)}</small><b>${v ? esc(v) : "&nbsp;"}</b></div>`;
     return E.pagedDoc({
       head: E.printHead("DELIVERY SHEET", codesHtml(o)), contHead: E.printHead(`DELIVERY SHEET ${o.order_no} (CONTINUED)`, ""),
-      top: E.box("Delivery To", `<div class="pgrid2">${E.cell("Customer", o.delivered_to || fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Address", o.address || c.address || "")}${E.cell("Order No", o.order_no)}</div>`),
+      top: E.box("Delivery To", `<div class="pgrid2">${E.cell("Customer", fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Address", o.address || c.address || "")}${E.cell("Order No", o.order_no)}</div>`),
       boxTitle: "Boxes", thead: `<tr><th>#</th><th>Serial No.</th><th>Code</th><th>Batch No.</th><th>Items</th><th class="num">Qty (Pcs)</th><th>Remarks</th></tr>`,
       rows, rowHtml: (b, i) => b ? `<tr><td>${i + 1}</td><td class="mono">${esc(b.serial_no)}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td class="num">${qtyText(b.pcs)}</td><td>${esc(b.remarks || "")}</td></tr>`
         : `<tr class="cs-empty"><td>${i + 1}</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`,
