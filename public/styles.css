@@ -2436,7 +2436,7 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 .cs-f small { display: block; font-size: 8.5px; letter-spacing: .04em; text-transform: uppercase; }
 .cs-f b { font-size: 11px; }
 
-/* ---------- 3.38 Gatekeeper AI (the Gate Pass AI) ---------- */
+/* ---------- 3.38 AI Suggest (the Gate Pass AI) ---------- */
 .ai-box { display: flex; align-items: flex-start; gap: 12px; margin: 10px 0; padding: 12px 14px; border-radius: 14px; background: #f5f3ff; box-shadow: inset 4px 0 0 #7c3aed; }
 .ai-box.clear { background: #effaf2; box-shadow: inset 4px 0 0 var(--ok); }
 .ai-box.hold { background: #fff2f2; box-shadow: inset 4px 0 0 var(--bad); }

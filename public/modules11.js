@@ -1,7 +1,9 @@
-/* EMON OVERRUNS E-PORTAL — Gatekeeper AI (3.38; named Gatekeeper AI in 3.38.1, was Gate Pass AI).
-   A small artificial neural network (12 inputs → 8 hidden neurons → 1 output) that learns from the portal's own records — the
-   invoices, payments, overdue days, credit memos and returns of every customer, and every gate pass decision — and gives its
-   idea when a Gate Pass is asked for: CLEAR or HOLD, how sure it is, and why. The Director decides; every decision is learned.
+/* EMON OVERRUNS E-PORTAL — AI Suggest (3.38: the Gate Pass AI; 3.38.1: named AI Suggest, and it reads every customer record).
+   A small artificial neural network (14 inputs → 8 hidden neurons → 1 output) that learns from everything the server keeps
+   about each customer — invoices, payments and the invoices they are linked to, overdue days, credit memos and returns, charges
+   and settlement adjustments, customer orders still open, suspensions and closures, collection letters, and every gate pass
+   decision — and gives its idea when a Gate Pass is asked for: CLEAR or HOLD, how sure it is, and why. The Director decides;
+   every decision is learned.
    It learns from: (1) the Director's decisions on Requests for Clearance (approved = CLEAR, hold = HOLD) and the gate passes
    issued (CLEAR), each read as the customer's record was on that day; (2) the portal's own Gate Pass rule on every customer,
    month by month for the last 12 months and today (open account, no overdue, within the credit limit, or a trusted customer).
@@ -14,13 +16,14 @@
   const V = window.EO_VIEWS;
   const BUCKET = "ai", FOLDER = "gate-pass";
   const notSet = (e) => ["PGRST205", "PGRST202", "42P01"].includes(e?.code) || /ai_models|ai_gate_log|schema cache|Bucket not found/i.test(e?.message || "");
-  const needUpdate = `<div class="empty">The Gatekeeper AI needs the database update <b>RUN_041_TO_046.sql</b>. Run it in the Supabase SQL Editor.</div>`;
-  // the 12 inputs: [key, what it means]; each is scaled to 0 … 1
+  const needUpdate = `<div class="empty">AI Suggest needs the database update <b>RUN_041_TO_046.sql</b>. Run it in the Supabase SQL Editor.</div>`;
+  // the 14 inputs: [key, what it means]; each is scaled to 0 … 1
   const FEATURES = [["age", "Business with us"], ["invoices", "Invoices"], ["overdue", "Overdue invoices"], ["overdueShare", "Overdue part of all invoiced"],
     ["oldest", "Oldest overdue"], ["balance", "Balance against the credit limit"], ["lastPay", "Days since the last payment"], ["onTime", "Invoices paid on time"],
-    ["daysToPay", "Average days to pay"], ["returns", "Returns"], ["recent", "Months with invoices (last 6)"], ["active", "Account open"]];
+    ["daysToPay", "Average days to pay"], ["returns", "Returns"], ["recent", "Months with invoices (last 6)"], ["active", "Account open"],
+    ["warnings", "Holds, suspensions and collection letters before"], ["openOrders", "Customer orders still open"]];
   // a customer at their best and at their worst (to find what pushes the idea to CLEAR or to HOLD)
-  const GOOD = [1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1], BAD = [0, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 0];
+  const GOOD = [1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0], BAD = [0, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 0, 1, 1];
   const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
   const days = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 864e5);
   const dayOf = (ts) => (ts ? isoDay(new Date(ts)) : null);
@@ -28,52 +31,92 @@
   const surePct = (v) => Math.min(99, Math.round(v * 100));
 
   // ======================================================================
-  // The record of a customer as it was on day t, and the 12 inputs made from it
-  // recs: { invs: [{ invoice_date, invoice_no, total_amount, payment_terms }], pays: [{ paid_date, amount }], memos: [credit memos] }
+  // The record of a customer as it was on day t (all the server keeps about the customer), and the 14 inputs made from it.
+  // recs: { invs: invoices, pays: payments (each with its payment_links), memos: credit memos (returns too), letters: order
+  //   letters (charges, settlement adjustments, suspensions and closures, collection letters, Requests for Clearance),
+  //   corders: customer orders }
+  // The balance is the portal's own (opening balance + invoices + charges − payments − credits − take-off adjustments), and the
+  // money pays as on the invoices: a credit or return on an invoice and a payment linked to it pay that invoice first; the rest
+  // pays the opening balance and then the oldest invoices.
   // ======================================================================
+  const COLLECT = ["unpaid", "unsettled_balance", "promise_to_pay", "installment"];
+  const isGateReq = (o) => o.subject_type === "other" && String(o.subject || "").startsWith("Gate Pass Clearance");
+  const offBalance = (m) => ["approved", "paid"].includes(m.status) && m.approved_at && (m.off_balance ?? ["credit", "discount"].includes(m.requested_action));
   function recordAt(c, recs, t, status = c.status) {
+    const by = (ts) => !!ts && dayOf(ts) <= t;
     const invs = (recs.invs || []).filter((i) => String(i.invoice_date) <= t)
       .sort((a, b) => String(a.invoice_date).localeCompare(String(b.invoice_date)) || String(a.invoice_no || "").localeCompare(String(b.invoice_no || "")));
-    // the money in, in its order: payments, and approved credit memos, discounts and returns
-    const money = [
-      ...(recs.pays || []).filter((p) => String(p.paid_date) <= t).map((p) => ({ d: String(p.paid_date), amt: num(p.amount), pay: true })),
-      ...(recs.memos || []).filter((m) => ["approved", "paid"].includes(m.status) && m.approved_at && dayOf(m.approved_at) <= t
-        && (m.is_return || (m.off_balance ?? ["credit", "discount"].includes(m.requested_action)))).map((m) => ({ d: dayOf(m.approved_at), amt: num(m.request_amount), ret: !!m.is_return }))
-    ].sort((a, b) => a.d.localeCompare(b.d));
-    // the oldest first: the opening balance, then the invoices by date
-    const open = { need: Math.max(0, num(c.opening_balance)) };
-    const rows = invs.map((i) => ({ i, need: num(i.total_amount), paidOn: null, due: E.termsDue(i.invoice_date, i.payment_terms) || null }));
-    const queue = [open, ...rows];
+    const rows = invs.map((i) => ({ i, need: num(i.total_amount), paidOn: null, last: null, due: E.termsDue(i.invoice_date, i.payment_terms) || null }));
+    const ofInv = new Map(rows.map((r) => [r.i.id, r]));
+    // money on one invoice (credits and returns on it, linked payments), in its order; what it leaves over is free money
+    const credits = [], direct = [], free = [];
+    for (const m of recs.memos || []) if (offBalance(m) && by(m.approved_at)) {
+      const d = dayOf(m.approved_at), amt = num(m.request_amount);
+      credits.push({ amt, ret: !!m.is_return });
+      (ofInv.has(m.invoice_id) ? direct : free).push({ r: ofInv.get(m.invoice_id), d, amt });
+    }
+    const pays = (recs.pays || []).filter((p) => String(p.paid_date) <= t).sort((a, b) => String(a.paid_date).localeCompare(String(b.paid_date)));
+    for (const p of pays) {
+      let left = num(p.amount);
+      for (const l of p.payment_links || []) if (!l.removed_at && ofInv.has(l.invoice_id)) { direct.push({ r: ofInv.get(l.invoice_id), d: String(p.paid_date), amt: num(l.amount) }); left -= num(l.amount); }
+      if (left > 0.004) free.push({ d: String(p.paid_date), amt: left });
+    }
+    const letters = (recs.letters || []).filter((o) => o.status === "applied" && by(o.applied_at));
+    const sumOf = (list) => list.reduce((s, o) => s + num(o.amount), 0);
+    const reduce = letters.filter((o) => o.subject_type === "settlement" && o.adjust_type === "reduce");
+    for (const o of reduce) free.push({ d: dayOf(o.applied_at), amt: num(o.amount) });
+    const charges = sumOf(letters.filter((o) => o.subject_type === "charge" || (o.subject_type === "settlement" && o.adjust_type === "add")));
+    direct.sort((a, b) => a.d.localeCompare(b.d));
+    for (const x of direct) {
+      const take = Math.max(0, Math.min(x.r.need, x.amt));
+      if (take > 0) { x.r.need -= take; if (!x.r.last || x.d > x.r.last) x.r.last = x.d; if (x.r.need <= 0.004 && !x.r.paidOn) x.r.paidOn = x.r.last; }
+      if (x.amt - take > 0.004) free.push({ d: x.d, amt: x.amt - take });
+    }
+    // the free money, in its order: the opening balance first, then the oldest invoices
+    free.sort((a, b) => a.d.localeCompare(b.d));
+    const queue = [{ need: Math.max(0, num(c.opening_balance)) }, ...rows];
     let k = 0;
-    for (const m of money) {
+    for (const m of free) {
       let left = m.amt;
       while (left > 0.004 && k < queue.length) {
-        const q = queue[k], take = Math.min(left, q.need);
+        const q = queue[k];
+        if (q.need <= 0.004) { k++; continue; }
+        const take = Math.min(left, q.need);
         q.need -= take; left -= take;
-        if (q.need <= 0.004) { if (q.i) q.paidOn = m.d; k++; }
+        if (q.i && (!q.last || m.d > q.last)) q.last = m.d;
+        if (q.need <= 0.004) { if (q.i && !q.paidOn) q.paidOn = q.last; k++; }
       }
     }
     const invoiced = invs.reduce((s, i) => s + num(i.total_amount), 0);
-    const moneyIn = money.reduce((s, m) => s + m.amt, 0);
-    const bal = Math.max(0, num(c.opening_balance)) + invoiced - moneyIn;
+    const bal = num(c.opening_balance) + invoiced + charges - pays.reduce((s, p) => s + num(p.amount), 0) - credits.reduce((s, m) => s + m.amt, 0) - sumOf(reduce);
     const over = rows.filter((r) => r.need > 0.004 && r.due && r.due < t);
     const paid = rows.filter((r) => r.paidOn);
     const onTime = paid.filter((r) => !r.due || r.paidOn <= r.due).length;
     const avgDays = paid.length ? Math.round(paid.reduce((s, r) => s + Math.max(0, days(r.i.invoice_date, r.paidOn)), 0) / paid.length) : null;
-    const pays = money.filter((m) => m.pay), lastPay = pays.length ? pays[pays.length - 1].d : null;
+    const lastPay = pays.length ? String(pays[pays.length - 1].paid_date) : null;
     const since = [c.application_date, invs[0]?.invoice_date].filter(Boolean).sort()[0] || t;
     const months = Math.max(0, Math.floor(days(since, t) / 30.4));
     const recent = new Set(invs.filter((i) => days(i.invoice_date, t) <= 183).map((i) => String(i.invoice_date).slice(0, 7))).size;
     const limit = c.credit_limit == null ? null : num(c.credit_limit);
-    return { t, status, months, nInv: invs.length, invoiced, bal, limit, nOver: over.length, overAmt: over.reduce((s, r) => s + r.need, 0),
+    // the warnings before: the Director's holds on a gate pass, suspensions and closures, collection letters
+    const all = recs.letters || [];
+    const holds = all.filter((o) => isGateReq(o) && o.status === "rejected" && dayOf(o.approved_at || o.created_at) < t).length;
+    const susp = all.filter((o) => ["suspension", "closure"].includes(o.subject_type) && o.status === "applied" && by(o.applied_at)).length;
+    const collect = all.filter((o) => COLLECT.includes(o.subject_type) && ["approved", "applied"].includes(o.status) && by(o.approved_at || o.created_at)).length;
+    // the customer orders made and not yet delivered (completed) or cancelled
+    const openO = (recs.corders || []).filter((o) => by(o.created_at) && !by(o.completed_at) && !by(o.cancelled_at) && !(o.status === "cancelled" && !o.cancelled_at));
+    return { t, status, months, nInv: invs.length, invoiced, bal, limit, charges, nOver: over.length, overAmt: over.reduce((s, r) => s + r.need, 0),
       oldest: over.reduce((m, r) => Math.max(m, days(r.due, t)), 0), paidN: paid.length, onTime, avgDays, lastPay, sinceLast: lastPay ? days(lastPay, t) : null,
-      returned: money.filter((m) => m.ret).reduce((s, m) => s + m.amt, 0), recent, avgInv: invs.length ? invoiced / invs.length : 0 };
+      returned: credits.filter((m) => m.ret).reduce((s, m) => s + m.amt, 0), recent, avgInv: invs.length ? invoiced / invs.length : 0,
+      holds, susp, collect, warn: holds + susp + collect, openN: openO.length, openAmt: openO.reduce((s, o) => s + num(o.total_amount), 0) };
   }
   function inputs(r) {
-    const vsLimit = r.limit != null ? (r.limit > 0 ? r.bal / r.limit : r.bal > 0.004 ? 3 : 0) : r.bal / Math.max(r.avgInv, 1);
+    // an amount against the credit limit (or, with no limit, against the customer's usual invoice)
+    const vs = (amt) => (r.limit != null ? (r.limit > 0 ? amt / r.limit : amt > 0.004 ? 3 : 0) : r.avgInv > 0 ? amt / r.avgInv : amt > 0.004 ? 1 : 0);
     return [clamp01(Math.log1p(r.months) / Math.log1p(60)), clamp01(Math.log1p(r.nInv) / Math.log1p(100)), clamp01(r.nOver / 10), clamp01(r.overAmt / Math.max(r.invoiced, 1)),
-      clamp01(r.oldest / 180), clamp01(vsLimit / 3), r.sinceLast == null ? (r.nInv ? 1 : 0) : clamp01(r.sinceLast / 365), r.paidN ? r.onTime / r.paidN : 0.5,
-      r.paidN ? clamp01(r.avgDays / 120) : 0.5, clamp01(r.returned / Math.max(r.invoiced, 1)), r.recent / 6, r.status === "active" ? 1 : 0];
+      clamp01(r.oldest / 180), clamp01(vs(r.bal) / 3), r.sinceLast == null ? (r.nInv ? 1 : 0) : clamp01(r.sinceLast / 365), r.paidN ? r.onTime / r.paidN : 0.5,
+      r.paidN ? clamp01(r.avgDays / 120) : 0.5, clamp01(r.returned / Math.max(r.invoiced, 1)), r.recent / 6, r.status === "active" ? 1 : 0,
+      clamp01((r.warn || 0) / 5), clamp01(vs(r.openAmt || 0) / 3)];
   }
   // The portal's own Gate Pass rule (the same as the Gate Pass check): an open account, nothing overdue and within the
   // credit limit — or a trusted customer (6 months with us, invoices in 3 of the last 6 months, 5 paid, paid in the last 45
@@ -86,7 +129,7 @@
   }
 
   // ======================================================================
-  // The neural network: 12 inputs → 8 hidden neurons (tanh) → 1 output (sigmoid) = how likely CLEAR is.
+  // The neural network: 14 inputs → 8 hidden neurons (tanh) → 1 output (sigmoid) = how likely CLEAR is.
   // Learns with Adam on the whole set at once, with weights for each record (the Director's decisions count more) and the two
   // answers balanced; the start is the same every time (a fixed seed), so the same records give the same network.
   // ======================================================================
@@ -150,17 +193,21 @@
   // ======================================================================
   async function loadAll() {
     const rows = (q) => E.allRows(q).then((r) => { if (r.error) throw r.error; return r.data; });
-    const [cust, invs, pays, memos, reqs, evs] = await Promise.all([
+    const [cust, invs, pays, links, memos, letters, evs, corders] = await Promise.all([
       rows(() => sb.from("customers").select("id, first_name, last_name, account_no, status, application_date, credit_limit, opening_balance").order("id")),
       rows(() => sb.from("customer_invoices").select("id, customer_id, invoice_no, invoice_date, total_amount, payment_terms").order("id")),
       rows(() => sb.from("payments_received").select("id, customer_id, paid_date, amount").order("id")),
+      rows(() => sb.from("payment_links").select("id, payment_id, invoice_id, amount, removed_at").order("id")),
       rows(() => sb.from("credit_memos").select("*").order("id")),
-      rows(() => sb.from("order_letters").select("id, customer_id, subject, status, created_at").eq("subject_type", "other").like("subject", "Gate Pass Clearance%").order("id")),
-      rows(() => sb.from("customer_events").select("id, customer_id, note, created_at").like("note", "GATE PASS GP-%").order("id"))]);
-    const by = (list) => { const g = new Map(); for (const x of list) { if (!g.has(x.customer_id)) g.set(x.customer_id, []); g.get(x.customer_id).push(x); } return g; };
-    return { cust, invs: by(invs), pays: by(pays), memos: by(memos), reqs: by(reqs), evs: by(evs) };
+      rows(() => sb.from("order_letters").select("id, customer_id, subject_type, subject, status, adjust_type, amount, approved_at, applied_at, created_at").not("customer_id", "is", null).order("id")),
+      rows(() => sb.from("customer_events").select("id, customer_id, note, created_at").like("note", "GATE PASS GP-%").order("id")),
+      rows(() => sb.from("customer_orders").select("id, customer_id, status, total_amount, created_at, completed_at, cancelled_at").order("id"))]);
+    const by = (list, key = "customer_id") => { const g = new Map(); for (const x of list) { if (!g.has(x[key])) g.set(x[key], []); g.get(x[key]).push(x); } return g; };
+    const lk = by(links, "payment_id");
+    for (const p of pays) p.payment_links = lk.get(p.id) || [];
+    return { cust, invs: by(invs), pays: by(pays), memos: by(memos), letters: by(letters), evs: by(evs), corders: by(corders) };
   }
-  const recsOf = (all, id) => ({ invs: all.invs.get(id) || [], pays: all.pays.get(id) || [], memos: all.memos.get(id) || [] });
+  const recsOf = (all, id) => ({ invs: all.invs.get(id) || [], pays: all.pays.get(id) || [], memos: all.memos.get(id) || [], letters: all.letters.get(id) || [], corders: all.corders.get(id) || [] });
   function examples(all) {
     const today = isoToday(), out = [];
     const monthEnds = Array.from({ length: 12 }, (_, k) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - k); d.setDate(0); return isoDay(d); });
@@ -172,7 +219,7 @@
       out.push({ x: inputs(r0), y: ruleClear(r0) ? 1 : 0, w: 1, src: "rule" });
       for (const t of monthEnds) if (first && t >= first) { const r = recordAt(c, recs, t, "active"); out.push({ x: inputs(r), y: ruleClear(r) ? 1 : 0, w: 1, src: "rule" }); }
       // the Director's decisions (and the gate passes issued), as the record was on that day
-      for (const o of all.reqs.get(c.id) || []) {
+      for (const o of recs.letters.filter(isGateReq)) {
         if (o.status === "pending") continue;
         const r = recordAt(c, recs, dayOf(o.created_at), /account is (SUSPENDED|CLOSED)/i.test(o.subject || "") ? "suspended" : "active");
         out.push({ x: inputs(r), y: o.status === "rejected" ? 0 : 1, w: 4, src: "director" });
@@ -188,7 +235,7 @@
     return out;
   }
   async function learn(onStep = () => {}) {
-    onStep(0.02, "Reading the customers, invoices, payments, credit memos and gate pass decisions");
+    onStep(0.02, "Reading every customer record on the server: invoices, payments, credit memos, letters, customer orders, gate passes");
     const all = await loadAll();
     let ex = examples(all);
     const rules = ex.filter((e) => e.src === "rule");
@@ -208,7 +255,7 @@
     const [X, y, w] = part(() => true);
     const m = await train(X, y, w, { onEpoch: (f) => onStep(0.5 + f * 0.45, "Learning from every record") });
     const decisions = ex.filter((e) => e.src === "director").length;
-    const model = { kind: "EMON OVERRUNS GATEKEEPER AI", version: 1, features: FEATURES.map((f) => f[0]), hidden: HIDDEN, mean: m.mean, std: m.std, W1: m.W1, b1: m.b1, W2: m.W2, b2: m.b2,
+    const model = { kind: "EMON OVERRUNS AI SUGGEST", version: 2, features: FEATURES.map((f) => f[0]), hidden: HIDDEN, mean: m.mean, std: m.std, W1: m.W1, b1: m.b1, W2: m.W2, b2: m.b2,
       trained_at: new Date().toISOString(), trained_by: S.profile?.full_name || "", samples: real, decisions, issued: ex.filter((e) => e.src === "issued").length,
       accuracy: tested.length ? right / tested.length : null, agree: dTest.length ? dRight / dTest.length : null, loss: m.loss };
     onStep(0.96, "Saving what it learned in its folder on the server");
@@ -236,7 +283,9 @@
     const { data: s, error: e2 } = await sb.storage.from(BUCKET).createSignedUrl(row.path, 120);
     if (e2) throw e2;
     const model = await fetch(s.signedUrl).then((r) => { if (!r.ok) throw new Error("The AI's file could not be read"); return r.json(); });
-    return (cache = { row, model });
+    // a file learned with other inputs (before 3.38.1: 12) is not used: it learns again with what it reads now
+    const fits = Array.isArray(model.features) && model.features.join() === FEATURES.map((f) => f[0]).join();
+    return (cache = { row, model: fits ? model : null, old: !fits });
   }
   // what each input says about this customer, in words
   function said(k, r) {
@@ -254,6 +303,12 @@
       case "returns": return r.returned > 0 ? `Returns ₱ ${peso(r.returned)} (${pct(r.returned / Math.max(r.invoiced, 1))} of invoiced)` : "No returns";
       case "recent": return `Invoices in ${r.recent} of the last 6 months`;
       case "active": return `The account is ${String(r.status || "").toUpperCase()}`;
+      case "warnings": {
+        const n = (v, one, many) => `${v} ${v === 1 ? one : many}`;
+        const p = [r.holds && n(r.holds, "gate pass hold", "gate pass holds"), r.susp && n(r.susp, "suspension or closure", "suspensions or closures"), r.collect && n(r.collect, "collection letter", "collection letters")].filter(Boolean);
+        return p.length ? `Before: ${p.join(", ")}` : "No holds, suspensions or collection letters before";
+      }
+      case "openOrders": return r.openN ? `${r.openN} customer order${r.openN === 1 ? "" : "s"} still open (₱ ${peso(r.openAmt)})` : "No customer order open";
       default: return "";
     }
   }
@@ -276,13 +331,15 @@
   async function box(c, ctx) {
     let cur;
     try { cur = await current(); }
-    catch (e) { return notSet(e) ? "" : `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>GATEKEEPER AI</b><small>Could not be read: ${esc(e.message)}</small></div></div>`; }
-    if (!cur.model) return `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>GATEKEEPER AI</b><small>It has not learned yet. ${isAdmin() ? `Open <a href="#gateai">Gatekeeper AI</a> and press <b>Learn Now</b>.` : "The Director makes it learn on the Gatekeeper AI page."}</small></div></div>`;
-    const recs = { invs: ctx.invs || [], pays: ctx.pays || [], memos: ctx.memos || [] };
+    catch (e) { return notSet(e) ? "" : `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>AI SUGGEST</b><small>Could not be read: ${esc(e.message)}</small></div></div>`; }
+    if (!cur.model) return `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>AI SUGGEST</b><small>${cur.old ? "It reads more of your records now and must learn again." : "It has not learned yet."} ${isAdmin() ? `Open <a href="#gateai">AI Suggest</a> and press <b>Learn Now</b>.` : "The Director makes it learn on the AI Suggest page."}</small></div></div>`;
+    // the customer's orders still open (the rest comes with the customer's page)
+    const co = await sb.from("customer_orders").select("id, status, total_amount, created_at, completed_at, cancelled_at").eq("customer_id", c.id).then((r) => r.data || [], () => []);
+    const recs = { invs: ctx.invs || [], pays: ctx.pays || [], memos: ctx.memos || [], letters: ctx.orders || [], corders: co };
     const d = idea(cur.model, c, recs);
     last.set(c.id, { row: cur.row, idea: d });
     return `<div class="ai-box ${d.clear ? "clear" : "hold"}"><span class="ai-ic">${ic("ai")}</span><div>
-      <b>GATEKEEPER AI SUGGESTS: ${d.clear ? "CLEAR" : "HOLD"}</b> <span class="ai-sure">${surePct(d.sure)}% sure</span>
+      <b>AI SUGGEST: ${d.clear ? "CLEAR" : "HOLD"}</b> <span class="ai-sure">${surePct(d.sure)}% sure</span>
       ${d.reasons.length ? `<ul>${d.reasons.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
       <small>Learned ${esc(mdy(cur.row.created_at))} from ${cur.row.samples} records and ${cur.row.decisions} Director decision${cur.row.decisions === 1 ? "" : "s"}. The AI only gives an idea; the Director decides.</small></div></div>`;
   }
@@ -296,12 +353,12 @@
   }
 
   // ======================================================================
-  // The Gatekeeper AI page (the Director): what it learned, Learn Now, every open customer's idea, suggestions and decisions,
+  // The AI Suggest page (the Director): what it learned, Learn Now, every open customer's idea, suggestions and decisions,
   // its folder (the versions)
   // ======================================================================
   V.gateai = async () => {
     if (!isAdmin()) { location.hash = "dashboard"; return; }
-    E.shell("gateai", "Gatekeeper AI", `<div id="aiBody">${busy()}</div>`);
+    E.shell("gateai", "AI Suggest", `<div id="aiBody">${busy()}</div>`);
     const here = E.stillHere();
     const [vers, logs] = await Promise.all([
       sb.from("ai_models").select("*").eq("name", FOLDER).order("created_at", { ascending: false }).limit(50),
@@ -311,8 +368,8 @@
     const v = vers.data || [], lg = logs.data || [], top = v[0];
     const decided = lg.filter((x) => x.decision), agreed = decided.filter((x) => x.decision === x.suggestion).length;
     $("#aiBody").innerHTML = `
-      <section class="ai-hero"><span class="ai-ic big">${ic("ai")}</span><div><h2>Gatekeeper AI</h2>
-        <p>An artificial neural network (12 inputs, 8 neurons, 1 answer) that learns from your own records — invoices, payments, overdue days, credit memos, returns — and from every gate pass decision. When a Gate Pass is asked for, it gives its idea: <b>CLEAR</b> or <b>HOLD</b>, how sure it is, and why. You decide; each decision is learned the next time it learns.</p></div></section>
+      <section class="ai-hero"><span class="ai-ic big">${ic("ai")}</span><div><h2>AI Suggest</h2>
+        <p>An artificial neural network (14 inputs, 8 neurons, 1 answer) that reads every customer record on your server — invoices, payments and the invoices they pay, overdue days, credit memos and returns, charges and settlement adjustments, customer orders still open, suspensions, collection letters, gate pass holds — and learns from every gate pass decision. When a Gate Pass is asked for, it gives its idea: <b>CLEAR</b> or <b>HOLD</b>, how sure it is, and why. You decide; each decision is learned the next time it learns.</p></div></section>
       <div class="tiles ai-tiles">
         <div class="tile"><span class="tile-ic">${ic("clock")}</span><div class="k">Last Learned</div><div class="v ai-v">${top ? esc(E.dateTime(top.created_at)) : "Not yet"}</div><small>${top ? `by ${esc(top.trained_by_name || "")}` : "Press Learn Now"}</small></div>
         <div class="tile"><span class="tile-ic">${ic("doc")}</span><div class="k">Records Learned From</div><div class="v">${top ? top.samples : 0}</div><small>${top ? `${top.decisions} Director decision${top.decisions === 1 ? "" : "s"}` : ""}</small></div>
@@ -351,6 +408,7 @@
     try {
       const [cur, all] = await Promise.all([current(), loadAll()]);
       if (!here() || !$("#aiNow")) return;
+      if (!cur.model) { $("#aiNow").innerHTML = `<div class="empty">It reads more of your records now (charges, adjustments, linked payments, customer orders, holds and letters). Press <b>Learn Now</b> so it learns with them.</div>`; return; }
       const list = all.cust.filter((c) => c.status === "active").map((c) => ({ c, d: idea(cur.model, c, recsOf(all, c.id)) })).sort((a, b) => a.d.p - b.d.p);
       $("#aiNow").innerHTML = E.grid({ cols: [{ label: "Customer", html: (x) => `<b>${esc(fullName(x.c))}</b> <small class="mono">${esc(x.c.account_no || "")}</small>` },
         { label: "AI Idea", html: (x) => `${E.pill(x.d.clear ? "approved" : "rejected", x.d.clear ? "CLEAR" : "HOLD")} <small>${surePct(x.d.sure)}%</small>` },
