@@ -265,7 +265,7 @@
       if (error) fail(error, "Could not record the decision");
     };
   }
-  // 3.38: the Gate Pass AI's idea (CLEAR or HOLD, how sure, why), under the portal's own check
+  // 3.38: the Gatekeeper AI's idea (CLEAR or HOLD, how sure, why), under the portal's own check
   const aiIdea = (c, ctx, root) => {
     if (!E.gateAI) return;
     E.gateAI.box(c, ctx).then((html) => { const v = $(".gp-verdict", root); if (html && v && root.isConnected) v.insertAdjacentHTML("afterend", html); }, () => {});
