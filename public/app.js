@@ -12,18 +12,20 @@
   const BUILD = "3.36.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
-  // the same request (address and content) sent again while the first is on its way, or up to 2 seconds after it was
-  // saved, gets the answer of the first. Reading (GET) and file uploads always go to the server.
+  // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
+  // record saved straight to a table also up to 1.5 seconds after it was saved (a server function is asked again once
+  // it has answered: it may only read, like Check & Verify). Reading (GET) and file uploads always go to the server.
   const sent = new Map();
   function sendOnce(input, init = {}) {
     const method = String(init.method || "GET").toUpperCase();
     if (method === "GET" || method === "HEAD" || typeof init.body !== "string") return fetch(input, init);
-    const key = `${method} ${String(input?.url || input)} ${init.body}`;
+    const url = String(input?.url || input), key = `${method} ${url} ${init.body}`;
     let answer = sent.get(key);
     if (!answer) {
       answer = fetch(input, init);
       sent.set(key, answer);
-      answer.then((r) => setTimeout(() => sent.delete(key), r.ok ? 2000 : 0), () => sent.delete(key));
+      const hold = url.includes("/rest/v1/rpc/") ? 0 : 1500;
+      answer.then((r) => setTimeout(() => sent.delete(key), r.ok ? hold : 0), () => sent.delete(key));
     }
     return answer.then((r) => r.clone());
   }
