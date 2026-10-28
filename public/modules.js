@@ -570,7 +570,7 @@
         { label: "Date", get: (r) => mdy(r.application_date) }, { label: "Status", html: (r) => pill(r.status) }],
         rows: waiting, onRow: true });
       E.bindGrid($("#dApps"), waiting, (r) => (location.hash = "customer/" + r.id));
-    }
+    } else $("#dAppsBox")?.remove(); // 3.38: none waits: the hidden box goes, with its loading sign
     if ($("#dInv")) {
       // 2.4.3: the newest invoices with their status (PAID / PARTIAL PAYMENT / UNPAID); three columns, so the status
       // shows on a phone too: the invoice (with the customer under it), what is still due, and the status
