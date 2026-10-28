@@ -1,4 +1,4 @@
-/* EMON OVERRUNS E-PORTAL — AI Suggest (3.38: the Gate Pass AI; 3.38.1: named AI Suggest, and it reads every customer record).
+/* EMON OVERRUNS E-PORTAL — EVA, EMON Virtual Assistant (3.38: the Gate Pass AI; 3.38.1: named EVA, and it reads every customer record).
    A small artificial neural network (14 inputs → 8 hidden neurons → 1 output) that learns from everything the server keeps
    about each customer — invoices, payments and the invoices they are linked to, overdue days, credit memos and returns, charges
    and settlement adjustments, customer orders still open, suspensions and closures, collection letters, and every gate pass
@@ -16,7 +16,7 @@
   const V = window.EO_VIEWS;
   const BUCKET = "ai", FOLDER = "gate-pass";
   const notSet = (e) => ["PGRST205", "PGRST202", "42P01"].includes(e?.code) || /ai_models|ai_gate_log|schema cache|Bucket not found/i.test(e?.message || "");
-  const needUpdate = `<div class="empty">AI Suggest needs the database update <b>RUN_041_TO_046.sql</b>. Run it in the Supabase SQL Editor.</div>`;
+  const needUpdate = `<div class="empty">EVA needs the database update <b>RUN_041_TO_046.sql</b>. Run it in the Supabase SQL Editor.</div>`;
   // the 14 inputs: [key, what it means]; each is scaled to 0 … 1
   const FEATURES = [["age", "Business with us"], ["invoices", "Invoices"], ["overdue", "Overdue invoices"], ["overdueShare", "Overdue part of all invoiced"],
     ["oldest", "Oldest overdue"], ["balance", "Balance against the credit limit"], ["lastPay", "Days since the last payment"], ["onTime", "Invoices paid on time"],
@@ -255,7 +255,7 @@
     const [X, y, w] = part(() => true);
     const m = await train(X, y, w, { onEpoch: (f) => onStep(0.5 + f * 0.45, "Learning from every record") });
     const decisions = ex.filter((e) => e.src === "director").length;
-    const model = { kind: "EMON OVERRUNS AI SUGGEST", version: 2, features: FEATURES.map((f) => f[0]), hidden: HIDDEN, mean: m.mean, std: m.std, W1: m.W1, b1: m.b1, W2: m.W2, b2: m.b2,
+    const model = { kind: "EMON OVERRUNS EVA", version: 2, features: FEATURES.map((f) => f[0]), hidden: HIDDEN, mean: m.mean, std: m.std, W1: m.W1, b1: m.b1, W2: m.W2, b2: m.b2,
       trained_at: new Date().toISOString(), trained_by: S.profile?.full_name || "", samples: real, decisions, issued: ex.filter((e) => e.src === "issued").length,
       accuracy: tested.length ? right / tested.length : null, agree: dTest.length ? dRight / dTest.length : null, loss: m.loss };
     onStep(0.96, "Saving what it learned in its folder on the server");
@@ -331,15 +331,15 @@
   async function box(c, ctx) {
     let cur;
     try { cur = await current(); }
-    catch (e) { return notSet(e) ? "" : `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>AI SUGGEST</b><small>Could not be read: ${esc(e.message)}</small></div></div>`; }
-    if (!cur.model) return `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>AI SUGGEST</b><small>${cur.old ? "It reads more of your records now and must learn again." : "It has not learned yet."} ${isAdmin() ? `Open <a href="#gateai">AI Suggest</a> and press <b>Learn Now</b>.` : "The Director makes it learn on the AI Suggest page."}</small></div></div>`;
+    catch (e) { return notSet(e) ? "" : `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>EVA</b><small>Could not be read: ${esc(e.message)}</small></div></div>`; }
+    if (!cur.model) return `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>EVA</b><small>${cur.old ? "It reads more of your records now and must learn again." : "It has not learned yet."} ${isAdmin() ? `Open <a href="#gateai">EVA AI</a> and press <b>Learn Now</b>.` : "The Director makes it learn on the EVA AI page."}</small></div></div>`;
     // the customer's orders still open (the rest comes with the customer's page)
     const co = await sb.from("customer_orders").select("id, status, total_amount, created_at, completed_at, cancelled_at").eq("customer_id", c.id).then((r) => r.data || [], () => []);
     const recs = { invs: ctx.invs || [], pays: ctx.pays || [], memos: ctx.memos || [], letters: ctx.orders || [], corders: co };
     const d = idea(cur.model, c, recs);
     last.set(c.id, { row: cur.row, idea: d });
     return `<div class="ai-box ${d.clear ? "clear" : "hold"}"><span class="ai-ic">${ic("ai")}</span><div>
-      <b>AI SUGGEST: ${d.clear ? "CLEAR" : "HOLD"}</b> <span class="ai-sure">${surePct(d.sure)}% sure</span>
+      <b>EVA SUGGESTS: ${d.clear ? "CLEAR" : "HOLD"}</b> <span class="ai-sure">${surePct(d.sure)}% sure</span>
       ${d.reasons.length ? `<ul>${d.reasons.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
       <small>Learned ${esc(mdy(cur.row.created_at))} from ${cur.row.samples} records and ${cur.row.decisions} Director decision${cur.row.decisions === 1 ? "" : "s"}. The AI only gives an idea; the Director decides.</small></div></div>`;
   }
@@ -353,12 +353,12 @@
   }
 
   // ======================================================================
-  // The AI Suggest page (the Director): what it learned, Learn Now, every open customer's idea, suggestions and decisions,
+  // The EVA AI page (the Director): what it learned, Learn Now, every open customer's idea, suggestions and decisions,
   // its folder (the versions)
   // ======================================================================
   V.gateai = async () => {
     if (!isAdmin()) { location.hash = "dashboard"; return; }
-    E.shell("gateai", "AI Suggest", `<div id="aiBody">${busy()}</div>`);
+    E.shell("gateai", "EVA AI", `<div id="aiBody">${busy()}</div>`);
     const here = E.stillHere();
     const [vers, logs] = await Promise.all([
       sb.from("ai_models").select("*").eq("name", FOLDER).order("created_at", { ascending: false }).limit(50),
@@ -368,7 +368,7 @@
     const v = vers.data || [], lg = logs.data || [], top = v[0];
     const decided = lg.filter((x) => x.decision), agreed = decided.filter((x) => x.decision === x.suggestion).length;
     $("#aiBody").innerHTML = `
-      <section class="ai-hero"><span class="ai-ic big">${ic("ai")}</span><div><h2>AI Suggest</h2>
+      <section class="ai-hero"><span class="ai-ic big">${ic("ai")}</span><div><h2>EVA · EMON Virtual Assistant</h2>
         <p>An artificial neural network (14 inputs, 8 neurons, 1 answer) that reads every customer record on your server — invoices, payments and the invoices they pay, overdue days, credit memos and returns, charges and settlement adjustments, customer orders still open, suspensions, collection letters, gate pass holds — and learns from every gate pass decision. When a Gate Pass is asked for, it gives its idea: <b>CLEAR</b> or <b>HOLD</b>, how sure it is, and why. You decide; each decision is learned the next time it learns.</p></div></section>
       <div class="tiles ai-tiles">
         <div class="tile"><span class="tile-ic">${ic("clock")}</span><div class="k">Last Learned</div><div class="v ai-v">${top ? esc(E.dateTime(top.created_at)) : "Not yet"}</div><small>${top ? `by ${esc(top.trained_by_name || "")}` : "Press Learn Now"}</small></div>

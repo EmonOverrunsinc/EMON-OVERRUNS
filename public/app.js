@@ -973,7 +973,7 @@
     ["contacts", "Contact Messages", () => isAdmin(), "mail"],
     ["logins", "Login Accounts", () => isAdmin(), "key"],
     ["forms", "Download Forms", () => true, "download"],
-    ["gateai", "AI Suggest", () => isAdmin(), "ai"] // 3.38 (3.38.1: named AI Suggest)
+    ["gateai", "EVA AI", () => isAdmin(), "ai"] // 3.38 (3.38.1: named EVA, EMON Virtual Assistant)
   ];
   const ACTIVE_OF = { employees: "eooffice", newemployee: "eooffice", editemployee: "eooffice", employee: "eooffice", payroll: "eooffice", payslip: "eooffice", creditmemos: "eooffice", newcreditmemo: "eooffice", creditmemo: "eooffice", projects: "eooffice", newproject: "eooffice", project: "eooffice", jobapps: "eooffice", jobapp: "eooffice", positions: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", ebill: "inventory", custorders: "eooffice", newcustorder: "eooffice", editcustorder: "eooffice", custorder: "eooffice", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
