@@ -38,10 +38,12 @@
       <div class="btnrow">${isAdmin() ? `<a class="btn primary" href="#newemployee">+ New Employee</a>` : ""}</div>
       <div id="emRes">${busy()}</div>`,
       "Employees come from approved job applications, or the Director adds them here. Open an employee to record salary or advance payments, change access, or terminate them.");
+    const here = E.stillHere();
     const [{ data, error }, att] = await Promise.all([
       sb.from("employees").select("*").order("created_at", { ascending: false }),
       sb.from("attachments").select("owner_id, kind").eq("owner_type", "employee").in("kind", ["signature", "signed_form", "application"])
     ]);
+    if (!here()) return; // 3.35: another page was opened while the list loaded
     if (error) return fail(error, "Could not load employees");
     const docs = new Set((att.data || []).map((a) => a.owner_id));
     const all = (data || []).map((r) => ({ ...r, verified: r.status === "active" && (!!r.job_application_id || docs.has(r.id)) }));
@@ -170,24 +172,33 @@
   V.editemployee = async (id) => {
     if (!isAdmin()) { location.hash = "employee/" + id; return; }
     E.shell("editemployee", "Edit Employee", busy());
+    const here = E.stillHere();
     const { data: em } = await sb.from("employees").select("*").eq("id", id).maybeSingle();
+    if (!here()) return; // 3.35: not drawn over the page the person went to
     if (!em) { $("#main").innerHTML = `<div class="empty">Employee not found. <a href="#employees">Back</a></div>`; return; }
     employeeForm(em);
   };
 
   V.employee = async (id) => {
     E.shell("employee", "Employee", busy());
-    const { data: em } = await sb.from("employees").select("*").eq("id", id).maybeSingle();
-    if (!em) { $("#main").innerHTML = `<div class="empty">Employee not found. <a href="#employees">Back</a></div>`; return; }
-    const [att, ps, ja] = await Promise.all([
+    const here = E.stillHere();
+    // 3.35: asked two times at most (what needs only the id together, then what needs the employee), and the page is
+    // drawn only when everything is in and the page is still open
+    const [{ data: em }, att, ps] = await Promise.all([
+      sb.from("employees").select("*").eq("id", id).maybeSingle(),
       E.attachmentsOf("employee", id),
-      sb.from("payslips").select("*").eq("employee_id", id).order("pay_date", { ascending: false }),
-      em.job_application_id ? sb.from("job_applications").select("*").eq("id", em.job_application_id).maybeSingle() : Promise.resolve({ data: null })
+      sb.from("payslips").select("*").eq("employee_id", id).order("pay_date", { ascending: false })
     ]);
+    if (!here()) return;
+    if (!em) { $("#main").innerHTML = `<div class="empty">Employee not found. <a href="#employees">Back</a></div>`; return; }
+    const [ja, appAtt, photo] = await Promise.all([
+      em.job_application_id ? sb.from("job_applications").select("*").eq("id", em.job_application_id).maybeSingle() : Promise.resolve({ data: null }),
+      em.job_application_id ? E.attachmentsOf("job_application", em.job_application_id) : [],
+      em.photo_path ? E.signedUrl(em.photo_path) : ""
+    ]);
+    if (!here()) return; // another page was opened while this one loaded
     const slips = ps.data || [];
     const app = ja.data;
-    const photo = em.photo_path ? await E.signedUrl(em.photo_path) : "";
-    if (location.hash !== "#employee/" + id) return; // another page was opened while this one loaded
     const verified = em.status === "active" && (!!em.job_application_id || att.some((a) => ["signature", "signed_form", "application"].includes(a.kind)));
     const canPay = E.canWrite("employees") && em.status !== "terminated";
     const paid = slips.reduce((s, p) => s + num(p.net_pay), 0);
@@ -220,7 +231,7 @@
       <div class="tabpanes" id="emPanes">
         <div data-p="0"><div id="emSlips">${E.grid({ cols: SLIP_COLS, rows: slips, onRow: true, foot: { net_pay: peso(paid) }, empty: "No salary or advance payments recorded yet." })}</div></div>
         <div data-p="1" hidden>
-          ${app ? `<div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${app.application_no}`, sub: `Approved ${app.approval_no || ""}`, ownerType: "job_application", ownerId: app.id, att: await E.attachmentsOf("job_application", app.id), print: () => printJobApp(app), canUpload: isAdmin(),
+          ${app ? `<div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${app.application_no}`, sub: `Approved ${app.approval_no || ""}`, ownerType: "job_application", ownerId: app.id, att: appAtt, print: () => printJobApp(app), canUpload: isAdmin(),
             approved: jaApproved(app) ? { name: app.approved_by_name, at: app.approved_at } : null })}</div>
             <p><a href="#jobapp/${app.id}">Open job application ${esc(app.application_no)}</a></p>` : ""}
           ${E.filesHtml(att, "No documents uploaded.")}
@@ -295,11 +306,12 @@
         <label for="tmReason">Reason *</label><textarea id="tmReason" rows="3" placeholder="e.g. End of contract, resignation, misconduct"></textarea></div>`,
         `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary danger-fill" data-ok>Terminate Employee</button>`);
       $("[data-x]", m.el).onclick = m.close;
-      $("[data-ok]", m.el).onclick = async () => {
+      $("[data-ok]", m.el).onclick = async (e) => {
         const reason = $("#tmReason", m.el).value.trim();
         if (!reason) return toast("Enter the reason for termination.", true);
+        const btn = e.currentTarget; btn.disabled = true; // 3.35: sent once
         const { error } = await sb.rpc("terminate_employee", { p_id: id, p_date: $("#tmDate", m.el).value || isoToday(), p_reason: reason });
-        if (error) return fail(error, "Could not terminate");
+        if (error) { btn.disabled = false; return fail(error, "Could not terminate"); }
         m.close(); toast(`${fullName(em)} terminated.`); V.employee(id);
       };
     };
@@ -417,9 +429,10 @@
   }
   V.payslip = async (id) => {
     E.shell("payslip", "Payslip", busy());
-    const { data: p } = await sb.from("payslips").select("*, employees(*)").eq("id", id).maybeSingle();
+    const here = E.stillHere();
+    const [{ data: p }, att] = await Promise.all([sb.from("payslips").select("*, employees(*)").eq("id", id).maybeSingle(), E.attachmentsOf("payslip", id)]);
+    if (!here()) return; // 3.35: not drawn over the page the person went to
     if (!p) { $("#main").innerHTML = `<div class="empty">Payslip not found. <a href="#profile">Back</a></div>`; return; }
-    const att = await E.attachmentsOf("payslip", id);
     const em = p.employees;
     const hr = E.hasModule("employees");
     $(".band h1").textContent = `Payslip — ${p.payslip_no}`;
@@ -446,12 +459,15 @@
       <h3 class="sec-h">Active Employees</h3><div id="prActive">${busy()}</div>
       <h3 class="sec-h">Payments This Month</h3><div id="prRes">${busy()}</div>`, "The active employees with their salary and what was paid to each this month, then every salary, advance and bonus payment of the month. Open a row to see the employee or the payslip.");
     let rows = [];
+    const fresh = E.loadGuard();
     const load = async () => {
+      const ok = fresh(); // 3.35: the month chosen last wins (the screen and Print Payroll show the same month)
       $("#prRes").innerHTML = busy();
       const m = $("#prMonth").value + "-01";
       const [{ data, error }, act] = await Promise.all([
         sb.from("payslips").select("*, employees(first_name,last_name,employee_no,position)").eq("period_month", m).order("pay_date"),
         sb.from("employees").select("*").eq("status", "active").order("employee_no")]);
+      if (!ok()) return;
       if (error) return fail(error, "Could not load payroll");
       rows = data || [];
       // 3.23: every active employee, the salary and what was paid to each this month
@@ -492,8 +508,11 @@
           <label for="poDesc">Description</label><input type="text" id="poDesc"></div></div></div>
         <div class="wfoot"><button type="submit" class="btn primary">Add Position</button></div></form>` : ""}
       <div id="poRes">${busy()}</div>`, "Open positions are shown to people who create an account, so they can apply. Application numbers start with the company code, e.g. <b>MF20261001</b>.");
+    const fresh = E.loadGuard();
     const load = async () => {
+      const ok = fresh();
       const [{ data, error }, apps] = await Promise.all([sb.from("job_positions").select("*").order("is_open", { ascending: false }).order("title"), sb.from("job_applications").select("position_id")]);
+      if (!ok()) return;
       if (error) return fail(error, "Could not load positions");
       const count = new Map(); (apps.data || []).forEach((a) => count.set(a.position_id, (count.get(a.position_id) || 0) + 1));
       const rows = data || [];
@@ -514,7 +533,9 @@
       e.preventDefault();
       const v = (i) => $("#" + i).value.trim();
       if (!v("poTitle")) return toast("Enter the position title.", true);
+      E.setBusy(e.target, true, "Adding"); // 3.35: added once
       const { error } = await sb.from("job_positions").insert({ title: v("poTitle"), company_name: v("poCo") || C.company.name, company_code: v("poCode") || "EO", monthly_salary: num(v("poSal")), duty_hours: v("poHrs") || null, description: v("poDesc") || null });
+      E.setBusy(e.target, false);
       if (error) return fail(error, "Could not add the position");
       toast(`Position ${v("poTitle")} added.`); e.target.reset(); $("#poCo").value = C.company.name; $("#poCode").value = "EO"; load();
     };
@@ -531,11 +552,14 @@
     E.shell("jobapps", "Job Applications", `${E.eoTabs("jobapps")}
       <div class="tabs" id="jaF"><button type="button" class="on" data-f="submitted">Waiting for Review</button><button type="button" data-f="approved">Approved</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div id="jaRes">${busy()}</div>`, "People who created an account and applied for a job. Open one, print the form, have the applicant sign it, upload the signed copy, choose the access and approve. Your signature is printed on the form when you approve.");
+    const fresh = E.loadGuard();
     const run = async (f) => {
+      const ok = fresh(); // 3.35: the tab chosen last wins
       $("#jaRes").innerHTML = busy();
       let q = sb.from("job_applications").select("*").order("created_at", { ascending: false });
       if (f) q = q.eq("status", f);
       const { data, error } = await q;
+      if (!ok()) return;
       if (error) return fail(error, "Could not load job applications");
       const rows = data || [];
       $("#jaRes").innerHTML = E.grid({ cols: JA_COLS, rows, onRow: true, empty: f === "submitted" ? "No applications waiting." : "No applications here." });
@@ -585,10 +609,12 @@
 
   V.jobapp = async (id) => {
     E.shell("jobapp", "Job Application", busy());
-    const { data: a } = await sb.from("job_applications").select("*").eq("id", id).maybeSingle();
+    const here = E.stillHere();
+    const [{ data: a }, att] = await Promise.all([sb.from("job_applications").select("*").eq("id", id).maybeSingle(), E.attachmentsOf("job_application", id)]);
+    if (!here()) return; // 3.35: not drawn over the page the person went to
     if (!a) { $("#main").innerHTML = `<div class="empty">Job application not found. <a href="#jobapps">Back</a></div>`; return; }
-    const att = await E.attachmentsOf("job_application", id);
     const photo = a.photo_path ? await E.signedUrl(a.photo_path) : "";
+    if (!here()) return;
     const signed = att.some((x) => x.kind === "signed_form");
     const exp = Array.isArray(a.experience) ? a.experience : [];
     const kv = (rows) => `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
@@ -621,10 +647,11 @@
     E.bindFiles($("#main"));
     E.bindDocCards($("#main"), () => V.jobapp(id));
     bindTools($("#main"));
-    if ($("#jaApprove")) $("#jaApprove").onclick = async () => {
-      const acc = readAccess();
+    if ($("#jaApprove")) $("#jaApprove").onclick = async (e) => {
+      const acc = readAccess(), btn = e.currentTarget;
+      btn.disabled = true; // 3.35: one employee is made, never two
       const { data, error } = await sb.rpc("review_job_application", { p_id: id, p_action: "approve", p_role: acc.role, p_modules: acc.modules, p_note: $("#jaNote").value.trim() || null });
-      if (error) return fail(error, "Could not approve");
+      if (error) { btn.disabled = false; return fail(error, "Could not approve"); }
       toast(`Approved ${data.approval_no}. ${a.full_name} is now an employee and can use the portal.`);
       V.jobapp(id);
     };
@@ -653,11 +680,14 @@
       <div class="tabs" id="pjTabs"><button type="button" class="on" data-f="approved">Approved</button><button type="button" data-f="pending">Waiting for Approval</button><button type="button" data-f="completed">Completed</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${E.canWrite("projects") ? `<a class="btn primary" href="#newproject">+ New Project Application</a>` : ""}</div><div id="pjRes">${busy()}</div>`,
       "Submit a project with its budget: each line with its amount (the qty is optional). Once the Director approves it, the project moves to <b>Approved</b> and payments can be recorded against its total cost.");
+    const fresh = E.loadGuard();
     const run = async (f) => {
+      const ok = fresh(); // 3.35: the tab chosen last wins
       $("#pjRes").innerHTML = busy();
       let q = sb.from("project_balances").select("*").order("created_at", { ascending: false });
       if (f) q = q.eq("status", f);
       const { data, error } = await q;
+      if (!ok()) return;
       if (error) return fail(error, "Could not load projects");
       const rows = data || [];
       const sum = (k) => peso(rows.reduce((s, r) => s + num(r[k]), 0));
@@ -722,15 +752,19 @@
 
   V.project = async (id) => {
     E.shell("project", "Project", busy());
-    const { data: pr } = await sb.from("project_balances").select("*").eq("id", id).maybeSingle();
-    if (!pr) { $("#main").innerHTML = `<div class="empty">Project not found. <a href="#projects">Back</a></div>`; return; }
-    const [items, pays, att] = await Promise.all([
+    const here = E.stillHere();
+    // 3.35: the project and its lines, payments and files are asked for at the same time (all need only the id)
+    const [{ data: pr }, items, pays, att] = await Promise.all([
+      sb.from("project_balances").select("*").eq("id", id).maybeSingle(),
       sb.from("project_items").select("*").eq("project_id", id).order("id"),
       sb.from("project_payments").select("*").eq("project_id", id).order("pay_date"),
       E.attachmentsOf("project", id)]);
+    if (!here()) return; // not drawn over the page the person went to
+    if (!pr) { $("#main").innerHTML = `<div class="empty">Project not found. <a href="#projects">Back</a></div>`; return; }
     const lines = items.data || [], payments = pays.data || [];
     // the receipt of each payment (the newest one), to open it from the list
     const rcpts = payments.length ? (await sb.from("attachments").select("*").eq("owner_type", "project_payment").in("owner_id", payments.map((r) => r.id)).order("created_at")).data || [] : [];
+    if (!here()) return;
     const rcptOf = Object.fromEntries(rcpts.map((f) => [f.owner_id, f]));
     const w = E.canWrite("projects");
     // approved by the Director: the project application is printed with the Director's signature
@@ -834,7 +868,9 @@
       <div class="btnrow">${w ? `<a class="btn primary" href="#newvoucher">${ic("plus")} New Payment</a><a class="btn" href="#newpaycompany">${ic("plus")} Add Company</a>` : ""}</div>
       <div id="blRes">${busy()}</div>`,
       "Add a company and choose its currency: PHP, BDT, or both. <b>New Payment</b> records the amount in that currency (for both: PHP × rate = BDT) and creates a payment voucher. E-bills are paid with a memo in the Director Portal.");
+    const here = E.stillHere();
     const { data, error } = await sb.from("pay_company_totals").select("*").order("name");
+    if (!here()) return; // 3.35: another page was opened while the list loaded
     if (error) return fail(error, "Could not load billing (run the 1.3 database update)");
     const rows = data || [];
     const sum = (k) => rows.reduce((s, r) => s + num(r[k]), 0);
@@ -898,6 +934,7 @@
 
   V.paycompany = async (id) => {
     E.shell("paycompany", "Billing — Company", busy());
+    const here = E.stillHere();
     const [co, accs, vs] = await Promise.all([
       sb.from("pay_company_totals").select("*").eq("id", id).maybeSingle(),
       sb.from("pay_accounts").select("*").eq("company_id", id).order("account_name"),
@@ -905,7 +942,7 @@
     ]);
     const c = co.data;
     const photo = c?.photo_path ? await E.signedUrl(c.photo_path) : "";
-    if (location.hash !== "#paycompany/" + id) return; // another page was opened while this one loaded
+    if (!here()) return; // another page was opened while this one loaded
     if (!c) { $("#main").innerHTML = `<div class="empty">Company not found. <a href="#billing">Back</a></div>`; return; }
     const accounts = accs.data || [], vouchers = vs.data || [];
     const w = E.canWrite("billing");
@@ -992,7 +1029,9 @@
   V.newvoucher = async (companyId) => {
     if (!E.canWrite("billing")) { location.hash = "billing"; return; }
     E.shell("newvoucher", "New Payment Voucher", busy());
+    const here = E.stillHere();
     const { data: cos, error } = await sb.from("pay_companies").select("*").order("name");
+    if (!here()) return; // 3.35: not drawn over the page the person went to
     if (error) return fail(error, "Could not load companies");
     if (!(cos || []).length) { $("#main").innerHTML = `<div class="empty">Add a company first. <a class="btn primary" href="#newpaycompany">Add Company</a></div>`; return; }
     $("#main").innerHTML = `
@@ -1017,11 +1056,14 @@
           <span></span><div id="nvPrev" class="rcpt-prev">No receipt chosen</div></div></fieldset>
       </div><div class="wfoot"><a class="btn" href="#billing">Cancel</a><button type="submit" class="btn primary">Save &amp; Create Voucher</button></div></form>`;
     const curNow = () => curOf(cos.find((c) => c.id === $("#nvCo").value));
+    const freshAcc = E.loadGuard();
     const loadAcc = async () => {
+      const ok = freshAcc(); // 3.35: only the accounts of the company chosen last (never another company's account)
       const sel = $("#nvAcc"), co = $("#nvCo").value;
       if (!co) { sel.innerHTML = `<option value="">— Choose the company first —</option>`; return; }
       sel.innerHTML = `<option value="">Loading…</option>`;
       const { data } = await sb.from("pay_accounts").select("*").eq("company_id", co).order("account_name");
+      if (!ok()) return;
       const list = data || [];
       sel.innerHTML = list.length ? list.map((a) => `<option value="${a.id}">${esc(a.account_name)}${a.account_number ? " · " + esc(a.account_number) : ""}${a.bank_name ? " · " + esc(a.bank_name) : ""}</option>`).join("")
         : `<option value="">— No accounts yet: add one in the company profile —</option>`;
@@ -1100,9 +1142,12 @@
   }
   V.voucher = async (id) => {
     E.shell("voucher", "Payment Voucher", busy());
-    const { data: v } = await sb.from("pay_vouchers").select("*, pay_companies(*), pay_accounts(account_name,account_number,bank_name,branch_name), stock_bills(id,bill_no)").eq("id", id).maybeSingle();
+    const here = E.stillHere();
+    const [{ data: v }, att] = await Promise.all([
+      sb.from("pay_vouchers").select("*, pay_companies(*), pay_accounts(account_name,account_number,bank_name,branch_name), stock_bills(id,bill_no)").eq("id", id).maybeSingle(),
+      E.attachmentsOf("pay_voucher", id)]);
+    if (!here()) return; // 3.35: not drawn over the page the person went to
     if (!v) { $("#main").innerHTML = `<div class="empty">Voucher not found. <a href="#billing">Back</a></div>`; return; }
-    const att = await E.attachmentsOf("pay_voucher", id);
     const rcpt = att.find((a) => a.kind === "receipt" && E.isImage(a));
     const print = async () => E.openPreview(`Voucher ${v.voucher_no}`, [voucherPage(v, rcpt ? await E.signedUrl(rcpt.storage_path, 1800) : "")]);
     const a = v.pay_accounts || {};

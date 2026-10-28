@@ -127,9 +127,12 @@
     const add = (file) => { if (total() >= MAX_VOICES) return toast(`Up to ${MAX_VOICES} voice notes.`, true); picked.push({ file, url: URL.createObjectURL(file) }); render(); };
     const done = () => { clearInterval(timer); timer = null; stopBtn.hidden = true; recBtn.hidden = false; clock.textContent = ""; stream?.getTracks().forEach((t) => t.stop()); stream = null; rec = null; render(); };
     recBtn.onclick = async () => {
+      if (rec || recBtn.disabled) return;
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast("Recording does not work on this device. Use Attach audio file.", true);
+      recBtn.disabled = true; // 3.35: one recording at a time (a second tap while the microphone starts does nothing)
       try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
-      catch (_) { return toast("The microphone is not allowed. Allow the microphone for this app, then press Record again.", true); }
+      catch (_) { recBtn.disabled = false; return toast("The microphone is not allowed. Allow the microphone for this app, then press Record again.", true); }
+      if (!box.isConnected) { stream.getTracks().forEach((t) => t.stop()); stream = null; return; } // the page was left meanwhile: the microphone goes off
       const mime = voiceMime(), chunks = [];
       rec = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 32000 });
       rec.ondataavailable = (e) => e.data?.size && chunks.push(e.data);
@@ -155,7 +158,9 @@
   V.newpurchase = (id) => poForm(null);
   V.editpo = async (id) => {
     E.shell("editpo", "Edit Purchase Order", busy());
+    const here = E.stillHere();
     const { data: p } = await sb.from("purchase_orders").select("*").eq("id", id).maybeSingle();
+    if (!here()) return; // 3.35: not drawn over the page the person went to
     if (!p) { $("#main").innerHTML = `<div class="empty">Purchase order not found.</div>`; return; }
     if (!["pending", "negotiation"].includes(p.status) || !(isAdmin() || p.created_by === meId())) { location.hash = "po/" + id; return; }
     poForm(p);
@@ -179,13 +184,17 @@
         <fieldset class="opt"><legend>Notes / Details</legend><textarea id="poNotes" rows="3">${esc(p?.notes || "")}</textarea></fieldset>
         ${p?.status === "negotiation" ? `<div class="banner warn">${ic("bell")} EMON OVERRUNS authority does not agree with the price. Negotiate, change the prices and submit again.${p.director_note ? " Note: " + esc(p.director_note) : ""}</div>` : ""}
       </div><div class="wfoot"><button type="button" class="btn" id="poCancel">Cancel</button><button type="submit" class="btn primary">${p ? (isAdmin() ? "Save" : "Submit Again") : "Submit Purchase Order"}</button></div></form>`);
+    const here = E.stillHere();
     const ed = linesEditor($("#poLines"), p?.items || []);
-    const vurls = p?.voices?.length ? await E.signedMap(p.voices) : new Map();
+    // 3.35: the voice notes and the photos are asked for at the same time, and the form goes on only while it is open
+    const [vurls, urls] = await Promise.all([p?.voices?.length ? E.signedMap(p.voices) : new Map(), p?.photos?.length ? E.signedMap(p.photos) : new Map()]);
+    if (!here()) return;
     const vo = voiceEditor($("#poVoice"), [...(p?.voices || [])], vurls);
-    let keep = [...(p?.photos || [])], picked = [];
-    const urls = keep.length ? await E.signedMap(keep) : new Map();
+    let keep = [...(p?.photos || [])], picked = [], blobs = [];
     const showPics = () => {
-      $("#poPics").innerHTML = [...keep.map((k, i) => ({ src: urls.get(k), rm: "k" + i })), ...picked.map((f, i) => ({ src: URL.createObjectURL(f), rm: "p" + i }))]
+      blobs.forEach((u) => URL.revokeObjectURL(u)); // 3.35: the previews drawn before are let go
+      blobs = picked.map((f) => URL.createObjectURL(f));
+      $("#poPics").innerHTML = [...keep.map((k, i) => ({ src: urls.get(k), rm: "k" + i })), ...picked.map((f, i) => ({ src: blobs[i], rm: "p" + i }))]
         .map((x) => `<div class="po-pic"><img src="${esc(x.src || "")}" alt="Product photo"><button type="button" data-rm="${x.rm}" aria-label="Remove photo">×</button></div>`).join("");
       $$("#poPics [data-rm]").forEach((b) => (b.onclick = () => { const k = b.dataset.rm; if (k[0] === "k") keep.splice(Number(k.slice(1)), 1); else picked.splice(Number(k.slice(1)), 1); showPics(); }));
       $(".po-drop").hidden = keep.length + picked.length >= MAX_PHOTOS;
@@ -210,12 +219,15 @@
         authorized_person: $("#poAuth").value.trim(), notes: $("#poNotes").value.trim(), items } });
       if (error) { E.setBusy(e.target, false); return fail(error, notSet(error) ? "Run the database update 023_purchase_orders.sql first" : "Could not save the purchase order"); }
       const paths = [...keep];
+      let lost = 0;
       for (const [i, raw] of picked.entries()) {
         const f = await E.slimFile(raw, "photo");
         const path = `purchase/${po.id}/${i + 1}_${Date.now()}.${E.extOf(f)}`;
         const up = await sb.storage.from("records").upload(path, f, { contentType: f.type });
-        if (!up.error) paths.push(path);
+        if (!up.error) paths.push(path); else lost++;
       }
+      // 3.35: a photo that could not be uploaded is said (it can be added again with Edit)
+      if (lost) toast(`${lost} photo${lost === 1 ? "" : "s"} could not be uploaded. Press Edit to add ${lost === 1 ? "it" : "them"} again.`, true);
       const gone = (p?.photos || []).filter((x) => !paths.includes(x));
       if (paths.join() !== (p?.photos || []).join()) {
         const r = await sb.rpc("set_purchase_photos", { p_id: po.id, p_photos: paths });
@@ -237,8 +249,12 @@
       const vgone = (p?.voices || []).filter((x) => !vpaths.includes(x));
       if (vpaths.join() !== (p?.voices || []).join()) {
         const r = await sb.rpc("set_purchase_voices", { p_id: po.id, p_voices: vpaths });
-        if (r.error) toast("The voice notes could not be saved: " + r.error.message, true);
-        if (vgone.length) sb.storage.from("records").remove(vgone).then(() => {}, () => {});
+        // 3.35: like the photos: when the voice notes are not saved the order keeps its old ones and the new uploads are taken off again
+        if (r.error) {
+          toast("The voice notes could not be saved: " + r.error.message, true);
+          const added = vpaths.filter((x) => !vo.keep().includes(x));
+          if (added.length) sb.storage.from("records").remove(added).then(() => {}, () => {});
+        } else if (vgone.length) sb.storage.from("records").remove(vgone).then(() => {}, () => {});
       }
       toast(p ? "Saved." : `Purchase order ${po.po_no} submitted. The Director reviews it.`);
       location.hash = "po/" + po.id;
@@ -262,20 +278,23 @@
     }
     return out;
   }
-  const keepPrint = async (p, urls) => {
+  // 3.35: made once per page, also when PDF is pressed while the copies are still being made (tried again after a failure)
+  const keepPrint = (p, urls) => (p.printing ||= (async () => {
     if (!isAdmin() || p.status !== "approved" || p.print_photos?.length || !p.photos?.length) return;
     const copies = await printCopies(p.photos.map((x) => urls.get(x)).filter(Boolean));
-    if (copies.length) { const r = await sb.rpc("purchase_order_photos", { p_id: p.id, p_action: "print", p_print: copies }); if (!r.error) p.print_photos = copies; }
-  };
+    if (copies.length) { const r = await sb.rpc("purchase_order_photos", { p_id: p.id, p_action: "print", p_print: copies }); if (!r.error) p.print_photos = copies; else p.printing = null; }
+  })());
   // one month after approval: the full photos are deleted (the PDF keeps the small copies; the server keeps the photos
-  // of an order that has no small copies)
+  // of an order that has no small copies). 3.35: all asked at the same time, each order once while the portal is open.
+  const expireTried = new Set();
   async function expirePhotos(rows) {
     if (!isAdmin()) return;
-    const old = rows.filter((p) => p.status === "approved" && p.photos?.length && Date.now() - new Date(p.approved_at).getTime() > 30 * 86400000);
-    for (const p of old) {
+    const old = rows.filter((p) => !expireTried.has(p.id) && p.status === "approved" && p.photos?.length && Date.now() - new Date(p.approved_at).getTime() > 30 * 86400000);
+    old.forEach((p) => expireTried.add(p.id));
+    await Promise.all(old.map(async (p) => {
       const { data: gone } = await sb.rpc("purchase_order_photos", { p_id: p.id, p_action: "expire", p_print: null });
       if (gone?.length) sb.storage.from("records").remove(gone).then(() => {}, () => {});
-    }
+    }));
   }
 
   // ---------- one purchase order ----------
@@ -386,12 +405,14 @@
     const chunks = [rows.slice(0, caps.first)];
     for (let i = caps.first; i < rows.length; i += caps.next) chunks.push(rows.slice(i, i + caps.next));
     const pages = []; let from = 0;
+    // 3.35: the bottom shares only a later page (page 1 already has more lines than fit with the head, the top and the bottom)
+    const fits = (k, c) => k > 0 && c.length <= caps.last;
     chunks.forEach((c, k) => {
-      const last = k === chunks.length - 1, carry = last && c.length <= caps.last;
+      const last = k === chunks.length - 1, carry = last && fits(k, c);
       pages.push(`${k ? contHead : head + top}${table(c, from, last)}${carry ? bottom : ""}`);
       from += c.length;
     });
-    if (!(chunks[chunks.length - 1].length <= caps.last)) pages.push(`${contHead}${bottom}`);
+    if (!fits(chunks.length - 1, chunks[chunks.length - 1])) pages.push(`${contHead}${bottom}`);
     return pages;
   }
 

@@ -234,9 +234,11 @@
   // The Director decides a Request for Clearance (from the profile or the gate pass window): a note, then approve / hold
   // The decision on a Request for Clearance; approved = the gate pass prints. Gives back the error, if any.
   async function applyDecision(c, a, o, action, note) {
+    const here = E.stillHere();
     const { data: r, error } = await sb.rpc("review_order_letter", { p_id: o.id, p_action: action, p_note: note || null });
     if (error) return error;
     toast(action === "approve" ? "Clearance approved." : "HOLD FOR DELIVERY recorded.");
+    if (!here()) return null; // 3.35: the person went to another page meanwhile: the decision is saved, nothing pops up there
     await V.customer(c.id);
     if (action === "approve") issueGate(c, a, { ...o, ...(r || {}), review_note: note });
     return null;

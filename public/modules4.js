@@ -61,9 +61,12 @@
       <div class="inv-find"><input type="search" id="ivQ" placeholder="Search by e-bill no, company, batch no, bill no, system record no or shipping company" aria-label="Search e-bills"></div>
       <div id="ivRes">${busy()}</div>`,
       "E-bills of the goods bought, in BDT. <b>Add E-Bill</b> records the bill with its items. Add the <b>Sales Report</b>, then the Director marks it <b>PAID</b>: the profit or loss shows after that.");
-    const { data, error } = await sb.from("stock_bill_totals")
+    const here = E.stillHere();
+    // 3.35: every e-bill (also past the 1000 rows the server sends at once), so the tiles count them all
+    const { data, error } = await E.allRows(() => sb.from("stock_bill_totals")
       .select("id, bill_no, bill_date, company_name, supplier_bill_no, batch_no, shipment_no, shipment_date, total_boxes, total_qty, total_cost, release_bdt, shipping_cost, paid_bdt, status, profit, shipping_company, shipping_company_code, created_at")
-      .order("created_at", { ascending: false }).limit(2000);
+      .order("created_at", { ascending: false }).order("id"));
+    if (!here()) return; // another page was opened while the list loaded
     if (error) return fail(error, "Could not load the e-bills (run the 2.1 database update)");
     const all = data || [];
     const paid = all.filter((r) => r.status === "paid"), profit = paid.reduce((s, r) => s + num(r.profit), 0);
@@ -83,7 +86,8 @@
       E.setRecords(`E-bills: ${rows.length}`);
     };
     $$("#ivF button").forEach((b) => (b.onclick = () => { $$("#ivF button").forEach((x) => x.classList.toggle("on", x === b)); f = b.dataset.f; show(); }));
-    $("#ivQ").oninput = show;
+    let timer = null;
+    $("#ivQ").oninput = () => { clearTimeout(timer); if (all.length > 300) timer = setTimeout(show, 150); else show(); }; // 3.35: a long list is drawn once typing pauses
     show();
   };
 
@@ -93,7 +97,9 @@
   V.newstockbill = async () => {
     if (!E.canWrite("inventory")) { location.hash = "inventory"; return; }
     E.shell("newstockbill", "Add E-Bill", busy());
+    const here = E.stillHere();
     const { data: cos, error } = await sb.from("pay_companies").select("id, name, status").order("name");
+    if (!here()) return; // 3.35: not drawn over the page the person went to
     if (error) return fail(error, "Could not load the companies");
     if (!(cos || []).length) {
       $("#main").innerHTML = `<div class="empty">Add the company in Billing first.${E.canWrite("billing") ? ` <a class="btn primary" href="#newpaycompany">Add Company</a>` : " Ask the Director to add it."}</div>`;
@@ -252,6 +258,7 @@
 
   V.stockbill = async (id) => {
     E.shell("stockbill", "E-Bill", busy());
+    const here = E.stillHere();
     const [bq, eq, pq, vq, oq, evq] = await Promise.all([
       sb.from("stock_bill_totals").select("*").eq("id", id).maybeSingle(),
       sb.from("stock_bill_entries").select("*").eq("stock_bill_id", id).order("entry_date").order("created_at"),
@@ -262,11 +269,11 @@
       sb.from("stock_bill_events").select("*").eq("stock_bill_id", id).order("created_at", { ascending: false }).order("id", { ascending: false })
     ]);
     const b = bq.data;
-    if (location.hash !== "#stockbill/" + id) return; // another page was opened while this one loaded
+    if (!here()) return; // another page was opened while this one loaded
     if (!b) { $("#main").innerHTML = `<div class="empty">E-bill not found. <a href="#inventory">Back</a></div>`; return; }
     const entries = eq.data || [], pays = pq.data || [], vouchers = vq.data || [], orders = noticesOf(b, oq.data || []), events = evq.data || [];
     const files = await billFiles(b, entries, orders.filter((o) => o.id !== "bill"), vouchers);
-    if (location.hash !== "#stockbill/" + id) return;
+    if (!here()) return;
     const w = E.canWrite("inventory"), admin = isAdmin(), st = b.status;
     const paid = num(b.paid_bdt), balance = totalCost(b) - paid;
     const reload = () => V.stockbill(id);
