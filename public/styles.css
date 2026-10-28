@@ -1335,7 +1335,7 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
 /* ===================== 2.7: clean light theme (Apple-like) =====================
    Soft grey background, white rounded cards, frosted top bar, one blue accent, pill buttons, segmented tabs and calm
    motion. Only the screens change: printed pages (.preview / .page) keep their own look. */
-.topbar, .layout, .statusbar, .login, .modal, .pop, .toast, .mini-content, .boot {
+.topbar, .layout, .statusbar, .login, .modal, .pop, .toast, .mini-content, .boot, .eva-panel {
   --accent: #0071e3; --accent-2: #0058b0; --accent-soft: rgba(0,113,227,.1);
   --title-1: #0071e3; --title-2: #1d1d1f;
   --ink: #1d1d1f; --ink-soft: #6e6e73;
@@ -2535,7 +2535,9 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 .eva-ex { font-size: 12.5px; }
 .eva-ask { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #e4e1f5; background: #fff; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
 .eva-ask input { flex: 1; min-width: 0; border-radius: 20px; padding: 9px 14px; font-size: 14px; }
-.eva-ask .btn { border-radius: 20px; display: inline-flex; align-items: center; gap: 6px; }
+.eva-ask .btn { flex: none; border-radius: 20px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 46px; background: #4f46e5; color: #fff; }
+.eva-ask .btn:hover { background: #4338ca; }
+.eva-ask .btn svg { width: 18px; height: 18px; }
 .eva-dots { display: inline-flex; gap: 4px; padding: 4px 2px; }
 .eva-dots i { width: 7px; height: 7px; border-radius: 50%; background: #a5b4fc; animation: evaDot 1s infinite ease-in-out; }
 .eva-dots i:nth-child(2) { animation-delay: .15s; } .eva-dots i:nth-child(3) { animation-delay: .3s; }
@@ -2546,3 +2548,9 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
   .eva-chat { height: 420px; }
   .eva-ask .btn span { display: none; }
 }
+/* 3.40: Scan Boxes on the order form */
+.cf-scan { align-items: center; flex-wrap: wrap; }
+.cf-type { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 280px; min-width: 0; }
+.cf-type input { flex: 1; min-width: 0; }
+.cf-type .btn { flex: none; }
+.cf-sum { margin: 4px 0 6px; }
