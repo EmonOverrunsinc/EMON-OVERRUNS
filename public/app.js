@@ -485,7 +485,8 @@
     closePreview();
     window.EO.closeChat?.();
     $$(".modal").forEach((x) => modalClose.get(x)?.());
-    $$(".chat-panel, .modal").forEach((x) => x.remove());
+    $$(".chat-panel, .eva-panel, .modal").forEach((x) => x.remove());
+    window.EO.eva?.reset();
     app.innerHTML = `
       <div class="login">
         <div class="login-card window">
@@ -1091,6 +1092,7 @@
           <button type="button" class="scanbtn" id="tbScan" title="Scan a QR code or barcode">${ic("scan")}<span>Scan</span></button>
         </form>
         <div class="tb-right">
+          ${isAdmin() ? `<button type="button" class="iconbtn tb-eva" id="tbEva" aria-label="Ask EVA AI" title="Ask EVA AI">${ic("ai")}</button>` : ""}
           <button type="button" class="iconbtn" id="tbChat" aria-label="Messages" title="Messages">${ic("chat")}<span class="badge" id="tbChatBadge" hidden>0</span></button>
           <button type="button" class="iconbtn" id="tbBell" aria-label="Notifications" title="Notifications" aria-haspopup="true">${ic("bell")}<span class="badge" id="tbBadge" hidden>0</span></button>
           <button type="button" class="avatar-btn" id="tbUser" aria-haspopup="true" aria-label="Your account">
@@ -1143,6 +1145,7 @@
     };
     $("#tbScan").onclick = () => scanDialog((text) => openScanned(text));
     $("#tbChat").onclick = () => { if (window.EO.openChat) window.EO.openChat(); else toast("Messages are not available yet.", true); };
+    if ($("#tbEva")) $("#tbEva").onclick = () => window.EO.eva?.open();
     const toggle = (id) => { const el = $(id); const show = el.hidden; $$(".pop").forEach((p) => (p.hidden = true)); el.hidden = !show; if (show && id === "#mailPop") loadMail(); };
     $("#tbBell").onclick = (e) => { e.stopPropagation(); toggle("#mailPop"); };
     $("#tbUser").onclick = (e) => { e.stopPropagation(); toggle("#userPop"); };
@@ -2022,7 +2025,7 @@
     if (!S.session) {
       stopTimers();
       window.EO.closeChat?.();
-      $$(".chat-panel").forEach((x) => x.remove());
+      $$(".chat-panel, .eva-panel").forEach((x) => x.remove());
       if (key === "verify" && V.verify) return V.verify(arg);
       if (key === "delivery" && V.delivery) return V.delivery(arg, extra); // 3.39: Complete Delivery by the order paper, no login
       if (key === "contact" && V.contact) return V.contact();

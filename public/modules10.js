@@ -8,7 +8,9 @@
    ID no, plate no, type, date and time, and photos; COMPLETE makes the customer's invoice by itself, and the printed order shows it.
    3.39: the status in 3 steps: 1 CREATE ORDER (waiting for the Director) → 2 PREPARED (approved) → 3 COMPLETE (delivered). The order
    paper carries a secret code in its barcode and QR code: whoever scans it — signed in or not — opens the order's Complete Delivery
-   page (boxes, rider and photos, COMPLETE DELIVERY). */
+   page (boxes, rider and photos, COMPLETE DELIVERY). The printed order has no address and only the Director's approval signature;
+   COMPLETE makes the invoice and bills it to the customer. A box whose serial no is in the box database (the Google Sheet, read on
+   the EVA AI page) takes its items, brand, CTN, code, pcs and batch from it. */
 (() => {
   "use strict";
   const E = window.EO;
@@ -360,10 +362,13 @@
         <button type="button" class="btn" id="cbType">${ic("edit")} Type a Box</button></div>
         <p class="muted" style="margin:0 0 8px">Scan the QR or PDF417 code on each box label (the camera stays open: one box after another), read it from a photo, or type the serial no (for example L20260667) and the pcs.</p>` : ""}
       ${E.grid({ cols: [{ label: "#", get: (b) => String(boxes.indexOf(b) + 1) }, { label: "Serial No", html: (b) => `<b class="mono">${esc(b.serial_no)}</b>` }, { label: "Code", get: (b) => b.code || "" },
-        { label: "Batch No", get: (b) => b.batch_no || "" }, { label: "Items", get: (b) => b.items || "" }, { label: "Pcs", num: true, get: (b) => qtyText(b.pcs) }, { label: "Remarks", get: (b) => b.remarks || "" },
+        { label: "Batch No", get: (b) => b.batch_no || "" }, { label: "Items", get: (b) => b.items || "" }, { label: "Brand", get: (b) => b.brand || "" }, { label: "CTN", get: (b) => b.ctn || "" },
+        { label: "Pcs", num: true, get: (b) => qtyText(b.pcs) }, { label: "Remarks", get: (b) => b.remarks || "" },
         ...(w && open(o) ? [{ label: "", html: (b) => `<span class="co-bact"><button type="button" class="btn small" data-be="${b.id}" aria-label="Change box ${esc(b.serial_no)}">${ic("edit")}</button><button type="button" class="btn small danger" data-bx="${b.id}" aria-label="Remove box ${esc(b.serial_no)}">×</button></span>` }] : [])],
         rows: boxes, empty: "No boxes yet." })}`;
   }
+  // what a box added says: its items, brand and pcs (3.39: filled from the box database when the serial no is there)
+  const boxSays = (b) => { const t = [b.items, b.brand, b.pcs ? `${qtyText(b.pcs)} pcs` : ""].filter(Boolean).join(" · "); return t ? `: ${t}` : ""; };
   // A box label read: the serial no (L20260667) and what else the code carries (QTY: 252 PCS, STYLE: 01, ITEMS: …, BATCH …).
   function readLabel(text) {
     const t = String(text || "").replace(/\s+/g, " ").trim();
@@ -389,7 +394,7 @@
       const { data, error } = await sb.rpc("add_order_box", { p_order: o.id, p_data: { ...box, added_how: how } });
       if (error) return `✖ ${error.message}`;
       boxes.push(data); added++;
-      return `✔ Box ${data.serial_no} added${data.pcs ? ` (${qtyText(data.pcs)} pcs)` : ""} · ${boxes.length} of ${qtyText(o.total_boxes)} boxes`;
+      return `✔ Box ${data.serial_no} added${boxSays(data)} · ${boxes.length} of ${qtyText(o.total_boxes)} boxes`;
     };
     $("#cbScan").onclick = () => E.scanDialog((text) => add(readLabel(text), "scan"), {
       title: `Scan Boxes — ${o.order_no}`, hint: "Point the camera at the QR or PDF417 code of each box label. Every box is added at once; press Close when done.", keep: true,
@@ -433,13 +438,27 @@
         <label for="bfBatch">Batch No</label><input type="text" id="bfBatch" maxlength="40" value="${esc(x?.batch_no || "")}">
         <label for="bfItems">Items</label><input type="text" id="bfItems" maxlength="120" value="${esc(x?.items || "")}">
         <label for="bfPcs">Pcs</label><input type="number" id="bfPcs" min="0" step="1" inputmode="numeric" value="${x ? num(x.pcs) : ""}">
-        <label for="bfRem">Remarks</label><input type="text" id="bfRem" maxlength="120" value="${esc(x?.remarks || "")}"></div>`,
+        <label for="bfRem">Remarks</label><input type="text" id="bfRem" maxlength="120" value="${esc(x?.remarks || "")}"></div>
+        <p class="muted" id="bfFrom" style="margin:8px 0 0" hidden></p>`,
       `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${x ? "Save" : "Add Box"}</button>`);
     if (!x) {
       // a box typed from the line of its code: the batch no, items and pcs of that line
       $("#bfCode", m.el).onchange = () => { const l = (o.lines || []).find((y) => y.code === $("#bfCode", m.el).value.trim().toUpperCase()); if (!l) return;
         if (!$("#bfBatch", m.el).value) $("#bfBatch", m.el).value = l.lot || ""; if (!$("#bfItems", m.el).value) $("#bfItems", m.el).value = l.product || ""; if (!$("#bfPcs", m.el).value && l.pcs) $("#bfPcs", m.el).value = l.pcs; };
       $("#bfCode", m.el).onchange();
+      // 3.39: a serial no in the box database (the Google Sheet) fills the box
+      if (S.session) $("#bfSer", m.el).onchange = async () => {
+        const ser = $("#bfSer", m.el).value.trim().toUpperCase().replace(/\s+/g, " ");
+        if (!ser) return;
+        const { data: b } = await sb.from("box_stock").select("*").eq("serial_no", ser).maybeSingle().then((r) => r, () => ({ data: null }));
+        if (!b || !m.el.isConnected) return;
+        if (b.style) $("#bfCode", m.el).value = b.style;
+        if (b.batch) $("#bfBatch", m.el).value = b.batch;
+        if (b.product) $("#bfItems", m.el).value = b.product;
+        if (b.qty) $("#bfPcs", m.el).value = b.qty;
+        $("#bfFrom", m.el).hidden = false;
+        $("#bfFrom", m.el).textContent = `From the box database: ${[b.product, b.brand && b.brand !== "-" ? b.brand : "", b.ctn ? "CTN " + b.ctn : "", b.batch].filter(Boolean).join(" · ")}`;
+      };
     }
     $("[data-x]", m.el).onclick = m.close;
     $("[data-ok]", m.el).onclick = async (e) => {
@@ -520,13 +539,13 @@
       if (!(await saveRider())) return;
       if (!(o.delivery_photos || []).length) return toast("Add a check photo first.", true);
       const short = boxes.length !== num(o.total_boxes);
-      const msg = `Complete the delivery of <b>${esc(o.order_no)}</b>?<br><br>The invoice is made for <b>${esc(custName(o))}</b> by itself: <b>₱ ${peso(o.total_amount)}</b>, ${esc(boxesText(o.total_boxes))}, ${qtyText(o.total_pcs)} pcs${o.payment_terms ? `, ${esc(o.payment_terms)}` : ""}.`
+      const msg = `Complete the delivery of <b>${esc(o.order_no)}</b>?<br><br>The invoice is made and billed to <b>${esc(custName(o))}</b> by itself: <b>₱ ${peso(o.total_amount)}</b>, ${esc(boxesText(o.total_boxes))}, ${qtyText(o.total_pcs)} pcs${o.payment_terms ? `, ${esc(o.payment_terms)}` : ""}.`
         + (short ? `<br><br><b>Note:</b> ${boxes.length} box(es) were scanned, the order has ${qtyText(o.total_boxes)}.` : "") + "<br><br>This cannot be undone.";
       if (!(await E.confirmBox(msg, { title: "Complete Delivery", ok: "Complete Delivery" }))) return;
       e.target.disabled = true;
       const { error } = await sb.rpc("complete_customer_order", { p_id: o.id });
       if (error) { e.target.disabled = false; return fail(error, "Could not complete the order"); }
-      toast(`Order ${o.order_no} completed. The invoice was made.`); reload();
+      toast(`Order ${o.order_no} completed. The invoice was made and billed to ${custName(o)}.`); reload();
     };
   }
 
@@ -548,16 +567,17 @@
       ${o.rider_name ? E.box(done ? "Done Delivery · Delivery By" : "Delivery By", `<div class="pgrid2">${E.cell("Rider Name", o.rider_name)}${E.cell("ID No", o.rider_id_no || "")}${E.cell("Plate No", o.plate_no || "")}${E.cell("Type", o.vehicle_type || "")}
         ${E.cell("Date and Time", o.delivered_at ? E.dateTime(o.delivered_at) : "")}${E.cell("Note", o.delivery_note || "")}</div>`) : ""}
       ${o.status === "cancelled" ? `<p class="po-warn"><b>CANCELLED</b>${o.cancel_note ? ` — ${esc(o.cancel_note)}` : ""}</p>` : ""}
-      ${E.sigs("Issued by: " + esc(o.created_by_name || ""), "Authorized Signature", sign)}`;
+      <div class="psig one"><div></div>${E.sigCol("Authorized Signature", sign)}</div>`; // 3.39: only the Director's approval signature
     const extraBoxes = (done && inv ? 1 : 0) + (o.rider_name ? 1 : 0);
     return E.pagedDoc({
       head: E.printHead("CUSTOMER ORDER", codesHtml(o, `<div class="co-bigbox">${esc(boxesText(o.total_boxes))}</div>`)), contHead: E.printHead(`CUSTOMER ORDER ${o.order_no} (CONTINUED)`, ""),
-      top: E.box("Order", `<div class="pgrid2">${E.cell("Customer", fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Address", o.address || c.address || "")}${E.cell("Batch No", o.reference || "")}
+      // 3.39: no address on the order (the customer's account says where it goes)
+      top: E.box("Order", `<div class="pgrid2">${E.cell("Customer", fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Order No", o.order_no)}${E.cell("Batch No", o.reference || "")}
         ${E.cell("Date", mdy(o.order_date))}${E.cell("Due Date", mdy(dueOf(o)))}${E.cell("Terms of Payment", o.payment_terms || "")}${E.cell("Note", o.note || "")}</div>`),
       boxTitle: "Order Lines (₱)", thead: `<tr><th class="num">Quantity</th><th class="num">Boxes</th><th>Code</th><th class="num">Pcs</th><th>Lot No.</th><th>Product</th>${cols.map((x) => `<th>${esc(x)}</th>`).join("")}<th class="num">Price</th><th class="num">Amount</th></tr>`,
       rows: o.lines || [], rowHtml: (l) => `<tr><td class="num">${qtyText(l.qty)}</td><td class="num">${l.boxes ? qtyText(l.boxes) : ""}</td><td>${esc(l.code || "")}</td><td class="num">${l.pcs ? qtyText(l.pcs) : ""}</td><td>${esc(l.lot || "")}</td><td>${esc(l.product)}</td>
         ${cols.map((x) => `<td>${esc(l.extra?.[x] || "")}</td>`).join("")}<td class="num">${peso(l.price)}</td><td class="num">${peso(l.amount)}</td></tr>`,
-      totalRow: `<tr class="ptl-tot"><td class="num">${qtyText(o.total_pcs)}</td><td class="num">${qtyText(o.total_boxes)}</td><td colspan="${4 + cols.length}">TOTAL AMOUNT</td><td></td><td class="num">${peso(o.total_amount)}</td></tr>`,
+      totalRow: `<tr class="ptl-tot"><td class="num">${qtyText(o.total_pcs)}</td><td class="num">${qtyText(o.total_boxes)}</td><td colspan="${4 + cols.length}">TOTAL · ${esc(boxesText(o.total_boxes))} · ${qtyText(o.total_pcs)} PCS</td><td></td><td class="num">${peso(o.total_amount)}</td></tr>`,
       bottom, caps: { single: extraBoxes === 2 ? 6 : extraBoxes ? 9 : 13, first: 18, next: 26, last: extraBoxes === 2 ? 8 : extraBoxes ? 11 : 15 } });
   }
   function sheetPages(o, boxes) {
@@ -566,14 +586,15 @@
     const line = (k, v) => `<div class="cs-f"><small>${esc(k)}</small><b>${v ? esc(v) : "&nbsp;"}</b></div>`;
     return E.pagedDoc({
       head: E.printHead("DELIVERY SHEET", codesHtml(o)), contHead: E.printHead(`DELIVERY SHEET ${o.order_no} (CONTINUED)`, ""),
-      top: E.box("Delivery To", `<div class="pgrid2">${E.cell("Customer", fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Address", o.address || c.address || "")}${E.cell("Order No", o.order_no)}</div>`),
-      boxTitle: "Boxes", thead: `<tr><th>#</th><th>Serial No.</th><th>Code</th><th>Batch No.</th><th>Items</th><th class="num">Qty (Pcs)</th><th>Remarks</th></tr>`,
-      rows, rowHtml: (b, i) => b ? `<tr><td>${i + 1}</td><td class="mono">${esc(b.serial_no)}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td class="num">${qtyText(b.pcs)}</td><td>${esc(b.remarks || "")}</td></tr>`
-        : `<tr class="cs-empty"><td>${i + 1}</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`,
-      totalRow: `<tr class="ptl-tot"><td colspan="5">TOTAL · ${esc(boxesText(boxes.length))}</td><td class="num">${qtyText(pcs)}</td><td></td></tr>`,
-      bottom: `<div class="cs-foot">${line("Assign By", o.created_by_name || "")}${line("Total Box", String(boxes.length))}${line("Notes", o.delivery_note || o.note || "")}${line("Rider Name", o.rider_name || "")}
+      top: E.box("Customer", `<div class="pgrid2">${E.cell("Customer", fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Order No", o.order_no)}${E.cell("Batch No", o.reference || "")}</div>`),
+      boxTitle: "Boxes", thead: `<tr><th>#</th><th>Serial No.</th><th>Code</th><th>Batch No.</th><th>Items</th><th>Brand</th><th>CTN</th><th class="num">Qty (Pcs)</th><th>Remarks</th></tr>`,
+      rows, rowHtml: (b, i) => b ? `<tr><td>${i + 1}</td><td class="mono">${esc(b.serial_no)}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td>${esc(b.brand || "")}</td><td>${esc(b.ctn || "")}</td><td class="num">${qtyText(b.pcs)}</td><td>${esc(b.remarks || "")}</td></tr>`
+        : `<tr class="cs-empty"><td>${i + 1}</td>${"<td></td>".repeat(8)}</tr>`,
+      // 3.39: no boxes scanned yet: the total is written by hand with the lines; one TOTAL BOXES below (the order's)
+      totalRow: boxes.length ? `<tr class="ptl-tot"><td colspan="7">TOTAL · ${esc(boxesText(boxes.length))}</td><td class="num">${qtyText(pcs)}</td><td></td></tr>` : `<tr class="ptl-tot"><td colspan="7">TOTAL</td><td></td><td></td></tr>`,
+      bottom: `<div class="cs-foot">${line("Assign By", o.created_by_name || "")}${line("Total Boxes", String(o.total_boxes))}${line("Notes", o.delivery_note || o.note || "")}${line("Rider Name", o.rider_name || "")}
         ${line("ID No", o.rider_id_no || "")}${line("Plate No", o.plate_no || "")}${line("Date", o.delivered_at ? mdy(o.delivered_at) : "")}${line("Time", o.delivered_at ? new Date(o.delivered_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "")}
-        ${line("Type", o.vehicle_type || "")}${line("Total Boxes", String(o.total_boxes))}${line("Order No", o.order_no)}${line("Verified By", "")}</div>`,
+        ${line("Type", o.vehicle_type || "")}${line("Order No", o.order_no)}<div class="cs-f cs-w2"><small>Verified By</small><b>&nbsp;</b></div></div>`,
       caps: { single: 24, first: 28, next: 34, last: 22 } });
   }
 
@@ -643,7 +664,7 @@
         <div class="btnrow"><button type="button" class="btn primary" id="pdScan">${ic("scan")} Scan Boxes</button><label class="btn" for="pdLabel">${ic("image")} Box Label Photo</label><input type="file" id="pdLabel" accept="image/*" multiple hidden>
           <button type="button" class="btn" id="pdType">${ic("edit")} Type a Box</button></div>
         ${E.grid({ cols: [{ label: "#", get: (b) => String(boxes.indexOf(b) + 1) }, { label: "Serial No", html: (b) => `<b class="mono">${esc(b.serial_no)}</b>` }, { label: "Code", get: (b) => b.code || "" },
-          { label: "Items", get: (b) => b.items || "" }, { label: "Pcs", num: true, get: (b) => qtyText(b.pcs) },
+          { label: "Items", get: (b) => b.items || "" }, { label: "Brand", get: (b) => b.brand || "" }, { label: "Pcs", num: true, get: (b) => qtyText(b.pcs) },
           { label: "", html: (b) => `<button type="button" class="btn small danger" data-pdx="${b.id}" aria-label="Remove box ${esc(b.serial_no)}">×</button>` }], rows: boxes, empty: "No boxes yet: scan the QR or PDF417 code on each box label." })}
       </section>
       <section class="pd-step"><h3><span class="pd-n">2</span> Rider and Photos</h3>
@@ -661,7 +682,7 @@
       </section>
       <section class="pd-step"><h3><span class="pd-n">3</span> Complete Delivery</h3>
         <ul class="pd-check">${tick(boxes.length > 0, `Boxes: ${boxes.length} of ${qtyText(d.total_boxes)}`)}${tick(!!d.rider_name, "Rider details")}${tick(photos.length > 0, "A photo of the delivery")}</ul>
-        <div class="co-done"><button type="button" class="btn ok big" id="pdDone">${ic("check")} Complete Delivery</button><small>The order becomes 3 · COMPLETE and the customer's invoice is made by itself.</small></div>
+        <div class="co-done"><button type="button" class="btn ok big" id="pdDone">${ic("check")} Complete Delivery</button><small>The order becomes 3 · COMPLETE and the customer's invoice is made and billed by itself.</small></div>
       </section>
       <div class="btnrow">${orderLink}</div>`;
     // step 1: the boxes (what a label does not say comes from the order's line of that code, or the box before)
@@ -677,7 +698,7 @@
       const { data, error } = await rpc("delivery_add_box", { p_data: { ...b, added_how: how } });
       if (error) return `✖ ${error.message}`;
       boxes.push(data); added++;
-      return `✔ Box ${data.serial_no} added · ${boxes.length} of ${qtyText(d.total_boxes)} boxes`;
+      return `✔ Box ${data.serial_no} added${boxSays(data)} · ${boxes.length} of ${qtyText(d.total_boxes)} boxes`;
     };
     $("#pdScan").onclick = () => E.scanDialog((text) => add(readLabel(text), "scan"), {
       title: `Scan Boxes — ${d.order_no}`, hint: "Point the camera at the QR or PDF417 code of each box label. Every box is added at once; press Close when done.", keep: true,

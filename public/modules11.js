@@ -7,8 +7,9 @@
    It learns from: (1) the Director's decisions on Requests for Clearance (approved = CLEAR, hold = HOLD) and the gate passes
    issued (CLEAR), each read as the customer's record was on that day; (2) the portal's own Gate Pass rule on every customer,
    month by month for the last 12 months and today (open account, no overdue, within the credit limit, or a trusted customer).
-   What it learned is saved in its own folder on the server: the private storage bucket "ai", folder gate-pass/ (one file
-   for each time it learns; the list of versions in ai_models). Each suggestion and the decision taken go to ai_gate_log. */
+   What it learned is saved in its own folder on the server: the private storage bucket "ai", folder gate-pass/ (3.39: only
+   the newest file stays — learning again removes the old files; the list in ai_models). Each suggestion and the decision
+   taken go to ai_gate_log. 3.39: EVA is for the Director only; its chat and the box database are in modules12.js. */
 (() => {
   "use strict";
   const E = window.EO;
@@ -267,6 +268,13 @@
       agree: model.agree == null ? null : +(model.agree * 100).toFixed(2), trained_by_name: S.profile?.full_name || null }).select().single();
     if (error) { sb.storage.from(BUCKET).remove([path]).then(() => {}, () => {}); throw error; }
     cache = { row, model };
+    // 3.39: what it learned before is removed (the new file replaces the old ones)
+    onStep(0.98, "Removing what it learned before");
+    const { data: old } = await sb.from("ai_models").select("id, path").eq("name", FOLDER).neq("id", row.id);
+    if (old?.length) {
+      await sb.storage.from(BUCKET).remove(old.map((x) => x.path)).then(() => {}, () => {});
+      await sb.from("ai_models").delete().in("id", old.map((x) => x.id)).then(() => {}, () => {});
+    }
     onStep(1, "Done");
     return cache;
   }
@@ -329,10 +337,11 @@
   // The AI box in the Gate Pass window: CLEAR or HOLD, how sure, why; the idea is kept to be written with the decision.
   const last = new Map(); // customer id → { row, idea }
   async function box(c, ctx) {
+    if (!isAdmin()) return ""; // 3.39: EVA is for the Director only
     let cur;
     try { cur = await current(); }
     catch (e) { return notSet(e) ? "" : `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>EVA AI</b><small>Could not be read: ${esc(e.message)}</small></div></div>`; }
-    if (!cur.model) return `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>EVA AI</b><small>${cur.old ? "It reads more of your records now and must learn again." : "It has not learned yet."} ${isAdmin() ? `Open <a href="#gateai">EVA AI</a> and press <b>Learn Now</b>.` : "The Director makes it learn on the EVA AI page."}</small></div></div>`;
+    if (!cur.model) return `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>EVA AI</b><small>${cur.old ? "It reads more of your records now and must learn again." : "It has not learned yet."} Open <a href="#gateai">EVA AI</a> and press <b>Learn Now</b>.</small></div></div>`;
     // the customer's orders still open (the rest comes with the customer's page)
     const co = await sb.from("customer_orders").select("id, status, total_amount, created_at, completed_at, cancelled_at").eq("customer_id", c.id).then((r) => r.data || [], () => []);
     const recs = { invs: ctx.invs || [], pays: ctx.pays || [], memos: ctx.memos || [], letters: ctx.orders || [], corders: co };
@@ -369,13 +378,15 @@
     const decided = lg.filter((x) => x.decision), agreed = decided.filter((x) => x.decision === x.suggestion).length;
     $("#aiBody").innerHTML = `
       <section class="ai-hero"><span class="ai-ic big">${ic("ai")}</span><div><h2>EVA AI</h2>
-        <p>EMON Virtual Assistant: an artificial neural network (14 inputs, 8 neurons, 1 answer) that reads every customer record on your server — invoices, payments and the invoices they pay, overdue days, credit memos and returns, charges and settlement adjustments, customer orders still open, suspensions, collection letters, gate pass holds — and learns from every gate pass decision. When a Gate Pass is asked for, it gives its idea: <b>CLEAR</b> or <b>HOLD</b>, how sure it is, and why. You decide; each decision is learned the next time it learns.</p></div></section>
+        <p>EMON Virtual Assistant, for the Director only. <b>Ask EVA</b> anything about your customers, money, orders and boxes: it understands your question with its own neural network and answers from the records on your server at that moment. For gate passes, a second neural network (14 inputs, 8 neurons, 1 answer) reads every customer record — invoices, payments, overdue days, credit memos and returns, charges and adjustments, open orders, suspensions, collection letters, gate pass holds — and gives its idea: <b>CLEAR</b> or <b>HOLD</b>, how sure it is, and why. You decide; each decision is learned the next time it learns.</p></div></section>
+      <h3 class="sec">Ask EVA</h3><div id="aiChat" class="ai-chat-card"></div>
       <div class="tiles ai-tiles">
         <div class="tile"><span class="tile-ic">${ic("clock")}</span><div class="k">Last Learned</div><div class="v ai-v">${top ? esc(E.dateTime(top.created_at)) : "Not yet"}</div><small>${top ? `by ${esc(top.trained_by_name || "")}` : "Press Learn Now"}</small></div>
         <div class="tile"><span class="tile-ic">${ic("doc")}</span><div class="k">Records Learned From</div><div class="v">${top ? top.samples : 0}</div><small>${top ? `${top.decisions} Director decision${top.decisions === 1 ? "" : "s"}` : ""}</small></div>
         <div class="tile ok"><span class="tile-ic">${ic("check")}</span><div class="k">Right on Records It Had Not Seen</div><div class="v">${top?.accuracy != null ? `${num(top.accuracy).toFixed(0)}%` : "—"}</div><small>${top?.agree != null ? `${num(top.agree).toFixed(0)}% of your decisions` : ""}</small></div>
         <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">Agreed With the Decision</div><div class="v">${decided.length ? `${agreed} / ${decided.length}` : "—"}</div><small>gate passes decided with its idea</small></div>
       </div>
+      <h3 class="sec">Gate Pass Learning</h3>
       <div class="btnrow"><button type="button" class="btn primary" id="aiLearn">${ic("ai")} Learn Now</button><span class="muted" id="aiStep"></span></div>
       <div class="ai-prog" id="aiProg" hidden><i></i></div>
       <h3 class="sec">Every Open Customer Today</h3><div id="aiNow">${top ? busy("The AI is reading every customer") : `<div class="empty">The AI has not learned yet. Press <b>Learn Now</b>.</div>`}</div>
@@ -384,24 +395,17 @@
         { label: "AI Idea", html: (x) => `${E.pill(x.suggestion === "CLEAR" ? "approved" : "rejected", x.suggestion)} <small>${surePct(x.suggestion === "CLEAR" ? num(x.p_clear) : 1 - num(x.p_clear))}%</small>` },
         { label: "Decision", html: (x) => (x.decision ? E.pill(x.decision === "CLEAR" ? "approved" : "rejected", x.decision) : "") }, { label: "Agreed", get: (x) => (x.decision ? (x.decision === x.suggestion ? "✔" : "✖") : "") },
         { label: "By", get: (x) => x.decided_by_name || "" }], rows: lg, empty: "No gate pass decided with the AI's idea yet." })}
+      <h3 class="sec">Box Database (Google Sheet)</h3><div id="aiBoxes">${busy()}</div>
       <h3 class="sec">The AI's Folder on the Server</h3>
-      <p class="muted">Bucket <b class="mono">${BUCKET}</b>, folder <b class="mono">${FOLDER}/</b>: one file for each time it learned (the newest is used).</p>
+      <p class="muted">Bucket <b class="mono">${BUCKET}</b>, folder <b class="mono">${FOLDER}/</b>: what it learned last. Each Learn Now replaces the old file with the new one.</p>
       ${E.grid({ cols: [{ label: "Learned", get: (x) => E.dateTime(x.created_at) }, { label: "File", html: (x) => `<span class="mono">${esc(x.path)}</span>` }, { label: "Records", num: true, get: (x) => String(x.samples) },
-        { label: "Director Decisions", num: true, get: (x) => String(x.decisions) }, { label: "Right", num: true, get: (x) => (x.accuracy != null ? `${num(x.accuracy).toFixed(0)}%` : "—") }], rows: v, empty: "Empty: the AI has not learned yet." })}
-      ${v.length > 5 ? `<div class="btnrow"><button type="button" class="btn danger" id="aiPrune">${ic("trash")} Delete the Older Files (keep the newest 5)</button></div>` : ""}`;
+        { label: "Director Decisions", num: true, get: (x) => String(x.decisions) }, { label: "Right", num: true, get: (x) => (x.accuracy != null ? `${num(x.accuracy).toFixed(0)}%` : "—") }], rows: v, empty: "Empty: the AI has not learned yet." })}`;
+    if (E.eva) { E.eva.mount($("#aiChat")); E.eva.boxSection($("#aiBoxes")).catch((err) => { if ($("#aiBoxes")) $("#aiBoxes").innerHTML = `<div class="empty">${esc(err.message)}</div>`; }); }
     $("#aiLearn").onclick = async (e) => {
       e.target.disabled = true; $("#aiProg").hidden = false;
       const show = (f, t) => { if ($("#aiProg i")) $("#aiProg i").style.width = `${Math.round(f * 100)}%`; if ($("#aiStep")) $("#aiStep").textContent = t; };
-      try { await new Promise((r) => setTimeout(r, 30)); const r = await learn(show); toast(`The AI learned from ${r.model.samples} records.`); V.gateai(); }
+      try { await new Promise((r) => setTimeout(r, 30)); const r = await learn(show); toast(`EVA learned from ${r.model.samples} records. What it learned before was removed.`); V.gateai(); }
       catch (err) { e.target.disabled = false; $("#aiProg").hidden = true; $("#aiStep").textContent = ""; fail(err, notSet(err) ? "Run the database update RUN_041_TO_046.sql first" : "The AI could not learn"); }
-    };
-    if ($("#aiPrune")) $("#aiPrune").onclick = async () => {
-      const old = v.slice(5);
-      if (!(await E.confirmBox(`Delete the ${old.length} older file(s) of the AI? The newest 5 stay.`, { ok: "Delete", danger: true }))) return;
-      await sb.storage.from(BUCKET).remove(old.map((x) => x.path)).then(() => {}, () => {});
-      const { error } = await sb.from("ai_models").delete().in("id", old.map((x) => x.id));
-      if (error) return fail(error, "Could not delete");
-      toast("Older files deleted."); V.gateai();
     };
     if (!top) return;
     // every open customer: the AI's idea and the portal's rule, HOLD first
