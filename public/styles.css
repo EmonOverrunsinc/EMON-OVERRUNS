@@ -2592,4 +2592,4 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 .bx-st.extra { background: #fdeceb; color: var(--bad); }
 .co-qr small.co-verify { display: inline-block; margin-top: 3px; padding: 1px 6px; background: #000; color: #fff; font: 700 7.5px/1.4 var(--font-arial, Arial); letter-spacing: .12em; }
 /* 3.46: a line without a serial no is kept but is not a box */
-.bx-loose { display: inline-block; padding: 1px 7px; border-radius: 980px; background: #f1f1f4; color: #6e6e73; font-size: 11px; font-weight: 700; letter-spacing: .03em; white-space: nowrap; }
+.bx-loose { color: #6e6e73; font-weight: 700; }
