@@ -378,13 +378,13 @@
     return { html: `${list.length} unpaid invoice${list.length === 1 ? "" : "s"} now, balance <b class="eva-amt">${money(list.reduce((s, i) => s + num(i.balance), 0))}</b> (${list.filter(isOver).length} overdue).`, chips: [["Overdue", "overdue customers"], ["Top due", "who has most due"]] };
   }
   async function aOrders(c, no, period) {
-    const sel = "id, order_no, status, order_date, total_boxes, total_pcs, total_amount, invoice_id, rider_name, customer_id, customers(id, first_name, last_name, account_no)";
+    const sel = "id, order_no, status, order_date, total_boxes, total_pcs, total_amount, invoice_id, customer_id, customers(id, first_name, last_name, account_no)";
     if (no) {
       const o = await one(sb.from("customer_orders").select(sel).in("order_no", [no, no.replace(/^CO-/, "OR-"), no.replace(/^OR-/, "CO-")]).limit(1).maybeSingle());
       if (!o) return { html: `Order ${esc(no)} is not found.` };
       const inv = o.invoice_id ? await one(sb.from("customer_invoices").select("id, invoice_no").eq("id", o.invoice_id).maybeSingle()) : null;
       return { cust: o.customers, html: `Order <a href="#custorder/${esc(o.id)}"><b>${esc(o.order_no)}</b></a> of ${o.customers ? custLink(o.customers) : ""}: <b>${esc(ORDER_ST[o.status] || o.status)}</b>
-        <br>${esc(mdy(o.order_date))} · ${qtyText(o.total_boxes)} box${num(o.total_boxes) === 1 ? "" : "es"} · ${qtyText(o.total_pcs)} pcs · ${money(o.total_amount)}${inv ? `<br>Invoice <a href="#invoice/${esc(inv.id)}">${esc(inv.invoice_no)}</a> (made and billed)` : ""}${o.rider_name ? ` · rider ${esc(o.rider_name)}` : ""}` };
+        <br>${esc(mdy(o.order_date))} · ${qtyText(o.total_boxes)} box${num(o.total_boxes) === 1 ? "" : "es"} · ${qtyText(o.total_pcs)} pcs · ${money(o.total_amount)}${inv ? `<br>Invoice <a href="#invoice/${esc(inv.id)}">${esc(inv.invoice_no)}</a> (made and billed)` : ""}` };
     }
     let q = sb.from("customer_orders").select(sel);
     if (c) q = q.eq("customer_id", c.id);
