@@ -28,6 +28,11 @@
     : pill(...(STATUS[o.status] || ["pending", String(o.status).toUpperCase()]));
   const open = (o) => ["pending", "approved"].includes(o.status);
   const boxesText = (n) => `${qtyText(n)} BOX${num(n) === 1 ? "" : "ES"}`;
+  // 3.46: a line with a serial no is a box; a line added without one (items, pcs) is kept but not counted as a box
+  const nBoxes = (bs) => bs.filter((b) => b.serial_no).length;
+  const serHtml = (b) => b.serial_no ? `<b class="mono">${esc(b.serial_no)}</b>` : `<small class="bx-loose">NO SERIAL · NOT A BOX</small>`;
+  const boxNo = (bs, b) => b.serial_no ? String(bs.filter((x) => x.serial_no).indexOf(b) + 1) : "—";
+  const boxName = (b) => b.serial_no ? `box <b>${esc(b.serial_no)}</b>` : `the line <b>${esc(b.items || "without serial no")}</b>`;
   // the due date: as written, or from the terms (30 DAYS after the order date …)
   const dueOf = (o) => o.due_date || E.termsDue(o.order_date, o.payment_terms) || "";
   const custName = (o) => fullName(o.customers || {});
@@ -355,9 +360,9 @@
           <div class="pcell"><div class="pl">Invoice No</div><div class="pv">${E.canOpen("invoice") ? `<a href="#invoice/${inv.id}"><b>${esc(inv.invoice_no)}</b></a>` : `<b>${esc(inv.invoice_no)}</b>`}</div></div>
           ${E.cell("Invoice Date", mdy(inv.invoice_date))}${E.cell("Terms of Payment", inv.payment_terms || "")}${E.cell("Due Date", mdy(inv.due_date))}${E.cell("Amount (₱)", peso(inv.total_amount), "hl")}${E.cell("Balance (₱)", peso(inv.balance))}
           <div class="pcell"><div class="pl">Status</div><div class="pv">${payPill(inv)}</div></div></div>` : `<div class="empty small">The invoice is on the customer's account.</div>`;
-    const tabs = ["Order Lines", `Boxes (${boxes.length})`, "Delivery", ...(o.status === "completed" ? ["Invoice"] : [])];
+    const tabs = ["Order Lines", `Boxes (${nBoxes(boxes)})`, "Delivery", ...(o.status === "completed" ? ["Invoice"] : [])];
     $("#main").innerHTML = `${head}${stepper}${banner}
-      ${isAdmin() && o.status === "approved" && o.delivery_request_at ? `<fieldset class="opt review"><legend>Delivery Approval</legend><p class="muted" style="margin:0 0 8px">${boxes.length} of ${qtyText(o.total_boxes)} boxes · ${(o.delivery_photos || []).length} photo(s): see the Boxes and Delivery tabs.</p><div class="btnrow"><button type="button" class="btn ok" id="coDvOk">${ic("check")} Approve Delivery · COMPLETE</button><button type="button" class="btn danger" id="coDvNo">Reject</button></div></fieldset>` : ""}
+      ${isAdmin() && o.status === "approved" && o.delivery_request_at ? `<fieldset class="opt review"><legend>Delivery Approval</legend><p class="muted" style="margin:0 0 8px">${nBoxes(boxes)} of ${qtyText(o.total_boxes)} boxes · ${(o.delivery_photos || []).length} photo(s): see the Boxes and Delivery tabs.</p><div class="btnrow"><button type="button" class="btn ok" id="coDvOk">${ic("check")} Approve Delivery · COMPLETE</button><button type="button" class="btn danger" id="coDvNo">Reject</button></div></fieldset>` : ""}
       ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>Director's Decision</legend><div class="btnrow"><button type="button" class="btn ok" id="coApprove">${ic("check")} Approve · 2 PREPARED</button><button type="button" class="btn danger" id="coCancelO">Cancel Order</button></div></fieldset>` : ""}
       <div class="due-card co-amt"><div><div class="k">Order Amount</div><div class="v">₱ ${peso(o.total_amount)}</div></div><small>${esc(E.words(o.total_amount))}${o.note ? ` · Note: ${esc(o.note)}` : ""}</small></div>
       <div class="actionbar">
@@ -405,7 +410,7 @@
     if ($("#coDvOk")) $("#coDvOk").onclick = (e) => decideDelivery(e, "approve");
     if ($("#coDvNo")) $("#coDvNo").onclick = (e) => decideDelivery(e, "reject");
     if ($("#coDelO")) $("#coDelO").onclick = async () => {
-      if (!(await E.confirmBox(`Delete order <b>${esc(o.order_no)}</b> and its ${boxes.length} box(es)?${inv ? ` Its invoice <b>${esc(inv.invoice_no)}</b> is deleted too (off the customer's balance).` : ""} This cannot be undone.`, { ok: "Delete", danger: true }))) return;
+      if (!(await E.confirmBox(`Delete order <b>${esc(o.order_no)}</b> and its ${nBoxes(boxes)} box(es)?${inv ? ` Its invoice <b>${esc(inv.invoice_no)}</b> is deleted too (off the customer's balance).` : ""} This cannot be undone.`, { ok: "Delete", danger: true }))) return;
       const { data: gone, error } = await sb.rpc("delete_customer_order", { p_id: o.id });
       if (error) return fail(error, "Could not delete");
       if (gone?.length) sb.storage.from("records").remove(gone).then(() => {}, () => {});
@@ -441,7 +446,7 @@
     const want = new Map(), got = new Map(), name = new Map(), lot = new Map();
     const lotOf = (k, v) => { v = String(v || "").trim().toUpperCase(); if (!v) return; if (!lot.has(k)) lot.set(k, new Set()); lot.get(k).add(v); };
     lines.forEach((l) => { const k = String(l.code || "—").toUpperCase(); want.set(k, (want.get(k) || 0) + num(l.boxes)); if (!name.has(k)) name.set(k, l.product || ""); lotOf(k, l.lot); });
-    boxes.forEach((b) => { const k = String(b.code || "—").toUpperCase(); got.set(k, (got.get(k) || 0) + 1); if (!name.has(k)) name.set(k, b.items || ""); if (!want.get(k)) lotOf(k, b.batch_no); });
+    boxes.filter((b) => b.serial_no).forEach((b) => { const k = String(b.code || "—").toUpperCase(); got.set(k, (got.get(k) || 0) + 1); if (!name.has(k)) name.set(k, b.items || ""); if (!want.get(k)) lotOf(k, b.batch_no); });
     const keys = [...new Set([...want.keys(), ...got.keys()])].filter((k) => want.get(k) || got.get(k));
     if (!keys.length) return "";
     let miss = 0, extra = 0;
@@ -459,16 +464,16 @@
     return `<div class="bx-check">${sum}${rows ? `<ul class="bx-list">${rows}</ul>` : ""}</div>`;
   }
   function boxesHtml(o, boxes, sumPcs, w) {
-    return `<div class="co-count"><b>${boxes.length}</b> of ${qtyText(o.total_boxes)} boxes · <b>${qtyText(sumPcs)}</b> of ${qtyText(o.total_pcs)} pcs</div>${boxCheck(o.lines || [], boxes)}
+    return `<div class="co-count"><b>${nBoxes(boxes)}</b> of ${qtyText(o.total_boxes)} boxes · <b>${qtyText(sumPcs)}</b> of ${qtyText(o.total_pcs)} pcs</div>${boxCheck(o.lines || [], boxes)}
       ${w && open(o) ? `<div class="btnrow"><button type="button" class="btn primary" id="cbScan">${ic("scan")} Scan Boxes</button><label class="btn" for="cbPhoto">${ic("image")} Box Label Photo</label><input type="file" id="cbPhoto" accept="image/*" multiple hidden>
         <button type="button" class="btn" id="cbType">📦 Add Box</button></div>
         <div class="box-find"><input type="text" id="cbFind" maxlength="60" placeholder="Serial no, e.g. U20261238" aria-label="Find a box by its serial no" autocomplete="off"><button type="button" class="btn primary" id="cbFindGo">${ic("search")} Find &amp; Add</button></div>
         <div id="cbFound" class="box-found" aria-live="polite">${foundHtml(o.id)}</div>
         <p class="muted" style="margin:0 0 8px">Scan each box label (the camera stays open: scan, scan, scan) or find it by its serial no: a box found in the box database (your Google Sheet) is added with all its details at once. Add Box: type a box that is not in the sheet by hand.</p>` : ""}
-      ${E.grid({ cols: [{ label: "#", get: (b) => String(boxes.indexOf(b) + 1) }, { label: "Serial No", html: (b) => `<b class="mono">${esc(b.serial_no)}</b>` }, { label: "Code", get: (b) => b.code || "" },
+      ${E.grid({ cols: [{ label: "#", get: (b) => boxNo(boxes, b) }, { label: "Serial No", html: serHtml }, { label: "Code", get: (b) => b.code || "" },
         { label: "Batch No", get: (b) => b.batch_no || "" }, { label: "Items", get: (b) => b.items || "" }, { label: "Brand", get: (b) => b.brand || "" }, { label: "CTN", get: (b) => b.ctn || "" },
         { label: "Pcs", num: true, get: (b) => qtyText(b.pcs) }, { label: "Remarks", get: (b) => b.remarks || "" },
-        ...(w && open(o) ? [{ label: "", html: (b) => `<span class="co-bact"><button type="button" class="btn small" data-be="${b.id}" aria-label="Change box ${esc(b.serial_no)}">${ic("edit")}</button><button type="button" class="btn small danger" data-bx="${b.id}" aria-label="Remove box ${esc(b.serial_no)}">×</button></span>` }] : [])],
+        ...(w && open(o) ? [{ label: "", html: (b) => `<span class="co-bact"><button type="button" class="btn small" data-be="${b.id}" aria-label="Change ${esc(b.serial_no || b.items || "line")}">${ic("edit")}</button><button type="button" class="btn small danger" data-bx="${b.id}" aria-label="Remove ${esc(b.serial_no || b.items || "line")}">×</button></span>` }] : [])],
         rows: boxes, empty: "No boxes yet." })}`;
   }
   // what a box added says: its items, brand and pcs (3.39: filled from the box database when the serial no is there)
@@ -533,11 +538,12 @@
     let added = 0;
     const add = async (d, how) => {
       const box = fill(d);
-      if (!box.serial_no) return "✖ No serial no in that code.";
+      if (!box.serial_no && how !== "typed") return "✖ No serial no in that code.";
       const { data, error } = await sb.rpc("add_order_box", { p_order: o.id, p_data: { ...box, added_how: how } });
       if (error) return /on this order already/i.test(error.message || "") ? `✔ Box ${box.serial_no} is on this order (checked)` : `✖ ${error.message}`;
       boxes.push(data); added++;
-      return `✔ Box ${data.serial_no} added${boxSays(data)} · ${boxes.length} of ${qtyText(o.total_boxes)} boxes`;
+      if (!data.serial_no) return `✔ Added${boxSays(data)} — no serial no: not counted as a box`;
+      return `✔ Box ${data.serial_no} added${boxSays(data)} · ${nBoxes(boxes)} of ${qtyText(o.total_boxes)} boxes`;
     };
     const found = (raw, how) => addFound(raw, how, add, null, boxes);
     bindFind("cb", o.id, (v) => found(v, "typed"), reload);
@@ -567,7 +573,7 @@
     }));
     $$("[data-bx]").forEach((b) => (b.onclick = async () => {
       const x = boxes.find((y) => y.id === b.dataset.bx);
-      if (!(await E.confirmBox(`Remove box <b>${esc(x.serial_no)}</b> from this order?`, { ok: "Remove", danger: true }))) return;
+      if (!(await E.confirmBox(`Remove ${boxName(x)} from this order?`, { ok: "Remove", danger: true }))) return;
       b.disabled = true;
       const { error } = await sb.rpc("change_order_box", { p_box: x.id, p_data: null });
       if (error) { b.disabled = false; return fail(error, "Could not remove the box"); }
@@ -577,14 +583,14 @@
   // Type a box (x null) or change one; save(d) gives true when it is saved.
   function boxForm(o, x, save) {
     const codes = [...new Set((o.lines || []).map((l) => l.code).filter(Boolean))];
-    const m = E.modal(x ? `Box ${x.serial_no}` : "📦 Add Box", `<div class="fields wide">
-        <label for="bfSer">Serial No *</label><input type="text" id="bfSer" maxlength="60" value="${esc(x?.serial_no || "")}" ${x ? "readonly" : ""} placeholder="e.g. L20260667">
+    const m = E.modal(x ? (x.serial_no ? `Box ${x.serial_no}` : "Line without serial no") : "📦 Add Box", `<div class="fields wide">
+        <label for="bfSer">Serial No</label><input type="text" id="bfSer" maxlength="60" value="${esc(x?.serial_no || "")}" ${x ? "readonly" : ""} placeholder="e.g. L20260667 · empty: not counted as a box">
         <label for="bfCode">Code</label><input type="text" id="bfCode" maxlength="30" list="bfCodes" value="${esc(x?.code || (codes.length === 1 ? codes[0] : ""))}"><datalist id="bfCodes">${codes.map((k) => `<option value="${esc(k)}">`).join("")}</datalist>
         <label for="bfBatch">Batch No</label><input type="text" id="bfBatch" maxlength="40" value="${esc(x?.batch_no || "")}">
         <label for="bfItems">Items</label><input type="text" id="bfItems" maxlength="120" value="${esc(x?.items || "")}">
         <label for="bfPcs">Pcs</label><input type="number" id="bfPcs" min="0" step="1" inputmode="numeric" value="${x ? num(x.pcs) : ""}">
         <label for="bfRem">Remarks</label><input type="text" id="bfRem" maxlength="120" value="${esc(x?.remarks || "")}"></div>
-        <p class="muted" id="bfFrom" style="margin:8px 0 0" hidden></p>`,
+        <p class="muted" id="bfFrom" style="margin:8px 0 0" hidden></p>${x ? "" : `<p class="muted" style="margin:8px 0 0">With a serial no it counts as a box. Without one it is added (items, pcs) but not counted as a box.</p>`}`,
       `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${x ? "Save" : "Add Box"}</button>`);
     if (!x) {
       // a box typed from the line of its code: the batch no, items and pcs of that line
@@ -609,7 +615,7 @@
     $("[data-ok]", m.el).onclick = async (e) => {
       const d = { serial_no: $("#bfSer", m.el).value.trim(), code: $("#bfCode", m.el).value.trim(), batch_no: $("#bfBatch", m.el).value.trim(), items: $("#bfItems", m.el).value.trim(),
         pcs: $("#bfPcs", m.el).value, remarks: $("#bfRem", m.el).value.trim() };
-      if (!d.serial_no) return toast("Write the serial no of the box.", true);
+      if (!d.serial_no && !d.items && !num(d.pcs)) return toast("Write the serial no, or the items and pcs.", true);
       e.target.disabled = true;
       if (await save(d)) m.close(); else e.target.disabled = false;
     };
@@ -657,9 +663,9 @@
     }));
     $("#dvDone").onclick = async (e) => {
       if (!(o.delivery_photos || []).length) return toast("Add a photo of the delivery first.", true);
-      const short = boxes.length !== num(o.total_boxes);
+      const short = nBoxes(boxes) !== num(o.total_boxes);
       const msg = `Complete the delivery of <b>${esc(o.order_no)}</b>?<br><br>The invoice is made and billed to <b>${esc(custName(o))}</b> by itself: <b>₱ ${peso(o.total_amount)}</b>, ${esc(boxesText(o.total_boxes))}, ${qtyText(o.total_pcs)} pcs${o.payment_terms ? `, ${esc(o.payment_terms)}` : ""}.`
-        + (short ? `<br><br><b>Note:</b> ${boxes.length} box(es) were scanned, the order has ${qtyText(o.total_boxes)}.` : "") + "<br><br>This cannot be undone.";
+        + (short ? `<br><br><b>Note:</b> ${nBoxes(boxes)} box(es) were scanned, the order has ${qtyText(o.total_boxes)}.` : "") + "<br><br>This cannot be undone.";
       if (!(await E.confirmBox(msg, { title: "Complete Delivery", ok: "Complete Delivery" }))) return;
       e.target.disabled = true;
       const { error } = await sb.rpc("complete_customer_order", { p_id: o.id });
@@ -705,10 +711,10 @@
       head: E.printHead("DELIVERY SHEET", codesHtml(o)), contHead: E.printHead(`DELIVERY SHEET ${o.order_no} (CONTINUED)`, ""),
       top: E.box("Customer", `<div class="pgrid2">${E.cell("Customer", fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Order No", o.order_no)}${E.cell("Batch No", o.reference || "")}</div>`),
       boxTitle: "Boxes", thead: `<tr><th>#</th><th>Serial No.</th><th>Code</th><th>Batch No.</th><th>Items</th><th>Brand</th><th>CTN</th><th class="num">Pcs</th><th>Remarks</th></tr>`,
-      rows, rowHtml: (b, i) => b ? `<tr><td>${i + 1}</td><td class="mono">${esc(b.serial_no)}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td>${esc(b.brand || "")}</td><td>${esc(b.ctn || "")}</td><td class="num">${qtyText(b.pcs)}</td><td>${esc(b.remarks || "")}</td></tr>`
+      rows, rowHtml: (b, i) => b ? `<tr><td>${i + 1}</td><td class="mono">${b.serial_no ? esc(b.serial_no) : "— (NOT A BOX)"}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td>${esc(b.brand || "")}</td><td>${esc(b.ctn || "")}</td><td class="num">${qtyText(b.pcs)}</td><td>${esc(b.remarks || "")}</td></tr>`
         : `<tr class="cs-empty"><td>${i + 1}</td>${"<td></td>".repeat(8)}</tr>`,
       // 3.39: no boxes scanned yet: the total is written by hand with the lines; one TOTAL BOXES below (the order's)
-      totalRow: boxes.length ? `<tr class="ptl-tot"><td colspan="7">TOTAL · ${esc(boxesText(boxes.length))}</td><td class="num">${qtyText(pcs)}</td><td></td></tr>` : `<tr class="ptl-tot"><td colspan="7">TOTAL</td><td></td><td></td></tr>`,
+      totalRow: boxes.length ? `<tr class="ptl-tot"><td colspan="7">TOTAL · ${esc(boxesText(nBoxes(boxes)))}</td><td class="num">${qtyText(pcs)}</td><td></td></tr>` : `<tr class="ptl-tot"><td colspan="7">TOTAL</td><td></td><td></td></tr>`,
       bottom: `<div class="cs-foot">${line("Assign By", o.created_by_name || "")}${line("Total Boxes", String(o.total_boxes))}${line("Notes", o.delivery_note || o.note || "")}${line("Date", o.delivered_at ? mdy(o.delivered_at) : "")}${line("Time", o.delivered_at ? new Date(o.delivered_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "")}
         ${line("Order No", o.order_no)}<div class="cs-f cs-w2"><small>Verified By</small><b>&nbsp;</b></div></div>`,
       caps: { single: 24, first: 28, next: 34, last: 22 } });
@@ -740,11 +746,11 @@
     const rows = boxes.length ? boxes : [null];
     return E.pagedDoc({
       head: E.printHead("CUSTOMER ORDER — ALL DETAILS", codesHtml(o, `<div class="co-bigbox">${esc(boxesText(o.total_boxes))}</div>`)), contHead: E.printHead(`CUSTOMER ORDER ${o.order_no} — ALL DETAILS (CONTINUED)`, ""),
-      top, boxTitle: `Boxes (${boxes.length} of ${qtyText(o.total_boxes)})`,
+      top, boxTitle: `Boxes (${nBoxes(boxes)} of ${qtyText(o.total_boxes)})`,
       thead: `<tr><th>#</th><th>Serial No.</th><th>Code</th><th>Batch No.</th><th>Items</th><th>Brand</th><th>CTN</th><th class="num">Pcs</th></tr>`,
-      rows, rowHtml: (b, i) => b ? `<tr class="ad-r"><td>${i + 1}</td><td class="mono">${esc(b.serial_no)}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td>${esc(b.brand || "")}</td><td>${esc(b.ctn || "")}</td><td class="num">${qtyText(b.pcs)}</td></tr>`
+      rows, rowHtml: (b, i) => b ? `<tr class="ad-r"><td>${i + 1}</td><td class="mono">${b.serial_no ? esc(b.serial_no) : "— (NOT A BOX)"}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td>${esc(b.brand || "")}</td><td>${esc(b.ctn || "")}</td><td class="num">${qtyText(b.pcs)}</td></tr>`
         : `<tr class="ad-r"><td colspan="8">No boxes yet.</td></tr>`,
-      totalRow: boxes.length ? `<tr class="ptl-tot"><td colspan="7">TOTAL · ${esc(boxesText(boxes.length))}</td><td class="num">${qtyText(boxes.reduce((t, b) => t + num(b.pcs), 0))}</td></tr>` : "",
+      totalRow: boxes.length ? `<tr class="ptl-tot"><td colspan="7">TOTAL · ${esc(boxesText(nBoxes(boxes)))}</td><td class="num">${qtyText(boxes.reduce((t, b) => t + num(b.pcs), 0))}</td></tr>` : "",
       bottom, caps: { single: Math.max(4, 40 - used), first: Math.max(8, 46 - 9 - lines.length), next: 52, last: Math.max(6, 50 - used + 9 + lines.length) } });
   }
 
@@ -785,17 +791,17 @@
       <div class="ch-pic"><div class="ch-photo co-ic">${ic("box")}</div></div>
       <div class="ch-main"><div class="ch-name"><h2>${esc(d.order_no)}</h2>${stPill(d)}</div>
         <div class="ch-sub"><b>${esc(d.customer)}</b>${d.account_no ? ` · <span class="mono">${esc(d.account_no)}</span>` : ""}${d.address ? ` · ${esc(d.address)}` : ""}</div>
-        <div class="ch-ids">${E.idBox("Batch No", d.reference || "")}${E.idBox("Boxes", `${boxes.length} of ${qtyText(d.total_boxes)}`)}${E.idBox("Pcs", `${qtyText(pcs)} of ${qtyText(d.total_pcs)}`)}</div></div>
+        <div class="ch-ids">${E.idBox("Batch No", d.reference || "")}${E.idBox("Boxes", `${nBoxes(boxes)} of ${qtyText(d.total_boxes)}`)}${E.idBox("Pcs", `${qtyText(pcs)} of ${qtyText(d.total_pcs)}`)}</div></div>
     </section>`;
     if (d.status !== "approved") { // completed, waiting or cancelled: what was done; nothing to change
       $("#pdBody").innerHTML = `${head}<div class="banner ${d.status === "completed" ? "ok" : d.status === "cancelled" ? "closed" : "warn"}">${d.status === "completed" ? "✔ COMPLETED — " : ""}${esc(d.state)}</div>
-        ${d.status === "completed" ? `<div class="pgrid2 qc-head">${E.cell("Date and Time", d.delivered_at ? E.dateTime(d.delivered_at) : "")}${E.cell("Completed By", d.completed_by_name || "")}${E.cell("Boxes", String(boxes.length))}${E.cell("Photos", String(photos.length))}</div>` : ""}
+        ${d.status === "completed" ? `<div class="pgrid2 qc-head">${E.cell("Date and Time", d.delivered_at ? E.dateTime(d.delivered_at) : "")}${E.cell("Completed By", d.completed_by_name || "")}${E.cell("Boxes", String(nBoxes(boxes)))}${E.cell("Photos", String(photos.length))}</div>` : ""}
         <div class="btnrow">${orderLink}</div>`;
       return;
     }
     if (d.request_at && !d.can_complete) { // 3.45: submitted: the Director approves it
       $("#pdBody").innerHTML = `${head}<div class="banner warn">${ic("clock")} DELIVERY SUBMITTED — ${esc(E.dateTime(d.request_at))}. It waits for the Director's approval: approved, the order is COMPLETED.</div>
-        <div class="pgrid2 qc-head">${E.cell("Submitted By", d.request_by || "")}${E.cell("Boxes", `${boxes.length} of ${qtyText(d.total_boxes)}`)}${E.cell("Pcs", `${qtyText(pcs)} of ${qtyText(d.total_pcs)}`)}${E.cell("Photos", String(photos.length))}</div>
+        <div class="pgrid2 qc-head">${E.cell("Submitted By", d.request_by || "")}${E.cell("Boxes", `${nBoxes(boxes)} of ${qtyText(d.total_boxes)}`)}${E.cell("Pcs", `${qtyText(pcs)} of ${qtyText(d.total_pcs)}`)}${E.cell("Photos", String(photos.length))}</div>
         <div class="btnrow">${orderLink}</div>`;
       return;
     }
@@ -803,15 +809,15 @@
     const tick = (on, label) => `<li class="${on ? "ok" : ""}">${on ? "✔" : "○"} ${esc(label)}</li>`;
     $("#pdBody").innerHTML = `${head}
       <div class="banner">${ic("box")} PREPARED — ready for delivery. Do the steps below.</div>
-      <section class="pd-step"><h3><span class="pd-n">1</span> Boxes <small>${boxes.length} of ${qtyText(d.total_boxes)} boxes · ${qtyText(pcs)} of ${qtyText(d.total_pcs)} pcs</small></h3>
+      <section class="pd-step"><h3><span class="pd-n">1</span> Boxes <small>${nBoxes(boxes)} of ${qtyText(d.total_boxes)} boxes · ${qtyText(pcs)} of ${qtyText(d.total_pcs)} pcs</small></h3>
         ${boxCheck(lines, boxes)}
         <div class="btnrow"><button type="button" class="btn primary" id="pdScan">${ic("scan")} Scan Boxes</button><label class="btn" for="pdLabel">${ic("image")} Box Label Photo</label><input type="file" id="pdLabel" accept="image/*" multiple hidden>
           <button type="button" class="btn" id="pdType">📦 Add Box</button></div>
         <div class="box-find"><input type="text" id="pdFind" maxlength="60" placeholder="Serial no, e.g. U20261238" aria-label="Find a box by its serial no" autocomplete="off"><button type="button" class="btn primary" id="pdFindGo">${ic("search")} Find &amp; Add</button></div>
         <div id="pdFound" class="box-found" aria-live="polite">${foundHtml(d.id)}</div>
-        ${E.grid({ cols: [{ label: "#", get: (b) => String(boxes.indexOf(b) + 1) }, { label: "Serial No", html: (b) => `<b class="mono">${esc(b.serial_no)}</b>` }, { label: "Code", get: (b) => b.code || "" },
+        ${E.grid({ cols: [{ label: "#", get: (b) => boxNo(boxes, b) }, { label: "Serial No", html: serHtml }, { label: "Code", get: (b) => b.code || "" },
           { label: "Items", get: (b) => b.items || "" }, { label: "Brand", get: (b) => b.brand || "" }, { label: "Pcs", num: true, get: (b) => qtyText(b.pcs) },
-          { label: "", html: (b) => `<button type="button" class="btn small danger" data-pdx="${b.id}" aria-label="Remove box ${esc(b.serial_no)}">×</button>` }], rows: boxes, empty: "No boxes yet: scan the QR or PDF417 code on each box label." })}
+          { label: "", html: (b) => `<button type="button" class="btn small danger" data-pdx="${b.id}" aria-label="Remove ${esc(b.serial_no || b.items || "line")}">×</button>` }], rows: boxes, empty: "No boxes yet: scan the QR or PDF417 code on each box label." })}
       </section>
       <section class="pd-step"><h3><span class="pd-n">2</span> Delivery Photos</h3>
         <h4 class="co-h4">Photos: the proof of delivery (up to ${MAX_PHOTOS})</h4>
@@ -819,7 +825,7 @@
         <div class="btnrow"><label class="btn" for="pdPic" ${photos.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="pdPic" accept="image/*" multiple hidden></div>
       </section>
       <section class="pd-step"><h3><span class="pd-n">3</span> Complete Delivery</h3>
-        <ul class="pd-check">${tick(boxes.length > 0, `Boxes: ${boxes.length} of ${qtyText(d.total_boxes)}`)}${tick(photos.length > 0, "A photo of the delivery")}</ul>
+        <ul class="pd-check">${tick(nBoxes(boxes) > 0, `Boxes: ${nBoxes(boxes)} of ${qtyText(d.total_boxes)}`)}${tick(photos.length > 0, "A photo of the delivery")}</ul>
         <div class="co-done"><button type="button" class="btn ok big" id="pdDone">${ic("check")} ${submitOnly ? "Submit Delivery for Approval" : "Complete Delivery"}</button><small>${submitOnly
           ? "You are not signed in with EO-Office: the delivery is SUBMITTED and the Director approves it. Approved, the order is COMPLETED and the invoice is made."
           : "The order becomes COMPLETED and the customer's invoice is made and billed by itself."}</small></div>
@@ -834,11 +840,12 @@
     };
     const add = async (x, how) => {
       const b = fill(x);
-      if (!b.serial_no) return "✖ No serial no in that code.";
+      if (!b.serial_no && how !== "typed") return "✖ No serial no in that code.";
       const { data, error } = await rpc("delivery_add_box", { p_data: { ...b, added_how: how } });
       if (error) return /on this order already/i.test(error.message || "") ? `✔ Box ${b.serial_no} is on this order (checked)` : `✖ ${error.message}`;
       boxes.push(data); added++;
-      return `✔ Box ${data.serial_no} added${boxSays(data)} · ${boxes.length} of ${qtyText(d.total_boxes)} boxes`;
+      if (!data.serial_no) return `✔ Added${boxSays(data)} — no serial no: not counted as a box`;
+      return `✔ Box ${data.serial_no} added${boxSays(data)} · ${nBoxes(boxes)} of ${qtyText(d.total_boxes)} boxes`;
     };
     const found = (raw, how) => addFound(raw, how, add, rpc, boxes);
     bindFind("pd", d.id, (v) => found(v, "typed"), reload);
@@ -860,7 +867,7 @@
     $("#pdType").onclick = () => boxForm({ lines }, null, async (x) => { const r = await add(x, "typed"); if (r.startsWith("✖")) { toast(r.slice(2), true); return false; } toast(r.slice(2)); reload(); return true; });
     $$("[data-pdx]").forEach((b) => (b.onclick = async () => {
       const x = boxes.find((y) => y.id === b.dataset.pdx);
-      if (!(await E.confirmBox(`Remove box <b>${esc(x.serial_no)}</b> from this order?`, { ok: "Remove", danger: true }))) return;
+      if (!(await E.confirmBox(`Remove ${boxName(x)} from this order?`, { ok: "Remove", danger: true }))) return;
       b.disabled = true;
       const { error } = await rpc("delivery_remove_box", { p_box: x.id });
       if (error) { b.disabled = false; return fail(error, "Could not remove the box"); }
@@ -897,9 +904,9 @@
     // step 3: COMPLETE DELIVERY
     $("#pdDone").onclick = async (e) => {
       if (!photos.length) return toast("Add a photo of the delivery first.", true);
-      const short = boxes.length !== num(d.total_boxes);
+      const short = nBoxes(boxes) !== num(d.total_boxes);
       const msg = `Complete the delivery of <b>${esc(d.order_no)}</b> for <b>${esc(d.customer)}</b>?`
-        + (short ? `<br><br><b>Note:</b> ${boxes.length} box(es) were scanned, the order has ${qtyText(d.total_boxes)}.` : "")
+        + (short ? `<br><br><b>Note:</b> ${nBoxes(boxes)} box(es) were scanned, the order has ${qtyText(d.total_boxes)}.` : "")
         + (submitOnly ? "<br><br>The delivery is SUBMITTED and waits for the Director's approval." : "<br><br>The order becomes COMPLETED and the invoice is made. This cannot be undone.");
       const title = submitOnly ? "Submit Delivery" : "Complete Delivery";
       if (!(await E.confirmBox(msg, { title, ok: title }))) return;
