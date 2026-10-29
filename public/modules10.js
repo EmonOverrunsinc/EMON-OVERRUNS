@@ -629,10 +629,10 @@
     const edit = o.status === "approved" && w;
     const photos = `<div class="po-photos co-photos">${pics.map((x, i) => `<div class="po-pic"><button type="button" class="co-ph" data-ph="${esc(x.u)}" aria-label="Open delivery photo ${i + 1}"><img src="${esc(x.u)}" alt="Delivery photo"></button>${edit ? `<button type="button" data-rmph="${esc(x.p)}" aria-label="Remove photo">×</button>` : ""}</div>`).join("")}</div>`;
     if (!edit) return `<div class="pgrid2 qc-head">${E.cell("Delivered", o.delivered_at ? E.dateTime(o.delivered_at) : "")}${E.cell(o.status === "completed" ? "Completed By" : "Submitted By", o.completed_by_name || o.delivery_request_by || "")}</div>${pics.length ? photos : ""}`;
-    return `<h4 class="co-h4">Delivery Photos (up to ${MAX_PHOTOS})</h4>${photos}
+    return `<h4 class="co-h4">Delivery Photos (optional, up to ${MAX_PHOTOS})</h4>${photos}
       <div class="btnrow"><label class="btn" for="dvPic" id="dvPicL" ${pics.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="dvPic" accept="image/*" multiple hidden></div>
       <div class="co-done"><button type="button" class="btn ok big" id="dvDone">${ic("check")} Complete Delivery</button>
-        <small>A photo of the delivery is needed. COMPLETE makes the customer's invoice by itself (₱ ${peso(o.total_amount)}).</small></div>`;
+        <small>A photo of the delivery is optional. COMPLETE makes the customer's invoice by itself (₱ ${peso(o.total_amount)}).</small></div>`;
   }
   function bindDelivery(o, boxes, urls, reload) {
     const setPhotos = async (list) => {
@@ -663,7 +663,6 @@
       if (await setPhotos((o.delivery_photos || []).filter((p) => p !== b.dataset.rmph))) reload();
     }));
     $("#dvDone").onclick = async (e) => {
-      if (!(o.delivery_photos || []).length) return toast("Add a photo of the delivery first.", true);
       const short = nBoxes(boxes) !== num(o.total_boxes);
       const msg = `Complete the delivery of <b>${esc(o.order_no)}</b>?<br><br>The invoice is made and billed to <b>${esc(custName(o))}</b> by itself: <b>₱ ${peso(o.total_amount)}</b>, ${esc(boxesText(o.total_boxes))}, ${qtyText(o.total_pcs)} pcs${o.payment_terms ? `, ${esc(o.payment_terms)}` : ""}.`
         + (short ? `<br><br><b>Note:</b> ${nBoxes(boxes)} box(es) were scanned, the order has ${qtyText(o.total_boxes)}.` : "") + "<br><br>This cannot be undone.";
@@ -821,12 +820,12 @@
           { label: "", html: (b) => `<button type="button" class="btn small danger" data-pdx="${b.id}" aria-label="Remove ${esc(b.serial_no || b.items || "line")}">×</button>` }], rows: boxes, empty: "No boxes yet: scan the QR or PDF417 code on each box label." })}
       </section>
       <section class="pd-step"><h3><span class="pd-n">2</span> Delivery Photos</h3>
-        <h4 class="co-h4">Photos: the proof of delivery (up to ${MAX_PHOTOS})</h4>
+        <h4 class="co-h4">Photos: the proof of delivery (optional, up to ${MAX_PHOTOS})</h4>
         <div class="po-photos co-photos">${photos.map((x, i) => `<div class="po-pic"><button type="button" class="co-ph" data-ph="${esc(urls.get(x) || "")}" aria-label="Open photo ${i + 1}"><img src="${esc(urls.get(x) || "")}" alt="Delivery photo"></button><button type="button" data-pdrm="${esc(x)}" aria-label="Remove photo">×</button></div>`).join("")}</div>
         <div class="btnrow"><label class="btn" for="pdPic" ${photos.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="pdPic" accept="image/*" multiple hidden></div>
       </section>
       <section class="pd-step"><h3><span class="pd-n">3</span> Complete Delivery</h3>
-        <ul class="pd-check">${tick(nBoxes(boxes) > 0, `Boxes: ${nBoxes(boxes)} of ${qtyText(d.total_boxes)}`)}${tick(photos.length > 0, "A photo of the delivery")}</ul>
+        <ul class="pd-check">${tick(nBoxes(boxes) > 0, `Boxes: ${nBoxes(boxes)} of ${qtyText(d.total_boxes)}`)}${tick(photos.length > 0, photos.length ? `Photos: ${photos.length}` : "A photo of the delivery (optional)")}</ul>
         <div class="co-done"><button type="button" class="btn ok big" id="pdDone">${ic("check")} ${submitOnly ? "Submit Delivery for Approval" : "Complete Delivery"}</button><small>${submitOnly
           ? "You are not signed in with EO-Office: the delivery is SUBMITTED and the Director approves it. Approved, the order is COMPLETED and the invoice is made."
           : "The order becomes COMPLETED and the customer's invoice is made and billed by itself."}</small></div>
@@ -905,7 +904,6 @@
     }));
     // step 3: COMPLETE DELIVERY
     $("#pdDone").onclick = async (e) => {
-      if (!photos.length) return toast("Add a photo of the delivery first.", true);
       const short = nBoxes(boxes) !== num(d.total_boxes);
       const msg = `Complete the delivery of <b>${esc(d.order_no)}</b> for <b>${esc(d.customer)}</b>?`
         + (short ? `<br><br><b>Note:</b> ${nBoxes(boxes)} box(es) were scanned, the order has ${qtyText(d.total_boxes)}.` : "")
