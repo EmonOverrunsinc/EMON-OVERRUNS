@@ -365,7 +365,7 @@
         ${canEdit(o) ? `<a class="btn" href="#editcustorder/${o.id}">${ic("edit")} Edit</a>` : ""}
         <span class="grow"></span>
         ${(isAdmin() ? o.status === "approved" : o.status === "pending" && o.created_by === meId()) ? `<button type="button" class="btn danger" id="coCancelO">Cancel Order</button>` : ""}
-        ${isAdmin() && o.status !== "completed" ? `<button type="button" class="btn danger" id="coDelO">${ic("trash")} Delete</button>` : ""}
+        ${isAdmin() ? `<button type="button" class="btn danger" id="coDelO">${ic("trash")} Delete</button>` : ""}
       </div>
       <div class="tabs" id="coPfTabs">${tabs.map((x, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(x)}</button>`).join("")}</div>
       <div class="tabpanes">
@@ -390,7 +390,7 @@
     };
     if ($("#coCancelO")) $("#coCancelO").onclick = () => cancelOrder(o, reload);
     if ($("#coDelO")) $("#coDelO").onclick = async () => {
-      if (!(await E.confirmBox(`Delete order <b>${esc(o.order_no)}</b> and its ${boxes.length} box(es)? This cannot be undone.`, { ok: "Delete", danger: true }))) return;
+      if (!(await E.confirmBox(`Delete order <b>${esc(o.order_no)}</b> and its ${boxes.length} box(es)?${inv ? ` Its invoice <b>${esc(inv.invoice_no)}</b> is deleted too (off the customer's balance).` : ""} This cannot be undone.`, { ok: "Delete", danger: true }))) return;
       const { data: gone, error } = await sb.rpc("delete_customer_order", { p_id: o.id });
       if (error) return fail(error, "Could not delete");
       if (gone?.length) sb.storage.from("records").remove(gone).then(() => {}, () => {});
