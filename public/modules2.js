@@ -9,7 +9,7 @@
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);
   // Menu access an employee can be given (Community, Verification and Download Forms are open to everyone).
   // 3.31: Purchase Order has its own menu access (5); no Employee (HR): 11 EO-Office gives Employees, Payroll and Job Applications
-  const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["purchase", "5 Purchase Order"], ["projects", "7 Project"], ["billing", "8 Billing"], ["inventory", "10 E-Bill"], ["eooffice", "11 EO-Office"]];
+  const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["purchase", "5 Purchase Order"], ["projects", "7 Project"], ["billing", "8 Billing"], ["inventory", "10 E-Bill"], ["eooffice", "11 EO-Office"], ["ai", "12 EVA AI"]];
   const accessText = (role, mods) => {
     if (role === "admin") return "Everything (Director)";
     const list = (mods || []).map((m) => MODULES.find((x) => x[0] === m)?.[1]).filter(Boolean).join(", ") || "Dashboard and Community";

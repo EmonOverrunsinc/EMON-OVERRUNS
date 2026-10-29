@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.42";
+  const VERSION = "3.43";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.42.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.43.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -973,6 +973,8 @@
   const canOpen = (key) => { const m = MODULE_OF[key]; return Array.isArray(m) ? m.some(hasModule) : hasModule(m); };
   // Staff may add records in the sections they can open; viewers only look.
   const canWrite = (m) => isAdmin() || (isStaff() && hasModule(m));
+  // 3.43: EVA AI for the Director and the staff the Director ticked "12 EVA AI" for (never given by the old all-access)
+  const canAI = () => isAdmin() || (isStaff() && (S.profile?.modules || []).includes("ai"));
   const OTHER = [
     ["verify", "Verification", () => true, "shield"],
     ["changes", "Corrections", () => isAdmin(), "edit"],
@@ -1097,7 +1099,7 @@
           <button type="button" class="scanbtn" id="tbScan" title="Scan a QR code or barcode">${ic("scan")}<span>Scan</span></button>
         </form>
         <div class="tb-right">
-          ${isAdmin() ? `<button type="button" class="iconbtn tb-eva" id="tbEva" aria-label="Ask EVA AI" title="Ask EVA AI">${ic("ai")}</button>` : ""}
+          ${canAI() ? `<button type="button" class="iconbtn tb-eva" id="tbEva" aria-label="Ask EVA AI" title="Ask EVA AI">${ic("ai")}</button>` : ""}
           <button type="button" class="iconbtn" id="tbChat" aria-label="Messages" title="Messages">${ic("chat")}<span class="badge" id="tbChatBadge" hidden>0</span></button>
           <button type="button" class="iconbtn" id="tbBell" aria-label="Notifications" title="Notifications" aria-haspopup="true">${ic("bell")}<span class="badge" id="tbBadge" hidden>0</span></button>
           <button type="button" class="avatar-btn" id="tbUser" aria-haspopup="true" aria-label="Your account">
@@ -2094,7 +2096,7 @@
   // shared with modules.js to modules4.js
   Object.assign(window.EO, {
     APP, VERSION, sb, S, C, esc, peso, pad, num, fullName, qtyText, bdt, verifyUrl, isoToday, isoDay, mdy, monthOf, monthText, stamp, dateTime, fixDates, timeAgo, online, $, $$,
-    isAdmin, isStaff, meId, kvTable, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
+    isAdmin, isStaff, canAI, meId, kvTable, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, 
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, slimFile, scanDialog, openScanned, isCustKey, keepTab, stillHere, loadGuard, allRows,
     roleName, personTitle, publicUrl, logoHtml, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,

@@ -337,7 +337,7 @@
   // The AI box in the Gate Pass window: CLEAR or HOLD, how sure, why; the idea is kept to be written with the decision.
   const last = new Map(); // customer id → { row, idea }
   async function box(c, ctx) {
-    if (!isAdmin()) return ""; // 3.39: EVA is for the Director only
+    if (!E.canAI()) return ""; // 3.43: the Director and the staff given EVA AI
     let cur;
     try { cur = await current(); }
     catch (e) { return notSet(e) ? "" : `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>EVA AI</b><small>Could not be read: ${esc(e.message)}</small></div></div>`; }
