@@ -1136,6 +1136,37 @@
       <div class="soa-sys">This is a system-generated voucher. No signature is required.</div>
       <div class="rp-foot"><span>Scan the barcode in the ${esc(E.APP)} to verify this voucher.</span><span>${esc(v.voucher_no)}</span></div>`;
   }
+  // 3.48: the account a payment went to: one of the company's accounts, or a new one added here
+  async function voucherAccount(v, reload) {
+    const { data: accs, error: e0 } = await sb.from("pay_accounts").select("*").eq("company_id", v.company_id).order("account_name");
+    if (e0) return fail(e0, "Could not read the accounts");
+    const label = (a) => [a.account_name, a.account_number, a.bank_name].filter(Boolean).join(" · ");
+    const m = E.modal(`Account — ${v.voucher_no}`, `<div class="fields wide">
+        <label for="vaSel">Account</label><select id="vaSel"><option value="">— No account —</option>${(accs || []).map((a) => `<option value="${a.id}" ${a.id === v.account_id ? "selected" : ""}>${esc(label(a))}</option>`).join("")}<option value="new">＋ Add a new account…</option></select></div>
+      <div class="fields wide" id="vaNew" hidden style="margin-top:8px">
+        <label for="vaName">Account Name *</label><input type="text" id="vaName" maxlength="120" placeholder="e.g. SUMON">
+        <label for="vaNo">Account Number</label><input type="text" id="vaNo" maxlength="60" placeholder="e.g. 01626849207">
+        <label for="vaBank">Bank</label><input type="text" id="vaBank" maxlength="80" placeholder="e.g. bKash, BRAC BANK">
+        <label for="vaBranch">Branch</label><input type="text" id="vaBranch" maxlength="80"></div>`,
+      `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>Save</button>`);
+    const sel = $("#vaSel", m.el);
+    sel.onchange = () => { $("#vaNew", m.el).hidden = sel.value !== "new"; if (sel.value === "new") $("#vaName", m.el).focus(); };
+    $("[data-x]", m.el).onclick = m.close;
+    $("[data-ok]", m.el).onclick = async (e) => {
+      let acc = sel.value || null;
+      const val = (k) => $(k, m.el).value.trim();
+      if (acc === "new" && !val("#vaName")) return toast("Write the account name.", true);
+      e.target.disabled = true;
+      if (acc === "new") {
+        const { data: na, error: e1 } = await sb.from("pay_accounts").insert({ company_id: v.company_id, account_name: val("#vaName"), account_number: val("#vaNo") || null, bank_name: val("#vaBank") || null, branch_name: val("#vaBranch") || null }).select("id").single();
+        if (e1) { e.target.disabled = false; return fail(e1, "Could not add the account"); }
+        acc = na.id;
+      }
+      const { error } = await sb.rpc("set_voucher_account", { p_voucher: v.id, p_account: acc });
+      if (error) { e.target.disabled = false; return fail(error, /set_voucher_account/.test(error.message || "") ? "Run the database update 059_voucher_account.sql first" : "Could not save the account"); }
+      m.close(); toast("Account saved."); reload();
+    };
+  }
   V.voucher = async (id) => {
     E.shell("voucher", "Payment Voucher", busy());
     const here = E.stillHere();
@@ -1151,7 +1182,7 @@
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(v.voucher_no)} · ${esc(v.pay_companies?.name || "")}</div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
         <span>Paid To</span><span><a href="#paycompany/${v.company_id}"><b>${esc(v.pay_companies?.name || "")}</b></a>${v.pay_companies?.contact_person ? " · " + esc(v.pay_companies.contact_person) : ""}</span>
-        <span>Account</span><span>${esc([a.account_name, a.account_number, a.bank_name, a.branch_name].filter(Boolean).join(" · ") || "—")}</span>
+        <span>Account</span><span>${esc([a.account_name, a.account_number, a.bank_name, a.branch_name].filter(Boolean).join(" · ") || "—")}${E.canWrite("billing") ? ` <button type="button" class="btn small" id="vAcc">${ic("edit")} ${v.account_id ? "Change Account" : "Add Account"}</button>` : ""}</span>
         <span>Date</span><span>${mdy(v.pay_date)}</span>
         <span>Method</span><span>${esc(v.method || "—")}${v.reference_no ? " · Ref " + esc(v.reference_no) : ""}</span><span>Issued By</span><span>${esc(v.created_by_name || "")}</span>
         ${v.stock_bills ? `<span>For E-Bill</span><span>${E.canOpen("stockbill") ? `<a href="#stockbill/${v.stock_bills.id}"><b>${esc(v.stock_bills.bill_no)}</b></a>` : `<b>${esc(v.stock_bills.bill_no)}</b>`}</span>` : ""}</div>
@@ -1167,6 +1198,7 @@
     E.bindDocCards($("#main"), () => V.voucher(id));
     bindTools($("#main"));
     if ($("#vAddRcpt")) $("#vAddRcpt").onchange = async (e) => { const here = E.stillHere(), f = await E.uploadRecords("pay_voucher", id, "receipt", Array.from(e.target.files)); toast(f ? "Upload failed." : "Receipt uploaded.", f > 0); if (here()) V.voucher(id); };
+    if ($("#vAcc")) $("#vAcc").onclick = () => voucherAccount(v, () => V.voucher(id));
     E.setRecords(`Voucher: ${v.voucher_no}`);
   };
 
