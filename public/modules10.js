@@ -30,7 +30,7 @@
   const boxesText = (n) => `${qtyText(n)} BOX${num(n) === 1 ? "" : "ES"}`;
   // 3.46: a line with a serial no is a box; a line added without one (items, pcs) is kept but not counted as a box
   const nBoxes = (bs) => bs.filter((b) => b.serial_no).length;
-  const serHtml = (b) => b.serial_no ? `<b class="mono">${esc(b.serial_no)}</b>` : `<small class="bx-loose">NO SERIAL · NOT A BOX</small>`;
+  const serHtml = (b) => b.serial_no ? `<b class="mono">${esc(b.serial_no)}</b>` : `<span class="bx-loose" title="No serial no: not counted as a box">-</span>`;
   const boxNo = (bs, b) => b.serial_no ? String(bs.filter((x) => x.serial_no).indexOf(b) + 1) : "—";
   const boxName = (b) => b.serial_no ? `box <b>${esc(b.serial_no)}</b>` : `the line <b>${esc(b.items || "without serial no")}</b>`;
   // the due date: as written, or from the terms (30 DAYS after the order date …)
@@ -530,6 +530,7 @@
     if (!$("#cbScan")) return;
     // what a box takes from the order when its label does not say: the one line of the order, or the box added before
     const fill = (d) => {
+      if (!d.serial_no) return d; // 3.46: a line without a serial no keeps only what was typed
       const one = (o.lines || []).length === 1 ? o.lines[0] : null, last = boxes[boxes.length - 1];
       const line = one || (d.code && (o.lines || []).find((l) => l.code === String(d.code).toUpperCase()));
       return { ...d, code: d.code || one?.code || last?.code || "", batch_no: d.batch_no || line?.lot || last?.batch_no || "", items: d.items || line?.product || last?.items || "",
@@ -711,7 +712,7 @@
       head: E.printHead("DELIVERY SHEET", codesHtml(o)), contHead: E.printHead(`DELIVERY SHEET ${o.order_no} (CONTINUED)`, ""),
       top: E.box("Customer", `<div class="pgrid2">${E.cell("Customer", fullName(c))}${E.cell("Account No", c.account_no || "")}${E.cell("Order No", o.order_no)}${E.cell("Batch No", o.reference || "")}</div>`),
       boxTitle: "Boxes", thead: `<tr><th>#</th><th>Serial No.</th><th>Code</th><th>Batch No.</th><th>Items</th><th>Brand</th><th>CTN</th><th class="num">Pcs</th><th>Remarks</th></tr>`,
-      rows, rowHtml: (b, i) => b ? `<tr><td>${i + 1}</td><td class="mono">${b.serial_no ? esc(b.serial_no) : "— (NOT A BOX)"}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td>${esc(b.brand || "")}</td><td>${esc(b.ctn || "")}</td><td class="num">${qtyText(b.pcs)}</td><td>${esc(b.remarks || "")}</td></tr>`
+      rows, rowHtml: (b, i) => b ? `<tr><td>${i + 1}</td><td class="mono">${b.serial_no ? esc(b.serial_no) : "-"}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td>${esc(b.brand || "")}</td><td>${esc(b.ctn || "")}</td><td class="num">${qtyText(b.pcs)}</td><td>${esc(b.remarks || "")}</td></tr>`
         : `<tr class="cs-empty"><td>${i + 1}</td>${"<td></td>".repeat(8)}</tr>`,
       // 3.39: no boxes scanned yet: the total is written by hand with the lines; one TOTAL BOXES below (the order's)
       totalRow: boxes.length ? `<tr class="ptl-tot"><td colspan="7">TOTAL · ${esc(boxesText(nBoxes(boxes)))}</td><td class="num">${qtyText(pcs)}</td><td></td></tr>` : `<tr class="ptl-tot"><td colspan="7">TOTAL</td><td></td><td></td></tr>`,
@@ -748,7 +749,7 @@
       head: E.printHead("CUSTOMER ORDER — ALL DETAILS", codesHtml(o, `<div class="co-bigbox">${esc(boxesText(o.total_boxes))}</div>`)), contHead: E.printHead(`CUSTOMER ORDER ${o.order_no} — ALL DETAILS (CONTINUED)`, ""),
       top, boxTitle: `Boxes (${nBoxes(boxes)} of ${qtyText(o.total_boxes)})`,
       thead: `<tr><th>#</th><th>Serial No.</th><th>Code</th><th>Batch No.</th><th>Items</th><th>Brand</th><th>CTN</th><th class="num">Pcs</th></tr>`,
-      rows, rowHtml: (b, i) => b ? `<tr class="ad-r"><td>${i + 1}</td><td class="mono">${b.serial_no ? esc(b.serial_no) : "— (NOT A BOX)"}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td>${esc(b.brand || "")}</td><td>${esc(b.ctn || "")}</td><td class="num">${qtyText(b.pcs)}</td></tr>`
+      rows, rowHtml: (b, i) => b ? `<tr class="ad-r"><td>${i + 1}</td><td class="mono">${b.serial_no ? esc(b.serial_no) : "-"}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td>${esc(b.brand || "")}</td><td>${esc(b.ctn || "")}</td><td class="num">${qtyText(b.pcs)}</td></tr>`
         : `<tr class="ad-r"><td colspan="8">No boxes yet.</td></tr>`,
       totalRow: boxes.length ? `<tr class="ptl-tot"><td colspan="7">TOTAL · ${esc(boxesText(nBoxes(boxes)))}</td><td class="num">${qtyText(boxes.reduce((t, b) => t + num(b.pcs), 0))}</td></tr>` : "",
       bottom, caps: { single: Math.max(4, 40 - used), first: Math.max(8, 46 - 9 - lines.length), next: 52, last: Math.max(6, 50 - used + 9 + lines.length) } });
@@ -834,6 +835,7 @@
     // step 1: the boxes (what a label does not say comes from the order's line of that code, or the box before)
     let added = 0;
     const fill = (x) => {
+      if (!x.serial_no) return x; // 3.46: a line without a serial no keeps only what was typed
       const one = lines.length === 1 ? lines[0] : null, last = boxes[boxes.length - 1];
       const line = one || (x.code && lines.find((l) => String(l.code || "").toUpperCase() === String(x.code).toUpperCase()));
       return { ...x, code: x.code || one?.code || last?.code || "", batch_no: x.batch_no || line?.lot || last?.batch_no || "", items: x.items || line?.product || last?.items || "", pcs: x.pcs || line?.pcs || last?.pcs || "" };
