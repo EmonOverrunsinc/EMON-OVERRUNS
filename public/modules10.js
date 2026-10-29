@@ -4,11 +4,11 @@
    lines QUANTITY | BOXES | CODE | PCS | LOT NO. | PRODUCT | PRICE | AMOUNT (QUANTITY = BOXES × PCS, AMOUNT = QUANTITY × PRICE), with up
    to 4 columns of its own (COLOR, SIZE …). The page of the order holds its boxes (the Delivery Sheet): each box is scanned from the QR
    or PDF417 code on its label (one after another, the camera stays open), read from a photo of the label, or typed. The Director
-   approves (the authorized signature on the printed order; the Director's own orders are approved at once). The delivery: the rider,
-   ID no, plate no, type, date and time, and photos; COMPLETE makes the customer's invoice by itself, and the printed order shows it.
+   approves (the authorized signature on the printed order; the Director's own orders are approved at once). The delivery: the boxes
+   and the photos (3.45: no rider or car details); COMPLETE makes the customer's invoice by itself, and the printed order shows it.
    3.39: the status in 3 steps: 1 CREATE ORDER (waiting for the Director) → 2 PREPARED (approved) → 3 COMPLETE (delivered). The order
    paper carries a secret code in its barcode and QR code: whoever scans it — signed in or not — opens the order's Complete Delivery
-   page (boxes, rider and photos, COMPLETE DELIVERY). The printed order has no address and only the Director's approval signature;
+   page (boxes, photos, COMPLETE DELIVERY; 3.45: without EO-Office sign-in it is SUBMITTED and the Director approves it). The printed order has no address and only the Director's approval signature;
    COMPLETE makes the invoice and bills it to the customer. A box whose serial no is in the box database (the Google Sheet, read on
    the EVA AI page) takes its items, brand, CTN, code, pcs and batch from it. */
 (() => {
@@ -21,11 +21,11 @@
   const needUpdate = `<div class="empty">Customer Order needs the database update <b>RUN_041_TO_046.sql</b>. Run it in the Supabase SQL Editor.</div>`;
   const rand = () => Math.random().toString(36).slice(2, 8);
   const MAX_LINES = 60, MAX_COLS = 4, MAX_PHOTOS = 5;
-  const VEHICLES = ["MOTORCYCLE", "TRICYCLE", "CAR", "VAN", "TRUCK", "OTHER"];
   // the status of an order in 3 steps (3.39): 1 CREATE ORDER (made, waiting for the Director) → 2 PREPARED (approved: ready to
   // deliver) → 3 COMPLETE (delivered); or CANCELLED
   const STATUS = { pending: ["pending", "CREATE ORDER"], approved: ["approved", "PREPARED"], completed: ["applied", "COMPLETED"], cancelled: ["rejected", "CANCELLED"] };
-  const stPill = (o) => pill(...(STATUS[o.status] || ["pending", String(o.status).toUpperCase()]));
+  const stPill = (o) => o.status === "approved" && o.delivery_request_at ? pill("pending", "DELIVERY SUBMITTED") // 3.45: waits for the Director
+    : pill(...(STATUS[o.status] || ["pending", String(o.status).toUpperCase()]));
   const open = (o) => ["pending", "approved"].includes(o.status);
   const boxesText = (n) => `${qtyText(n)} BOX${num(n) === 1 ? "" : "ES"}`;
   // the due date: as written, or from the terms (30 DAYS after the order date …)
@@ -42,7 +42,7 @@
     E.shell("custorders", "Customer Order", `${E.eoTabs("custorders")}<div id="coBody">${busy()}</div>`);
     if (!E.hasModule("eooffice") || !E.isStaff()) { location.hash = "eooffice"; return; }
     const here = E.stillHere();
-    const { data, error } = await E.allRows(() => sb.from("customer_orders").select("id, order_no, order_date, status, total_boxes, total_pcs, total_amount, reference, created_by_name, customers(first_name, last_name, account_no)")
+    const { data, error } = await E.allRows(() => sb.from("customer_orders").select("*, customers(first_name, last_name, account_no)")
       .order("created_at", { ascending: false }).order("id"));
     if (!here() || !$("#coBody")) return;
     if (error) { $("#coBody").innerHTML = notSet(error) ? needUpdate : `<div class="empty">${esc(error.message)}</div>`; return; }
@@ -330,6 +330,7 @@
     }).join("")}</ol>`;
     const banner = o.status === "pending" ? `<div class="banner warn">${ic("clock")} CREATE ORDER — waiting for the Director's approval. Approved, the order is PREPARED: the Director's signature is on the printed order and the delivery can start.</div>`
       : o.status === "cancelled" ? `<div class="banner closed">CANCELLED${o.cancelled_by_name ? ` by ${esc(o.cancelled_by_name)}` : ""}${o.cancelled_at ? ` on ${esc(mdy(o.cancelled_at))}` : ""}${o.cancel_note ? ` — ${esc(o.cancel_note)}` : ""}</div>`
+      : o.status === "approved" && o.delivery_request_at ? `<div class="banner warn">${ic("clock")} DELIVERY SUBMITTED — ${esc(o.delivery_request_by || "ORDER PAPER")} · ${esc(E.dateTime(o.delivery_request_at))}. It waits for the Director's approval: approved, the order is COMPLETED and the invoice is made and billed.</div>`
       : o.status === "completed" ? `<div class="banner ok">✔ COMPLETED — DELIVERED${o.completed_at ? ` on ${esc(mdy(o.completed_at))}` : ""}${o.completed_by_name ? ` by ${esc(o.completed_by_name)}` : ""}${inv ? ` — invoice <b>${esc(inv.invoice_no)}</b> was made for the customer` : ""}</div>` : "";
     const head = `<section class="cust-hero co-hero">
       <div class="ch-pic"><div class="ch-photo co-ic">${ic("box")}</div></div>
@@ -347,8 +348,8 @@
         <tfoot><tr><td></td><td class="num">${qtyText(o.total_boxes)}</td><td class="num">${qtyText(o.total_pcs)}</td><td colspan="${3 + cols.length}"><b>TOTAL AMOUNT</b></td><td></td><td class="num"><b>${peso(o.total_amount)}</b></td></tr></tfoot></table></div>`;
     const delHtml = o.status === "pending" ? `<div class="empty">The delivery starts when the order is PREPARED (approved by the Director).</div>`
       : o.status === "cancelled" ? `<div class="empty">CANCELLED: no delivery.</div>`
-      : deliverNow ? `${o.rider_name || (o.delivery_photos || []).length ? deliveryHtml(o, urls, false) : ""}<div class="co-done">${deliverBtn("big")}
-          <small>Scan or add the boxes, add the rider and the photos (the car, the proof of delivery), then COMPLETE DELIVERY. Whoever holds the printed order can do it too: scan its QR code (no login needed).</small></div>`
+      : deliverNow ? `${(o.delivery_photos || []).length ? deliveryHtml(o, urls, false) : ""}${o.delivery_request_at ? "" : `<div class="co-done">${deliverBtn("big")}
+          <small>Scan or add the boxes, add the photos of the delivery, then COMPLETE DELIVERY. Whoever holds the printed order can do it too: scan its QR code (VERIFICATION). Not signed in, the delivery waits for the Director's approval.</small></div>`}`
       : deliveryHtml(o, urls, w);
     const invHtml = inv ? `<div class="pgrid2 qc-head">
           <div class="pcell"><div class="pl">Invoice No</div><div class="pv">${E.canOpen("invoice") ? `<a href="#invoice/${inv.id}"><b>${esc(inv.invoice_no)}</b></a>` : `<b>${esc(inv.invoice_no)}</b>`}</div></div>
@@ -356,6 +357,7 @@
           <div class="pcell"><div class="pl">Status</div><div class="pv">${payPill(inv)}</div></div></div>` : `<div class="empty small">The invoice is on the customer's account.</div>`;
     const tabs = ["Order Lines", `Boxes (${boxes.length})`, "Delivery", ...(o.status === "completed" ? ["Invoice"] : [])];
     $("#main").innerHTML = `${head}${stepper}${banner}
+      ${isAdmin() && o.status === "approved" && o.delivery_request_at ? `<fieldset class="opt review"><legend>Delivery Approval</legend><p class="muted" style="margin:0 0 8px">${boxes.length} of ${qtyText(o.total_boxes)} boxes · ${(o.delivery_photos || []).length} photo(s): see the Boxes and Delivery tabs.</p><div class="btnrow"><button type="button" class="btn ok" id="coDvOk">${ic("check")} Approve Delivery · COMPLETE</button><button type="button" class="btn danger" id="coDvNo">Reject</button></div></fieldset>` : ""}
       ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>Director's Decision</legend><div class="btnrow"><button type="button" class="btn ok" id="coApprove">${ic("check")} Approve · 2 PREPARED</button><button type="button" class="btn danger" id="coCancelO">Cancel Order</button></div></fieldset>` : ""}
       <div class="due-card co-amt"><div><div class="k">Order Amount</div><div class="v">₱ ${peso(o.total_amount)}</div></div><small>${esc(E.words(o.total_amount))}${o.note ? ` · Note: ${esc(o.note)}` : ""}</small></div>
       <div class="actionbar">
@@ -389,6 +391,19 @@
       toast(`Order ${o.order_no} approved: PREPARED.`); reload();
     };
     if ($("#coCancelO")) $("#coCancelO").onclick = () => cancelOrder(o, reload);
+    // 3.45: a delivery submitted by the order paper (not signed in with EO-Office): the Director approves or rejects it
+    const decideDelivery = async (e, action) => {
+      const ok = action === "approve"
+        ? await E.confirmBox(`Approve the delivery of <b>${esc(o.order_no)}</b>?<br><br>The order becomes COMPLETED and the invoice is made and billed to <b>${esc(custName(o))}</b>: <b>₱ ${peso(o.total_amount)}</b>.`, { title: "Approve Delivery", ok: "Approve Delivery" })
+        : await E.confirmBox(`Reject the delivery submitted for <b>${esc(o.order_no)}</b>? The order stays PREPARED and the delivery can be done again.`, { ok: "Reject", danger: true });
+      if (!ok) return;
+      e.target.disabled = true;
+      const { error } = await sb.rpc("decide_delivery", { p_id: o.id, p_action: action });
+      if (error) { e.target.disabled = false; return fail(error, "Could not save"); }
+      toast(action === "approve" ? `Order ${o.order_no} completed. The invoice was made and billed to ${custName(o)}.` : "Delivery rejected."); reload();
+    };
+    if ($("#coDvOk")) $("#coDvOk").onclick = (e) => decideDelivery(e, "approve");
+    if ($("#coDvNo")) $("#coDvNo").onclick = (e) => decideDelivery(e, "reject");
     if ($("#coDelO")) $("#coDelO").onclick = async () => {
       if (!(await E.confirmBox(`Delete order <b>${esc(o.order_no)}</b> and its ${boxes.length} box(es)?${inv ? ` Its invoice <b>${esc(inv.invoice_no)}</b> is deleted too (off the customer's balance).` : ""} This cannot be undone.`, { ok: "Delete", danger: true }))) return;
       const { data: gone, error } = await sb.rpc("delete_customer_order", { p_id: o.id });
@@ -601,41 +616,18 @@
     $(x ? "#bfPcs" : "#bfSer", m.el).focus();
   }
 
-  // ---------- delivery: the rider, the photos, COMPLETE ----------
-  const localDT = (iso) => { const d = iso ? new Date(iso) : new Date(), p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+  // ---------- delivery: the photos, COMPLETE (3.45: no rider or car details) ----------
   function deliveryHtml(o, urls, w) {
     const pics = (o.delivery_photos || []).map((p) => ({ p, u: urls.get(p) || "" }));
     const edit = o.status === "approved" && w;
     const photos = `<div class="po-photos co-photos">${pics.map((x, i) => `<div class="po-pic"><button type="button" class="co-ph" data-ph="${esc(x.u)}" aria-label="Open delivery photo ${i + 1}"><img src="${esc(x.u)}" alt="Delivery photo"></button>${edit ? `<button type="button" data-rmph="${esc(x.p)}" aria-label="Remove photo">×</button>` : ""}</div>`).join("")}</div>`;
-    if (!edit) return `<div class="pgrid2 qc-head">${E.cell("Rider Name", o.rider_name || "")}${E.cell("ID No", o.rider_id_no || "")}${E.cell("Plate No", o.plate_no || "")}${E.cell("Type", o.vehicle_type || "")}
-      ${E.cell("Date and Time", o.delivered_at ? E.dateTime(o.delivered_at) : "")}${E.cell("Note", o.delivery_note || "")}</div>${pics.length ? photos : ""}`;
-    return `<div class="fields wide co-del">
-        <label for="dvName">Rider Name *</label><input type="text" id="dvName" maxlength="120" value="${esc(o.rider_name || "")}">
-        <label for="dvId">ID No</label><input type="text" id="dvId" maxlength="60" value="${esc(o.rider_id_no || "")}">
-        <label for="dvPlate">Plate No</label><input type="text" id="dvPlate" maxlength="30" value="${esc(o.plate_no || "")}">
-        <label for="dvType">Type</label><select id="dvType"><option value="">—</option>${VEHICLES.map((v) => `<option ${v === o.vehicle_type ? "selected" : ""}>${v}</option>`).join("")}</select>
-        <label for="dvAt">Date and Time</label><input type="datetime-local" id="dvAt" value="${esc(localDT(o.delivered_at))}">
-        <label for="dvNote">Note</label><input type="text" id="dvNote" maxlength="300" value="${esc(o.delivery_note || "")}"></div>
-      <div class="btnrow"><button type="button" class="btn" id="dvSave">${ic("check")} Save Rider Details</button></div>
-      <h4 class="co-h4">Check Photos (up to ${MAX_PHOTOS})</h4>${photos}
+    if (!edit) return `<div class="pgrid2 qc-head">${E.cell("Delivered", o.delivered_at ? E.dateTime(o.delivered_at) : "")}${E.cell(o.status === "completed" ? "Completed By" : "Submitted By", o.completed_by_name || o.delivery_request_by || "")}</div>${pics.length ? photos : ""}`;
+    return `<h4 class="co-h4">Delivery Photos (up to ${MAX_PHOTOS})</h4>${photos}
       <div class="btnrow"><label class="btn" for="dvPic" id="dvPicL" ${pics.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="dvPic" accept="image/*" multiple hidden></div>
       <div class="co-done"><button type="button" class="btn ok big" id="dvDone">${ic("check")} Complete Delivery</button>
-        <small>The rider details and a check photo are needed. COMPLETE makes the customer's invoice by itself (₱ ${peso(o.total_amount)}).</small></div>`;
+        <small>A photo of the delivery is needed. COMPLETE makes the customer's invoice by itself (₱ ${peso(o.total_amount)}).</small></div>`;
   }
   function bindDelivery(o, boxes, urls, reload) {
-    const data = () => ({ rider_name: $("#dvName").value.trim(), rider_id_no: $("#dvId").value.trim(), plate_no: $("#dvPlate").value.trim(), vehicle_type: $("#dvType").value,
-      delivered_at: $("#dvAt").value ? new Date($("#dvAt").value).toISOString() : null, delivery_note: $("#dvNote").value.trim() });
-    const saveRider = async () => {
-      const d = data();
-      if (!d.rider_name) { toast("Write the rider name.", true); return false; }
-      const { error } = await sb.rpc("set_order_delivery", { p_id: o.id, p_data: d });
-      if (error) { fail(error, "Could not save the rider details"); return false; }
-      Object.assign(o, d, { rider_name: d.rider_name.toUpperCase() });
-      return true;
-    };
-    $("#dvSave").onclick = async (e) => { e.target.disabled = true; const ok = await saveRider(); e.target.disabled = false; if (ok) toast("Rider details saved."); };
-    // the page is drawn again after a photo is added or taken off: the rider details typed are saved first, so they stay
-    const keepRider = async () => { if ($("#dvName")?.value.trim()) await saveRider(); };
     const setPhotos = async (list) => {
       const { data: gone, error } = await sb.rpc("set_order_photos", { p_id: o.id, p_photos: list });
       if (error) { fail(error, "Could not save the photos"); return false; }
@@ -648,7 +640,6 @@
       const room = MAX_PHOTOS - (o.delivery_photos || []).length;
       if (files.length > room) toast(`Up to ${MAX_PHOTOS} photos: only ${room} more can be added.`, true);
       toast("Uploading the photo…");
-      await keepRider();
       const paths = [];
       for (const raw of files.slice(0, room)) {
         const f = await E.slimFile(raw, "photo");
@@ -662,12 +653,10 @@
     };
     $$("[data-rmph]").forEach((b) => (b.onclick = async () => {
       if (!(await E.confirmBox("Remove this photo?", { ok: "Remove", danger: true }))) return;
-      await keepRider();
       if (await setPhotos((o.delivery_photos || []).filter((p) => p !== b.dataset.rmph))) reload();
     }));
     $("#dvDone").onclick = async (e) => {
-      if (!(await saveRider())) return;
-      if (!(o.delivery_photos || []).length) return toast("Add a check photo first.", true);
+      if (!(o.delivery_photos || []).length) return toast("Add a photo of the delivery first.", true);
       const short = boxes.length !== num(o.total_boxes);
       const msg = `Complete the delivery of <b>${esc(o.order_no)}</b>?<br><br>The invoice is made and billed to <b>${esc(custName(o))}</b> by itself: <b>₱ ${peso(o.total_amount)}</b>, ${esc(boxesText(o.total_boxes))}, ${qtyText(o.total_pcs)} pcs${o.payment_terms ? `, ${esc(o.payment_terms)}` : ""}.`
         + (short ? `<br><br><b>Note:</b> ${boxes.length} box(es) were scanned, the order has ${qtyText(o.total_boxes)}.` : "") + "<br><br>This cannot be undone.";
@@ -720,9 +709,8 @@
         : `<tr class="cs-empty"><td>${i + 1}</td>${"<td></td>".repeat(8)}</tr>`,
       // 3.39: no boxes scanned yet: the total is written by hand with the lines; one TOTAL BOXES below (the order's)
       totalRow: boxes.length ? `<tr class="ptl-tot"><td colspan="7">TOTAL · ${esc(boxesText(boxes.length))}</td><td class="num">${qtyText(pcs)}</td><td></td></tr>` : `<tr class="ptl-tot"><td colspan="7">TOTAL</td><td></td><td></td></tr>`,
-      bottom: `<div class="cs-foot">${line("Assign By", o.created_by_name || "")}${line("Total Boxes", String(o.total_boxes))}${line("Notes", o.delivery_note || o.note || "")}${line("Rider Name", o.rider_name || "")}
-        ${line("ID No", o.rider_id_no || "")}${line("Plate No", o.plate_no || "")}${line("Date", o.delivered_at ? mdy(o.delivered_at) : "")}${line("Time", o.delivered_at ? new Date(o.delivered_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "")}
-        ${line("Type", o.vehicle_type || "")}${line("Order No", o.order_no)}<div class="cs-f cs-w2"><small>Verified By</small><b>&nbsp;</b></div></div>`,
+      bottom: `<div class="cs-foot">${line("Assign By", o.created_by_name || "")}${line("Total Boxes", String(o.total_boxes))}${line("Notes", o.delivery_note || o.note || "")}${line("Date", o.delivered_at ? mdy(o.delivered_at) : "")}${line("Time", o.delivered_at ? new Date(o.delivered_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "")}
+        ${line("Order No", o.order_no)}<div class="cs-f cs-w2"><small>Verified By</small><b>&nbsp;</b></div></div>`,
       caps: { single: 24, first: 28, next: 34, last: 22 } });
   }
 
@@ -743,13 +731,12 @@
         <tr class="ptl-tot"><td class="num">${qtyText(o.total_boxes)}</td><td class="num">${qtyText(o.total_pcs)}</td><td colspan="${4 + cols.length}">TOTAL · ${esc(E.words(o.total_amount))}</td><td class="num">${peso(o.total_amount)}</td></tr></tbody></table>`)}`;
     const bottom = `${done && inv ? E.box("Invoice", `<div class="prow3">${E.cell("Invoice No", inv.invoice_no)}${E.cell("Invoice Date", mdy(inv.invoice_date))}${E.cell("Due Date", mdy(inv.due_date))}</div>
         <div class="prow3">${E.cell("Amount (₱)", peso(inv.total_amount))}${E.cell("Terms of Payment", inv.payment_terms || "")}${E.cell("Status", inv.pay_status === "paid" ? "PAID" : inv.pay_status === "partial" ? "PARTIAL PAYMENT" : "UNPAID")}</div>`) : ""}
-      ${o.rider_name ? E.box(done ? "Done Delivery · Delivery By" : "Delivery By", `<div class="prow3">${E.cell("Rider Name", o.rider_name)}${E.cell("ID No", o.rider_id_no || "")}${E.cell("Plate No", o.plate_no || "")}</div>
-        <div class="prow3">${E.cell("Type", o.vehicle_type || "")}${E.cell("Date and Time", o.delivered_at ? E.dateTime(o.delivered_at) : "")}${E.cell("Note", o.delivery_note || "")}</div>`) : ""}
+      ${o.delivered_at ? E.box(done ? "Done Delivery" : "Delivery", `<div class="prow3">${E.cell("Date and Time", E.dateTime(o.delivered_at))}${E.cell(done ? "Completed By" : "Submitted By", o.completed_by_name || o.delivery_request_by || "")}${E.cell("Note", o.delivery_note || "")}</div>`) : ""}
       ${pics.length ? E.box("Delivery Photos", `<div class="ad-pics">${pics.map((u) => `<img src="${esc(u)}" alt="Delivery photo">`).join("")}</div>`) : ""}
       ${o.status === "cancelled" ? `<p class="po-warn"><b>CANCELLED</b>${o.cancel_note ? ` — ${esc(o.cancel_note)}` : ""}</p>` : ""}
       <div class="psig one"><div></div>${E.sigCol("Authorized Signature", sign)}</div>`;
     // how many box lines go on a page: what the order, its lines and the end take is left out
-    const used = 9 + lines.length + (done && inv ? 4 : 0) + (o.rider_name ? 4 : 0) + (pics.length ? 7 : 0);
+    const used = 9 + lines.length + (done && inv ? 4 : 0) + (o.delivered_at ? 3 : 0) + (pics.length ? 7 : 0);
     const rows = boxes.length ? boxes : [null];
     return E.pagedDoc({
       head: E.printHead("CUSTOMER ORDER — ALL DETAILS", codesHtml(o, `<div class="co-bigbox">${esc(boxesText(o.total_boxes))}</div>`)), contHead: E.printHead(`CUSTOMER ORDER ${o.order_no} — ALL DETAILS (CONTINUED)`, ""),
@@ -764,8 +751,8 @@
   // ======================================================================
   // 3.39 COMPLETE DELIVERY by the order paper: #delivery/<order no>/<secret code> (the barcode or the QR code of the printed
   // order). Whoever holds the paper — signed in or not — does the delivery in 3 steps: 1 the boxes (scanned one after another,
-  // read from a label photo, or typed), 2 the rider and the photos (the car, the proof of delivery), 3 COMPLETE DELIVERY (the
-  // invoice is made by itself). No prices here.
+  // read from a label photo, or typed), 2 the photos of the delivery, 3 COMPLETE DELIVERY (the invoice is made by itself).
+  // 3.45: no rider or car details; not signed in with EO-Office, COMPLETE DELIVERY is SUBMITTED and the Director approves it. No prices.
   // ======================================================================
   // what a scanned order paper opens: its barcode (EMONCO|OR-…|code) or its QR code (…#delivery/OR-…/code); "" for anything else
   const deliveryHashOf = (text) => {
@@ -802,11 +789,17 @@
     </section>`;
     if (d.status !== "approved") { // completed, waiting or cancelled: what was done; nothing to change
       $("#pdBody").innerHTML = `${head}<div class="banner ${d.status === "completed" ? "ok" : d.status === "cancelled" ? "closed" : "warn"}">${d.status === "completed" ? "✔ COMPLETED — " : ""}${esc(d.state)}</div>
-        ${d.status === "completed" ? `<div class="pgrid2 qc-head">${E.cell("Rider Name", d.rider_name || "")}${E.cell("ID No", d.rider_id_no || "")}${E.cell("Plate No", d.plate_no || "")}${E.cell("Type", d.vehicle_type || "")}
-          ${E.cell("Date and Time", d.delivered_at ? E.dateTime(d.delivered_at) : "")}${E.cell("Completed By", d.completed_by_name || "")}${E.cell("Boxes", String(boxes.length))}${E.cell("Photos", String(photos.length))}</div>` : ""}
+        ${d.status === "completed" ? `<div class="pgrid2 qc-head">${E.cell("Date and Time", d.delivered_at ? E.dateTime(d.delivered_at) : "")}${E.cell("Completed By", d.completed_by_name || "")}${E.cell("Boxes", String(boxes.length))}${E.cell("Photos", String(photos.length))}</div>` : ""}
         <div class="btnrow">${orderLink}</div>`;
       return;
     }
+    if (d.request_at && !d.can_complete) { // 3.45: submitted: the Director approves it
+      $("#pdBody").innerHTML = `${head}<div class="banner warn">${ic("clock")} DELIVERY SUBMITTED — ${esc(E.dateTime(d.request_at))}. It waits for the Director's approval: approved, the order is COMPLETED.</div>
+        <div class="pgrid2 qc-head">${E.cell("Submitted By", d.request_by || "")}${E.cell("Boxes", `${boxes.length} of ${qtyText(d.total_boxes)}`)}${E.cell("Pcs", `${qtyText(pcs)} of ${qtyText(d.total_pcs)}`)}${E.cell("Photos", String(photos.length))}</div>
+        <div class="btnrow">${orderLink}</div>`;
+      return;
+    }
+    const submitOnly = d.can_complete === false; // not signed in with EO-Office: the Director approves the delivery
     const tick = (on, label) => `<li class="${on ? "ok" : ""}">${on ? "✔" : "○"} ${esc(label)}</li>`;
     $("#pdBody").innerHTML = `${head}
       <div class="banner">${ic("box")} PREPARED — ready for delivery. Do the steps below.</div>
@@ -820,22 +813,16 @@
           { label: "Items", get: (b) => b.items || "" }, { label: "Brand", get: (b) => b.brand || "" }, { label: "Pcs", num: true, get: (b) => qtyText(b.pcs) },
           { label: "", html: (b) => `<button type="button" class="btn small danger" data-pdx="${b.id}" aria-label="Remove box ${esc(b.serial_no)}">×</button>` }], rows: boxes, empty: "No boxes yet: scan the QR or PDF417 code on each box label." })}
       </section>
-      <section class="pd-step"><h3><span class="pd-n">2</span> Rider and Photos</h3>
-        <div class="fields wide co-del">
-          <label for="pdName">Rider Name *</label><input type="text" id="pdName" maxlength="120" value="${esc(d.rider_name || "")}">
-          <label for="pdIdNo">ID No</label><input type="text" id="pdIdNo" maxlength="60" value="${esc(d.rider_id_no || "")}">
-          <label for="pdPlate">Plate No</label><input type="text" id="pdPlate" maxlength="30" value="${esc(d.plate_no || "")}">
-          <label for="pdVeh">Type</label><select id="pdVeh"><option value="">—</option>${VEHICLES.map((v) => `<option ${v === d.vehicle_type ? "selected" : ""}>${v}</option>`).join("")}</select>
-          <label for="pdAt">Date and Time</label><input type="datetime-local" id="pdAt" value="${esc(localDT(d.delivered_at))}">
-          <label for="pdNote">Note</label><input type="text" id="pdNote" maxlength="300" value="${esc(d.delivery_note || "")}"></div>
-        <div class="btnrow"><button type="button" class="btn" id="pdSave">${ic("check")} Save Rider Details</button></div>
-        <h4 class="co-h4">Photos: the car, the proof of delivery (up to ${MAX_PHOTOS})</h4>
+      <section class="pd-step"><h3><span class="pd-n">2</span> Delivery Photos</h3>
+        <h4 class="co-h4">Photos: the proof of delivery (up to ${MAX_PHOTOS})</h4>
         <div class="po-photos co-photos">${photos.map((x, i) => `<div class="po-pic"><button type="button" class="co-ph" data-ph="${esc(urls.get(x) || "")}" aria-label="Open photo ${i + 1}"><img src="${esc(urls.get(x) || "")}" alt="Delivery photo"></button><button type="button" data-pdrm="${esc(x)}" aria-label="Remove photo">×</button></div>`).join("")}</div>
         <div class="btnrow"><label class="btn" for="pdPic" ${photos.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="pdPic" accept="image/*" multiple hidden></div>
       </section>
       <section class="pd-step"><h3><span class="pd-n">3</span> Complete Delivery</h3>
-        <ul class="pd-check">${tick(boxes.length > 0, `Boxes: ${boxes.length} of ${qtyText(d.total_boxes)}`)}${tick(!!d.rider_name, "Rider details")}${tick(photos.length > 0, "A photo of the delivery")}</ul>
-        <div class="co-done"><button type="button" class="btn ok big" id="pdDone">${ic("check")} Complete Delivery</button><small>The order becomes COMPLETED and the customer's invoice is made and billed by itself.</small></div>
+        <ul class="pd-check">${tick(boxes.length > 0, `Boxes: ${boxes.length} of ${qtyText(d.total_boxes)}`)}${tick(photos.length > 0, "A photo of the delivery")}</ul>
+        <div class="co-done"><button type="button" class="btn ok big" id="pdDone">${ic("check")} ${submitOnly ? "Submit Delivery for Approval" : "Complete Delivery"}</button><small>${submitOnly
+          ? "You are not signed in with EO-Office: the delivery is SUBMITTED and the Director approves it. Approved, the order is COMPLETED and the invoice is made."
+          : "The order becomes COMPLETED and the customer's invoice is made and billed by itself."}</small></div>
       </section>
       <div class="btnrow">${orderLink}</div>`;
     // step 1: the boxes (what a label does not say comes from the order's line of that code, or the box before)
@@ -879,19 +866,7 @@
       if (error) { b.disabled = false; return fail(error, "Could not remove the box"); }
       toast("Box removed."); reload();
     }));
-    // step 2: the rider and the photos (the rider typed is saved first when a photo is added or taken off)
-    const rider = () => ({ rider_name: $("#pdName").value.trim(), rider_id_no: $("#pdIdNo").value.trim(), plate_no: $("#pdPlate").value.trim(), vehicle_type: $("#pdVeh").value,
-      delivered_at: $("#pdAt").value ? new Date($("#pdAt").value).toISOString() : null, delivery_note: $("#pdNote").value.trim() });
-    const saveRider = async () => {
-      const r = rider();
-      if (!r.rider_name) { toast("Write the rider name.", true); return false; }
-      const { error } = await rpc("delivery_save", { p_data: r });
-      if (error) { fail(error, "Could not save the rider details"); return false; }
-      d.rider_name = r.rider_name.toUpperCase();
-      return true;
-    };
-    $("#pdSave").onclick = async (e) => { e.target.disabled = true; const ok = await saveRider(); e.target.disabled = false; if (ok) { toast("Rider details saved."); reload(); } };
-    const keepRider = async () => { if ($("#pdName")?.value.trim()) await saveRider(); };
+    // step 2: the photos
     const setPhotos = async (list) => {
       const { data: gone, error } = await rpc("delivery_photos", { p_photos: list });
       if (error) { fail(error, "Could not save the photos"); return false; }
@@ -904,7 +879,6 @@
       const room = MAX_PHOTOS - photos.length;
       if (files.length > room) toast(`Up to ${MAX_PHOTOS} photos: only ${room} more can be added.`, true);
       toast("Uploading the photo…");
-      await keepRider();
       const paths = [];
       for (const raw of files.slice(0, room)) {
         const f = await E.slimFile(raw, "photo");
@@ -918,20 +892,21 @@
     };
     $$("[data-pdrm]").forEach((b) => (b.onclick = async () => {
       if (!(await E.confirmBox("Remove this photo?", { ok: "Remove", danger: true }))) return;
-      await keepRider();
       if (await setPhotos(photos.filter((x) => x !== b.dataset.pdrm))) reload();
     }));
     // step 3: COMPLETE DELIVERY
     $("#pdDone").onclick = async (e) => {
-      if (!(await saveRider())) return;
-      if (!photos.length) return toast("Add a photo of the delivery first (the car or the proof of delivery).", true);
+      if (!photos.length) return toast("Add a photo of the delivery first.", true);
       const short = boxes.length !== num(d.total_boxes);
       const msg = `Complete the delivery of <b>${esc(d.order_no)}</b> for <b>${esc(d.customer)}</b>?`
-        + (short ? `<br><br><b>Note:</b> ${boxes.length} box(es) were scanned, the order has ${qtyText(d.total_boxes)}.` : "") + "<br><br>The order becomes COMPLETED and the invoice is made. This cannot be undone.";
-      if (!(await E.confirmBox(msg, { title: "Complete Delivery", ok: "Complete Delivery" }))) return;
+        + (short ? `<br><br><b>Note:</b> ${boxes.length} box(es) were scanned, the order has ${qtyText(d.total_boxes)}.` : "")
+        + (submitOnly ? "<br><br>The delivery is SUBMITTED and waits for the Director's approval." : "<br><br>The order becomes COMPLETED and the invoice is made. This cannot be undone.");
+      const title = submitOnly ? "Submit Delivery" : "Complete Delivery";
+      if (!(await E.confirmBox(msg, { title, ok: title }))) return;
       e.target.disabled = true;
-      const { error } = await rpc("delivery_complete");
+      const { data: res, error } = await rpc("delivery_complete");
       if (error) { e.target.disabled = false; return fail(error, "Could not complete the delivery"); }
+      if (res === "submitted") { toast(`Order ${d.order_no}: delivery SUBMITTED. The Director approves it. Thank you!`); reload(); return; }
       toast(`Order ${d.order_no}: COMPLETED. Thank you!`);
       if (inside && E.canOpen("custorder")) location.hash = "custorder/" + d.id; else reload();
     };
