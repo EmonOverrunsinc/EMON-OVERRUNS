@@ -626,18 +626,18 @@
     paint();
     return input;
   }
-  // the EVA panel (top bar button, the Director only): "this customer" is the customer of the page open
+  // the EVA panel (top bar button: the Director and the staff given EVA AI): "this customer" is the customer of the page open
   function openPanel() {
-    if (!isAdmin()) return;
+    if (!E.canAI()) return;
     let p = $(".eva-panel");
     if (!p) {
       p = document.createElement("aside");
       p.className = "eva-panel"; p.setAttribute("aria-label", "EVA AI chat");
-      p.innerHTML = `<div class="ep-head"><span class="ep-title">${ic("ai")} EVA AI <small>ask me</small></span><a href="#gateai" class="ep-page" title="EVA AI page">${ic("doc")}</a>
+      p.innerHTML = `<div class="ep-head"><span class="ep-title">${ic("ai")} EVA AI <small>ask me</small></span>${isAdmin() ? `<a href="#gateai" class="ep-page" title="EVA AI page">${ic("doc")}</a>` : ""}
         <button type="button" class="ep-x" aria-label="Close">${ic("x")}</button></div><div class="ep-ctx" hidden></div><div class="ep-body"></div>`;
       document.body.appendChild(p);
       $(".ep-x", p).onclick = closePanel;
-      $(".ep-page", p).onclick = () => closePanel();
+      if ($(".ep-page", p)) $(".ep-page", p).onclick = () => closePanel();
       mount($(".ep-body", p));
       document.addEventListener("keydown", panelKey);
     }
