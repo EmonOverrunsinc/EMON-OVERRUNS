@@ -21,6 +21,9 @@ $$;
 revoke execute on function public.set_voucher_account(uuid, uuid) from public, anon;
 grant execute on function public.set_voucher_account(uuid, uuid) to authenticated;
 
+-- the portal sees the new function at once
+notify pgrst, 'reload schema';
+
 select case when to_regprocedure('public.set_voucher_account(uuid,uuid)') is not null
   then 'UPDATE 3.48 READY - change the account of a payment voucher (or add a new account) on the voucher page'
   else 'NOT READY - send this message to Claude' end as result;
