@@ -12046,7 +12046,7 @@ end $$;
 alter table public.customer_orders add column if not exists delivery_request_at timestamptz;
 alter table public.customer_orders add column if not exists delivery_request_by text;
 
--- 1. COMPLETE: the delivery photo is needed (no rider details any more)
+-- 1. COMPLETE: no rider details; the delivery photo is optional (3.47)
 create or replace function public.complete_customer_order(p_id uuid) returns public.customer_orders
 language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
 declare o public.customer_orders; inv uuid; ino text; me text := (select full_name from public.profiles where id = auth.uid());
@@ -12056,7 +12056,6 @@ begin
   select * into o from public.customer_orders where id = p_id for update;
   if not found then raise exception 'Order not found'; end if;
   if o.status <> 'approved' then raise exception '%', case when o.status = 'pending' then 'Order ' || o.order_no || ' waits for the Director''s approval' else 'Order ' || o.order_no || ' is ' || upper(o.status) end; end if;
-  if cardinality(o.delivery_photos) = 0 then raise exception 'Add a delivery photo first'; end if;
   insert into public.customer_invoices (customer_id, invoice_date, purchase_date, po_number, total_boxes, total_pcs, total_amount, payment_terms)
   values (o.customer_id, current_date, o.order_date, o.order_no, o.total_boxes, o.total_pcs, o.total_amount, o.payment_terms)
   returning id, invoice_no into inv, ino;
@@ -12129,7 +12128,6 @@ begin
     o := public.complete_customer_order(o.id);
     return 'completed';
   end if;
-  if cardinality(o.delivery_photos) = 0 then raise exception 'Add a delivery photo first'; end if;
   update public.customer_orders set delivery_request_at = now(), delivery_request_by = left('ORDER PAPER [[U+00B7]] ' || who, 120), delivered_at = now(), updated_at = now()
     where id = o.id returning * into o;
   perform public.notify_admins('Customer order ' || o.order_no || ' delivery waits for approval',

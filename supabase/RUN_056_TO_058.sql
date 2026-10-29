@@ -1,9 +1,10 @@
 -- =====================================================================
--- EMON OVERRUNS E-PORTAL - RUN THIS ONE FILE: updates 3.45 and 3.46
+-- EMON OVERRUNS E-PORTAL - RUN THIS ONE FILE: updates 3.45, 3.46 and 3.47
 --   056  no rider / car details; COMPLETE DELIVERY by the order paper without EO-Office sign-in waits for the Director's approval
 --   057  ADD BOX without a serial no: kept on the order, not counted as a box
--- Paste all of it in Supabase > SQL Editor > New query and press Run. Safe to run again (also if 056 was run before).
--- The last line says: UPDATE 3.46 READY - ...
+--   058  the DELIVERY PHOTO is optional: COMPLETE DELIVERY works with or without a photo
+-- Paste all of it in Supabase > SQL Editor > New query and press Run. Safe to run again (also after RUN_056_057.sql).
+-- The last line says: UPDATE 3.47 READY - ...
 -- =====================================================================
 -- =====================================================================
 -- EMON OVERRUNS E-PORTAL - Update 3.45: NO RIDER / CAR DETAILS, and COMPLETE DELIVERY by the order paper needs approval
@@ -21,7 +22,7 @@ end $$;
 alter table public.customer_orders add column if not exists delivery_request_at timestamptz;
 alter table public.customer_orders add column if not exists delivery_request_by text;
 
--- 1. COMPLETE: the delivery photo is needed (no rider details any more)
+-- 1. COMPLETE: no rider details; the delivery photo is optional (3.47)
 create or replace function public.complete_customer_order(p_id uuid) returns public.customer_orders
 language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
 declare o public.customer_orders; inv uuid; ino text; me text := (select full_name from public.profiles where id = auth.uid());
@@ -31,7 +32,6 @@ begin
   select * into o from public.customer_orders where id = p_id for update;
   if not found then raise exception 'Order not found'; end if;
   if o.status <> 'approved' then raise exception '%', case when o.status = 'pending' then 'Order ' || o.order_no || ' waits for the Director''s approval' else 'Order ' || o.order_no || ' is ' || upper(o.status) end; end if;
-  if cardinality(o.delivery_photos) = 0 then raise exception 'Add a delivery photo first'; end if;
   insert into public.customer_invoices (customer_id, invoice_date, purchase_date, po_number, total_boxes, total_pcs, total_amount, payment_terms)
   values (o.customer_id, current_date, o.order_date, o.order_no, o.total_boxes, o.total_pcs, o.total_amount, o.payment_terms)
   returning id, invoice_no into inv, ino;
@@ -104,7 +104,6 @@ begin
     o := public.complete_customer_order(o.id);
     return 'completed';
   end if;
-  if cardinality(o.delivery_photos) = 0 then raise exception 'Add a delivery photo first'; end if;
   update public.customer_orders set delivery_request_at = now(), delivery_request_by = left('ORDER PAPER · ' || who, 120), delivered_at = now(), updated_at = now()
     where id = o.id returning * into o;
   perform public.notify_admins('Customer order ' || o.order_no || ' delivery waits for approval',
@@ -192,10 +191,29 @@ begin
   end if;
 end $$;
 
+-- EMON OVERRUNS E-PORTAL - Update 3.47: the DELIVERY PHOTO is optional
+-- COMPLETE DELIVERY (and SUBMIT on the order paper's page) works with or without a photo. Photos added are kept as before.
+-- Needs RUN_056_057.sql (already run). Safe to run again.
+do $$
+declare f text; def text;
+begin
+  if to_regprocedure('public.decide_delivery(uuid,text)') is null then raise exception 'Run RUN_056_057.sql first, then run this again.'; end if;
+  foreach f in array array['complete_customer_order(uuid)', 'delivery_complete(text,text)'] loop
+    def := pg_get_functiondef(('public.' || f)::regprocedure);
+    if position('Add a delivery photo first' in def) > 0 then
+      def := replace(replace(def, 'if cardinality(o.delivery_photos) = 0 then raise exception ''Add a delivery photo first''; end if;', ''),
+        'if cardinality(o.delivery_photos) = 0 then raise exception ''Add a delivery photo first''; end if;', '');
+      if position('Add a delivery photo first' in def) > 0 then raise exception 'Could not update %', f; end if;
+      execute def;
+    end if;
+  end loop;
+end $$;
+
 
 select case when position('rider' in pg_get_functiondef('public.complete_customer_order(uuid)'::regprocedure)) = 0
+    and position('Add a delivery photo first' in pg_get_functiondef('public.complete_customer_order(uuid)'::regprocedure)) = 0
+    and position('Add a delivery photo first' in pg_get_functiondef('public.delivery_complete(text,text)'::regprocedure)) = 0
     and to_regprocedure('public.decide_delivery(uuid,text)') is not null
     and (select is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'customer_order_boxes' and column_name = 'serial_no') = 'YES'
-    and position('count(serial_no) from public.customer_order_boxes' in pg_get_functiondef('public.delivery_complete(text,text)'::regprocedure)) > 0
-  then 'UPDATE 3.46 READY - no rider details; paper delivery needs the Director''s approval; Add Box without a serial no (not counted as a box)'
+  then 'UPDATE 3.47 READY - no rider details; delivery photo optional; paper delivery needs the Director''s approval; Add Box without a serial no'
   else 'NOT READY - send this message to Claude' end as result;
