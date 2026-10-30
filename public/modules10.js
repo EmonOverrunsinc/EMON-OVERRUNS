@@ -440,28 +440,38 @@
   }
 
   // ---------- the boxes (Delivery Sheet) ----------
-  // 3.42: which boxes are still missing and which are not on the order, by code (the order's lines against the boxes added).
-  // A code with all its boxes here is not listed; the others read "1 BOX OF RR-17" (the batch / lot no of the code).
+  // 3.49: the boxes still missing, one row for each CODE + BATCH (lot) of the order's lines, so the warehouse finds them easily.
+  // A box added counts for its own code + batch (or the same batch / the same code when the line has only one of them);
+  // a row with all its boxes here is not listed. Boxes that match no line are listed as NOT ON THE ORDER.
   function boxCheck(lines, boxes) {
-    const want = new Map(), got = new Map(), name = new Map(), lot = new Map();
-    const lotOf = (k, v) => { v = String(v || "").trim().toUpperCase(); if (!v) return; if (!lot.has(k)) lot.set(k, new Set()); lot.get(k).add(v); };
-    lines.forEach((l) => { const k = String(l.code || "—").toUpperCase(); want.set(k, (want.get(k) || 0) + num(l.boxes)); if (!name.has(k)) name.set(k, l.product || ""); lotOf(k, l.lot); });
-    boxes.filter((b) => b.serial_no).forEach((b) => { const k = String(b.code || "—").toUpperCase(); got.set(k, (got.get(k) || 0) + 1); if (!name.has(k)) name.set(k, b.items || ""); if (!want.get(k)) lotOf(k, b.batch_no); });
-    const keys = [...new Set([...want.keys(), ...got.keys()])].filter((k) => want.get(k) || got.get(k));
-    if (!keys.length) return "";
-    let miss = 0, extra = 0;
-    const rows = keys.map((k) => {
-      const w = want.get(k) || 0, g = got.get(k) || 0, d = g - w;
-      if (!d) return "";
-      if (d < 0) miss -= d; else extra += d;
-      const of = lot.get(k)?.size ? [...lot.get(k)].join(", ") : `CODE ${k}`;
-      const st = !w ? "NOT ON THE ORDER" : d < 0 ? "MISSING" : "EXTRA";
-      return `<li class="${d < 0 ? "miss" : "extra"}"><b>${boxesText(Math.abs(d)).toUpperCase()} OF ${esc(of)}</b><span class="bx-st ${d < 0 ? "miss" : "extra"}">${st}</span>
-        <small>${[lot.get(k)?.size ? `Code ${esc(k)}` : "", esc(name.get(k) || ""), w ? `${g} of ${w} here` : ""].filter(Boolean).join(" · ")}</small></li>`;
-    }).join("");
-    const sum = !miss && !extra ? `<div class="bx-sum ok">✔ Every box of the order is here.</div>`
-      : `<div class="bx-sum ${miss ? "miss" : "extra"}">${miss ? `<b>${boxesText(miss)} missing</b>` : ""}${miss && extra ? " · " : ""}${extra ? `<b>${boxesText(extra)} extra / not on the order</b>` : ""}</div>`;
-    return `<div class="bx-check">${sum}${rows ? `<ul class="bx-list">${rows}</ul>` : ""}</div>`;
+    const up = (v) => String(v || "").trim().toUpperCase();
+    const rows = [];
+    lines.forEach((l) => {
+      const n = num(l.boxes); if (!n) return;
+      const code = up(l.code), batch = up(l.lot);
+      let r = rows.find((x) => x.code === code && x.batch === batch);
+      if (!r) rows.push(r = { code, batch, name: l.product || "", want: 0, got: 0 });
+      r.want += n;
+    });
+    const extra = [];
+    boxes.filter((b) => b.serial_no).forEach((b) => {
+      const code = up(b.code), batch = up(b.batch_no), free = (x) => x.got < x.want;
+      const r = rows.find((x) => free(x) && x.code === code && x.batch === batch)
+        || rows.find((x) => free(x) && batch && x.batch === batch && (!x.code || !code))
+        || rows.find((x) => free(x) && code && x.code === code && (!x.batch || !batch));
+      if (r) r.got++;
+      else { let e = extra.find((x) => x.code === code && x.batch === batch); if (!e) extra.push(e = { code, batch, name: b.items || "", n: 0 }); e.n++; }
+    });
+    if (!rows.length && !extra.length) return "";
+    const open = rows.filter((r) => r.got < r.want).sort((x, y) => (x.batch + x.code).localeCompare(y.batch + y.code));
+    const miss = open.reduce((t, r) => t + r.want - r.got, 0), ext = extra.reduce((t, e) => t + e.n, 0);
+    const cell = (v) => (v ? esc(v) : "—");
+    const tr = (r, n, cls, st) => `<tr class="${cls}"><td class="bx-n">${qtyText(n)}</td><td class="bx-b">${cell(r.batch)}</td><td class="bx-c">${cell(r.code)}</td>
+      <td class="bx-p">${esc(r.name)}</td><td>${r.want ? `${qtyText(r.got)} of ${qtyText(r.want)}` : ""}</td><td><span class="bx-st ${cls}">${st}</span></td></tr>`;
+    const sum = !miss && !ext ? `<div class="bx-sum ok">✔ Every box of the order is here.</div>`
+      : `<div class="bx-sum ${miss ? "miss" : "extra"}">${miss ? `<b>${boxesText(miss)} MISSING</b>` : ""}${miss && ext ? " · " : ""}${ext ? `<b>${boxesText(ext)} NOT ON THE ORDER</b>` : ""}</div>`;
+    const body = open.map((r) => tr(r, r.want - r.got, "miss", "MISSING")).join("") + extra.map((e) => tr(e, e.n, "extra", "NOT ON THE ORDER")).join("");
+    return `<div class="bx-check">${sum}${body ? `<div class="grid-scroll"><table class="bx-table"><thead><tr><th>BOXES</th><th>BATCH NO</th><th>CODE</th><th>PRODUCT</th><th>HERE</th><th></th></tr></thead><tbody>${body}</tbody></table></div>` : ""}</div>`;
   }
   function boxesHtml(o, boxes, sumPcs, w) {
     return `<div class="co-count"><b>${nBoxes(boxes)}</b> of ${qtyText(o.total_boxes)} boxes · <b>${qtyText(sumPcs)}</b> of ${qtyText(o.total_pcs)} pcs</div>${boxCheck(o.lines || [], boxes)}
