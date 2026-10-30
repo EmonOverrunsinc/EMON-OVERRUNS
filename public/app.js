@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.49";
+  const VERSION = "3.50";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.49.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.50.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -56,6 +56,40 @@
     const [y, m, d] = s.slice(0, 10).split("-");
     return MON[Number(m) - 1] && d ? `${MON[Number(m) - 1]}\u00a0${d}\u00a0${y}` : s;
   };
+  // 3.50: every amount / number box shows its thousands as it is typed (50,000 · 100,000.50). The box becomes a text box;
+  // reading it (el.value) still gives the plain number (50000), so every form saves as before.
+  const valueProp = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  const commaNum = (v) => {
+    let s = String(v ?? "").replace(/[^\d.-]/g, "");
+    const neg = s.startsWith("-"); s = s.replace(/-/g, "");
+    const dot = s.indexOf("."), int = (dot < 0 ? s : s.slice(0, dot)).replace(/^0+(?=\d)/, ""), dec = dot < 0 ? null : s.slice(dot + 1).replace(/\./g, "");
+    if (!int && dec === null) return neg ? "-" : "";
+    return (neg ? "-" : "") + (int || "0").replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (dec === null ? "" : "." + dec);
+  };
+  function commaBox(el) {
+    if (el.dataset.comma) return;
+    el.dataset.comma = "1";
+    const dec = (el.getAttribute("step") || "1") !== "1";
+    el.type = "text"; el.inputMode = dec ? "decimal" : "numeric"; el.autocomplete = "off";
+    Object.defineProperty(el, "value", { configurable: true,
+      get() { return valueProp.get.call(this).replace(/,/g, ""); },
+      set(v) { valueProp.set.call(this, commaNum(v)); } });
+    valueProp.set.call(el, commaNum(valueProp.get.call(el)));
+    el.addEventListener("input", () => {
+      const shown = valueProp.get.call(el), at = el.selectionStart ?? shown.length;
+      const keep = shown.slice(0, at).replace(/[^\d.-]/g, "").length, out = commaNum(shown);
+      if (out === shown) return;
+      valueProp.set.call(el, out);
+      let pos = 0, seen = 0;
+      while (pos < out.length && seen < keep) { if (/[\d.-]/.test(out[pos])) seen++; pos++; }
+      try { el.setSelectionRange(pos, pos); } catch { /* not focused */ }
+    });
+  }
+  const commaAll = (root) => root.querySelectorAll?.('input[type="number"]').forEach(commaBox);
+  new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach((n) => {
+    if (n.nodeType !== 1) return;
+    if (n.matches?.('input[type="number"]')) commaBox(n); else commaAll(n);
+  }))).observe(document.documentElement, { childList: true, subtree: true });
   // 3.36: a month as OCTOBER 2026 (from 2026-10 or any date in it), in every section
   const monthOf = (d) => String(d || "").slice(0, 7);
   const monthText = (d) => { const [y, m] = monthOf(d).split("-"); return MON[Number(m) - 1] ? `${MON[Number(m) - 1]} ${y}` : ""; };
