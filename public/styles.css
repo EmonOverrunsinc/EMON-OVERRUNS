@@ -2666,3 +2666,7 @@ body:not(:has(.content)) > .band-back, body:has(.preview) > .band-back { display
 /* 3.57: the public Verify page: private details only for staff signed in */
 .vf-limited { margin: 10px auto 0; max-width: 520px; padding: 8px 12px; border-radius: 10px; background: #f5f5f7; color: var(--ink-soft, #6e6e73); font-size: 13px; display: flex; gap: 6px; align-items: center; justify-content: center; }
 .vf-limited .ic { width: 15px; height: 15px; flex: none; }
+/* 3.58: Windows app - a dialog, a message or a menu over the window's drag strip takes the clicks (its X closes it) */
+html.eo-overlay :is(.modal, .modal *, .toast, .toast *, .drawer, .drawer *, .band-back, .scan-view) { -webkit-app-region: no-drag; }
+html.eo-overlay .modal { padding-top: calc(env(titlebar-area-height, 32px) + 10px); }
+html.eo-overlay .modal .window { max-height: calc(100vh - env(titlebar-area-height, 32px) - 42px); }
