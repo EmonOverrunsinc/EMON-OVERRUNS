@@ -231,9 +231,9 @@
     }
     return m;
   }
-  // 3.60: what the network learned is kept on this device; it learns again only when EVA's examples or words change
+  // 3.60: what the network learned is kept on this device; it learns again when the portal or EVA's examples change
   const fnv = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
-  const NET_KEY = "eoEvaNet:" + fnv(JSON.stringify([EXAMPLES, CONCEPTS, D, H]));
+  const NET_KEY = "eoEvaNet:" + fnv(JSON.stringify([E.VERSION, EXAMPLES, CONCEPTS, D, H]));
   const b64 = (f) => { const u = new Uint8Array(f.buffer); let s = ""; for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); };
   const unb64 = (s) => { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new Float32Array(u.buffer); };
   function getNet() {
@@ -363,7 +363,8 @@
     let words = t ? t.split(" ") : [];
     const period = periodOf(t);
     if (period) flags.add("period");
-    if (words.some((w) => CTX.has(w))) flags.add("ctx");
+    // "this customer", "his due" …: the account talked about ("this month", "this week" … are a time, not an account)
+    if (t.replace(/\b(?:this|that|same) (?:month|week|year|day)\b/g, " ").split(" ").some((w) => CTX.has(w))) flags.add("ctx");
     let named = { list: [], used: [] }, kind = null;
     if (!training && ents) {
       const all = Array.isArray(ents) ? { customer: ents } : ents, fixed = words.map(fixWord);
@@ -1012,6 +1013,8 @@
     // a named account that is not a customer: its own answer (the codes in the question come first)
     if (item && kind !== "customer" && !coded) { ctx.waiting = null; intent = KIND_INTENT[kind] || intent; return done(await accountAnswer(kind, item, q, ents)); }
     let cust = kind === "customer" ? item : null;
+    // a customer picked from "which one?" for a question of only the name: the customer's details
+    if (cust && pk && !ctx.waiting && !q.words.some((w) => !BARE.has(w))) intent = "customer_info";
     // only a name was written as the answer to "which customer?": the waiting question is answered
     if (cust && ctx.waiting && (sure < 0.6 || intent === "customer_info") && q.words.length <= 1) { intent = ctx.waiting.intent; }
     else if (!cust && ctx.waiting && sure < 0.35) return { html: "I did not find that customer. Write the name as on the account, or the account no (for example PR-202610001)." };
