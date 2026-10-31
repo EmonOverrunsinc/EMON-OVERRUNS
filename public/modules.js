@@ -663,7 +663,7 @@
       if (ws.length) { const st0 = (v) => String(v || "").toLowerCase().startsWith(ws[0]); const rk = (c) => (st0(c.first_name) ? 0 : st0(c.last_name) ? 1 : 2); rows.sort((a, b) => rk(a) - rk(b)); }
       $("#cuRes").innerHTML = E.grid({ cols: [
         { label: "Account No", get: (r) => r.account_no }, { label: "Name", html: (r) => `${esc(fullName(r))}${r.status === "closed" ? ' <span class="closed-mark">CLOSED</span>' : ""}` },
-        { label: "Business", get: (r) => r.business_name || "" }, { label: "Phone", get: (r) => r.phone || "" },
+        { label: "Phone", get: (r) => r.phone || "" },
         { label: "Opened", get: (r) => mdy(r.application_date) }, { label: "Status", html: (r) => pill(r.status) },
         { label: "Balance Due (₱)", key: "due", num: true, get: (r) => peso(r.due) }],
         rows, onRow: true, foot: { due: peso(rows.reduce((s, r) => s + r.due, 0)) }, empty: "No customers found." });
@@ -1723,7 +1723,15 @@
     let cust = null;
     customerPicker($("#npCust"), { statuses: ["active", "suspended", "closed"], onPick: (c) => (cust = c), preset: (await getCustomer(custId)) || undefined });
     const methodUi = () => { const m = $("#npMethod").value; $$(".npb").forEach((x) => (x.hidden = m === "cash")); };
-    $("#npMethod").onchange = methodUi; methodUi();
+    // 3.51: the usual account of each way of paying is filled in by itself (it can still be changed)
+    const PAY_TO = { bank_transfer: ["EAST WEST BANK", "EMON HASAN"], online_transfer: ["GCASH", "EMN H."] };
+    const auto = new Set(Object.values(PAY_TO).flat());
+    $("#npMethod").onchange = () => {
+      const to = PAY_TO[$("#npMethod").value];
+      [["#npBank", 0], ["#npAcct", 1]].forEach(([id, i]) => { const x = $(id); if (!x.value.trim() || auto.has(x.value.trim())) x.value = to ? to[i] : ""; });
+      methodUi();
+    };
+    methodUi();
     $("#npAmt").oninput = () => ($("#npWords").textContent = words($("#npAmt").value));
     $("#npCancel").onclick = () => history.back();
     $("#npForm").onsubmit = async (e) => {

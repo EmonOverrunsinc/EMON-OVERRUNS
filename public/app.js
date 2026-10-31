@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.50";
+  const VERSION = "3.51";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.50.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.51.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -353,16 +353,6 @@
     const c = document.createElement("canvas"); return drawQr(c, text) ? c.toDataURL("image/png") : "";
   }
   const fillCodes = (html) => html.replace(/bc:(pdf417|qrcode):([^"'\s<>]*)/g, (_, kind, t) => (kind === "pdf417" ? pdf417DataUrl : qrDataUrl)(decodeURIComponent(t)));
-  // 2.1: the QR of the website for the foot of every printed page, made once. Error correction Q (a smudge or a fold
-  // still scans) keeps it at 29 × 29 modules, so it stays small on paper.
-  let webQrUrl = "";
-  function websiteQr() {
-    if (webQrUrl || !C.company.website || !window.bwipjs) return webQrUrl;
-    const c = document.createElement("canvas");
-    try { window.bwipjs.toCanvas(c, { bcid: "qrcode", text: C.company.website, eclevel: "Q", scale: 6, padding: 2, backgroundcolor: "FFFFFF" }); webQrUrl = c.toDataURL("image/png"); }
-    catch (e) { console.error(e); }
-    return webQrUrl;
-  }
   // 3.35: the phone's own barcode reader (Chrome on Android and on a Mac) reads a QR code or a PDF417 at once, also a
   // small or dense one; without it (Windows, iPhone) ZXing reads the code. null: there is none.
   let nativeFormats = null;
@@ -1728,10 +1718,6 @@
     // a blank form (undated) does not.
     const printed = dateTime(new Date().toISOString());
     const dated = (p) => (undated || /Date Printed|rp-stamp|Printed \d/.test(p) ? "" : `<div class="pg-date">Date Printed: ${esc(printed)}</div>`);
-    // and ends with the QR of the website (scan it to open the website)
-    const qr = websiteQr(), site = String(C.company.website || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
-    // 2.7: an official foot line on every page: issued through the E-Portal, with the website QR
-    const web = qr ? `<div class="pg-web"><span class="pg-off">Official document issued through the <b>${esc(APP)}</b><br>Every record can be checked online at ${esc(site)}</span><span>Scan to visit<br><b>${esc(site)}</b></span><img src="${qr}" alt="QR code: ${esc(site)}"></div>` : "";
     S.docTitle = document.title;
     document.title = title; // "Save as PDF" uses this as the file name
     const pv = document.createElement("div");
@@ -1744,7 +1730,7 @@
         <select id="pvZoom" style="width:auto"><option value="fit">Fit</option><option>50</option><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
         <button type="button" class="btn" id="pvClose">Close</button>
       </div>
-      <div class="pv-desk" id="pvDesk">${pages.map((p, i) => (bare ? `<div class="page${cls} bare">${p}</div>` : `<div class="page${cls}">${dated(p)}${onePage ? `<div class="pg-fit">${p}</div>` : p}${web}<div class="pg-num">PAGE ${i + 1} OF ${pages.length}</div></div>`)).join("")}</div>
+      <div class="pv-desk" id="pvDesk">${pages.map((p, i) => (bare ? `<div class="page${cls} bare">${p}</div>` : `<div class="page${cls}">${dated(p)}${onePage ? `<div class="pg-fit">${p}</div>` : p}<div class="pg-num">PAGE ${i + 1} OF ${pages.length}</div></div>`)).join("")}</div>
       <div class="statusbar"><span id="pvCur">Current Page No: 1</span><span>Total Page No: ${pages.length}</span><span id="pvZf">Zoom Factor: 100%</span></div>`;
     document.body.appendChild(pv);
     // 3.0: no watermark (company seal) on printed pages
