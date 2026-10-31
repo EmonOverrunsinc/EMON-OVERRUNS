@@ -523,8 +523,6 @@
         <p class="welcome">${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span> · <b>${esc(E.personTitle(S.profile.role, S.position))}</b></p></div></section>
       ${isAdmin() ? `<section class="todo" id="dTodo" hidden></section>` : ""}
       ${H("customers") ? `<div class="tiles" id="dTiles">${tiles.map(tile).join("")}</div>` : ""}
-      ${isAdmin() || (isStaff() && H("eooffice")) ? `<div class="tiles" id="dPayroll">${[["Salary Paid This Month", "wallet", "payroll", `Paid in ${now.toLocaleDateString("en-US", { month: "long" }).toUpperCase()}`],
-        ["Salary Deductions This Month", "tag", "payroll", "On the payslips of this month"], ["Unpaid Salary", "users", "payroll", "Payslips not paid yet"]].map(tile).join("")}</div>` : ""}
       <h3 class="home-h">Quick Actions</h3>
       <div class="quick">${quick.map((q) => `<a class="qa qa-${q[4]}" href="${q[1]}"><span class="qa-ic">${ic(q[3])}</span><span class="qa-l">${esc(q[2])}</span></a>`).join("")}</div>
       <div class="dash-grid">
@@ -538,7 +536,6 @@
     if (!soaDone) sb.rpc("generate_statements", {}).then(({ error }) => { if (!error) { try { sessionStorage.setItem("eoSoa", ym); } catch (_) {} } }, () => {});
     loadCommunityBox();
     if (isAdmin()) loadTodo();
-    if ($("#dPayroll")) loadPayrollTiles();
     if (!H("customers") && !H("invoices") && !H("payments")) { E.setRecords("Welcome"); return; }
     const nextMonth = (m) => { const [y, n] = m.split("-").map(Number); return n === 12 ? `${y + 1}-01-01` : `${y}-${String(n + 1).padStart(2, "0")}-01`; };
     // 2.5: only what the dashboard shows is loaded (the 8 newest invoices and payments, this month's payment amounts)
@@ -613,21 +610,6 @@
   }
   // Admin to-do: everything waiting for a decision. 3.36: only what has something shows (1 Customer application,
   // 2 Corrections …); with nothing waiting the box stays hidden.
-  // 3.55: the dashboard's payroll numbers: salary paid and deductions this month, the unpaid salary of every employee
-  async function loadPayrollTiles() {
-    const ym = isoToday().slice(0, 7), [y, n] = ym.split("-").map(Number);
-    const nm = n === 12 ? `${y + 1}-01-01` : `${y}-${String(n + 1).padStart(2, "0")}-01`;
-    const [pays, slips, bal] = await Promise.all([
-      sb.from("salary_payments").select("amount").gte("pay_date", ym + "-01").lt("pay_date", nm),
-      sb.from("payslips").select("net_pay, advance_deduction, other_deductions, issued_at").gte("pay_date", ym + "-01").lt("pay_date", nm),
-      sb.from("payslip_balances").select("balance").gt("balance", 0)
-    ]);
-    const el = $("#dPayroll"); if (!el) return;
-    const sl = slips.data || [];
-    const vals = [(pays.data || []).reduce((t, x) => t + num(x.amount), 0) + sl.filter((x) => !x.issued_at).reduce((t, x) => t + num(x.net_pay), 0),
-      sl.reduce((t, x) => t + num(x.advance_deduction) + num(x.other_deductions), 0), (bal.data || []).reduce((t, x) => t + num(x.balance), 0)];
-    $$(".tile .v", el).forEach((v, i) => (v.textContent = pays.error && i !== 1 ? "—" : "₱ " + peso(vals[i])));
-  }
   async function loadTodo() {
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };

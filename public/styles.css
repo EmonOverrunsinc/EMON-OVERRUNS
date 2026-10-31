@@ -2670,3 +2670,16 @@ body:not(:has(.content)) > .band-back, body:has(.preview) > .band-back { display
 html.eo-overlay :is(.modal, .modal *, .toast, .toast *, .drawer, .drawer *, .band-back, .scan-view) { -webkit-app-region: no-drag; }
 html.eo-overlay .modal { padding-top: calc(env(titlebar-area-height, 32px) + 10px); }
 html.eo-overlay .modal .window { max-height: calc(100vh - env(titlebar-area-height, 32px) - 42px); }
+
+/* 3.59: the box check (ORDER / ADDED), the boxes locked, a big invoice status, completing without a box */
+.bx-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: .06em; }
+.bx-tag.ord { background: #eef3fb; color: #1f4fa3; }
+.bx-tag.add { background: #fdecea; color: #b00020; }
+.bx-table tr.okrow td { background: #f3faf4; }
+.bx-st.ok { color: #1e7b34; font-weight: 800; }
+.co-lock { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.co-invstat .pill { font-size: 18px; padding: 6px 18px; letter-spacing: .04em; }
+.co-verified { margin-top: 8px; font-weight: 700; }
+.co-warn0 { margin: 0 0 12px; padding: 12px 14px; border-radius: 12px; background: #fff3e0; border: 2px solid #f0a020; color: #8a4b00; font-size: 17px; font-weight: 800; }
+.co-warn0 small { display: block; margin-top: 4px; font-size: 13px; font-weight: 600; }
+.co-ok0 { margin: 0 0 12px; padding: 10px 14px; border-radius: 12px; background: #e8f5e9; color: #1e7b34; font-weight: 700; }

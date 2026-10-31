@@ -39,7 +39,10 @@ begin
           when bx.item <> '' and ln.prod = bx.item then 3
           when bx.item <> '' and ln.prod <> '' and (position(ln.prod in bx.item) > 0 or position(bx.item in ln.prod) > 0) then 4
           else 9 end as rk
-      from ln where ln.nbox > 0 order by 2, ln.i limit 1) m on true
+      from ln where ln.nbox > 0
+      -- among lines that fit the same way, the line of the same product first (e.g. MIX and TOMMY, both without a code)
+      order by 2, (bx.item <> '' and ln.prod = bx.item) desc,
+        (bx.item <> '' and ln.prod <> '' and (position(ln.prod in bx.item) > 0 or position(bx.item in ln.prod) > 0)) desc, ln.i limit 1) m on true
   ), per as (
     select ln.i, ln.v, ln.price, ln.qty, ln.nbox, ln.amt,
       count(p.id) filter (where p.rk < 9) as boxes_in, coalesce(sum(p.pcs) filter (where p.rk < 9), 0) as pcs_in,
@@ -176,9 +179,17 @@ end $$;
 create temp table if not exists charge_result (line text);
 truncate charge_result;
 do $$
-declare r record; before numeric; after numeric;
+declare r record; before numeric; after numeric; d jsonb;
 begin
   for r in select o.id, o.order_no, o.invoice_id from public.customer_orders o where o.status = 'completed' and o.invoice_id is not null order by o.order_no loop
+    -- an old order whose boxes do not all match its lines (a box NOT ORDERED, or a line with boxes but none of them here)
+    -- is not changed: the Director checks it on the order page (Boxes tab) first
+    d := public.co_delivered(r.id);
+    if coalesce((d ->> 'has_pcs')::boolean, false) and (jsonb_array_length(coalesce(d -> 'odd', '[]'::jsonb)) > 0
+        or exists (select 1 from jsonb_array_elements(coalesce(d -> 'lines', '[]'::jsonb)) l where (l ->> 'ordered')::numeric > 0 and (l ->> 'delivered')::numeric = 0)) then
+      insert into charge_result values (r.order_no || '  CHECK: some boxes do not match the order lines - open the order (Boxes tab). The invoice is not changed.');
+      continue;
+    end if;
     select total_amount into before from public.customer_invoices where id = r.invoice_id;
     begin
       perform public.co_charge_as_delivered(r.id);
