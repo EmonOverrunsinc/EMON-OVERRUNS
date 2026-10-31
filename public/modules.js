@@ -523,6 +523,8 @@
         <p class="welcome">${esc(C.company.name)} <span class="hero-tag">E-PORTAL</span> · <b>${esc(E.personTitle(S.profile.role, S.position))}</b></p></div></section>
       ${isAdmin() ? `<section class="todo" id="dTodo" hidden></section>` : ""}
       ${H("customers") ? `<div class="tiles" id="dTiles">${tiles.map(tile).join("")}</div>` : ""}
+      ${isAdmin() || (isStaff() && H("eooffice")) ? `<div class="tiles" id="dPayroll">${[["Salary Paid This Month", "wallet", "payroll", `Paid in ${now.toLocaleDateString("en-US", { month: "long" }).toUpperCase()}`],
+        ["Salary Deductions This Month", "tag", "payroll", "On the payslips of this month"], ["Unpaid Salary", "users", "payroll", "Payslips not paid yet"]].map(tile).join("")}</div>` : ""}
       <h3 class="home-h">Quick Actions</h3>
       <div class="quick">${quick.map((q) => `<a class="qa qa-${q[4]}" href="${q[1]}"><span class="qa-ic">${ic(q[3])}</span><span class="qa-l">${esc(q[2])}</span></a>`).join("")}</div>
       <div class="dash-grid">
@@ -536,6 +538,7 @@
     if (!soaDone) sb.rpc("generate_statements", {}).then(({ error }) => { if (!error) { try { sessionStorage.setItem("eoSoa", ym); } catch (_) {} } }, () => {});
     loadCommunityBox();
     if (isAdmin()) loadTodo();
+    if ($("#dPayroll")) loadPayrollTiles();
     if (!H("customers") && !H("invoices") && !H("payments")) { E.setRecords("Welcome"); return; }
     const nextMonth = (m) => { const [y, n] = m.split("-").map(Number); return n === 12 ? `${y + 1}-01-01` : `${y}-${String(n + 1).padStart(2, "0")}-01`; };
     // 2.5: only what the dashboard shows is loaded (the 8 newest invoices and payments, this month's payment amounts)
@@ -610,15 +613,30 @@
   }
   // Admin to-do: everything waiting for a decision. 3.36: only what has something shows (1 Customer application,
   // 2 Corrections …); with nothing waiting the box stays hidden.
+  // 3.55: the dashboard's payroll numbers: salary paid and deductions this month, the unpaid salary of every employee
+  async function loadPayrollTiles() {
+    const ym = isoToday().slice(0, 7), [y, n] = ym.split("-").map(Number);
+    const nm = n === 12 ? `${y + 1}-01-01` : `${y}-${String(n + 1).padStart(2, "0")}-01`;
+    const [pays, slips, bal] = await Promise.all([
+      sb.from("salary_payments").select("amount").gte("pay_date", ym + "-01").lt("pay_date", nm),
+      sb.from("payslips").select("net_pay, advance_deduction, other_deductions, issued_at").gte("pay_date", ym + "-01").lt("pay_date", nm),
+      sb.from("payslip_balances").select("balance").gt("balance", 0)
+    ]);
+    const el = $("#dPayroll"); if (!el) return;
+    const sl = slips.data || [];
+    const vals = [(pays.data || []).reduce((t, x) => t + num(x.amount), 0) + sl.filter((x) => !x.issued_at).reduce((t, x) => t + num(x.net_pay), 0),
+      sl.reduce((t, x) => t + num(x.advance_deduction) + num(x.other_deductions), 0), (bal.data || []).reduce((t, x) => t + num(x.balance), 0)];
+    $$(".tile .v", el).forEach((v, i) => (v.textContent = pays.error && i !== 1 ? "—" : "₱ " + peso(vals[i])));
+  }
   async function loadTodo() {
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
-    // 3.52: after a month ends, the Director is reminded of the employees whose salary of that month is not submitted
+    // 3.55: after a month ends, the Director is reminded of the employees who have no salary payslip for that month
     const prev = new Date(); prev.setDate(1); prev.setMonth(prev.getMonth() - 1);
     const prevMonth = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}-01`;
     const salaryLeft = !isAdmin() ? Promise.resolve(0) : Promise.all([
-      sb.from("employees").select("id").eq("status", "active").neq("approval_status", "pending").lte("date_hired", prevMonth.slice(0, 8) + "28"),
-      sb.from("salary_months").select("employee_id").eq("period_month", prevMonth)
+      sb.from("employees").select("id").neq("status", "terminated").neq("approval_status", "pending").lte("date_hired", prevMonth.slice(0, 8) + "28"),
+      sb.from("payslips").select("employee_id").eq("period_month", prevMonth).eq("pay_type", "salary")
     ]).then(([a, b]) => (a.error || b.error ? 0 : (a.data || []).filter((e) => !(b.data || []).some((s) => s.employee_id === e.id)).length), () => 0);
     const [apps, jobs, changes, memos, contacts, copies, pos, cords, salLeft] = await Promise.all([
       cnt(sb.from("customers").select("id", head).in("status", ["pending", "verified"])),
@@ -634,7 +652,7 @@
     const el = $("#dTodo"); if (!el) return;
     const items = [[apps, "Customer application", "#customers"], [jobs, "Job application", "#jobapps"], [changes, "Correction", "#changes"], [memos, "Credit memo", "#creditmemos"],
       [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [cords, "Customer order", "#custorders"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""],
-      [salLeft, `Salary to submit (${E.monthText(prevMonth)})`, "#payroll", true]].filter(([n]) => n > 0);
+      [salLeft, `Payslip${salLeft === 1 ? "" : "s"} to issue (${E.monthText(prevMonth)})`, "#payroll", true]].filter(([n]) => n > 0);
     el.hidden = !items.length;
     el.innerHTML = items.length ? `<div class="todo-h">${ic("bell")} Waiting for you <b>${items.reduce((s, [n]) => s + n, 0)}</b></div>
       <div class="todo-list">${items.map(([n, label, href, fixed]) => `<a class="todo-chip" href="${href}"><b>${n}</b> ${esc(label)}${n === 1 || fixed ? "" : "s"}${ic("next")}</a>`).join("")}</div>` : "";
@@ -2178,13 +2196,14 @@
     ]);
     if (fresh) Object.assign(S.profile, fresh);
     const sp = S.profile;
-    const [myPic, slips, mySm] = await Promise.all([
+    const [myPic, slips0, myBal, myPays] = await Promise.all([
       signaturePic(sp.signature_path),
       emp ? sb.from("payslips").select("*").eq("employee_id", emp.id).order("pay_date", { ascending: false }).then((r) => r.data || []) : [],
-      emp && E.readSalary ? E.readSalary(sb.from("salary_months").select("*").eq("employee_id", emp.id)) : { rows: [] }
+      emp ? E.readPay(sb.from("payslip_balances").select("*").eq("employee_id", emp.id)) : { rows: [] },
+      emp ? E.readPay(sb.from("salary_payments").select("*").eq("employee_id", emp.id).order("pay_date", { ascending: false })) : { rows: [] }
     ]);
     if (!here()) return;
-    const netTotal = slips.reduce((s, p) => s + num(p.net_pay), 0);
+    const slips = E.withBalance(slips0, myBal);
     $("#main").innerHTML = `
       <section class="me-card">
         <div class="me-photo">${av ? `<img src="${esc(av)}" alt="Your photo">` : `<span>${esc(E.initials(myName()))}</span>`}
@@ -2218,14 +2237,10 @@
           <a href="/delete-account" target="_blank" rel="noopener">More about deleting an account</a> · <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></p>
         <div class="btnrow"><button type="button" class="btn danger" id="mpDel">${ic("trash")} Request Account Deletion</button></div>
         <div id="mpDelDone"></div></fieldset>`}
-      ${emp && E.salaryHistory ? (() => { const h = E.salaryHistory(mySm.rows, slips), t = E.salaryTotals(h);
-        return `<h3>My Salary</h3><div class="tiles"><div class="tile"><div class="k">Salary Earned (₱)</div><div class="v">₱ ${peso(t.earned)}</div></div>
-          <div class="tile ok"><div class="k">Salary Paid (₱)</div><div class="v">₱ ${peso(t.paid)}</div></div>
-          <div class="tile ${t.due > 0 ? "bad" : "ok"}"><div class="k">${t.due < 0 ? "Paid Ahead (₱)" : "Salary Due (₱)"}</div><div class="v">₱ ${peso(Math.abs(t.due))}</div></div></div>${E.salaryGrid(h, t)}`; })() : ""}
-      ${emp ? `<h3>My Payslip History</h3>
-        <div class="tiles"><div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div><div class="tile ok"><div class="k">Total Received (₱)</div><div class="v">₱ ${peso(netTotal)}</div></div></div>
-        <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}`;
-    if (emp) E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id));
+      ${emp ? `<h3>My Salary</h3>${E.salaryTiles(emp, E.salaryTotals(slips, myPays.rows))}
+        <h3>My Payslips</h3><div id="mpSlips">${E.slipGrid(slips, "No payslips yet.")}</div>
+        <h3>My Salary Payments</h3><div id="mpPays">${E.payGrid(myPays.rows, slips, "No salary paid yet.")}</div>` : ""}`;
+    if (emp) { E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id)); E.bindGrid($("#mpPays"), myPays.rows, (r) => (location.hash = "payslip/" + r.payslip_id)); }
     if (emp && E.cardInfoBox) E.cardInfoBox($("#mpCard")); // the ID card (3.28: no PIN)
     $("#mpPw").onclick = () => E.changePassword();
     // 2.4: the request goes to the Director's Contact Messages, who then deletes the account on Login Accounts

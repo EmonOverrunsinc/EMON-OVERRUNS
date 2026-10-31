@@ -456,14 +456,21 @@
       if (!r) rows.push(r = { code, batch, name: l.product || "", want: 0, got: 0 });
       r.want += n;
     });
-    const extra = [];
+    const extra = [], left = [];
+    let other = 0; // 3.55: boxes of the order with another code / batch than its lines (not MISSING when the order has room for them)
+    const free = (x) => x.got < x.want;
     boxes.filter((b) => b.serial_no).forEach((b) => {
-      const code = up(b.code), batch = up(b.batch_no), free = (x) => x.got < x.want;
+      const code = up(b.code), batch = up(b.batch_no);
       const r = rows.find((x) => free(x) && x.code === code && x.batch === batch)
         || rows.find((x) => free(x) && batch && x.batch === batch && (!x.code || !code))
         || rows.find((x) => free(x) && code && x.code === code && (!x.batch || !batch));
-      if (r) r.got++;
-      else { let e = extra.find((x) => x.code === code && x.batch === batch); if (!e) extra.push(e = { code, batch, name: b.items || "", n: 0 }); e.n++; }
+      if (r) r.got++; else left.push(b);
+    });
+    left.forEach((b) => {
+      const code = up(b.code), batch = up(b.batch_no), item = up(b.items);
+      const r = rows.find((x) => free(x) && item && up(x.name) && (item.includes(up(x.name)) || up(x.name).includes(item))) || rows.find(free);
+      if (r) { r.got++; other++; return; }
+      let e = extra.find((x) => x.code === code && x.batch === batch); if (!e) extra.push(e = { code, batch, name: b.items || "", n: 0 }); e.n++;
     });
     if (!rows.length && !extra.length) return "";
     const open = rows.filter((r) => r.got < r.want).sort((x, y) => (x.batch + x.code).localeCompare(y.batch + y.code));
@@ -471,13 +478,21 @@
     const cell = (v) => (v ? esc(v) : "—");
     const tr = (r, n, cls, st) => `<tr class="${cls}"><td class="bx-n">${qtyText(n)}</td><td class="bx-b">${cell(r.batch)}</td><td class="bx-c">${cell(r.code)}</td>
       <td class="bx-p">${esc(r.name)}</td><td>${r.want ? `${qtyText(r.got)} of ${qtyText(r.want)}` : ""}</td><td><span class="bx-st ${cls}">${st}</span></td></tr>`;
-    const sum = !miss && !ext ? `<div class="bx-sum ok">✔ Every box of the order is here.</div>`
+    const sum = !miss && !ext ? `<div class="bx-sum ok">✔ Every box of the order is here.${other ? ` <small>(${boxesText(other)} with another code / batch no than the order lines)</small>` : ""}</div>`
       : `<div class="bx-sum ${miss ? "miss" : "extra"}">${miss ? `<b>${boxesText(miss)} MISSING</b>` : ""}${miss && ext ? " · " : ""}${ext ? `<b>${boxesText(ext)} NOT ON THE ORDER</b>` : ""}</div>`;
     const body = open.map((r) => tr(r, r.want - r.got, "miss", "MISSING")).join("") + extra.map((e) => tr(e, e.n, "extra", "NOT ON THE ORDER")).join("");
     return `<div class="bx-check">${sum}${body ? `<div class="grid-scroll"><table class="bx-table"><thead><tr><th>BOXES</th><th>BATCH NO</th><th>CODE</th><th>PRODUCT</th><th>HERE</th><th></th></tr></thead><tbody>${body}</tbody></table></div>` : ""}</div>`;
   }
+  // 3.55: ORDER against DELIVERED (SCANNED while the order is open), boxes and pcs, ✅ when they match, ❌ when not
+  const matchMark = (want, got) => (num(got) === num(want) ? `<span class="cm-ok">✅</span>` : `<span class="cm-bad">❌ ${num(got) > num(want) ? "+" : ""}${qtyText(num(got) - num(want))}</span>`);
+  const countMatch = (o, boxes, pcs) => {
+    const got = o.status === "completed" ? "DELIVERED" : "SCANNED";
+    return `<table class="co-match"><thead><tr><th></th><th>ORDER</th><th>${got}</th><th></th></tr></thead><tbody>
+      <tr><th>BOX</th><td>${qtyText(o.total_boxes)}</td><td>${nBoxes(boxes)}</td><td>${matchMark(o.total_boxes, nBoxes(boxes))}</td></tr>
+      <tr><th>PCS</th><td>${qtyText(o.total_pcs)}</td><td>${qtyText(pcs)}</td><td>${matchMark(o.total_pcs, pcs)}</td></tr></tbody></table>`;
+  };
   function boxesHtml(o, boxes, sumPcs, w) {
-    return `<div class="co-count"><b>${nBoxes(boxes)}</b> of ${qtyText(o.total_boxes)} boxes · <b>${qtyText(sumPcs)}</b> of ${qtyText(o.total_pcs)} pcs</div>${boxCheck(o.lines || [], boxes)}
+    return `${countMatch(o, boxes, sumPcs)}${boxCheck(o.lines || [], boxes)}
       ${w && fixable(o) ? `<div class="btnrow"><button type="button" class="btn primary" id="cbScan">${ic("scan")} Scan Boxes</button><label class="btn" for="cbPhoto">${ic("image")} Box Label Photo</label><input type="file" id="cbPhoto" accept="image/*" multiple hidden>
         <button type="button" class="btn" id="cbType">📦 Add Box</button></div>
         <div class="box-find"><input type="text" id="cbFind" maxlength="60" placeholder="Serial no, e.g. U20261238" aria-label="Find a box by its serial no" autocomplete="off"><button type="button" class="btn primary" id="cbFindGo">${ic("search")} Find &amp; Add</button></div>
