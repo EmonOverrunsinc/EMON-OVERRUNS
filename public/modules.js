@@ -609,8 +609,8 @@
       ${appr.length ? appr.slice(0, 5).map(line).join("") : `<div class="empty small">No approved purchase orders this month. <a href="#newpurchase">New Purchase Order</a></div>`}`;
   }
   // Admin to-do: everything waiting for a decision. 3.36: only what has something shows (1 Customer application,
-  // 2 Corrections …); with nothing waiting the box stays hidden.
-  async function loadTodo() {
+  // 2 Corrections …); with nothing waiting the box stays hidden. 3.60: EVA reads the same list ([count, label, link]).
+  async function todoItems() {
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
     // 3.60: no payslip reminder here (the Payroll page shows the employees without the month's payslip)
@@ -624,9 +624,13 @@
       cnt(sb.from("purchase_orders").select("id", head).eq("status", "pending")),
       cnt(sb.from("customer_orders").select("id", head).eq("status", "pending"))
     ]);
-    const el = $("#dTodo"); if (!el) return;
-    const items = [[apps, "Customer application", "#customers"], [jobs, "Job application", "#jobapps"], [changes, "Correction", "#changes"], [memos, "Credit memo", "#creditmemos"],
+    return [[apps, "Customer application", "#customers"], [jobs, "Job application", "#jobapps"], [changes, "Correction", "#changes"], [memos, "Credit memo", "#creditmemos"],
       [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [cords, "Customer order", "#custorders"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
+  }
+  E.todoItems = todoItems;
+  async function loadTodo() {
+    const items = await todoItems();
+    const el = $("#dTodo"); if (!el) return;
     el.hidden = !items.length;
     el.innerHTML = items.length ? `<div class="todo-h">${ic("bell")} Waiting for you <b>${items.reduce((s, [n]) => s + n, 0)}</b></div>
       <div class="todo-list">${items.map(([n, label, href]) => `<a class="todo-chip" href="${href}"><b>${n}</b> ${esc(label)}${n === 1 ? "" : "s"}${ic("next")}</a>`).join("")}</div>` : "";

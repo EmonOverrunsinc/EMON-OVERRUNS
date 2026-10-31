@@ -2545,6 +2545,23 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 @keyframes evaDot { 0%, 80%, 100% { transform: translateY(0); opacity: .5; } 40% { transform: translateY(-4px); opacity: 1; } }
 .ai-chat-card { margin-bottom: 8px; }
 .eva-sheet { max-width: 760px; }
+/* 3.60: a time under each message, quick questions, New Chat, the summary and the to-do list */
+.eva-col { display: flex; flex-direction: column; min-width: 0; max-width: min(92%, 640px); }
+.eva-msg.me .eva-col { align-items: flex-end; }
+.eva-col .eva-b { max-width: 100%; }
+.eva-time { font-size: 10.5px; color: var(--ink-soft); margin: 3px 8px 0; }
+.eva-msg.ai:has(.eva-time) .eva-av { margin-bottom: 17px; }
+.eva-foot { background: #fff; border-top: 1px solid #e4e1f5; }
+.eva-foot .eva-ask { border-top: 0; padding-top: 8px; }
+.eva-quick { display: flex; gap: 6px; overflow-x: auto; padding: 8px 10px 0; scrollbar-width: none; }
+.eva-quick::-webkit-scrollbar { display: none; }
+.eva-quick .eva-chip { flex: none; padding: 4px 10px; font-size: 12px; }
+.eva-new { flex: none; width: 38px; border: 1px solid #e4e1f5; border-radius: 50%; background: #fff; color: var(--ink-soft); display: grid; place-items: center; cursor: pointer; transition: color .2s, border-color .2s; }
+.eva-new:hover { color: var(--bad); border-color: #fecaca; }
+.eva-new svg { width: 16px; height: 16px; }
+.eva-todo { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.eva-sum td:first-child { white-space: nowrap; }
+.eva-hr { border: 0; border-top: 1px dashed #e4e1f5; margin: 8px 0; }
 @media (max-width: 620px) {
   .eva-chat { height: 420px; }
   .eva-ask .btn span { display: none; }
