@@ -2610,3 +2610,16 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 .co-qr small.co-verify { display: inline-block; margin-top: 3px; padding: 1px 6px; background: #000; color: #fff; font: 700 7.5px/1.4 var(--font-arial, Arial); letter-spacing: .12em; }
 /* 3.46: a line without a serial no is kept but is not a box */
 .bx-loose { color: #6e6e73; font-weight: 700; }
+
+/* 3.52: the Back button floats at the bottom left of the screen, beside the menu when the menu is open */
+.band-back { position: fixed; z-index: 70; left: calc(14px + env(safe-area-inset-left, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  width: auto; height: 46px; padding: 0 18px 0 12px; display: inline-flex; align-items: center; gap: 4px; border-radius: 23px;
+  background: var(--accent, #0071e3); color: #fff; border: 0; font: 600 15px/1 inherit; letter-spacing: .01em;
+  box-shadow: 0 6px 18px rgba(0,0,0,.22); transition: transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s, left .38s cubic-bezier(.2,.8,.2,1); }
+.band-back .ic { width: 20px; height: 20px; stroke-width: 2.6; }
+.band-back:hover { background: var(--accent, #0071e3); filter: brightness(1.08); box-shadow: 0 8px 22px rgba(0,0,0,.28); }
+.band-back:active { transform: scale(.94); }
+@media (min-width: 900px) { body.drawer-open .band-back { left: 256px; } }
+#main { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+@media print { .band-back { display: none !important; } }
+body:not(:has(.content)) > .band-back, body:has(.preview) > .band-back { display: none; }

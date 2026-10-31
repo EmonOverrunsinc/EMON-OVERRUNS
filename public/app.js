@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.51";
+  const VERSION = "3.52";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.51.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.52.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -935,7 +935,8 @@
     visited.push(location.hash);
     if (visited.length > 60) visited.shift();
   });
-  const backBtn = () => `<button type="button" class="band-back" id="bandBack" aria-label="Back" title="Back">${ic("back")}</button>`;
+  // 3.52: the Back button floats at the bottom left of the screen (always in reach of the thumb and the mouse), not in the title
+  const backBtn = () => `<button type="button" class="band-back" id="bandBack" aria-label="Back" title="Back">${ic("back")}<span>Back</span></button>`;
   function goBack(home) {
     const nav = window.navigation;
     if (nav && "canGoBack" in nav) { if (nav.canGoBack) { history.back(); return; } }
@@ -948,8 +949,10 @@
     location.hash = home || "#dashboard";
   }
   function bindBack(home) {
+    // 3.52: the button is moved out of the page (the page slides in, which would carry it along) to float at the bottom left
+    $$("body > .band-back").forEach((x) => x.remove());
     const b = $("#bandBack");
-    if (b) b.onclick = () => goBack(home);
+    if (b) { document.body.append(b); b.onclick = () => goBack(home); }
   }
   // 2.4: a signed-in person asks the Director to delete their account. The request arrives in Contact Messages; the
   // Director then deletes the account on Login Accounts. Gives the reference number, or null.

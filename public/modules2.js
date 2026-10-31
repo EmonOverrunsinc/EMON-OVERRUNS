@@ -182,10 +182,11 @@
     const here = E.stillHere();
     // 3.35: asked two times at most (what needs only the id together, then what needs the employee), and the page is
     // drawn only when everything is in and the page is still open
-    const [{ data: em }, att, ps] = await Promise.all([
+    const [{ data: em }, att, ps, sm] = await Promise.all([
       sb.from("employees").select("*").eq("id", id).maybeSingle(),
       E.attachmentsOf("employee", id),
-      sb.from("payslips").select("*").eq("employee_id", id).order("pay_date", { ascending: false })
+      sb.from("payslips").select("*").eq("employee_id", id).order("pay_date", { ascending: false }),
+      readSalary(sb.from("salary_months").select("*").eq("employee_id", id))
     ]);
     if (!here()) return;
     if (!em) { $("#main").innerHTML = `<div class="empty">Employee not found. <a href="#employees">Back</a></div>`; return; }
@@ -201,6 +202,8 @@
     const canPay = E.canWrite("employees") && em.status !== "terminated";
     const paid = slips.reduce((s, p) => s + num(p.net_pay), 0);
     const advances = slips.reduce((s, p) => s + num(p.advance_amount), 0) - slips.reduce((s, p) => s + num(p.advance_deduction), 0);
+    const hist = salaryHistory(sm.rows, slips), st = salaryTotals(hist);
+    const empApproved = em.approval_status === "approved" && !!em.approved_by_name;
     $(".band h1").textContent = `Employee — ${fullName(em)}`;
     $("#main").innerHTML = `
       ${em.status === "terminated" ? `<div class="banner closed">TERMINATED on ${mdy(em.termination_date)} — ${esc(em.termination_reason || "")}. The login is disabled.</div>` : ""}
@@ -211,13 +214,15 @@
         <div class="ch-main"><div class="ch-name"><h2>${esc(fullName(em))}</h2>${verifiedBadge(verified)}${em.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(em.status)}</div>
           <div class="ch-sub">${esc(em.position || "—")} · ${esc(em.email)}${em.phone ? " · " + esc(em.phone) : ""}</div>
           <div class="ch-ids">${E.idBox("Employee No", em.employee_no)}${E.idBox("Date Hired", mdy(em.date_hired))}${E.idBox("Monthly Salary (₱)", peso(em.monthly_salary))}${E.idBox("Access Level", E.roleName(em.role).toUpperCase())}</div></div></section>
-      <div class="tiles"><div class="tile ok"><div class="k">Total Paid (₱)</div><div class="v">₱ ${peso(paid)}</div></div>
-        <div class="tile ${advances > 0 ? "warn" : ""}"><div class="k">Advance Balance (₱)</div><div class="v">₱ ${peso(Math.max(0, advances))}</div></div>
-        <div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div></div>
+      <div class="tiles"><div class="tile"><div class="k">Salary Earned (₱)</div><div class="v">₱ ${peso(st.earned)}</div></div>
+        <div class="tile ok"><div class="k">Salary Paid (₱)</div><div class="v">₱ ${peso(st.paid)}</div></div>
+        <div class="tile ${st.due > 0 ? "bad" : "ok"}"><div class="k">${st.due < 0 ? "Paid Ahead (₱)" : "Salary Due (₱)"}</div><div class="v">₱ ${peso(Math.abs(st.due))}</div></div>
+        <div class="tile ${advances > 0 ? "warn" : ""}"><div class="k">Advance Balance (₱)</div><div class="v">₱ ${peso(Math.max(0, advances))}</div></div></div>
+      ${sm.missing && isAdmin() ? `<div class="banner warn">Run the database update <b>060_salary_months.sql</b> to see the salary earned and due.</div>` : ""}
       <div class="actionbar">
         ${isAdmin() && em.approval_status === "pending" ? `<button type="button" class="btn ok" id="emApprove">${ic("check")} Approve Employee</button>` : ""}
         ${canPay ? `<button type="button" class="btn primary" id="emPay">${ic("plus")} Record Salary / Advance</button>` : ""}
-        <button type="button" class="btn" id="emPrint">${ic("print")} Print Employee Record</button>
+        ${isAdmin() ? `<button type="button" class="btn" id="emPrint">${ic("print")} Employee Profile (PDF)</button>` : ""}
         ${isAdmin() ? `<a class="btn" href="#editemployee/${em.id}">${ic("edit")} Edit Employee</a>` : ""}
         ${isAdmin() ? `<label class="btn" for="emPhoto">${ic("camera")} ${photo ? "Change Photo" : "Add Photo"}</label><input type="file" id="emPhoto" accept="image/*" hidden>` : ""}
         ${isAdmin() && em.status !== "terminated" && em.profile_id !== S.profile.id ? `<button type="button" class="btn danger" id="emTerm">Terminate</button>` : ""}
@@ -225,17 +230,20 @@
         <span class="grow"></span>
         ${tools("employees", em, `${em.employee_no} ${fullName(em)}`, { reload: () => V.employee(id), afterDelete: () => (location.hash = "employees") })}
       </div>
-      <div class="tabs" id="emTabs">${[`Payslips (${slips.length})`, "Documents", ...(isAdmin() ? ["Access & Status", "ID Card"] : []), "Details"].map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
+      <div class="tabs" id="emTabs">${["Salary History", `Payslips (${slips.length})`, "Documents", ...(isAdmin() ? ["Access & Status", "ID Card"] : []), "Details"].map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes" id="emPanes">
-        <div data-p="0"><div id="emSlips">${E.grid({ cols: SLIP_COLS, rows: slips, onRow: true, foot: { net_pay: peso(paid) }, empty: "No salary or advance payments recorded yet." })}</div></div>
-        <div data-p="1" hidden>
+        <div data-p="0"><div class="btnrow"><button type="button" class="btn" id="emStmt">${ic("print")} Print Salary Statement</button></div>${salaryGrid(hist, st)}</div>
+        <div data-p="1" hidden><div id="emSlips">${E.grid({ cols: SLIP_COLS, rows: slips, onRow: true, foot: { net_pay: peso(paid) }, empty: "No salary or advance payments recorded yet." })}</div></div>
+        <div data-p="2" hidden>
+          ${isAdmin() ? `<div class="docgrid">${E.docCard({ key: "emp", title: `Employee Profile ${em.employee_no}`, sub: "Only the Director can open and print it", ownerType: "employee", ownerId: em.id, att, print: () => printProfile(), canUpload: false,
+            approved: empApproved ? { name: em.approved_by_name, at: em.approved_at } : null })}</div>` : ""}
           ${app ? `<div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${app.application_no}`, sub: `Approved ${app.approval_no || ""}`, ownerType: "job_application", ownerId: app.id, att: appAtt, print: () => printJobApp(app), canUpload: isAdmin(),
             approved: jaApproved(app) ? { name: app.approved_by_name, at: app.approved_at } : null })}</div>
             <p><a href="#jobapp/${app.id}">Open job application ${esc(app.application_no)}</a></p>` : ""}
           ${E.filesHtml(att, "No documents uploaded.")}
           ${isAdmin() ? `<div class="fields wide" style="margin-top:8px">${E.fileField("emSig", "Upload Signature Form", 'accept="image/*,application/pdf" data-save-now')}${E.fileField("emApp", "Upload Application Form", 'multiple accept="image/*,application/pdf" data-save-now')}</div>` : ""}
         </div>
-        ${isAdmin() ? `<div data-p="2" hidden><fieldset class="opt"><legend>Access &amp; Status</legend><div class="fields wide">${accessFields(em.role, em.modules || [])}
+        ${isAdmin() ? `<div data-p="3" hidden><fieldset class="opt"><legend>Access &amp; Status</legend><div class="fields wide">${accessFields(em.role, em.modules || [])}
           ${["active", "inactive"].includes(em.status) ? `<label for="emStatus">Login</label><select id="emStatus"><option value="active" ${em.status === "active" ? "selected" : ""}>Active — can sign in</option><option value="inactive" ${em.status === "inactive" ? "selected" : ""}>Inactive — blocked</option></select>` : ""}</div>
           <div class="btnrow"><button type="button" class="btn primary" id="emSave">Save Access</button></div></fieldset>
           <fieldset class="opt"><legend>Login Account</legend>${em.profile_id ? `<p>${ic("check")} Linked to a login account. The link cannot be removed, and this employee cannot be deleted.</p>`
@@ -243,8 +251,8 @@
             : `<p class="muted" style="margin-top:0">No login yet. Link an existing login account to this employee (once only: the link cannot be removed afterwards).</p>
             <div class="fields wide"><label for="emLinkSel">Login Account</label><select id="emLinkSel"><option value="">Loading…</option></select></div>
             <div class="btnrow"><button type="button" class="btn" id="emLink">${ic("key")} Link Login Account</button></div>`}</fieldset></div>` : ""}
-        ${isAdmin() ? `<div data-p="3" hidden id="emCard"></div>` : ""}
-        <div data-p="${isAdmin() ? 4 : 2}" hidden>${E.kvTable([["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Present Address", em.address], ["Permanent Address", em.permanent_address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Duty Hours", em.duty_hours],
+        ${isAdmin() ? `<div data-p="4" hidden id="emCard"></div>` : ""}
+        <div data-p="${isAdmin() ? 5 : 3}" hidden>${E.kvTable([["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Present Address", em.address], ["Permanent Address", em.permanent_address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Duty Hours", em.duty_hours],
           ["Father's Name", em.father_name], ["Mother's Name", em.mother_name], ["Wife's / Husband's Name", em.spouse_name], ["Date of Birth", mdy(em.date_of_birth)], ["Birth Place", em.birth_place],
           ["BRC / NID / Passport No", em.id_number], ["Gender", (em.gender || "").toUpperCase()], ["Religion", em.religion], ["Blood Group", em.blood_group],
           ["Work Experience", (em.experience || []).map((r) => [r.company, r.position, [r.from, r.to].filter(Boolean).join("–")].filter(Boolean).join(" · ")).join(" | ")], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""],
@@ -258,6 +266,7 @@
     E.bindDocCards($("#main"), () => V.employee(id));
     bindTools($("#main"));
     if ($("#emPay")) $("#emPay").onclick = () => payslipDialog(em, (p) => (location.hash = "payslip/" + p.id));
+    $("#emStmt").onclick = () => salaryStatement(em, hist);
     // 3.25: the Director approves a new employee: the ID card is made and the login opens
     if ($("#emApprove")) $("#emApprove").onclick = async () => {
       if (!(await E.confirmBox(`Approve <b>${esc(fullName(em))}</b> (${esc(em.employee_no)}) with the access <b>${esc(accessText(em.role, em.modules))}</b>?<br><br>The employee ID card is made now and the login opens.`, { ok: "Approve Employee" }))) return;
@@ -319,7 +328,11 @@
       if (error) return fail(error, "Could not re-hire");
       toast(`${fullName(em)} re-hired.`); V.employee(id);
     };
-    $("#emPrint").onclick = () => E.openPreview(`Employee ${em.employee_no}`, [`${E.printHead("EMPLOYEE INFORMATION", `<img src="${E.pdf417DataUrl("EMONEMP|" + em.employee_no)}" alt="" class="ph-bar"><div class="mono">${esc(em.employee_no)}</div>`)}
+    // 3.52: the Employee Profile PDF (the Director only): approved by, the Director's signature, the date and time; once approved it is locked
+    async function printProfile() {
+      await E.loadSignatures();
+      const sign = empApproved ? E.approvedBy(em.approved_by, em.approved_by_name, em.approved_at) : null;
+      E.openPreview(`Employee Profile ${em.employee_no}`, [`${E.printHead("EMPLOYEE PROFILE", `<img src="${E.pdf417DataUrl("EMONEMP|" + em.employee_no)}" alt="" class="ph-bar"><div class="mono">${esc(em.employee_no)}</div>`)}
       ${E.box("Employee", `<div class="pgrid"><div class="pphoto">${photo ? `<img src="${esc(photo)}" alt="">` : "PHOTO"}</div><div class="pgrid2">
         ${E.cell("First Name", em.first_name)}${E.cell("Last Name", em.last_name)}${E.cell("Position", em.position)}${E.cell("Date Hired", mdy(em.date_hired))}
         ${E.cell("Email", em.email)}${E.cell("Phone", em.phone)}${E.cell("Monthly Salary (PHP)", peso(em.monthly_salary))}${E.cell("Status", em.status.toUpperCase())}
@@ -330,13 +343,50 @@
       ${E.box("Portal Access", `<div class="pgrid2">${E.cell("Access Level", E.roleName(em.role).toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
       ${em.status === "terminated" ? E.box("Termination", `<div class="pgrid2">${E.cell("Date", mdy(em.termination_date))}${E.cell("Reason", em.termination_reason)}</div>`) : ""}
       ${(em.experience || []).length ? E.box("Work Experience", `<table class="rp ja-tbl"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${em.experience.map((r) => `<tr>${[r.company, r.position, r.from, r.to].map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`) : ""}
+      ${E.box("Salary", `<div class="pgrid2">${E.cell("Monthly Salary (PHP)", peso(em.monthly_salary))}${E.cell("Salary Earned (PHP)", peso(st.earned))}${E.cell("Salary Paid (PHP)", peso(st.paid))}${E.cell(st.due < 0 ? "Paid Ahead (PHP)" : "Salary Due (PHP)", peso(Math.abs(st.due)), "hl")}</div>`)}
       ${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
-      ${E.sigs("Employee Signature / Date", "Approved by / Date")}`], { onePage: true }); // 3.29.1: the whole record on one A4 page
+      ${empApproved ? `<div class="ja-appr">( APPROVED · LOCKED ) by ${esc(em.approved_by_name)} · ${esc(E.dateTime(em.approved_at))}</div>` : ""}
+      ${E.sigs("Employee Signature / Date", sign ? "Approved by" : "Approved by / Date", sign)}`], { onePage: true }); // 3.29.1: the whole record on one A4 page
+    }
+    if ($("#emPrint")) $("#emPrint").onclick = printProfile;
     E.setRecords(`Employee: ${em.employee_no}`);
   };
 
   // ---------- payslips: salary, advance, bonus ----------
   const PAY_TYPE = { salary: "Salary", advance: "Advance", bonus: "Bonus", other: "Other" };
+  // 3.52: month-end salary. What the Director submits for a month is the salary the employee earned that month; a
+  // salary or advance payslip pays it (a bonus is extra and is not counted). DUE = earned - paid, month by month.
+  const toward = (p) => (p.pay_type === "salary" || p.pay_type === "advance" ? num(p.net_pay) - num(p.bonus) : 0);
+  const readSalary = (q) => q.then((r) => (r.error ? { rows: [], missing: true } : { rows: r.data || [], missing: false }), () => ({ rows: [], missing: true }));
+  function salaryHistory(months, slips) {
+    const by = new Map();
+    const row = (m) => { if (!by.has(m)) by.set(m, { month: m, earned: 0, paid: 0, submitted: false, notes: "" }); return by.get(m); };
+    months.forEach((s) => { const r = row(s.period_month); r.earned += num(s.amount); r.submitted = true; r.notes = s.notes || ""; });
+    slips.forEach((p) => { const t = toward(p); if (t) row(p.period_month).paid += t; });
+    const rows = [...by.values()].sort((a, b) => a.month.localeCompare(b.month));
+    let bal = 0;
+    rows.forEach((r) => { r.due = r.earned - r.paid; bal += r.due; r.balance = bal; });
+    return rows.reverse();
+  }
+  const salaryPill = (r) => (!r.submitted ? pill("pending", "NOT SUBMITTED") : r.due <= 0 ? pill("approved", "PAID") : r.paid > 0 ? pill("pending", "PART PAID") : pill("rejected", "UNPAID"));
+  const HIST_COLS = [
+    { label: "Month", get: (r) => monthText(r.month) }, { label: "Salary Earned (₱)", key: "earned", num: true, get: (r) => peso(r.earned) },
+    { label: "Paid (₱)", key: "paid", num: true, get: (r) => peso(r.paid) }, { label: "Due (₱)", key: "due", num: true, get: (r) => peso(r.due) },
+    { label: "Balance (₱)", num: true, get: (r) => peso(r.balance) }, { label: "Status", html: salaryPill }, { label: "Notes", get: (r) => r.notes }
+  ];
+  const salaryTotals = (hist) => ({ earned: hist.reduce((t, r) => t + r.earned, 0), paid: hist.reduce((t, r) => t + r.paid, 0), due: hist.reduce((t, r) => t + r.due, 0) });
+  const salaryGrid = (hist, t) => E.grid({ cols: HIST_COLS, rows: hist, foot: { earned: peso(t.earned), paid: peso(t.paid), due: peso(t.due) }, empty: "No salary submitted yet. At the end of the month the Director submits it on EO-Office > Payroll." });
+  function salaryStatement(em, hist) {
+    const t = salaryTotals(hist);
+    E.openPreview(`Salary Statement ${em.employee_no}`, E.listingPages({
+      title: "Salary Statement", range: `${fullName(em)} · ${em.employee_no}${em.position ? " · " + em.position : ""}`,
+      cols: HIST_COLS.filter((c) => c.label !== "Status").concat([{ label: "Status", get: (r) => (!r.submitted ? "NOT SUBMITTED" : r.due <= 0 ? "PAID" : r.paid > 0 ? "PART PAID" : "UNPAID") }]),
+      rows: hist.slice().reverse(),
+      summary: { title: "Summary (PHP)", cols: ["", "Amount (₱)"], rows: [["Salary Earned", peso(t.earned)], ["Paid", peso(t.paid)]], total: ["Salary Due:", peso(t.due)] },
+      criteria: `Employee: ${em.employee_no} · Monthly Salary: ₱ ${peso(em.monthly_salary)}`
+    }));
+  }
+  E.salaryHistory = salaryHistory; E.salaryTotals = salaryTotals; E.salaryGrid = salaryGrid; E.readSalary = readSalary;
   const SLIP_COLS = [
     { label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => PAY_TYPE[r.pay_type] || r.pay_type }, { label: "For Month", get: (r) => monthText(r.period_month) },
     { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Method", get: (r) => r.method || "" }, { label: "Net Pay (₱)", key: "net_pay", num: true, get: (r) => peso(r.net_pay) },
@@ -452,28 +502,43 @@
   V.payroll = async () => {
     E.shell("payroll", "Payroll", `${E.eoTabs("payroll")}
       <div class="options"><fieldset class="opt"><legend>Month</legend><div class="fields"><label for="prMonth">For Month</label><input type="month" id="prMonth" value="${isoToday().slice(0, 7)}"></div></fieldset></div>
-      <div class="btnrow"><button type="button" class="btn" id="prPrint">${ic("print")} Print Payroll</button></div>
+      <div class="btnrow">${isAdmin() ? `<button type="button" class="btn primary" id="prSubmit">${ic("check")} Submit Month Salary</button>` : ""}<button type="button" class="btn" id="prPrint">${ic("print")} Print Payroll</button></div>
+      <div id="prNote"></div>
       <h3 class="sec-h">Active Employees</h3><div id="prActive">${busy()}</div>
-      <h3 class="sec-h">Payments This Month</h3><div id="prRes">${busy()}</div>`, "The active employees with their salary and what was paid to each this month, then every salary, advance and bonus payment of the month. Open a row to see the employee or the payslip.");
-    let rows = [];
+      <h3 class="sec-h">Payments This Month</h3><div id="prRes">${busy()}</div>`, "At the end of every month the Director presses <b>Submit Month Salary</b>: the salary each employee earned. Paying it (Record Salary / Advance on the employee) takes it off, so every employee shows what is still due. Open a row to see the employee or the payslip.");
+    let rows = [], staff = [], subm = new Map(), missing = false;
     const fresh = E.loadGuard();
     const load = async () => {
       const ok = fresh(); // 3.35: the month chosen last wins (the screen and Print Payroll show the same month)
       $("#prRes").innerHTML = busy();
       const m = $("#prMonth").value + "-01";
-      const [{ data, error }, act] = await Promise.all([
+      const [{ data, error }, act, allSm, allPs] = await Promise.all([
         sb.from("payslips").select("*, employees(first_name,last_name,employee_no,position)").eq("period_month", m).order("pay_date"),
-        sb.from("employees").select("*").eq("status", "active").order("employee_no")]);
+        sb.from("employees").select("*").eq("status", "active").order("employee_no"),
+        readSalary(sb.from("salary_months").select("employee_id, period_month, amount, notes")),
+        sb.from("payslips").select("employee_id, period_month, pay_type, net_pay, bonus")]);
       if (!ok()) return;
       if (error) return fail(error, "Could not load payroll");
-      rows = data || [];
-      // 3.23: every active employee, the salary and what was paid to each this month
-      const paidTo = new Map(); rows.forEach((r) => paidTo.set(r.employee_id, (paidTo.get(r.employee_id) || 0) + num(r.net_pay)));
-      const staff = (act.data || []).filter((e) => e.approval_status !== "pending").map((e) => ({ ...e, paid: paidTo.get(e.id) || 0 }));
+      rows = data || []; missing = allSm.missing;
+      // 3.52: every active employee: the salary submitted for the month, what was paid for it, and all that is still due
+      subm = new Map(allSm.rows.filter((s) => s.period_month === m).map((s) => [s.employee_id, s]));
+      const smBy = new Map(), psBy = new Map();
+      allSm.rows.forEach((s) => smBy.set(s.employee_id, [...(smBy.get(s.employee_id) || []), s]));
+      (allPs.data || []).forEach((p) => psBy.set(p.employee_id, [...(psBy.get(p.employee_id) || []), p]));
+      staff = (act.data || []).filter((e) => e.approval_status !== "pending").map((e) => {
+        const h = salaryHistory(smBy.get(e.id) || [], psBy.get(e.id) || []), mo = h.find((r) => r.month === m) || { earned: 0, paid: 0, due: 0, submitted: false };
+        return { ...e, earned: mo.earned, paid: mo.paid, due: mo.due, submitted: mo.submitted, total: salaryTotals(h).due };
+      });
+      const notIn = staff.filter((e) => !e.submitted).length;
+      $("#prNote").innerHTML = missing ? (isAdmin() ? `<div class="banner warn">Run the database update <b>060_salary_months.sql</b> to submit the month's salary.</div>` : "")
+        : notIn && staff.length ? `<div class="banner warn">${notIn} of ${staff.length} employee${staff.length === 1 ? "" : "s"}: the salary of ${esc(monthText(m))} is not submitted yet.${isAdmin() ? " Press <b>Submit Month Salary</b>." : ""}</div>`
+        : staff.length ? `<div class="banner ok">✔ The salary of ${esc(monthText(m))} is submitted for every employee.</div>` : "";
       $("#prActive").innerHTML = E.grid({ cols: [{ label: "Employee No", get: (r) => r.employee_no }, { label: "Name", get: (r) => fullName(r) }, { label: "Position", get: (r) => r.position || "" },
-        { label: "Monthly Salary (₱)", key: "monthly_salary", num: true, get: (r) => peso(r.monthly_salary) }, { label: "Paid This Month (₱)", key: "paid", num: true, get: (r) => peso(r.paid) },
-        { label: "Status", html: (r) => r.paid >= num(r.monthly_salary) && r.paid > 0 ? pill("approved", "PAID") : r.paid > 0 ? pill("pending", "PART PAID") : pill("pending", "NOT PAID") }],
-        rows: staff, onRow: true, foot: { monthly_salary: peso(staff.reduce((t, e) => t + num(e.monthly_salary), 0)), paid: peso(staff.reduce((t, e) => t + e.paid, 0)) }, empty: "No active employees." });
+        { label: "Monthly Salary (₱)", key: "monthly_salary", num: true, get: (r) => peso(r.monthly_salary) }, { label: "Salary Submitted (₱)", key: "earned", num: true, get: (r) => (r.submitted ? peso(r.earned) : "—") },
+        { label: "Paid For The Month (₱)", key: "paid", num: true, get: (r) => peso(r.paid) }, { label: "Due For The Month (₱)", key: "due", num: true, get: (r) => peso(r.due) },
+        { label: "All Salary Due (₱)", key: "total", num: true, get: (r) => peso(r.total) }, { label: "Status", html: salaryPill }],
+        rows: staff, onRow: true, foot: { monthly_salary: peso(staff.reduce((t, e) => t + num(e.monthly_salary), 0)), earned: peso(staff.reduce((t, e) => t + e.earned, 0)), paid: peso(staff.reduce((t, e) => t + e.paid, 0)),
+          due: peso(staff.reduce((t, e) => t + e.due, 0)), total: peso(staff.reduce((t, e) => t + e.total, 0)) }, empty: "No active employees." });
       E.bindGrid($("#prActive"), staff, (r) => (location.hash = "employee/" + r.id));
       const cols = [SLIP_COLS[0], { label: "Employee", get: (r) => fullName(r.employees || {}) }, { label: "Employee No", get: (r) => r.employees?.employee_no || "" }, ...SLIP_COLS.slice(1, 6)];
       $("#prRes").innerHTML = E.grid({ cols, rows, onRow: true, foot: { net_pay: peso(rows.reduce((s, r) => s + num(r.net_pay), 0)) }, empty: `No payments for ${monthText(m)}.` });
@@ -481,6 +546,27 @@
       E.setRecords(`Payslips: ${rows.length}`);
     };
     $("#prMonth").onchange = load;
+    // 3.52: the Director submits the month's salary of every active employee (the monthly salary is filled in; it can be changed)
+    if ($("#prSubmit")) $("#prSubmit").onclick = () => {
+      if (missing) return toast("Run the database update 060_salary_months.sql first.", true);
+      if (!staff.length) return toast("There are no active employees.", true);
+      const m = $("#prMonth").value + "-01";
+      const md = E.modal(`Submit Salary — ${monthText(m)}`, `<p style="margin-top:0">The salary each employee earned in <b>${esc(monthText(m))}</b>. Change an amount for days off or extra work; 0 takes the month off.</p>
+        <div class="grid-wrap"><table class="grid"><thead><tr><th>Employee</th><th class="num">Monthly Salary (₱)</th><th class="num">Salary Earned (₱)</th><th>Notes</th></tr></thead><tbody>
+        ${staff.map((e) => `<tr data-e="${e.id}"><td><b>${esc(fullName(e))}</b><br><small class="muted">${esc(e.employee_no || "")} · ${esc(e.position || "")}</small></td><td class="num">${peso(e.monthly_salary)}</td>
+          <td><input type="number" class="smAmt" min="0" step="0.01" aria-label="Salary earned of ${esc(fullName(e))}" value="${subm.has(e.id) ? num(subm.get(e.id).amount) : num(e.monthly_salary)}"></td>
+          <td><input type="text" class="smNote" maxlength="300" aria-label="Notes" placeholder="Optional" value="${esc(subm.get(e.id)?.notes || "")}"></td></tr>`).join("")}</tbody></table></div>`,
+        `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${ic("check")} Submit Salary</button>`, { wide: true });
+      $("[data-x]", md.el).onclick = md.close;
+      $("[data-ok]", md.el).onclick = async (ev) => {
+        const items = $$("tr[data-e]", md.el).map((tr) => ({ employee_id: tr.dataset.e, amount: num($(".smAmt", tr).value), notes: $(".smNote", tr).value.trim() }));
+        ev.target.disabled = true;
+        const { data: n, error } = await sb.rpc("submit_salary_month", { p_month: m, p_items: items });
+        ev.target.disabled = false;
+        if (error) return fail(error, "Could not submit the salary");
+        md.close(); toast(`Salary of ${monthText(m)} submitted for ${n} employee${n === 1 ? "" : "s"}.`); load();
+      };
+    };
     $("#prPrint").onclick = () => {
       const byType = new Map(); rows.forEach((r) => { const t = byType.get(r.pay_type) || [0, 0]; t[0]++; t[1] += num(r.net_pay); byType.set(r.pay_type, t); });
       E.openPreview(`Payroll ${monthText($("#prMonth").value + "-01")}`, E.listingPages({
