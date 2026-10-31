@@ -2629,3 +2629,36 @@ body:not(:has(.content)) > .band-back, body:has(.preview) > .band-back { display
 .doccard.fm-off { opacity: .62; background: repeating-linear-gradient(135deg, #fff, #fff 10px, #f6f6f8 10px, #f6f6f8 20px); }
 .doccard.fm-off .dc-tag { color: #b25d00; }
 @media (max-width: 640px) { .fm-box .wbody { grid-template-columns: minmax(0, 1fr); } }
+
+/* 3.55: Payroll - Issue Payslip and Pay Salary (the payslip to pay, the ID card check) */
+.sec-k { grid-column: 1 / -1; font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--ink-soft, #6e6e73); margin-top: 4px; }
+.pa-slips { display: grid; gap: 6px; }
+.pa-slip { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--panel-line, #e5e5ea); border-radius: 10px; cursor: pointer; background: #fff; }
+.pa-slip:has(input:checked) { border-color: var(--accent, #0071e3); box-shadow: 0 0 0 2px rgba(0,113,227,.15); }
+.pa-slip > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pa-slip small { color: var(--ink-soft, #6e6e73); }
+.pa-left { white-space: nowrap; color: #b00020; }
+.pa-res { margin-top: 8px; padding: 9px 12px; border-radius: 10px; font-weight: 600; background: #f5f5f7; }
+.pa-res.ok { background: #e8f5e9; color: #1e7b34; }
+.pa-res.bad { background: #fdecea; color: #b00020; }
+.sal-tiles .tile .s { font-size: 12px; color: var(--ink-soft, #6e6e73); margin-top: 2px; }
+#dPayroll .tile .s { color: var(--ink-soft); font-size: 12px; }
+
+/* 3.55: a customer order's boxes: ORDER against DELIVERED, box and pcs, ✅ / ❌ */
+.co-match { border-collapse: separate; border-spacing: 0; margin: 0 0 10px; min-width: 300px; background: #fff; border: 1px solid var(--panel-line, #e5e5ea); border-radius: 12px; overflow: hidden; font-size: 15px; }
+.co-match th, .co-match td { padding: 8px 16px; text-align: right; border-bottom: 1px solid #f0f0f3; }
+.co-match thead th { font-size: 11px; letter-spacing: .08em; color: var(--ink-soft, #6e6e73); background: #f7f7f9; }
+.co-match tbody th { text-align: left; font-size: 12px; letter-spacing: .06em; }
+.co-match tbody td { font-weight: 700; font-variant-numeric: tabular-nums; }
+.co-match tr:last-child > * { border-bottom: 0; }
+.cm-ok { font-size: 16px; }
+.cm-bad { color: #b00020; font-weight: 700; white-space: nowrap; }
+
+/* 3.56: the invoice charges the pcs delivered: the amount row and the lines charged */
+.co-match .cm-amt td { font-size: 14px; }
+.cm-plus { color: #1f5fbf; }
+.co-charge { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: #fffaf0; border: 1px solid #f3dfb3; }
+.co-charge .cc-h { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.cc-table .cc-tot td { font-weight: 800; border-top: 2px solid #ddd; }
+.co-odd { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #fdecea; border: 1px solid #f5c2c0; }
+.co-odd .odd-price { width: 110px; }
