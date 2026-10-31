@@ -182,7 +182,11 @@
       if (notes.length) toast(bad.length ? bad.map((n) => n.slice(2)).join(" ") : notes[notes.length - 1].slice(2), !!bad.length);
     };
     const terms = () => ($("#coTerms").value === "OTHER" ? $("#coTermsX").value.trim().replace(/\s+/g, " ").toUpperCase() : $("#coTerms").value);
-    $("#coTerms").onchange = () => $$(".cotx").forEach((x) => (x.hidden = $("#coTerms").value !== "OTHER"));
+    // 3.60: the terms (or the date) chosen fill the due date by themselves (it can still be changed by hand)
+    const fillDue = () => { const d = E.termsDue($("#coDate").value, $("#coTerms").value); if (d) $("#coDue").value = d; };
+    $("#coTerms").onchange = () => { $$(".cotx").forEach((x) => (x.hidden = $("#coTerms").value !== "OTHER")); fillDue(); };
+    $("#coDate").addEventListener("change", () => { if ($("#coTerms").value) fillDue(); });
+    if (!$("#coDue").value) fillDue();
     $("#coCancel").onclick = () => history.back();
     $("#coForm").onsubmit = async (e) => {
       e.preventDefault();
