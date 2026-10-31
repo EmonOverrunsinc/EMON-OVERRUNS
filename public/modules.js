@@ -613,7 +613,14 @@
   async function loadTodo() {
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
-    const [apps, jobs, changes, memos, contacts, copies, pos, cords] = await Promise.all([
+    // 3.52: after a month ends, the Director is reminded of the employees whose salary of that month is not submitted
+    const prev = new Date(); prev.setDate(1); prev.setMonth(prev.getMonth() - 1);
+    const prevMonth = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}-01`;
+    const salaryLeft = !isAdmin() ? Promise.resolve(0) : Promise.all([
+      sb.from("employees").select("id").eq("status", "active").neq("approval_status", "pending").lte("date_hired", prevMonth.slice(0, 8) + "28"),
+      sb.from("salary_months").select("employee_id").eq("period_month", prevMonth)
+    ]).then(([a, b]) => (a.error || b.error ? 0 : (a.data || []).filter((e) => !(b.data || []).some((s) => s.employee_id === e.id)).length), () => 0);
+    const [apps, jobs, changes, memos, contacts, copies, pos, cords, salLeft] = await Promise.all([
       cnt(sb.from("customers").select("id", head).in("status", ["pending", "verified"])),
       cnt(sb.from("job_applications").select("id", head).eq("status", "submitted")),
       cnt(sb.from("change_requests").select("id", head).eq("status", "pending")),
@@ -621,14 +628,16 @@
       cnt(sb.from("contact_messages").select("id", head).eq("status", "new")),
       sb.from("attachments").select("owner_type, owner_id").eq("pending", true).order("created_at").limit(50).then((r) => r.data || [], () => []),
       cnt(sb.from("purchase_orders").select("id", head).eq("status", "pending")),
-      cnt(sb.from("customer_orders").select("id", head).eq("status", "pending"))
+      cnt(sb.from("customer_orders").select("id", head).eq("status", "pending")),
+      salaryLeft
     ]);
     const el = $("#dTodo"); if (!el) return;
     const items = [[apps, "Customer application", "#customers"], [jobs, "Job application", "#jobapps"], [changes, "Correction", "#changes"], [memos, "Credit memo", "#creditmemos"],
-      [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [cords, "Customer order", "#custorders"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
+      [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [cords, "Customer order", "#custorders"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""],
+      [salLeft, `Salary to submit (${E.monthText(prevMonth)})`, "#payroll", true]].filter(([n]) => n > 0);
     el.hidden = !items.length;
     el.innerHTML = items.length ? `<div class="todo-h">${ic("bell")} Waiting for you <b>${items.reduce((s, [n]) => s + n, 0)}</b></div>
-      <div class="todo-list">${items.map(([n, label, href]) => `<a class="todo-chip" href="${href}"><b>${n}</b> ${esc(label)}${n === 1 ? "" : "s"}${ic("next")}</a>`).join("")}</div>` : "";
+      <div class="todo-list">${items.map(([n, label, href, fixed]) => `<a class="todo-chip" href="${href}"><b>${n}</b> ${esc(label)}${n === 1 || fixed ? "" : "s"}${ic("next")}</a>`).join("")}</div>` : "";
   }
 
   // ======================================================================
@@ -2169,9 +2178,10 @@
     ]);
     if (fresh) Object.assign(S.profile, fresh);
     const sp = S.profile;
-    const [myPic, slips] = await Promise.all([
+    const [myPic, slips, mySm] = await Promise.all([
       signaturePic(sp.signature_path),
-      emp ? sb.from("payslips").select("*").eq("employee_id", emp.id).order("pay_date", { ascending: false }).then((r) => r.data || []) : []
+      emp ? sb.from("payslips").select("*").eq("employee_id", emp.id).order("pay_date", { ascending: false }).then((r) => r.data || []) : [],
+      emp && E.readSalary ? E.readSalary(sb.from("salary_months").select("*").eq("employee_id", emp.id)) : { rows: [] }
     ]);
     if (!here()) return;
     const netTotal = slips.reduce((s, p) => s + num(p.net_pay), 0);
@@ -2208,6 +2218,10 @@
           <a href="/delete-account" target="_blank" rel="noopener">More about deleting an account</a> · <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></p>
         <div class="btnrow"><button type="button" class="btn danger" id="mpDel">${ic("trash")} Request Account Deletion</button></div>
         <div id="mpDelDone"></div></fieldset>`}
+      ${emp && E.salaryHistory ? (() => { const h = E.salaryHistory(mySm.rows, slips), t = E.salaryTotals(h);
+        return `<h3>My Salary</h3><div class="tiles"><div class="tile"><div class="k">Salary Earned (₱)</div><div class="v">₱ ${peso(t.earned)}</div></div>
+          <div class="tile ok"><div class="k">Salary Paid (₱)</div><div class="v">₱ ${peso(t.paid)}</div></div>
+          <div class="tile ${t.due > 0 ? "bad" : "ok"}"><div class="k">${t.due < 0 ? "Paid Ahead (₱)" : "Salary Due (₱)"}</div><div class="v">₱ ${peso(Math.abs(t.due))}</div></div></div>${E.salaryGrid(h, t)}`; })() : ""}
       ${emp ? `<h3>My Payslip History</h3>
         <div class="tiles"><div class="tile"><div class="k">Payslips</div><div class="v">${slips.length}</div></div><div class="tile ok"><div class="k">Total Received (₱)</div><div class="v">₱ ${peso(netTotal)}</div></div></div>
         <div id="mpSlips">${E.grid({ cols: [{ label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => r.pay_type.toUpperCase() }, { label: "Period", get: (r) => new Date(r.period_month + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }) }, { label: "Pay Date", get: (r) => mdy(r.pay_date) }, { label: "Net Pay (₱)", num: true, get: (r) => peso(r.net_pay) }], rows: slips, onRow: true, empty: "No salary or advance payments recorded yet." })}</div>` : ""}`;

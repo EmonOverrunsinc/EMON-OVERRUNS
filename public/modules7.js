@@ -48,7 +48,11 @@
       if (c.type === "checkbox" || c.type === "radio") return c.checked ? "Yes" : "";
       if (c.type === "file") return c.files?.length ? `${c.files.length} file${c.files.length > 1 ? "s" : ""}` : "";
       if (c.tagName === "SELECT") return c.value ? clean(c.selectedOptions[0]?.textContent) : "";
-      return String(c.value || "").trim();
+      const v = String(c.value || "").trim();
+      // 3.52: an amount shows its thousands (50,000) and a date shows as OCTOBER 31 2026, as on every document
+      if (v && c.dataset.comma && !isNaN(Number(v))) return Number(v).toLocaleString("en-PH", { maximumFractionDigits: 4 });
+      if (v && c.type === "date") return E.mdy(v);
+      return v;
     };
     const summary = (p) => {
       const rows = [], chips = [];
