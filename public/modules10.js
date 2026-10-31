@@ -364,10 +364,11 @@
     const invHtml = inv ? `<div class="pgrid2 qc-head">
           <div class="pcell"><div class="pl">Invoice No</div><div class="pv">${E.canOpen("invoice") ? `<a href="#invoice/${inv.id}"><b>${esc(inv.invoice_no)}</b></a>` : `<b>${esc(inv.invoice_no)}</b>`}</div></div>
           ${E.cell("Invoice Date", mdy(inv.invoice_date))}${E.cell("Terms of Payment", inv.payment_terms || "")}${E.cell("Due Date", mdy(inv.due_date))}${E.cell("Amount (₱)", peso(inv.total_amount), "hl")}${E.cell("Balance (₱)", peso(inv.balance))}
-          <div class="pcell"><div class="pl">Status</div><div class="pv">${payPill(inv)}</div></div></div>` : `<div class="empty small">The invoice is on the customer's account.</div>`;
+          <div class="pcell co-invstat"><div class="pl">Status</div><div class="pv">${payPill(inv)}</div></div></div>
+          ${o._dl?.has_pcs && nBoxes(boxes) ? `<div class="banner ok co-verified">✅ VERIFIED WITH SERIAL NO — the invoice charges the delivery list: ${esc(boxesText(nBoxes(boxes)))} · ${qtyText(o._dl.pcs)} pcs</div>` : ""}` : `<div class="empty small">The invoice is on the customer's account.</div>`;
     const tabs = ["Order Lines", `Boxes (${nBoxes(boxes)})`, "Delivery", ...(o.status === "completed" ? ["Invoice"] : [])];
     $("#main").innerHTML = `${head}${stepper}${banner}
-      ${isAdmin() && o.status === "approved" && o.delivery_request_at ? `<fieldset class="opt review"><legend>Delivery Approval</legend><p class="muted" style="margin:0 0 8px">${nBoxes(boxes)} of ${qtyText(o.total_boxes)} boxes · ${(o.delivery_photos || []).length} photo(s): see the Boxes and Delivery tabs.</p><div class="btnrow"><button type="button" class="btn ok" id="coDvOk">${ic("check")} Approve Delivery · COMPLETE</button><button type="button" class="btn danger" id="coDvNo">Reject</button></div></fieldset>` : ""}
+      ${isAdmin() && o.status === "approved" && o.delivery_request_at ? `<fieldset class="opt review"><legend>Delivery Approval</legend><p class="muted" style="margin:0 0 8px">${vsText(o.total_boxes, nBoxes(boxes), false)} · ${(o.delivery_photos || []).length} photo(s): see the Boxes and Delivery tabs.</p><div class="btnrow"><button type="button" class="btn ok" id="coDvOk">${ic("check")} Approve Delivery · COMPLETE</button><button type="button" class="btn danger" id="coDvNo">Reject</button></div></fieldset>` : ""}
       ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>Director's Decision</legend><div class="btnrow"><button type="button" class="btn ok" id="coApprove">${ic("check")} Approve · 2 PREPARED</button><button type="button" class="btn danger" id="coCancelO">Cancel Order</button></div></fieldset>` : ""}
       <div class="due-card co-amt"><div><div class="k">Order Amount</div><div class="v">₱ ${peso(o.total_amount)}</div></div><small>${esc(E.words(o.total_amount))}${o.note ? ` · Note: ${esc(o.note)}` : ""}</small></div>
       <div class="actionbar">
@@ -394,6 +395,13 @@
     if (deliverNow) E.drawQr($("#coQr"), deliveryUrl(o.order_no, o.delivery_code));
     const reload = () => V.custorder(o.id);
     bindOddPrice(o, reload);
+    [["#cbLock", true], ["#cbUnlock", false]].forEach(([sel, lock]) => { if ($(sel)) $(sel).onclick = async (e) => {
+      if (!(await E.confirmBox(lock ? `Verify the boxes of <b>${esc(o.order_no)}</b> and lock them?<br><br>After it no box can be added, changed or removed (unlock to fix).` : `Unlock the boxes of <b>${esc(o.order_no)}</b> to fix them?`, { ok: lock ? "Verify & Lock" : "Unlock" }))) return;
+      e.target.disabled = true;
+      const { error } = await sb.rpc("lock_order_boxes", { p_order: o.id, p_lock: lock });
+      if (error) { e.target.disabled = false; return fail(error, /lock_order_boxes/.test(error.message || "") ? "Run the database update RUN_062_TO_067.sql first" : "Could not save"); }
+      toast(lock ? `Boxes of ${o.order_no} verified and locked.` : `Boxes of ${o.order_no} unlocked.`); reload();
+    }; });
     if ($("#coApprove")) $("#coApprove").onclick = async (e) => {
       if (!(await E.confirmBox(`Approve order <b>${esc(o.order_no)}</b> for <b>${esc(fullName(c))}</b> (₱ ${peso(o.total_amount)}, ${esc(boxesText(o.total_boxes))})? It becomes PREPARED and your signature goes on the printed order.`, { ok: "Approve Order" }))) return;
       e.target.disabled = true;
@@ -405,7 +413,7 @@
     // 3.45: a delivery submitted by the order paper (not signed in with EO-Office): the Director approves or rejects it
     const decideDelivery = async (e, action) => {
       const ok = action === "approve"
-        ? await E.confirmBox(`Approve the delivery of <b>${esc(o.order_no)}</b>?<br><br>The order becomes COMPLETED and the invoice is made and billed to <b>${esc(custName(o))}</b>: <b>₱ ${peso(o.total_amount)}</b>.`, { title: "Approve Delivery", ok: "Approve Delivery" })
+        ? await E.confirmBox(`${chargeSays(o, boxes)}Approve the delivery of <b>${esc(o.order_no)}</b>?<br><br>The order becomes COMPLETED and the invoice is made and billed to <b>${esc(custName(o))}</b>.`, { title: "Approve Delivery", ok: "Approve Delivery" })
         : await E.confirmBox(`Reject the delivery submitted for <b>${esc(o.order_no)}</b>? The order stays PREPARED and the delivery can be done again.`, { ok: "Reject", danger: true });
       if (!ok) return;
       e.target.disabled = true;
@@ -454,45 +462,56 @@
     const rows = [];
     lines.forEach((l) => {
       const n = num(l.boxes); if (!n) return;
-      const code = up(l.code), batch = up(l.lot);
-      let r = rows.find((x) => x.code === code && x.batch === batch);
-      if (!r) rows.push(r = { code, batch, name: l.product || "", want: 0, got: 0 });
+      const code = up(l.code), batch = up(l.lot), name = l.product || "";
+      // 3.59: lines with the same code + batch no but another product stay apart (e.g. MIX and TOMMY, both without a code)
+      let r = rows.find((x) => x.code === code && x.batch === batch && up(x.name) === up(name));
+      if (!r) rows.push(r = { code, batch, name, want: 0, got: 0 });
       r.want += n;
     });
-    const extra = [], left = [];
-    let other = 0; // 3.55: boxes of the order with another code / batch than its lines (not MISSING when the order has room for them)
+    // how well a box fits a line: the same code + batch no; the batch no or the code (the other one empty); the product.
+    // Among equals the line of the same product first - the same rule as the invoice (co_delivered).
+    const fit = (x, b) => {
+      const code = up(b.code), batch = up(b.batch_no), item = up(b.items), name = up(x.name);
+      const same = !!item && item === name, near = !!item && !!name && (item.includes(name) || name.includes(item));
+      const rank = x.code === code && x.batch === batch ? 0 : batch && x.batch === batch && (!x.code || !code) ? 1
+        : code && x.code === code && (!x.batch || !batch) ? 2 : same ? 3 : near ? 4 : 9;
+      return rank * 3 + (same ? 0 : near ? 1 : 2);
+    };
+    const best = (b, ok) => rows.reduce((p, x) => { if (!ok(x)) return p; const f = fit(x, b); return f < 27 && (!p || f < p.f) ? { x, f } : p; }, null);
     const free = (x) => x.got < x.want;
-    boxes.filter((b) => b.serial_no).forEach((b) => {
-      const code = up(b.code), batch = up(b.batch_no);
-      const r = rows.find((x) => free(x) && x.code === code && x.batch === batch)
-        || rows.find((x) => free(x) && batch && x.batch === batch && (!x.code || !code))
-        || rows.find((x) => free(x) && code && x.code === code && (!x.batch || !batch));
-      if (r) r.got++; else left.push(b);
+    const extra = [], left = [];
+    let other = 0, over = 0; // boxes of a line with another code / batch no; boxes more than a line ordered (charged at its price)
+    // every box to a line that still waits for it, the closest fits first; a box of a full line is MORE than ordered;
+    // a box of no line is NOT ORDERED (a wrong box? the Director removes it or adds its price on the order page)
+    boxes.filter((b) => b.serial_no).map((b) => ({ b, f: best(b, free)?.f ?? 99 })).sort((p, q) => p.f - q.f).forEach(({ b }) => {
+      const m = best(b, free);
+      if (m) { m.x.got++; if (m.f >= 9) other++; } else left.push(b);
     });
-    // 3.56: then by the product (another code / batch no); a box of a line already full is an EXTRA box of that line
-    // (charged at its price); a box of no line is NOT ORDERED (the Director adds its price on the order page)
-    const sameItem = (x, item) => item && up(x.name) && (item === up(x.name) || item.includes(up(x.name)) || up(x.name).includes(item));
     left.forEach((b) => {
-      const code = up(b.code), batch = up(b.batch_no), item = up(b.items);
-      const r = rows.find((x) => free(x) && sameItem(x, item))
-        || rows.find((x) => x.code === code && x.batch === batch) || rows.find((x) => batch && x.batch === batch && (!x.code || !code))
-        || rows.find((x) => code && x.code === code && (!x.batch || !batch)) || rows.find((x) => sameItem(x, item));
-      if (r) { if (free(r)) other++; r.got++; return; }
-      let e = extra.find((x) => x.code === code && x.batch === batch && x.name === (b.items || "")); if (!e) extra.push(e = { code, batch, name: b.items || "", n: 0 }); e.n++;
+      const m = best(b, () => true);
+      if (m) { m.x.got++; over++; return; }
+      const code = up(b.code), batch = up(b.batch_no);
+      let e = extra.find((x) => x.code === code && x.batch === batch && x.name === (b.items || "")); if (!e) extra.push(e = { code, batch, name: b.items || "", n: 0, serials: [] }); e.n++; e.serials.push(b.serial_no);
     });
-    const over = rows.reduce((t, r) => t + Math.max(0, r.got - r.want), 0);
     if (!rows.length && !extra.length) return "";
     const open = rows.filter((r) => r.got < r.want).sort((x, y) => (x.batch + x.code).localeCompare(y.batch + y.code));
     const miss = open.reduce((t, r) => t + r.want - r.got, 0), ext = extra.reduce((t, e) => t + e.n, 0);
     const cell = (v) => (v ? esc(v) : "—");
-    const tr = (r, n, cls, st) => `<tr class="${cls}"><td class="bx-n">${qtyText(n)}</td><td class="bx-b">${cell(r.batch)}</td><td class="bx-c">${cell(r.code)}</td>
-      <td class="bx-p">${esc(r.name)}</td><td>${r.want ? `${qtyText(r.got)} of ${qtyText(r.want)}` : ""}</td><td><span class="bx-st ${cls}">${st}</span></td></tr>`;
+    // 3.59: each ORDER line still MISSING boxes (what was ordered, how many are here) and each box ADDED that is NOT ORDERED
+    const orderRow = (r) => { const ok = r.got >= r.want; return `<tr class="${ok ? "okrow" : "miss"}"><td><span class="bx-tag ord">ORDER</span></td><td class="bx-b">${cell(r.batch)}</td><td class="bx-c">${cell(r.code)}</td>
+      <td class="bx-p">${esc(r.name)}</td><td class="bx-n">${qtyText(r.want)}</td><td class="bx-n">${qtyText(r.got)}</td>
+      <td><span class="bx-st ${ok ? "ok" : "miss"}">${ok ? `✅${r.got > r.want ? ` +${qtyText(r.got - r.want)}` : ""}` : `❌ MISSING ${qtyText(r.want - r.got)}`}</span></td></tr>`; };
+    const addRow = (e) => `<tr class="extra"><td><span class="bx-tag add">ADDED</span></td><td class="bx-b">${cell(e.batch)}</td><td class="bx-c">${cell(e.code)}</td>
+      <td class="bx-p">${esc(e.name || "—")}<br><small class="mono">${esc(e.serials.join(", "))}</small></td><td class="bx-n">—</td><td class="bx-n">${qtyText(e.n)}</td>
+      <td><span class="bx-st extra">❌ NOT ORDERED</span><br><small>Wrong box? Remove it, or the Director adds its price.</small></td></tr>`;
     const note = [other ? `${boxesText(other)} with another code / batch no than the order lines` : "", over ? `${boxesText(over)} more than ordered (charged at the line's price)` : ""].filter(Boolean).join(" · ");
     const sum = !miss && !ext ? `<div class="bx-sum ok">✔ Every box of the order is here.${note ? ` <small>(${note})</small>` : ""}</div>`
       : `<div class="bx-sum ${miss ? "miss" : "extra"}">${miss ? `<b>${boxesText(miss)} MISSING</b>` : ""}${miss && ext ? " · " : ""}${ext ? `<b>${boxesText(ext)} NOT ORDERED</b>` : ""}${note ? ` <small>(${note})</small>` : ""}</div>`;
-    const body = open.map((r) => tr(r, r.want - r.got, "miss", "MISSING")).join("") + extra.map((e) => tr(e, e.n, "extra", "NOT ORDERED")).join("");
-    return `<div class="bx-check">${sum}${body ? `<div class="grid-scroll"><table class="bx-table"><thead><tr><th>BOXES</th><th>BATCH NO</th><th>CODE</th><th>PRODUCT</th><th>HERE</th><th></th></tr></thead><tbody>${body}</tbody></table></div>` : ""}</div>`;
+    const body = open.map(orderRow).join("") + extra.map(addRow).join(""); // a line with all its boxes here is not listed (3.49)
+    return `<div class="bx-check">${sum}${body ? `<div class="grid-scroll"><table class="bx-table"><thead><tr><th></th><th>BATCH NO</th><th>CODE</th><th>PRODUCT</th><th class="num">ORDER</th><th class="num">HERE</th><th></th></tr></thead><tbody>${body}</tbody></table></div>` : ""}</div>`;
   }
+  // 3.59: the same in one line of words - ORDER 41 BOX · SCANNED 41 ✅ (never "41 of 41")
+  const vsText = (want, got, done, unit = "BOX") => `ORDER ${qtyText(want)} ${unit} · ${done ? "DELIVERED" : "SCANNED"} ${qtyText(got)} ${num(got) === num(want) ? "✅" : "❌"}`;
   // 3.55: ORDER against DELIVERED (SCANNED while the order is open), boxes and pcs, ✅ when they match, ❌ when not
   const matchMark = (want, got) => (num(got) === num(want) ? `<span class="cm-ok">✅</span>` : `<span class="cm-bad">❌ ${num(got) > num(want) ? "+" : ""}${qtyText(num(got) - num(want))}</span>`);
   // 3.56: the invoice charges the pcs delivered: each box at the price of the order line with its batch no and code
@@ -535,9 +554,17 @@
       reload();
     }));
   }
+  // 3.59: the Director verifies the boxes and locks them (no box added, changed or removed) - or unlocks them to fix
+  const boxLock = (o, boxes) => o.boxes_verified_at
+    ? `<div class="banner ok co-lock">🔒 BOXES VERIFIED &amp; LOCKED by <b>${esc(o.boxes_verified_by_name || "")}</b> · ${esc(E.dateTime(o.boxes_verified_at))}${isAdmin() ? ` <button type="button" class="btn small" id="cbUnlock">Unlock</button>` : ""}</div>`
+    : isAdmin() && nBoxes(boxes) ? `<div class="btnrow"><button type="button" class="btn ok" id="cbLock">${ic("check")} Verify &amp; Lock Boxes</button><small class="muted">Check the boxes above first: after it no box can be added, changed or removed.</small></div>` : "";
+  const chargeSays = (o, boxes) => !nBoxes(boxes)
+    ? `<div class="co-warn0">⚠ NO BOX ADDED (0 boxes)<br><small>If you go on, the invoice is the ORDER AMOUNT: ₱ ${peso(o.total_amount)}. Add the boxes first to charge the delivery list.</small></div>`
+    : o._dl?.has_pcs ? `<div class="co-ok0">✅ ${esc(boxesText(nBoxes(boxes)))} with serial no: the invoice charges the delivery list — <b>₱ ${peso(o._dl.amount)}</b></div>` : "";
+  const boxOpen = (o) => fixable(o) && !o.boxes_verified_at;
   function boxesHtml(o, boxes, sumPcs, w) {
-    return `${countMatch(o, boxes, sumPcs)}${boxCheck(o.lines || [], boxes)}
-      ${w && fixable(o) ? `<div class="btnrow"><button type="button" class="btn primary" id="cbScan">${ic("scan")} Scan Boxes</button><label class="btn" for="cbPhoto">${ic("image")} Box Label Photo</label><input type="file" id="cbPhoto" accept="image/*" multiple hidden>
+    return `${countMatch(o, boxes, sumPcs)}${boxCheck(o.lines || [], boxes)}${boxLock(o, boxes)}
+      ${w && boxOpen(o) ? `<div class="btnrow"><button type="button" class="btn primary" id="cbScan">${ic("scan")} Scan Boxes</button><label class="btn" for="cbPhoto">${ic("image")} Box Label Photo</label><input type="file" id="cbPhoto" accept="image/*" multiple hidden>
         <button type="button" class="btn" id="cbType">📦 Add Box</button></div>
         <div class="box-find"><input type="text" id="cbFind" maxlength="60" placeholder="Serial no, e.g. U20261238" aria-label="Find a box by its serial no" autocomplete="off"><button type="button" class="btn primary" id="cbFindGo">${ic("search")} Find &amp; Add</button></div>
         <div id="cbFound" class="box-found" aria-live="polite">${foundHtml(o.id)}</div>
@@ -545,7 +572,7 @@
       ${E.grid({ cols: [{ label: "#", get: (b) => boxNo(boxes, b) }, { label: "Serial No", html: serHtml }, { label: "Code", get: (b) => b.code || "" },
         { label: "Batch No", get: (b) => b.batch_no || "" }, { label: "Items", get: (b) => b.items || "" }, { label: "Brand", get: (b) => b.brand || "" }, { label: "CTN", get: (b) => b.ctn || "" },
         { label: "Pcs", num: true, get: (b) => qtyText(b.pcs) }, { label: "Remarks", get: (b) => b.remarks || "" },
-        ...(w && fixable(o) ? [{ label: "", html: (b) => `<span class="co-bact"><button type="button" class="btn small" data-be="${b.id}" aria-label="Change ${esc(b.serial_no || b.items || "line")}">${ic("edit")}</button><button type="button" class="btn small danger" data-bx="${b.id}" aria-label="Remove ${esc(b.serial_no || b.items || "line")}">×</button></span>` }] : [])],
+        ...(w && boxOpen(o) ? [{ label: "", html: (b) => `<span class="co-bact"><button type="button" class="btn small" data-be="${b.id}" aria-label="Change ${esc(b.serial_no || b.items || "line")}">${ic("edit")}</button><button type="button" class="btn small danger" data-bx="${b.id}" aria-label="Remove ${esc(b.serial_no || b.items || "line")}">×</button></span>` }] : [])],
         rows: boxes, empty: "No boxes yet." })}`;
   }
   // what a box added says: its items, brand and pcs (3.39: filled from the box database when the serial no is there)
@@ -616,7 +643,7 @@
       if (error) return /on this order already/i.test(error.message || "") ? `✔ Box ${box.serial_no} is on this order (checked)` : `✖ ${error.message}`;
       boxes.push(data); added++;
       if (!data.serial_no) return `✔ Added${boxSays(data)} — no serial no: not counted as a box`;
-      return `✔ Box ${data.serial_no} added${boxSays(data)} · ${nBoxes(boxes)} of ${qtyText(o.total_boxes)} boxes`;
+      return `✔ Box ${data.serial_no} added${boxSays(data)} · ${vsText(o.total_boxes, nBoxes(boxes), o.status === "completed")}`;
     };
     const found = (raw, how) => addFound(raw, how, add, null, boxes);
     bindFind("cb", o.id, (v) => found(v, "typed"), reload);
@@ -736,7 +763,7 @@
     }));
     $("#dvDone").onclick = async (e) => {
       const short = nBoxes(boxes) !== num(o.total_boxes);
-      const msg = `Complete the delivery of <b>${esc(o.order_no)}</b>?<br><br>The invoice is made and billed to <b>${esc(custName(o))}</b> by itself: <b>₱ ${peso(o.total_amount)}</b>, ${esc(boxesText(o.total_boxes))}, ${qtyText(o.total_pcs)} pcs${o.payment_terms ? `, ${esc(o.payment_terms)}` : ""}.`
+      const msg = `${chargeSays(o, boxes)}Complete the delivery of <b>${esc(o.order_no)}</b>?<br><br>The invoice is made and billed to <b>${esc(custName(o))}</b> by itself${o._dl?.has_pcs && nBoxes(boxes) ? "" : `: <b>₱ ${peso(o.total_amount)}</b>, ${esc(boxesText(o.total_boxes))}, ${qtyText(o.total_pcs)} pcs`}${o.payment_terms ? `, ${esc(o.payment_terms)}` : ""}.`
         + (short ? `<br><br><b>Note:</b> ${nBoxes(boxes)} box(es) were scanned, the order has ${qtyText(o.total_boxes)}.` : "") + "<br><br>This cannot be undone.";
       if (!(await E.confirmBox(msg, { title: "Complete Delivery", ok: "Complete Delivery" }))) return;
       e.target.disabled = true;
@@ -818,7 +845,7 @@
     const rows = boxes.length ? boxes : [null];
     return E.pagedDoc({
       head: E.printHead("CUSTOMER ORDER — ALL DETAILS", codesHtml(o, `<div class="co-bigbox">${esc(boxesText(o.total_boxes))}</div>`)), contHead: E.printHead(`CUSTOMER ORDER ${o.order_no} — ALL DETAILS (CONTINUED)`, ""),
-      top, boxTitle: `Boxes (${nBoxes(boxes)} of ${qtyText(o.total_boxes)})`,
+      top, boxTitle: `Boxes (${vsText(o.total_boxes, nBoxes(boxes), o.status === "completed")})`,
       thead: `<tr><th>#</th><th>Serial No.</th><th>Code</th><th>Batch No.</th><th>Items</th><th>Brand</th><th>CTN</th><th class="num">Pcs</th></tr>`,
       rows, rowHtml: (b, i) => b ? `<tr class="ad-r"><td>${i + 1}</td><td class="mono">${b.serial_no ? esc(b.serial_no) : "-"}</td><td>${esc(b.code || "")}</td><td>${esc(b.batch_no || "")}</td><td>${esc(b.items || "")}</td><td>${esc(b.brand || "")}</td><td>${esc(b.ctn || "")}</td><td class="num">${qtyText(b.pcs)}</td></tr>`
         : `<tr class="ad-r"><td colspan="8">No boxes yet.</td></tr>`,
@@ -863,7 +890,7 @@
       <div class="ch-pic"><div class="ch-photo co-ic">${ic("box")}</div></div>
       <div class="ch-main"><div class="ch-name"><h2>${esc(d.order_no)}</h2>${stPill(d)}</div>
         <div class="ch-sub"><b>${esc(d.customer)}</b>${d.account_no ? ` · <span class="mono">${esc(d.account_no)}</span>` : ""}${d.address ? ` · ${esc(d.address)}` : ""}</div>
-        <div class="ch-ids">${E.idBox("Batch No", d.reference || "")}${E.idBox("Boxes", `${nBoxes(boxes)} of ${qtyText(d.total_boxes)}`)}${E.idBox("Pcs", `${qtyText(pcs)} of ${qtyText(d.total_pcs)}`)}</div></div>
+        <div class="ch-ids">${E.idBox("Batch No", d.reference || "")}${E.idBox("Boxes", vsText(d.total_boxes, nBoxes(boxes), d.status === "completed"))}${E.idBox("Pcs", vsText(d.total_pcs, pcs, d.status === "completed", "PCS"))}</div></div>
     </section>`;
     if (d.status !== "approved") { // completed, waiting or cancelled: what was done; nothing to change
       $("#pdBody").innerHTML = `${head}<div class="banner ${d.status === "completed" ? "ok" : d.status === "cancelled" ? "closed" : "warn"}">${d.status === "completed" ? "✔ COMPLETED — " : ""}${esc(d.state)}</div>
@@ -873,7 +900,7 @@
     }
     if (d.request_at && !d.can_complete) { // 3.45: submitted: the Director approves it
       $("#pdBody").innerHTML = `${head}<div class="banner warn">${ic("clock")} DELIVERY SUBMITTED — ${esc(E.dateTime(d.request_at))}. It waits for the Director's approval: approved, the order is COMPLETED.</div>
-        <div class="pgrid2 qc-head">${E.cell("Submitted By", d.request_by || "")}${E.cell("Boxes", `${nBoxes(boxes)} of ${qtyText(d.total_boxes)}`)}${E.cell("Pcs", `${qtyText(pcs)} of ${qtyText(d.total_pcs)}`)}${E.cell("Photos", String(photos.length))}</div>
+        <div class="pgrid2 qc-head">${E.cell("Submitted By", d.request_by || "")}${E.cell("Boxes", vsText(d.total_boxes, nBoxes(boxes), d.status === "completed"))}${E.cell("Pcs", vsText(d.total_pcs, pcs, d.status === "completed", "PCS"))}${E.cell("Photos", String(photos.length))}</div>
         <div class="btnrow">${orderLink}</div>`;
       return;
     }
@@ -881,7 +908,7 @@
     const tick = (on, label) => `<li class="${on ? "ok" : ""}">${on ? "✔" : "○"} ${esc(label)}</li>`;
     $("#pdBody").innerHTML = `${head}
       <div class="banner">${ic("box")} PREPARED — ready for delivery. Do the steps below.</div>
-      <section class="pd-step"><h3><span class="pd-n">1</span> Boxes <small>${nBoxes(boxes)} of ${qtyText(d.total_boxes)} boxes · ${qtyText(pcs)} of ${qtyText(d.total_pcs)} pcs</small></h3>
+      <section class="pd-step"><h3><span class="pd-n">1</span> Boxes <small>${vsText(d.total_boxes, nBoxes(boxes), false)} · ${vsText(d.total_pcs, pcs, false, "PCS")}</small></h3>
         ${boxCheck(lines, boxes)}
         <div class="btnrow"><button type="button" class="btn primary" id="pdScan">${ic("scan")} Scan Boxes</button><label class="btn" for="pdLabel">${ic("image")} Box Label Photo</label><input type="file" id="pdLabel" accept="image/*" multiple hidden>
           <button type="button" class="btn" id="pdType">📦 Add Box</button></div>
@@ -897,7 +924,7 @@
         <div class="btnrow"><label class="btn" for="pdPic" ${photos.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="pdPic" accept="image/*" multiple hidden></div>
       </section>
       <section class="pd-step"><h3><span class="pd-n">3</span> Complete Delivery</h3>
-        <ul class="pd-check">${tick(nBoxes(boxes) > 0, `Boxes: ${nBoxes(boxes)} of ${qtyText(d.total_boxes)}`)}${tick(photos.length > 0, photos.length ? `Photos: ${photos.length}` : "A photo of the delivery (optional)")}</ul>
+        <ul class="pd-check">${tick(nBoxes(boxes) > 0, `Boxes: ${vsText(d.total_boxes, nBoxes(boxes), false)}`)}${tick(photos.length > 0, photos.length ? `Photos: ${photos.length}` : "A photo of the delivery (optional)")}</ul>
         <div class="co-done"><button type="button" class="btn ok big" id="pdDone">${ic("check")} ${submitOnly ? "Submit Delivery for Approval" : "Complete Delivery"}</button><small>${submitOnly
           ? "You are not signed in with EO-Office: the delivery is SUBMITTED and the Director approves it. Approved, the order is COMPLETED and the invoice is made."
           : "The order becomes COMPLETED and the customer's invoice is made and billed by itself."}</small></div>
@@ -918,7 +945,7 @@
       if (error) return /on this order already/i.test(error.message || "") ? `✔ Box ${b.serial_no} is on this order (checked)` : `✖ ${error.message}`;
       boxes.push(data); added++;
       if (!data.serial_no) return `✔ Added${boxSays(data)} — no serial no: not counted as a box`;
-      return `✔ Box ${data.serial_no} added${boxSays(data)} · ${nBoxes(boxes)} of ${qtyText(d.total_boxes)} boxes`;
+      return `✔ Box ${data.serial_no} added${boxSays(data)} · ${vsText(d.total_boxes, nBoxes(boxes), false)}`;
     };
     const found = (raw, how) => addFound(raw, how, add, rpc, boxes);
     bindFind("pd", d.id, (v) => found(v, "typed"), reload);
@@ -977,7 +1004,11 @@
     // step 3: COMPLETE DELIVERY
     $("#pdDone").onclick = async (e) => {
       const short = nBoxes(boxes) !== num(d.total_boxes);
-      const msg = `Complete the delivery of <b>${esc(d.order_no)}</b> for <b>${esc(d.customer)}</b>?`
+      // 3.59: no box - the invoice is the ORDER AMOUNT; with boxes (serial no) it charges the boxes delivered
+      const amt = inside && !nBoxes(boxes) ? await sb.from("customer_orders").select("total_amount").eq("id", d.id).maybeSingle().then((r) => r.data?.total_amount, () => null) : null;
+      const msg = (nBoxes(boxes) ? `<div class="co-ok0">✅ ${esc(boxesText(nBoxes(boxes)))} with serial no: the invoice charges the boxes delivered.</div>`
+        : `<div class="co-warn0">⚠ NO BOX ADDED (0 boxes)<br><small>If you go on, the invoice is the ORDER AMOUNT${amt != null ? `: ₱ ${peso(amt)}` : ""}. Scan the boxes first to charge the delivery list.</small></div>`)
+        + `Complete the delivery of <b>${esc(d.order_no)}</b> for <b>${esc(d.customer)}</b>?`
         + (short ? `<br><br><b>Note:</b> ${nBoxes(boxes)} box(es) were scanned, the order has ${qtyText(d.total_boxes)}.` : "")
         + (submitOnly ? "<br><br>The delivery is SUBMITTED and waits for the Director's approval." : "<br><br>The order becomes COMPLETED and the invoice is made. This cannot be undone.");
       const title = submitOnly ? "Submit Delivery" : "Complete Delivery";

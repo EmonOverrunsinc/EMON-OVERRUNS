@@ -1,13 +1,14 @@
 -- =====================================================================
--- EMON OVERRUNS E-PORTAL - ALL DATABASE UPDATES 062 TO 066 IN ONE FILE (versions 3.54 to 3.58)
+-- EMON OVERRUNS E-PORTAL - ALL DATABASE UPDATES 062 TO 067 IN ONE FILE (versions 3.54 to 3.59)
 --   062  the Director edits a COMPLETED customer order (like ARS-2); its invoice changes with it   (062_edit_completed_order.sql)
 --   063  PAYROLL: Issue Payslip (unpaid salary), then Pay Salary with the employee's ID card scan    (063_payroll_pay_salary.sql)
 --   064  the INVOICE CHARGES THE PCS DELIVERED (batch no + code = the line price); NOT ORDERED boxes: add price (064_charge_as_delivered.sql)
 --   065  SECURITY: the public Verify page shows no names or amounts to visitors who are not signed in (065_verify_privacy.sql)
 --   066  SECURITY: robots get only a few tries a minute on the public pages; the Director deletes a salary payment (066_robot_guard.sql)
--- Needs RUN_060_TO_061.sql (already run). SAFE TO RUN AGAIN (also if 062 was run before).
--- Paste all of it in Supabase > SQL Editor > New query and press Run. The last line says: UPDATE 3.58 READY - ...
--- (and above it, each completed order whose invoice changed to the pcs delivered: OR-... PHP old -> new)
+--   067  the Director VERIFIES & LOCKS the boxes of an order (no box added, changed or removed until unlocked) (067_box_lock.sql)
+-- Needs RUN_060_TO_061.sql (already run). SAFE TO RUN AGAIN (also if a part was run before).
+-- Paste all of it in Supabase > SQL Editor > New query and press Run. The last line says: UPDATE 3.59 READY - ...
+-- (above it: each completed order whose invoice changed to the pcs delivered - OR-... PHP old -> new - or that needs a CHECK)
 -- =====================================================================
 
 -- ===== 062_edit_completed_order.sql =====
@@ -279,7 +280,10 @@ begin
           when bx.item <> '' and ln.prod = bx.item then 3
           when bx.item <> '' and ln.prod <> '' and (position(ln.prod in bx.item) > 0 or position(bx.item in ln.prod) > 0) then 4
           else 9 end as rk
-      from ln where ln.nbox > 0 order by 2, ln.i limit 1) m on true
+      from ln where ln.nbox > 0
+      -- among lines that fit the same way, the line of the same product first (e.g. MIX and TOMMY, both without a code)
+      order by 2, (bx.item <> '' and ln.prod = bx.item) desc,
+        (bx.item <> '' and ln.prod <> '' and (position(ln.prod in bx.item) > 0 or position(bx.item in ln.prod) > 0)) desc, ln.i limit 1) m on true
   ), per as (
     select ln.i, ln.v, ln.price, ln.qty, ln.nbox, ln.amt,
       count(p.id) filter (where p.rk < 9) as boxes_in, coalesce(sum(p.pcs) filter (where p.rk < 9), 0) as pcs_in,
@@ -416,9 +420,17 @@ end $$;
 create temp table if not exists charge_result (line text);
 truncate charge_result;
 do $$
-declare r record; before numeric; after numeric;
+declare r record; before numeric; after numeric; d jsonb;
 begin
   for r in select o.id, o.order_no, o.invoice_id from public.customer_orders o where o.status = 'completed' and o.invoice_id is not null order by o.order_no loop
+    -- an old order whose boxes do not all match its lines (a box NOT ORDERED, or a line with boxes but none of them here)
+    -- is not changed: the Director checks it on the order page (Boxes tab) first
+    d := public.co_delivered(r.id);
+    if coalesce((d ->> 'has_pcs')::boolean, false) and (jsonb_array_length(coalesce(d -> 'odd', '[]'::jsonb)) > 0
+        or exists (select 1 from jsonb_array_elements(coalesce(d -> 'lines', '[]'::jsonb)) l where (l ->> 'ordered')::numeric > 0 and (l ->> 'delivered')::numeric = 0)) then
+      insert into charge_result values (r.order_no || '  CHECK: some boxes do not match the order lines - open the order (Boxes tab). The invoice is not changed.');
+      continue;
+    end if;
     select total_amount into before from public.customer_invoices where id = r.invoice_id;
     begin
       perform public.co_charge_as_delivered(r.id);
@@ -451,7 +463,7 @@ select case when to_regprocedure('public.co_delivered(uuid)') is not null
 -- type, the number, the status and the dates. Names, account numbers and amounts show only to people signed in to the
 -- E-Portal - or when the secret key printed on the document (the customer's Public ID, an E-Bill's secret code) is used.
 -- Needs RUN_062_TO_064.sql. Paste all of it in Supabase > SQL Editor > New query and press Run. Safe to run again.
--- The last line says: UPDATE 3.58 READY - ...
+-- The last line says: UPDATE 3.57 READY - ...
 -- =====================================================================
 
 -- the full check stays, under its own name, for the portal only
@@ -581,5 +593,64 @@ select case when to_regprocedure('private.guard(text,integer)') is not null
   and position('private.guard(' in pg_get_functiondef('public.delivery_order(text,text)'::regprocedure)) > 0
   and to_regprocedure('public.delete_salary_payment(uuid)') is not null
   then 'UPDATE 3.58 READY - robots get only a few tries a minute on the public pages; the Director deletes a salary payment'
+  else 'NOT READY - send this message to Claude' end as result;
+
+-- ===== 067_box_lock.sql =====
+-- =====================================================================
+-- EMON OVERRUNS E-PORTAL - Update 3.59: THE DIRECTOR VERIFIES THE BOXES OF AN ORDER AND LOCKS THEM
+-- On the order page (Boxes tab) the Director checks each ORDER line against the boxes ADDED (a wrong box shows
+-- ❌ NOT ORDERED), fixes them (remove the wrong box, or give its price), then presses VERIFY & LOCK BOXES: from then on
+-- no box of that order can be added, changed or removed - by anyone, also on the order paper's delivery page - until
+-- the Director presses UNLOCK. Deleting the whole order (Director) still works.
+-- Needs RUN_062_TO_066.sql. Paste all of it in Supabase > SQL Editor > New query and press Run. Safe to run again.
+-- The last line says: UPDATE 3.59 READY - ...
+-- =====================================================================
+alter table public.customer_orders add column if not exists boxes_verified_at timestamptz;
+alter table public.customer_orders add column if not exists boxes_verified_by uuid references public.profiles(id) on delete set null;
+alter table public.customer_orders add column if not exists boxes_verified_by_name text;
+create index if not exists customer_orders_boxes_verified_by_idx on public.customer_orders(boxes_verified_by);
+
+-- the boxes of a locked order cannot change (the order itself being deleted takes its boxes with it)
+create or replace function public.co_boxes_locked() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare o public.customer_orders;
+begin
+  select * into o from public.customer_orders where id = case when tg_op = 'INSERT' then new.order_id else old.order_id end;
+  if found and o.boxes_verified_at is not null then
+    raise exception 'The boxes of order % were verified and locked by % - ask the Director to unlock them', o.order_no, coalesce(o.boxes_verified_by_name, 'the Director');
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+revoke execute on function public.co_boxes_locked() from public, anon, authenticated;
+drop trigger if exists co_boxes_locked on public.customer_order_boxes;
+create trigger co_boxes_locked before insert or update or delete on public.customer_order_boxes
+  for each row execute function public.co_boxes_locked();
+
+-- the Director verifies and locks the boxes (p_lock true), or unlocks them to fix (false)
+create or replace function public.lock_order_boxes(p_order uuid, p_lock boolean) returns public.customer_orders
+language plpgsql security definer set search_path = '' as $$
+declare o public.customer_orders;
+begin
+  if not public.is_admin() then raise exception 'Only the Director verifies and locks the boxes'; end if;
+  select * into o from public.customer_orders where id = p_order for update;
+  if not found then raise exception 'Order not found'; end if;
+  if p_lock and not exists (select 1 from public.customer_order_boxes where order_id = p_order) then raise exception 'Order % has no boxes to verify', o.order_no; end if;
+  perform public.allow_record_change();
+  update public.customer_orders set boxes_verified_at = case when p_lock then now() end, boxes_verified_by = case when p_lock then auth.uid() end,
+    boxes_verified_by_name = case when p_lock then (select full_name from public.profiles where id = auth.uid()) end, updated_at = now()
+  where id = p_order returning * into o;
+  perform set_config('eo.allow_change', 'off', true);
+  return o;
+end;
+$$;
+revoke execute on function public.lock_order_boxes(uuid, boolean) from public, anon;
+grant execute on function public.lock_order_boxes(uuid, boolean) to authenticated;
+
+notify pgrst, 'reload schema';
+
+select case when to_regprocedure('public.lock_order_boxes(uuid,boolean)') is not null
+  and exists (select 1 from pg_trigger where tgname = 'co_boxes_locked')
+  then 'UPDATE 3.59 READY - the Director verifies and locks the boxes of an order (Boxes tab)'
   else 'NOT READY - send this message to Claude' end as result;
 
