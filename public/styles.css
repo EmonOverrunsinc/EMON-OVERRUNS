@@ -2660,3 +2660,5 @@ body:not(:has(.content)) > .band-back, body:has(.preview) > .band-back { display
 .co-charge { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: #fffaf0; border: 1px solid #f3dfb3; }
 .co-charge .cc-h { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
 .cc-table .cc-tot td { font-weight: 800; border-top: 2px solid #ddd; }
+.co-odd { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #fdecea; border: 1px solid #f5c2c0; }
+.co-odd .odd-price { width: 110px; }

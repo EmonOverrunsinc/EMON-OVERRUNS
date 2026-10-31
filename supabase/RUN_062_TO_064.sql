@@ -2,7 +2,7 @@
 -- EMON OVERRUNS E-PORTAL - ALL DATABASE UPDATES 062 TO 064 IN ONE FILE (versions 3.54 to 3.56)
 --   062  the Director edits a COMPLETED customer order (like ARS-2); its invoice changes with it   (062_edit_completed_order.sql)
 --   063  PAYROLL: Issue Payslip (unpaid salary), then Pay Salary with the employee's ID card scan    (063_payroll_pay_salary.sql)
---   064  the INVOICE CHARGES THE PCS DELIVERED: batch no + code = the price of the order line        (064_charge_as_delivered.sql)
+--   064  the INVOICE CHARGES THE PCS DELIVERED (batch no + code = the line price); NOT ORDERED boxes: add price (064_charge_as_delivered.sql)
 -- Needs RUN_060_TO_061.sql (already run). SAFE TO RUN AGAIN (also if 062 was run before).
 -- Paste all of it in Supabase > SQL Editor > New query and press Run. The last lines say: UPDATE 3.56 READY - ...
 -- (and above it, each completed order whose invoice changed to the pcs delivered: OR-... PHP old -> new)
@@ -243,7 +243,8 @@ select case when to_regprocedure('public.issue_payslip(jsonb)') is not null and 
 -- more, fewer pcs are charged less (a line with no box delivered is not charged). The order keeps what was ordered.
 -- * A completed order's invoice follows by itself when its boxes change (added, changed, removed) or the order is edited.
 -- * Boxes without pcs (0) are charged as ordered; an order with no pcs on its boxes is charged as ordered.
--- * A box that matches no line is charged at the order's average price per pc.
+-- * A box that matches no line (another item, code or batch no) is NOT ORDERED and not charged: the order page lists
+--   it with its items and the Director adds its price - it is added to the order as a line and the invoice follows.
 -- * A line with no boxes (e.g. a fee) is charged as ordered.
 -- * The invoice cannot go below the payments linked to it.
 -- * The invoices of the orders completed before this update are charged as delivered now (not below linked payments).
@@ -275,7 +276,7 @@ begin
           when bx.code <> '' and ln.code = bx.code and (ln.lot = '' or bx.lot = '') then 2
           when bx.item <> '' and ln.prod = bx.item then 3
           when bx.item <> '' and ln.prod <> '' and (position(ln.prod in bx.item) > 0 or position(bx.item in ln.prod) > 0) then 4
-          when (select count(*) from ln l2 where l2.nbox > 0) = 1 then 5 else 9 end as rk
+          else 9 end as rk
       from ln where ln.nbox > 0 order by 2, ln.i limit 1) m on true
   ), per as (
     select ln.i, ln.v, ln.price, ln.qty, ln.nbox, ln.amt,
@@ -289,16 +290,20 @@ begin
   ), lines2 as (
     select lines.*, case when lines.nbox = 0 or lines.zero_in > 0 or (select pcs from tot) = 0 then lines.amt else round(lines.dqty * lines.price, 2) end as damt from lines
   ), odd as (
-    select coalesce(sum(p.pcs), 0) as pcs from pick p where p.rk = 9
+    select coalesce(sum(p.pcs), 0) as pcs from pick p where p.rk is null or p.rk = 9
+  ), oddl as (
+    select p.code, p.lot, p.item, count(*) filter (where p.serial_no is not null) as boxes, count(*) as lines, coalesce(sum(p.pcs), 0) as pcs,
+      string_agg(coalesce(p.serial_no, '-'), ', ' order by p.serial_no) as serials
+    from pick p where p.rk is null or p.rk = 9 group by p.code, p.lot, p.item
   )
   select jsonb_build_object(
     'has_pcs', (select pcs from tot) > 0,
     'boxes', (select boxes from tot),
-    'pcs', (select coalesce(sum(dqty), 0) from lines2) + (select pcs from odd),
+    'pcs', (select coalesce(sum(dqty), 0) from lines2),
     'odd_pcs', (select pcs from odd),
-    'odd_amount', round((select pcs from odd) * case when o.total_pcs > 0 then o.total_amount / o.total_pcs else 0 end, 2),
+    'odd', coalesce((select jsonb_agg(jsonb_build_object('code', code, 'lot', lot, 'items', item, 'boxes', boxes, 'lines', lines, 'pcs', pcs, 'serials', serials) order by lot, code, item) from oddl), '[]'::jsonb),
     'ordered_amount', o.total_amount, 'ordered_pcs', o.total_pcs,
-    'amount', (select coalesce(sum(damt), 0) from lines2) + round((select pcs from odd) * case when o.total_pcs > 0 then o.total_amount / o.total_pcs else 0 end, 2),
+    'amount', (select coalesce(sum(damt), 0) from lines2),
     'lines', coalesce((select jsonb_agg(jsonb_build_object('i', i, 'product', v ->> 'product', 'code', v ->> 'code', 'lot', v ->> 'lot', 'price', price,
        'ordered', qty, 'delivered', dqty, 'boxes', boxes_in, 'amount', damt, 'ordered_amount', amt) order by i) from lines2), '[]'::jsonb))
   into res;
@@ -331,6 +336,36 @@ begin
 end;
 $$;
 revoke execute on function public.co_charge_as_delivered(uuid) from public, anon, authenticated;
+
+-- NOT ORDERED boxes (no line of the order): the Director gives their price; they are added to the order as a line
+-- (items, code, batch no, boxes, pcs, price) and the invoice follows. p_code / p_lot / p_items name the group listed.
+create or replace function public.price_not_ordered(p_order uuid, p_code text, p_lot text, p_items text, p_price numeric) returns public.customer_orders
+language plpgsql security definer set search_path = '' as $$
+declare o public.customer_orders; g jsonb; pr numeric := round(coalesce(p_price, 0), 2); ln jsonb;
+  k text := upper(trim(coalesce(p_code, ''))); l text := upper(trim(coalesce(p_lot, ''))); it text := upper(trim(coalesce(p_items, '')));
+begin
+  if not public.is_admin() then raise exception 'Only the Director gives the price'; end if;
+  select * into o from public.customer_orders where id = p_order for update;
+  if not found then raise exception 'Order not found'; end if;
+  if o.status = 'cancelled' then raise exception 'Order % is CANCELLED', o.order_no; end if;
+  if pr <= 0 then raise exception 'Enter the price per pc'; end if;
+  select x into g from jsonb_array_elements(public.co_delivered(p_order) -> 'odd') x
+    where x ->> 'code' = k and x ->> 'lot' = l and x ->> 'items' = it limit 1;
+  if g is null then raise exception 'These boxes are not NOT ORDERED any more - open the order again'; end if;
+  if jsonb_array_length(coalesce(o.lines, '[]'::jsonb)) >= 60 then raise exception 'An order has up to 60 lines'; end if;
+  ln := jsonb_build_object('qty', (g ->> 'pcs')::numeric, 'boxes', (g ->> 'boxes')::int, 'code', k, 'pcs', 0, 'lot', l,
+    'product', coalesce(nullif(trim(coalesce(p_items, '')), ''), 'ITEMS NOT ORDERED'), 'price', pr, 'amount', round((g ->> 'pcs')::numeric * pr, 2),
+    'extra', '{}'::jsonb, 'added', 'NOT ORDERED - PRICE ADDED ' || to_char(now() at time zone 'Asia/Manila', 'YYYY-MM-DD'));
+  update public.customer_orders set lines = coalesce(lines, '[]'::jsonb) || jsonb_build_array(ln),
+    total_boxes = total_boxes + (g ->> 'boxes')::int, total_pcs = total_pcs + round((g ->> 'pcs')::numeric)::int,
+    total_amount = total_amount + round((g ->> 'pcs')::numeric * pr, 2), updated_at = now()
+  where id = p_order returning * into o;
+  perform public.co_charge_as_delivered(p_order);
+  return o;
+end;
+$$;
+revoke execute on function public.price_not_ordered(uuid, text, text, text, numeric) from public, anon;
+grant execute on function public.price_not_ordered(uuid, text, text, text, numeric) to authenticated;
 
 -- the boxes of a completed order change: its invoice follows
 create or replace function public.co_boxes_charge() returns trigger
@@ -402,6 +437,7 @@ union all
 select case when to_regprocedure('public.co_delivered(uuid)') is not null
   and position('3.56: charged as delivered' in pg_get_functiondef('public.complete_customer_order(uuid)'::regprocedure)) > 0
   and position('3.56: charged as delivered' in pg_get_functiondef('public.save_customer_order(uuid,jsonb)'::regprocedure)) > 0
-  then 'UPDATE 3.56 READY - the invoice charges the pcs delivered (batch no + code = the price of the order line)'
+  and to_regprocedure('public.price_not_ordered(uuid,text,text,text,numeric)') is not null
+  then 'UPDATE 3.56 READY - the invoice charges the pcs delivered (batch no + code = the price of the order line); NOT ORDERED boxes get their price'
   else 'NOT READY - send this message to Claude' end;
 

@@ -393,6 +393,7 @@
     E.keepTab("#coPfTabs", "order:" + o.id);
     if (deliverNow) E.drawQr($("#coQr"), deliveryUrl(o.order_no, o.delivery_code));
     const reload = () => V.custorder(o.id);
+    bindOddPrice(o, reload);
     if ($("#coApprove")) $("#coApprove").onclick = async (e) => {
       if (!(await E.confirmBox(`Approve order <b>${esc(o.order_no)}</b> for <b>${esc(fullName(c))}</b> (₱ ${peso(o.total_amount)}, ${esc(boxesText(o.total_boxes))})? It becomes PREPARED and your signature goes on the printed order.`, { ok: "Approve Order" }))) return;
       e.target.disabled = true;
@@ -468,21 +469,28 @@
         || rows.find((x) => free(x) && code && x.code === code && (!x.batch || !batch));
       if (r) r.got++; else left.push(b);
     });
+    // 3.56: then by the product (another code / batch no); a box of a line already full is an EXTRA box of that line
+    // (charged at its price); a box of no line is NOT ORDERED (the Director adds its price on the order page)
+    const sameItem = (x, item) => item && up(x.name) && (item === up(x.name) || item.includes(up(x.name)) || up(x.name).includes(item));
     left.forEach((b) => {
       const code = up(b.code), batch = up(b.batch_no), item = up(b.items);
-      const r = rows.find((x) => free(x) && item && up(x.name) && (item.includes(up(x.name)) || up(x.name).includes(item))) || rows.find(free);
-      if (r) { r.got++; other++; return; }
-      let e = extra.find((x) => x.code === code && x.batch === batch); if (!e) extra.push(e = { code, batch, name: b.items || "", n: 0 }); e.n++;
+      const r = rows.find((x) => free(x) && sameItem(x, item))
+        || rows.find((x) => x.code === code && x.batch === batch) || rows.find((x) => batch && x.batch === batch && (!x.code || !code))
+        || rows.find((x) => code && x.code === code && (!x.batch || !batch)) || rows.find((x) => sameItem(x, item));
+      if (r) { if (free(r)) other++; r.got++; return; }
+      let e = extra.find((x) => x.code === code && x.batch === batch && x.name === (b.items || "")); if (!e) extra.push(e = { code, batch, name: b.items || "", n: 0 }); e.n++;
     });
+    const over = rows.reduce((t, r) => t + Math.max(0, r.got - r.want), 0);
     if (!rows.length && !extra.length) return "";
     const open = rows.filter((r) => r.got < r.want).sort((x, y) => (x.batch + x.code).localeCompare(y.batch + y.code));
     const miss = open.reduce((t, r) => t + r.want - r.got, 0), ext = extra.reduce((t, e) => t + e.n, 0);
     const cell = (v) => (v ? esc(v) : "—");
     const tr = (r, n, cls, st) => `<tr class="${cls}"><td class="bx-n">${qtyText(n)}</td><td class="bx-b">${cell(r.batch)}</td><td class="bx-c">${cell(r.code)}</td>
       <td class="bx-p">${esc(r.name)}</td><td>${r.want ? `${qtyText(r.got)} of ${qtyText(r.want)}` : ""}</td><td><span class="bx-st ${cls}">${st}</span></td></tr>`;
-    const sum = !miss && !ext ? `<div class="bx-sum ok">✔ Every box of the order is here.${other ? ` <small>(${boxesText(other)} with another code / batch no than the order lines)</small>` : ""}</div>`
-      : `<div class="bx-sum ${miss ? "miss" : "extra"}">${miss ? `<b>${boxesText(miss)} MISSING</b>` : ""}${miss && ext ? " · " : ""}${ext ? `<b>${boxesText(ext)} NOT ON THE ORDER</b>` : ""}</div>`;
-    const body = open.map((r) => tr(r, r.want - r.got, "miss", "MISSING")).join("") + extra.map((e) => tr(e, e.n, "extra", "NOT ON THE ORDER")).join("");
+    const note = [other ? `${boxesText(other)} with another code / batch no than the order lines` : "", over ? `${boxesText(over)} more than ordered (charged at the line's price)` : ""].filter(Boolean).join(" · ");
+    const sum = !miss && !ext ? `<div class="bx-sum ok">✔ Every box of the order is here.${note ? ` <small>(${note})</small>` : ""}</div>`
+      : `<div class="bx-sum ${miss ? "miss" : "extra"}">${miss ? `<b>${boxesText(miss)} MISSING</b>` : ""}${miss && ext ? " · " : ""}${ext ? `<b>${boxesText(ext)} NOT ORDERED</b>` : ""}${note ? ` <small>(${note})</small>` : ""}</div>`;
+    const body = open.map((r) => tr(r, r.want - r.got, "miss", "MISSING")).join("") + extra.map((e) => tr(e, e.n, "extra", "NOT ORDERED")).join("");
     return `<div class="bx-check">${sum}${body ? `<div class="grid-scroll"><table class="bx-table"><thead><tr><th>BOXES</th><th>BATCH NO</th><th>CODE</th><th>PRODUCT</th><th>HERE</th><th></th></tr></thead><tbody>${body}</tbody></table></div>` : ""}</div>`;
   }
   // 3.55: ORDER against DELIVERED (SCANNED while the order is open), boxes and pcs, ✅ when they match, ❌ when not
@@ -499,16 +507,34 @@
   const chargeTable = (o) => {
     const dl = o._dl;
     if (!dl?.has_pcs) return "";
-    const ls = (dl.lines || []).filter((l) => num(l.ordered) || num(l.delivered));
-    if (!ls.some((l) => num(l.ordered) !== num(l.delivered)) && !num(dl.odd_pcs)) return "";
+    const ls = (dl.lines || []).filter((l) => num(l.ordered) || num(l.delivered)), odd = dl.odd || [];
+    const oddHtml = odd.length ? `<div class="co-odd"><div class="cc-h">NOT ORDERED — ${boxesText(odd.reduce((t, g) => t + num(g.boxes), 0))} · ${qtyText(odd.reduce((t, g) => t + num(g.pcs), 0))} pcs not on the order, not charged yet.
+        ${isAdmin() ? "Add the price per pc: the items are added to the order and the invoice is charged." : "The Director adds the price."}</div>
+      <div class="grid-scroll"><table class="bx-table cc-table"><thead><tr><th class="num">BOXES</th><th>BATCH NO</th><th>CODE</th><th>ITEMS</th><th class="num">PCS</th>${isAdmin() ? `<th>PRICE PER PC (₱)</th><th></th>` : ""}</tr></thead><tbody>
+      ${odd.map((g, i) => `<tr data-odd="${i}"><td class="num">${qtyText(g.boxes || g.lines)}</td><td>${esc(g.lot || "—")}</td><td>${esc(g.code || "—")}</td><td>${esc(g.items || "—")}<br><small class="muted">${esc(g.serials || "")}</small></td><td class="num">${qtyText(g.pcs)}</td>
+        ${isAdmin() ? `<td><input type="number" class="odd-price" min="0" step="0.01" placeholder="0.00" aria-label="Price per pc"></td><td><button type="button" class="btn small primary odd-add">${ic("check")} Add Price</button></td>` : ""}</tr>`).join("")}</tbody></table></div></div>` : "";
+    if (!ls.some((l) => num(l.ordered) !== num(l.delivered)) && !odd.length) return "";
     const done = o.status === "completed", diff = (l) => num(l.delivered) - num(l.ordered);
     const dt = (n) => (n ? `<b class="${n > 0 ? "cm-plus" : "cm-bad"}">${n > 0 ? "+" : ""}${qtyText(n)}</b>` : "✅");
     return `<div class="co-charge"><div class="cc-h">${done ? "CHARGED AS DELIVERED — the invoice" : "WILL BE CHARGED AS SCANNED"}: ₱ ${peso(o.total_amount)} ordered → <b>₱ ${peso(dl.amount)}</b> ${amtMark(o.total_amount, dl.amount)}</div>
       <div class="grid-scroll"><table class="bx-table cc-table"><thead><tr><th>PRODUCT</th><th>BATCH NO</th><th>CODE</th><th class="num">PRICE (₱)</th><th class="num">ORDER PCS</th><th class="num">${done ? "DELIVERED" : "SCANNED"} PCS</th><th class="num">DIFFERENCE</th><th class="num">AMOUNT (₱)</th></tr></thead><tbody>
       ${ls.map((l) => `<tr><td>${esc(l.product || "")}</td><td>${esc(l.lot || "—")}</td><td>${esc(l.code || "—")}</td><td class="num">${peso(l.price)}</td><td class="num">${qtyText(l.ordered)}</td><td class="num">${qtyText(l.delivered)}</td><td class="num">${dt(diff(l))}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
-      ${num(dl.odd_pcs) ? `<tr><td colspan="5">Boxes with no matching line (at the average price)</td><td class="num">${qtyText(dl.odd_pcs)}</td><td class="num">${dt(num(dl.odd_pcs))}</td><td class="num">${peso(dl.odd_amount)}</td></tr>` : ""}
-      <tr class="cc-tot"><td colspan="4">TOTAL</td><td class="num">${qtyText(o.total_pcs)}</td><td class="num">${qtyText(dl.pcs)}</td><td class="num">${dt(num(dl.pcs) - num(o.total_pcs))}</td><td class="num">${peso(dl.amount)}</td></tr></tbody></table></div></div>`;
+      <tr class="cc-tot"><td colspan="4">TOTAL</td><td class="num">${qtyText(o.total_pcs)}</td><td class="num">${qtyText(dl.pcs)}</td><td class="num">${dt(num(dl.pcs) - num(o.total_pcs))}</td><td class="num">${peso(dl.amount)}</td></tr></tbody></table></div>${oddHtml}</div>`;
   };
+  // 3.56: the Director adds the price of NOT ORDERED boxes: a line of the order; the invoice follows
+  function bindOddPrice(o, reload) {
+    $$("#main .odd-add").forEach((b) => (b.onclick = async () => {
+      const tr = b.closest("tr"), g = (o._dl?.odd || [])[Number(tr.dataset.odd)], price = num($(".odd-price", tr).value);
+      if (!g) return;
+      if (!(price > 0)) return toast("Enter the price per pc.", true);
+      if (!(await E.confirmBox(`Add <b>${esc(g.items || "these items")}</b> (${esc(qtyText(g.pcs))} pcs × ₱ ${esc(peso(price))} = <b>₱ ${esc(peso(num(g.pcs) * price))}</b>) to order <b>${esc(o.order_no)}</b>?${o.status === "completed" ? "<br><br>The invoice is charged too." : ""}`, { ok: "Add Price" }))) return;
+      b.disabled = true;
+      const { error } = await sb.rpc("price_not_ordered", { p_order: o.id, p_code: g.code || "", p_lot: g.lot || "", p_items: g.items || "", p_price: price });
+      if (error) { b.disabled = false; return fail(error, /price_not_ordered/.test(error.message || "") ? "Run the database update RUN_062_TO_064.sql first" : "Could not add the price"); }
+      toast(`Added to ${o.order_no}: ₱ ${peso(num(g.pcs) * price)}.${o.status === "completed" ? " The invoice was charged." : ""}`);
+      reload();
+    }));
+  }
   function boxesHtml(o, boxes, sumPcs, w) {
     return `${countMatch(o, boxes, sumPcs)}${boxCheck(o.lines || [], boxes)}
       ${w && fixable(o) ? `<div class="btnrow"><button type="button" class="btn primary" id="cbScan">${ic("scan")} Scan Boxes</button><label class="btn" for="cbPhoto">${ic("image")} Box Label Photo</label><input type="file" id="cbPhoto" accept="image/*" multiple hidden>
