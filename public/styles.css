@@ -2653,3 +2653,10 @@ body:not(:has(.content)) > .band-back, body:has(.preview) > .band-back { display
 .co-match tr:last-child > * { border-bottom: 0; }
 .cm-ok { font-size: 16px; }
 .cm-bad { color: #b00020; font-weight: 700; white-space: nowrap; }
+
+/* 3.56: the invoice charges the pcs delivered: the amount row and the lines charged */
+.co-match .cm-amt td { font-size: 14px; }
+.cm-plus { color: #1f5fbf; }
+.co-charge { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: #fffaf0; border: 1px solid #f3dfb3; }
+.co-charge .cc-h { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.cc-table .cc-tot td { font-weight: 800; border-top: 2px solid #ddd; }

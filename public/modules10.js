@@ -314,10 +314,12 @@
     if (error && notSet(error)) { $("#main").innerHTML = needUpdate; return; }
     if (!o) { $("#main").innerHTML = `<div class="empty">Order not found. <a href="#custorders">All orders</a></div>`; return; }
     const bx = bx0 || (await boxesOf(o.id));
-    const [inv, urls] = await Promise.all([
+    const [inv, urls, dl] = await Promise.all([
       o.invoice_id ? sb.from("invoice_balances").select("*").eq("id", o.invoice_id).maybeSingle().then((r) => r.data, () => null) : null,
-      o.delivery_photos?.length ? E.signedMap(o.delivery_photos) : new Map()]);
+      o.delivery_photos?.length ? E.signedMap(o.delivery_photos) : new Map(),
+      sb.rpc("co_delivered", { p_order: o.id }).then((r) => (r.error ? null : r.data), () => null)]); // 3.56: what is charged as delivered
     if (!here()) return;
+    o._dl = dl;
     draw(o, bx.data || [], inv, urls);
   };
 
@@ -485,11 +487,27 @@
   }
   // 3.55: ORDER against DELIVERED (SCANNED while the order is open), boxes and pcs, ✅ when they match, ❌ when not
   const matchMark = (want, got) => (num(got) === num(want) ? `<span class="cm-ok">✅</span>` : `<span class="cm-bad">❌ ${num(got) > num(want) ? "+" : ""}${qtyText(num(got) - num(want))}</span>`);
+  // 3.56: the invoice charges the pcs delivered: each box at the price of the order line with its batch no and code
+  const amtMark = (want, got) => (Math.abs(num(got) - num(want)) < 0.005 ? `<span class="cm-ok">✅</span>` : `<span class="cm-bad">❌ ${num(got) > num(want) ? "+" : "−"}₱ ${peso(Math.abs(num(got) - num(want)))}</span>`);
   const countMatch = (o, boxes, pcs) => {
-    const got = o.status === "completed" ? "DELIVERED" : "SCANNED";
+    const got = o.status === "completed" ? "DELIVERED" : "SCANNED", dl = o._dl;
     return `<table class="co-match"><thead><tr><th></th><th>ORDER</th><th>${got}</th><th></th></tr></thead><tbody>
       <tr><th>BOX</th><td>${qtyText(o.total_boxes)}</td><td>${nBoxes(boxes)}</td><td>${matchMark(o.total_boxes, nBoxes(boxes))}</td></tr>
-      <tr><th>PCS</th><td>${qtyText(o.total_pcs)}</td><td>${qtyText(pcs)}</td><td>${matchMark(o.total_pcs, pcs)}</td></tr></tbody></table>`;
+      <tr><th>PCS</th><td>${qtyText(o.total_pcs)}</td><td>${qtyText(pcs)}</td><td>${matchMark(o.total_pcs, pcs)}</td></tr>
+      ${dl?.has_pcs ? `<tr class="cm-amt"><th>AMOUNT</th><td>₱ ${peso(o.total_amount)}</td><td>₱ ${peso(dl.amount)}</td><td>${amtMark(o.total_amount, dl.amount)}</td></tr>` : ""}</tbody></table>${chargeTable(o)}`;
+  };
+  const chargeTable = (o) => {
+    const dl = o._dl;
+    if (!dl?.has_pcs) return "";
+    const ls = (dl.lines || []).filter((l) => num(l.ordered) || num(l.delivered));
+    if (!ls.some((l) => num(l.ordered) !== num(l.delivered)) && !num(dl.odd_pcs)) return "";
+    const done = o.status === "completed", diff = (l) => num(l.delivered) - num(l.ordered);
+    const dt = (n) => (n ? `<b class="${n > 0 ? "cm-plus" : "cm-bad"}">${n > 0 ? "+" : ""}${qtyText(n)}</b>` : "✅");
+    return `<div class="co-charge"><div class="cc-h">${done ? "CHARGED AS DELIVERED — the invoice" : "WILL BE CHARGED AS SCANNED"}: ₱ ${peso(o.total_amount)} ordered → <b>₱ ${peso(dl.amount)}</b> ${amtMark(o.total_amount, dl.amount)}</div>
+      <div class="grid-scroll"><table class="bx-table cc-table"><thead><tr><th>PRODUCT</th><th>BATCH NO</th><th>CODE</th><th class="num">PRICE (₱)</th><th class="num">ORDER PCS</th><th class="num">${done ? "DELIVERED" : "SCANNED"} PCS</th><th class="num">DIFFERENCE</th><th class="num">AMOUNT (₱)</th></tr></thead><tbody>
+      ${ls.map((l) => `<tr><td>${esc(l.product || "")}</td><td>${esc(l.lot || "—")}</td><td>${esc(l.code || "—")}</td><td class="num">${peso(l.price)}</td><td class="num">${qtyText(l.ordered)}</td><td class="num">${qtyText(l.delivered)}</td><td class="num">${dt(diff(l))}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}
+      ${num(dl.odd_pcs) ? `<tr><td colspan="5">Boxes with no matching line (at the average price)</td><td class="num">${qtyText(dl.odd_pcs)}</td><td class="num">${dt(num(dl.odd_pcs))}</td><td class="num">${peso(dl.odd_amount)}</td></tr>` : ""}
+      <tr class="cc-tot"><td colspan="4">TOTAL</td><td class="num">${qtyText(o.total_pcs)}</td><td class="num">${qtyText(dl.pcs)}</td><td class="num">${dt(num(dl.pcs) - num(o.total_pcs))}</td><td class="num">${peso(dl.amount)}</td></tr></tbody></table></div></div>`;
   };
   function boxesHtml(o, boxes, sumPcs, w) {
     return `${countMatch(o, boxes, sumPcs)}${boxCheck(o.lines || [], boxes)}
