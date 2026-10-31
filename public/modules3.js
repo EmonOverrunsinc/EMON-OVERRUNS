@@ -421,6 +421,7 @@
         <div class="vf-sub">VERIFIED BY ${esc(C.company.name)}</div>
         <div class="vf-type">${esc(data.type)} · <b class="mono">${esc(data.number)}</b> ${data.status ? pill(data.status) : ""}</div>
         <table class="vf-fields"><tbody>${(data.fields || []).map(([k, v]) => `<tr class="${/^Net (Profit|Loss)/.test(k) ? "vf-hl" : ""}"><th>${esc(k)}</th><td>${esc(E.fixDates(v))}</td></tr>`).join("")}</tbody></table>
+        ${data.limited ? `<div class="vf-limited">${ic("shield")} Private details (names, account numbers, amounts) show only to ${esc(C.company.name)} staff signed in to the ${esc(E.APP)}.</div>` : ""}
         <div class="vf-when">Checked ${esc(E.dateTime(checked.toISOString()))}</div>
         ${inside ? `<div class="btnrow center"><button type="button" class="btn primary" id="vfPrint">${ic("print")} Validated Print</button>${OPEN[data.type] ? `<button type="button" class="btn" id="vfOpen">${ic("eye")} Open Record</button>` : ""}</div>` : ""}</div>`;
       if ($("#vfPrint")) $("#vfPrint").onclick = () => validatedPrint(data, checked);

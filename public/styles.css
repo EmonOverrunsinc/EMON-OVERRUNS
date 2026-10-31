@@ -2662,3 +2662,7 @@ body:not(:has(.content)) > .band-back, body:has(.preview) > .band-back { display
 .cc-table .cc-tot td { font-weight: 800; border-top: 2px solid #ddd; }
 .co-odd { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #fdecea; border: 1px solid #f5c2c0; }
 .co-odd .odd-price { width: 110px; }
+
+/* 3.57: the public Verify page: private details only for staff signed in */
+.vf-limited { margin: 10px auto 0; max-width: 520px; padding: 8px 12px; border-radius: 10px; background: #f5f5f7; color: var(--ink-soft, #6e6e73); font-size: 13px; display: flex; gap: 6px; align-items: center; justify-content: center; }
+.vf-limited .ic { width: 15px; height: 15px; flex: none; }
