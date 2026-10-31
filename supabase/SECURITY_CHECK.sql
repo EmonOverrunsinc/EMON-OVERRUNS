@@ -36,7 +36,7 @@ with t as (
   union all
   select 7, case when to_regprocedure('public.verify_record_full(text)') is not null and not has_function_privilege('anon', 'public.verify_record_full(text)', 'execute')
     then 'OK     the public Verify page shows no names or amounts to visitors (3.57)'
-    else 'CHECK  run RUN_062_TO_066.sql: the public Verify page still shows names and amounts by record number' end
+    else 'CHECK  run RUN_062_TO_067.sql: the public Verify page still shows names and amounts by record number' end
   union all
   select 8, case when count(*) filter (where public and id not in ('branding', 'avatars')) = 0
     then 'OK     files (documents, records, forms, AI) are private; only the logo and profile photos are public'
@@ -46,7 +46,7 @@ with t as (
   select 9, case when to_regprocedure('private.guard(text,integer)') is not null
     and position('private.guard(' in pg_get_functiondef('public.verify_record(text)'::regprocedure)) > 0
     then 'OK     robots get only a few tries a minute on the public pages (3.58)'
-    else 'CHECK  run RUN_062_TO_066.sql: robots can try the public pages without a limit' end
+    else 'CHECK  run RUN_062_TO_067.sql: robots can try the public pages without a limit' end
   union all
   select 10, 'INFO   Director logins: ' || count(*) || ' (keep it to the people you trust)'
   from public.profiles where role = 'admin' and status = 'active'
