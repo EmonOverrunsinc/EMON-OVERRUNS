@@ -814,7 +814,7 @@
         : `<tr class="cs-empty"><td>${i + 1}</td>${"<td></td>".repeat(8)}</tr>`,
       // 3.39: no boxes scanned yet: the total is written by hand with the lines; one TOTAL BOXES below (the order's)
       totalRow: boxes.length ? `<tr class="ptl-tot"><td colspan="7">TOTAL · ${esc(boxesText(nBoxes(boxes)))}</td><td class="num">${qtyText(pcs)}</td><td></td></tr>` : `<tr class="ptl-tot"><td colspan="7">TOTAL</td><td></td><td></td></tr>`,
-      bottom: `<div class="cs-foot">${line("Assign By", o.created_by_name || "")}${line("Total Boxes", String(o.total_boxes))}${line("Notes", o.delivery_note || o.note || "")}${line("Date", o.delivered_at ? mdy(o.delivered_at) : "")}${line("Time", o.delivered_at ? new Date(o.delivered_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "")}
+      bottom: `<div class="cs-foot">${line("Assign By", o.created_by_name || "")}${line("Total Boxes", qtyText(o.total_boxes))}${line("Notes", o.delivery_note || o.note || "")}${line("Date", o.delivered_at ? mdy(o.delivered_at) : "")}${line("Time", o.delivered_at ? new Date(o.delivered_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "")}
         ${line("Order No", o.order_no)}<div class="cs-f cs-w2"><small>Verified By</small><b>&nbsp;</b></div></div>`,
       caps: { single: 24, first: 28, next: 34, last: 22 } });
   }
