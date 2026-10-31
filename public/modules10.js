@@ -27,6 +27,8 @@
   const stPill = (o) => o.status === "approved" && o.delivery_request_at ? pill("pending", "DELIVERY SUBMITTED") // 3.45: waits for the Director
     : pill(...(STATUS[o.status] || ["pending", String(o.status).toUpperCase()]));
   const open = (o) => ["pending", "approved"].includes(o.status);
+  // 3.54: the Director also changes a COMPLETED order (and its boxes); its invoice changes with it
+  const fixable = (o) => open(o) || (o.status === "completed" && isAdmin());
   const boxesText = (n) => `${qtyText(n)} BOX${num(n) === 1 ? "" : "ES"}`;
   // 3.46: a line with a serial no is a box; a line added without one (items, pcs) is kept but not counted as a box
   const nBoxes = (bs) => bs.filter((b) => b.serial_no).length;
@@ -105,13 +107,14 @@
     if (!canEdit(o)) { location.hash = "custorder/" + id; return; }
     orderForm(o, o.customers);
   };
-  const canEdit = (o) => canW() && (isAdmin() ? open(o) : o.status === "pending" && o.created_by === meId());
+  const canEdit = (o) => canW() && (isAdmin() ? fixable(o) : o.status === "pending" && o.created_by === meId());
 
   function orderForm(o, preset) {
     const terms0 = o?.payment_terms || "";
     const known = !terms0 || E.TERMS.includes(terms0);
     E.shell(o ? "editcustorder" : "newcustorder", o ? `Edit ${o.order_no}` : "New Customer Order", `
       <form class="window" id="coForm" novalidate><div class="wtitle">${o ? `Customer Order ${esc(o.order_no)}` : "Customer Order"}</div><div class="wbody">
+        ${o?.status === "completed" ? `<div class="banner warn">This order is COMPLETED. Saving it changes its invoice too (boxes, pcs, amount, terms, date). The customer stays the same.</div>` : ""}
         <fieldset class="opt"><legend>Customer (ACTIVE accounts only)</legend><div id="coCust"></div></fieldset>
         <fieldset class="opt"><legend>Order</legend><div class="formgrid">
           <div class="fields wide">
@@ -193,9 +196,9 @@
         reference: $("#coRef").value, payment_terms: terms(), address: $("#coAddr").value, note: $("#coNote").value, extra_columns: cols, lines };
       const { data: row, error } = picked.length ? await sb.rpc("save_order_with_boxes", { p_id: o?.id || null, p_data, p_boxes: picked.map((b) => b.serial_no) })
         : await sb.rpc("save_customer_order", { p_id: o?.id || null, p_data });
-      if (error) { E.setBusy(e.target, false); return fail(error, /save_order_with_boxes/.test(error.message || "") && notSet(error) ? "Run the database update 052_order_scan.sql first" : notSet(error) ? "Run the database update RUN_041_TO_046.sql first" : "Could not save the order"); }
+      if (error) { E.setBusy(e.target, false); return fail(error, /save_order_with_boxes/.test(error.message || "") && notSet(error) ? "Run the database update 052_order_scan.sql first" : notSet(error) ? "Run the database update RUN_041_TO_046.sql first" : o?.status === "completed" && /cannot be changed/.test(error.message || "") ? "Run the database update 062_edit_completed_order.sql first" : "Could not save the order"); }
       const withB = picked.length ? ` with ${boxesText(picked.length)}` : "";
-      toast(o ? `Saved${withB}.` : row.status === "approved" ? `Order ${row.order_no} saved and approved${withB}.` : `Order ${row.order_no} saved and sent to the Director${withB}.`);
+      toast(o ? `Saved${withB}.${o.status === "completed" ? " The invoice was changed too." : ""}` : row.status === "approved" ? `Order ${row.order_no} saved and approved${withB}.` : `Order ${row.order_no} saved and sent to the Director${withB}.`);
       location.hash = "custorder/" + row.id;
     };
   }
@@ -475,7 +478,7 @@
   }
   function boxesHtml(o, boxes, sumPcs, w) {
     return `<div class="co-count"><b>${nBoxes(boxes)}</b> of ${qtyText(o.total_boxes)} boxes · <b>${qtyText(sumPcs)}</b> of ${qtyText(o.total_pcs)} pcs</div>${boxCheck(o.lines || [], boxes)}
-      ${w && open(o) ? `<div class="btnrow"><button type="button" class="btn primary" id="cbScan">${ic("scan")} Scan Boxes</button><label class="btn" for="cbPhoto">${ic("image")} Box Label Photo</label><input type="file" id="cbPhoto" accept="image/*" multiple hidden>
+      ${w && fixable(o) ? `<div class="btnrow"><button type="button" class="btn primary" id="cbScan">${ic("scan")} Scan Boxes</button><label class="btn" for="cbPhoto">${ic("image")} Box Label Photo</label><input type="file" id="cbPhoto" accept="image/*" multiple hidden>
         <button type="button" class="btn" id="cbType">📦 Add Box</button></div>
         <div class="box-find"><input type="text" id="cbFind" maxlength="60" placeholder="Serial no, e.g. U20261238" aria-label="Find a box by its serial no" autocomplete="off"><button type="button" class="btn primary" id="cbFindGo">${ic("search")} Find &amp; Add</button></div>
         <div id="cbFound" class="box-found" aria-live="polite">${foundHtml(o.id)}</div>
@@ -483,7 +486,7 @@
       ${E.grid({ cols: [{ label: "#", get: (b) => boxNo(boxes, b) }, { label: "Serial No", html: serHtml }, { label: "Code", get: (b) => b.code || "" },
         { label: "Batch No", get: (b) => b.batch_no || "" }, { label: "Items", get: (b) => b.items || "" }, { label: "Brand", get: (b) => b.brand || "" }, { label: "CTN", get: (b) => b.ctn || "" },
         { label: "Pcs", num: true, get: (b) => qtyText(b.pcs) }, { label: "Remarks", get: (b) => b.remarks || "" },
-        ...(w && open(o) ? [{ label: "", html: (b) => `<span class="co-bact"><button type="button" class="btn small" data-be="${b.id}" aria-label="Change ${esc(b.serial_no || b.items || "line")}">${ic("edit")}</button><button type="button" class="btn small danger" data-bx="${b.id}" aria-label="Remove ${esc(b.serial_no || b.items || "line")}">×</button></span>` }] : [])],
+        ...(w && fixable(o) ? [{ label: "", html: (b) => `<span class="co-bact"><button type="button" class="btn small" data-be="${b.id}" aria-label="Change ${esc(b.serial_no || b.items || "line")}">${ic("edit")}</button><button type="button" class="btn small danger" data-bx="${b.id}" aria-label="Remove ${esc(b.serial_no || b.items || "line")}">×</button></span>` }] : [])],
         rows: boxes, empty: "No boxes yet." })}`;
   }
   // what a box added says: its items, brand and pcs (3.39: filled from the box database when the serial no is there)
