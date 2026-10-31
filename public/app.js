@@ -243,7 +243,7 @@
   function confirmBox(message, { title = "Please confirm", ok = "OK", danger = false } = {}) {
     return new Promise((resolve) => {
       let answered = false;
-      const m = modal(title, `<p class="confirm-msg">${message}</p>`,
+      const m = modal(title, `<div class="confirm-msg">${message}</div>`, // 3.59: a div, so a message may hold a block (a warning box)
         `<button type="button" class="btn" data-no>Cancel</button><button type="button" class="btn primary${danger ? " danger-fill" : ""}" data-yes>${esc(ok)}</button>`,
         { onClose: () => { if (!answered) resolve(false); } });
       $("[data-no]", m.el).onclick = () => m.close();
