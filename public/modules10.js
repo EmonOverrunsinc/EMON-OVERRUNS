@@ -413,7 +413,7 @@
     // 3.45: a delivery submitted by the order paper (not signed in with EO-Office): the Director approves or rejects it
     const decideDelivery = async (e, action) => {
       const ok = action === "approve"
-        ? await E.confirmBox(`${chargeSays(o, boxes)}Approve the delivery of <b>${esc(o.order_no)}</b>?<br><br>The order becomes COMPLETED and the invoice is made and billed to <b>${esc(custName(o))}</b>.`, { title: "Approve Delivery", ok: "Approve Delivery" })
+        ? await E.confirmBox(`${chargeSays(o, boxes)}Approve the delivery of <b>${esc(o.order_no)}</b>?<br><br>The order becomes COMPLETED and the invoice is made and billed to <b>${esc(custName(o))}</b>: <b>₱ ${peso(o._dl?.has_pcs && nBoxes(boxes) ? o._dl.amount : o.total_amount)}</b>.`, { title: "Approve Delivery", ok: "Approve Delivery" })
         : await E.confirmBox(`Reject the delivery submitted for <b>${esc(o.order_no)}</b>? The order stays PREPARED and the delivery can be done again.`, { ok: "Reject", danger: true });
       if (!ok) return;
       e.target.disabled = true;
@@ -597,7 +597,7 @@
     try { b = await findBox(ser, rpc); } catch (e) { return `✖ ${e.message}`; }
     if (!b) return `✖ Box ${ser} is not in the box database (the Google Sheet). Press Add Box to type its details.`;
     const r = await add({ serial_no: ser, code: b.style || "", batch_no: b.batch || "", items: b.product || "", pcs: b.qty || "" }, how);
-    const n = (/(\d[\d,]* of [\d,]+ boxes)$/.exec(r) || [])[1];
+    const n = (/(ORDER [\d,]+ BOX · (?:SCANNED|DELIVERED) [\d,]+ [✅❌])$/u.exec(r) || [])[1];
     return r.startsWith("✔") && !/checked/.test(r) ? `✔ Found and added: ${ser} · ${foundSays(b)}${n ? ` · ${n}` : ""}` : r;
   }
   // the Find box: Enter or Find & Add; the result stays under it, ready for the next serial no
@@ -814,7 +814,7 @@
         : `<tr class="cs-empty"><td>${i + 1}</td>${"<td></td>".repeat(8)}</tr>`,
       // 3.39: no boxes scanned yet: the total is written by hand with the lines; one TOTAL BOXES below (the order's)
       totalRow: boxes.length ? `<tr class="ptl-tot"><td colspan="7">TOTAL · ${esc(boxesText(nBoxes(boxes)))}</td><td class="num">${qtyText(pcs)}</td><td></td></tr>` : `<tr class="ptl-tot"><td colspan="7">TOTAL</td><td></td><td></td></tr>`,
-      bottom: `<div class="cs-foot">${line("Assign By", o.created_by_name || "")}${line("Total Boxes", String(o.total_boxes))}${line("Notes", o.delivery_note || o.note || "")}${line("Date", o.delivered_at ? mdy(o.delivered_at) : "")}${line("Time", o.delivered_at ? new Date(o.delivered_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "")}
+      bottom: `<div class="cs-foot">${line("Assign By", o.created_by_name || "")}${line("Total Boxes", qtyText(o.total_boxes))}${line("Notes", o.delivery_note || o.note || "")}${line("Date", o.delivered_at ? mdy(o.delivered_at) : "")}${line("Time", o.delivered_at ? new Date(o.delivered_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "")}
         ${line("Order No", o.order_no)}<div class="cs-f cs-w2"><small>Verified By</small><b>&nbsp;</b></div></div>`,
       caps: { single: 24, first: 28, next: 34, last: 22 } });
   }

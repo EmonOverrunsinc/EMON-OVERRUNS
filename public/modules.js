@@ -4,7 +4,7 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, isoDay, mdy, monthText, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy, num, fullName } = E;
+  const { sb, S, C, esc, peso, isoToday, isoDay, mdy, monthText, stamp, $, $$, isAdmin, isStaff, pill, toast, fail, words, ic, busy, num, fullName, qtyText } = E;
   const V = (window.EO_VIEWS = window.EO_VIEWS || {});
 
   const METHOD = { cash: "Cash", bank_transfer: "Bank Transfer", online_transfer: "Online Transfer", deposit: "Bank Deposit" };
@@ -1393,7 +1393,7 @@
     { label: "Invoice No", get: (r) => r.invoice_no }, { label: "Date", get: (r) => mdy(r.invoice_date) },
     { label: "Terms", get: (r) => r.payment_terms || "" }, { label: "Due Date", get: (r) => mdy(r.due_date) },
     { label: "Account No", get: (r) => r.account_no }, { label: "Customer", get: fullName },
-    { label: "Boxes", num: true, get: (r) => r.total_boxes }, { label: "Pcs", num: true, get: (r) => r.total_pcs },
+    { label: "Boxes", num: true, get: (r) => qtyText(r.total_boxes) }, { label: "Pcs", num: true, get: (r) => qtyText(r.total_pcs) },
     { label: "Amount (₱)", key: "total_amount", num: true, get: (r) => peso(r.total_amount) },
     { label: "Returned (₱)", key: "amount_returned", num: true, get: (r) => (num(r.amount_returned) ? peso(r.amount_returned) : "") },
     { label: "Paid (₱)", key: "amount_paid", num: true, get: (r) => peso(r.amount_paid) },
@@ -1539,7 +1539,7 @@
         <span>Order No</span><span>${/^(CO|OR)-\d{6}-\d+$/.test(inv.po_number || "") && E.canOpen("custorder") ? `<a href="#custorder/${esc(inv.po_number)}">${esc(inv.po_number)}</a> <small class="muted">Customer Order</small>` : esc(inv.po_number || "—")}</span>
         <span>Terms of Payment</span><span>${esc(inv.payment_terms || "—")}</span><span>Due Date</span><span>${mdy(inv.due_date) || "—"}</span>
         <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
-      <div class="fields wide"><span>Total Boxes</span><b>${inv.total_boxes}</b><span>Total Pcs</span><b>${inv.total_pcs}</b>
+      <div class="fields wide"><span>Total Boxes</span><b>${qtyText(inv.total_boxes)}</b><span>Total Pcs</span><b>${qtyText(inv.total_pcs)}</b>
         <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b>${returned > 0 ? `<span>Returned</span><b>− ₱ ${peso(returned)}</b>` : ""}<span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b>
         <span>Balance</span><b class="${bal < 0 ? "neg" : ""}">₱ ${peso(bal)}</b>
         <span>Payment Status</span><span>${payPill(inv)}${isOverdue(inv) ? ` <small class="muted">${daysOver(inv)} day(s) overdue</small>` : ""}${bal < 0 ? ` <small class="muted">overpaid ₱ ${peso(-bal)}</small>` : ""}</span></div></div>
@@ -1666,8 +1666,8 @@
         <div class="pcell"><div class="pl">Corrected Amount in Words</div><div class="pv words">${esc(words(corrected))}</div></div>`) : "";
     return `${printHead(deds.length ? "INVOICE (CORRECTED)" : "INVOICE", `<img src="${E.pdf417DataUrl("EMONINV|" + inv.invoice_no)}" alt="" class="ph-bar"><div class="mono">${esc(inv.invoice_no)}</div>`)}
       ${box("Customer", `<div class="pgrid2">${cell("Customer Name", fullName(inv))}${cell("Account No", inv.account_no)}</div>`)}
-      ${box("Invoice", `<div class="prow3">${cell("Invoice No", inv.invoice_no)}${cell("Invoice Date", mdy(inv.invoice_date))}${cell("Total Boxes", inv.total_boxes)}</div>
-        <div class="prow3">${cell("Total Pcs", inv.total_pcs)}${cell("Terms of Payment", inv.payment_terms || "—")}${cell("Due Date", mdy(inv.due_date) || "—")}</div>
+      ${box("Invoice", `<div class="prow3">${cell("Invoice No", inv.invoice_no)}${cell("Invoice Date", mdy(inv.invoice_date))}${cell("Total Boxes", qtyText(inv.total_boxes))}</div>
+        <div class="prow3">${cell("Total Pcs", qtyText(inv.total_pcs))}${cell("Terms of Payment", inv.payment_terms || "—")}${cell("Due Date", mdy(inv.due_date) || "—")}</div>
         ${inv.po_number ? `<div class="pcell"><div class="pl">Order No</div><div class="pv">${esc(inv.po_number)}</div></div>` : ""}
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(inv.total_amount))}</div></div>`)}
       ${fix}
