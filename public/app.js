@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.52";
+  const VERSION = "3.53";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.52.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.53.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -1820,43 +1820,50 @@
   }
 
   // ---------- Download forms ----------
+  // 3.53: every form - the E-Portal's own and the uploaded ones - shows as the same card. The Director hides or shows
+  // each one; a hidden form is seen only by the Director (061_form_visible.sql).
   async function viewForms() {
+    const admin = isAdmin();
+    const BUILT = [
+      { key: "signature", title: "SIGNATURE VERIFICATION FORM", note: "A4 form to collect a person's signature: boxes for three specimen signatures and the initials, and the Director's approval",
+        act: `<a class="btn primary" id="fmSvfPdf" href="forms/EMON-OVERRUNS-Signature-Verification-Form.pdf" download="EMON-OVERRUNS-Signature-Verification-Form.pdf">${ic("download")} Download PDF</a>
+          <button type="button" class="btn" id="fmSvfPrint">${ic("print")} Print</button>`, run: () => window.EO.openBlankSignatureForm() },
+      { key: "jobapp", title: "EMPLOYEE JOB APPLICATION FORM", note: "Empty A4 form for a new employee to fill in by hand: photo, address, emergency contact, personal information, work experience, position and signatures",
+        act: `<button type="button" class="btn primary" id="fmJaPrint">${ic("print")} Print / Download PDF</button>`, run: () => window.EO.printBlankJobApp() },
+      { key: "qc", title: "QC TEST FORM", note: "Plain A4 form to check the goods by hand (no barcode): goods, Qty by color, the 10 checks, result, notes and a box for the result sticker",
+        act: `<button type="button" class="btn primary" id="fmQcPrint">${ic("print")} Print / Download PDF</button>`, run: () => window.EO.printBlankQc() }
+    ];
     shell("forms", "Download Forms", `
-      ${isAdmin() ? `<form class="options" id="fmForm"><fieldset class="opt" style="flex:1 1 100%"><legend>Upload New Form (Director)</legend>
+      ${admin ? `<form class="options" id="fmForm"><fieldset class="opt" style="flex:1 1 100%"><legend>Upload New Form (Director)</legend>
         <div class="formgrid"><div class="fields wide">
           <label for="fmTitle">Title</label><input type="text" id="fmTitle" required placeholder="e.g. Leave Application Form">
           <label for="fmCat">Category</label><input type="text" id="fmCat" list="fmCats" value="General">
         </div><div class="fields wide"><label for="fmFile">File</label><input type="file" id="fmFile" required></div></div>
         <datalist id="fmCats"><option>General</option><option>HR</option><option>Accounts</option><option>Sales</option><option>Purchasing</option></datalist>
         <div class="btnrow"><button class="btn primary" type="submit">Upload Form</button></div></fieldset></form>` : ""}
-      <div class="window fm-built"><div class="wtitle">Forms of the E-Portal</div><div class="wbody">
-        <div class="doccard"><div class="dc-ic">${ic("doc")}</div>
-          <div class="dc-main"><b>SIGNATURE VERIFICATION FORM</b><small>A4 form to collect a person's signature: boxes for three specimen signatures and the initials, and the Director's approval</small></div>
-          <div class="dc-act"><a class="btn primary" id="fmSvfPdf" href="forms/EMON-OVERRUNS-Signature-Verification-Form.pdf" download="EMON-OVERRUNS-Signature-Verification-Form.pdf">${ic("download")} Download PDF</a>
-            <button type="button" class="btn" id="fmSvfPrint">${ic("print")} Print</button></div></div>
-        <div class="doccard"><div class="dc-ic">${ic("doc")}</div>
-          <div class="dc-main"><b>EMPLOYEE JOB APPLICATION FORM</b><small>Empty A4 form for a new employee to fill in by hand: photo, address, emergency contact, personal information, work experience, position and signatures</small></div>
-          <div class="dc-act"><button type="button" class="btn primary" id="fmJaPrint">${ic("print")} Print / Download PDF</button></div></div>
-        <div class="doccard"><div class="dc-ic">${ic("doc")}</div>
-          <div class="dc-main"><b>QC TEST FORM</b><small>Plain A4 form to check the goods by hand (no barcode): goods, Qty by color, the 10 checks, result, notes and a box for the result sticker</small></div>
-          <div class="dc-act"><button type="button" class="btn primary" id="fmQcPrint">${ic("print")} Print / Download PDF</button></div></div></div></div>
-      <div id="fmList">${busy()}</div>`, "Blank company forms. Press <b>Download</b> to save a copy.");
-    $("#fmSvfPrint").onclick = () => window.EO.openBlankSignatureForm();
-    $("#fmJaPrint").onclick = () => window.EO.printBlankJobApp(); // 3.24
-    $("#fmQcPrint").onclick = () => window.EO.printBlankQc(); // 3.33
+      <div id="fmList">${busy()}</div>`, `Blank company forms. Press <b>Download</b> to save a copy.${admin ? " <b>Hide</b> a form so only you see it; <b>Show</b> gives it back to everyone." : ""}`);
+    const card = (key, title, note, act, off) => `<div class="doccard${off ? " fm-off" : ""}" data-fm="${esc(key)}"><div class="dc-ic">${ic("doc")}</div>
+      <div class="dc-main">${off ? `<span class="dc-tag">Hidden · only you see it</span>` : ""}<b>${esc(title)}</b><small>${note}</small></div>
+      <div class="dc-act">${act}${admin ? `<button type="button" class="btn" data-vis="${esc(key)}" data-show="${off ? "1" : ""}">${ic("eye")} ${off ? "Show" : "Hide"}</button>` : ""}</div></div>`;
+    const box = (title, cards) => cards.length ? `<div class="window fm-box"><div class="wtitle">${esc(title)}</div><div class="wbody">${cards.join("")}</div></div>` : "";
     const fresh = loadGuard();
     const load = async () => {
       const ok = fresh();
-      const { data, error } = await sb.from("forms").select("*").order("category").order("title");
+      const [f, st] = await Promise.all([sb.from("forms").select("*").order("category").order("title"),
+        sb.from("company_settings").select("hidden_forms").eq("id", 1).maybeSingle()]);
       if (!ok()) return;
-      if (error) return fail(error, "Could not load forms");
-      const rows = data || [];
-      const cols = [
-        { label: "Title", get: (r) => r.title }, { label: "Category", get: (r) => r.category }, { label: "File", get: (r) => r.file_name },
-        { label: "Downloads", num: true, get: (r) => r.downloads }, { label: "Uploaded", get: (r) => mdy(r.created_at) },
-        { label: "", html: (r) => `<button type="button" class="btn" data-dl="${r.id}">${ic("download")} Download</button>${isAdmin() ? ` <button type="button" class="btn danger" data-rm="${r.id}">Remove</button>` : ""}` }
-      ];
-      $("#fmList").innerHTML = grid({ cols, rows, group: (r) => r.category, empty: isAdmin() ? "No forms yet. Upload the first one above." : "No forms have been posted yet." });
+      if (f.error) return fail(f.error, "Could not load forms");
+      const hidden = new Set((!st.error && st.data?.hidden_forms) || []); // before 061_form_visible.sql nothing is hidden
+      const rows = f.data || [];
+      const built = BUILT.filter((x) => admin || !hidden.has(x.key));
+      const cats = [...new Set(rows.map((r) => r.category || "General"))];
+      $("#fmList").innerHTML = (box("Forms of the E-Portal", built.map((x) => card(x.key, x.title, x.note, x.act, hidden.has(x.key))))
+        + cats.map((c) => box(`${c} Forms`, rows.filter((r) => (r.category || "General") === c).map((r) => card(r.id, r.title,
+          `${esc(r.file_name)} · ${Number(r.downloads || 0).toLocaleString("en-US")} download${r.downloads === 1 ? "" : "s"} · Uploaded ${esc(mdy(r.created_at))}`,
+          `<button type="button" class="btn primary" data-dl="${r.id}">${ic("download")} Download</button>${admin ? `<button type="button" class="btn danger" data-rm="${r.id}">${ic("trash")} Remove</button>` : ""}`,
+          r.visible === false)))).join(""))
+        || `<div class="grid-wrap"><div class="empty">No forms have been posted yet.</div></div>`;
+      built.forEach((x) => { const fm = $(`[data-fm="${x.key}"]`); $$("button:not([data-vis])", fm).forEach((b) => (b.onclick = x.run)); });
       $$("[data-dl]").forEach((b) => (b.onclick = async () => {
         const f = rows.find((r) => r.id === b.dataset.dl);
         const { data: s, error: e2 } = await sb.storage.from("forms").createSignedUrl(f.storage_path, 120, { download: f.file_name });
@@ -1873,7 +1880,15 @@
         if (e2) return fail(e2, "Could not remove the form");
         toast(`Removed ${f.title}.`); load();
       }));
-      setRecords(`Forms: ${rows.length}`);
+      $$("[data-vis]").forEach((b) => (b.onclick = async () => {
+        const show = !!b.dataset.show;
+        b.disabled = true;
+        const { error: e2 } = await sb.rpc("set_form_visible", { p_key: b.dataset.vis, p_visible: show });
+        b.disabled = false;
+        if (e2) return fail(e2, /set_form_visible/.test(e2.message || "") ? "Run 061_form_visible.sql in Supabase first" : "Could not change the form");
+        toast(show ? "The form is shown to everyone again." : "The form is hidden. Only you see it now."); load();
+      }));
+      setRecords(`Forms: ${built.length + rows.length}`);
     };
     if ($("#fmForm")) $("#fmForm").onsubmit = async (e) => {
       e.preventDefault();

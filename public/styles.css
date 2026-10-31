@@ -1269,7 +1269,6 @@ table.rp.sb-pl tr.grand td { font-size: 14px; padding-top: 5px; }
   background: repeating-linear-gradient(45deg, #fff, #fff 8px, #f6f8fb 8px, #f6f8fb 16px); }
 .sig-show img, .sig-check img { max-height: 110px; max-width: 100%; object-fit: contain; }
 .sig-st { margin-bottom: 6px; }
-.fm-built { margin-bottom: 12px; }
 
 /* ===================== 2.1: the customer check, the website, new versions ===================== */
 .addr-msg.warn { background: #fff6e0; color: #8a5a00; font-weight: bold; }
@@ -2623,3 +2622,10 @@ input, select, textarea, input.otp, .vf-form input, .vf-form input::placeholder 
 #main { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
 @media print { .band-back { display: none !important; } }
 body:not(:has(.content)) > .band-back, body:has(.preview) > .band-back { display: none; }
+
+/* 3.53: Download Forms - every form as the same card, side by side; a hidden form (only the Director sees it) is faded */
+.fm-box { margin-bottom: 12px; }
+.fm-box .wbody { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.doccard.fm-off { opacity: .62; background: repeating-linear-gradient(135deg, #fff, #fff 10px, #f6f6f8 10px, #f6f6f8 20px); }
+.doccard.fm-off .dc-tag { color: #b25d00; }
+@media (max-width: 640px) { .fm-box .wbody { grid-template-columns: minmax(0, 1fr); } }
