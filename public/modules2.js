@@ -229,7 +229,9 @@
       </div>
       <div class="tabs" id="emTabs">${["Salary Account", `Payslips (${slips.length})`, `Salary Payments (${pays.rows.length})`, "Documents", ...(isAdmin() ? ["Access & Status", "ID Card"] : []), "Details"].map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes" id="emPanes">
-        <div data-p="0"><div class="btnrow"><button type="button" class="btn" id="emStmt">${ic("print")} Print Salary Statement</button></div>${accountGrid(acct)}</div>
+        <div data-p="0"><div class="btnrow"><div class="seg" id="emAcctF"><button type="button" class="on" data-f="unpaid">Unpaid Salary</button><button type="button" data-f="all">All</button></div>
+          <button type="button" class="btn" id="emStmt">${ic("print")} Print Salary Statement</button></div>
+          <div id="emAcctU">${unpaidGrid(slips)}</div><div id="emAcctA" hidden>${accountGrid(acct)}</div></div>
         <div data-p="1" hidden><div id="emSlips">${slipGrid(slips, "No payslips issued yet. Press Issue Payslip.")}</div></div>
         <div data-p="2" hidden><div id="emPays">${payGrid(pays.rows, slips, "No salary paid yet.")}</div></div>
         <div data-p="3" hidden>
@@ -267,6 +269,9 @@
     if ($("#emIssue")) $("#emIssue").onclick = () => issueDialog(em, (p) => (location.hash = "payslip/" + p.id));
     if ($("#emPaySal")) $("#emPaySal").onclick = () => payDialog({ employee: em }, () => V.employee(id));
     $("#emStmt").onclick = () => salaryStatement(em, acct, st);
+    // 3.58: the salary account shows the unpaid salary first; All shows every payslip and payment
+    $$("#emAcctF button").forEach((b) => (b.onclick = () => { $$("#emAcctF button").forEach((x) => x.classList.toggle("on", x === b)); $("#emAcctU").hidden = b.dataset.f !== "unpaid"; $("#emAcctA").hidden = b.dataset.f === "unpaid"; }));
+    E.bindGrid($("#emAcctU"), slips.filter((p) => num(p.balance) > 0), (r) => (location.hash = "payslip/" + r.id));
     // 3.25: the Director approves a new employee: the ID card is made and the login opens
     if ($("#emApprove")) $("#emApprove").onclick = async () => {
       if (!(await E.confirmBox(`Approve <b>${esc(fullName(em))}</b> (${esc(em.employee_no)}) with the access <b>${esc(accessText(em.role, em.modules))}</b>?<br><br>The employee ID card is made now and the login opens.`, { ok: "Approve Employee" }))) return;
@@ -398,6 +403,15 @@
   const ACCT_COLS = [{ label: "Date", get: (r) => mdy(r.date) }, { label: "Ref No", get: (r) => r.ref }, { label: "Description", get: (r) => r.desc },
     { label: "Payslip (₱)", key: "plus", num: true, get: (r) => (r.plus ? peso(r.plus) : "") }, { label: "Paid (₱)", key: "minus", num: true, get: (r) => (r.minus ? peso(r.minus) : "") },
     { label: "Unpaid Salary (₱)", num: true, get: (r) => peso(r.balance) }];
+  // 3.58: only what is still to pay: the unpaid payslips with their unpaid amount
+  const unpaidGrid = (slips) => {
+    const rows = slips.filter((p) => num(p.balance) > 0);
+    if (!rows.length) return `<div class="banner ok">✔ No unpaid salary. Every payslip is paid.</div>`;
+    return `<div class="banner warn">UNPAID SALARY: <b>₱ ${peso(rows.reduce((t, p) => t + num(p.balance), 0))}</b> on ${rows.length} payslip${rows.length === 1 ? "" : "s"}</div>`
+      + E.grid({ cols: [SLIP_COLS[0], SLIP_COLS[2], { label: "Net Salary (₱)", key: "net_pay", num: true, get: (r) => peso(r.net_pay) }, { label: "Paid (₱)", key: "paid", num: true, get: (r) => peso(r.paid) },
+        { label: "Unpaid (₱)", key: "balance", num: true, get: (r) => peso(r.balance) }, { label: "Status", html: slipPill }],
+        rows, onRow: true, foot: { net_pay: sum(rows, "net_pay"), paid: sum(rows, "paid"), balance: sum(rows, "balance") } });
+  };
   const accountGrid = (acct) => E.grid({ cols: ACCT_COLS, rows: acct.slice().reverse(), foot: { plus: peso(acct.reduce((t, r) => t + r.plus, 0)), minus: peso(acct.reduce((t, r) => t + r.minus, 0)) }, empty: "No payslips yet. Press Issue Payslip." });
   const SLIP_COLS = [
     { label: "Payslip No", get: (r) => r.payslip_no }, { label: "Type", get: (r) => PAY_TYPE[r.pay_type] || r.pay_type }, { label: "For Month", get: (r) => monthText(r.period_month) },
@@ -643,12 +657,21 @@
         <span>Bonus</span><span>₱ ${peso(p.bonus)}</span><span>Advance Given</span><span>₱ ${peso(p.advance_amount)}</span><span>Deductions</span><span>₱ ${peso(p.deductions)}${p.deduction_note ? ` · ${esc(p.deduction_note)}` : ""}</span>
         <span>Net Salary</span><b class="big">₱ ${peso(p.net_pay)}</b><span>Paid</span><span>₱ ${peso(p.paid)}</span><span>Unpaid</span><b>₱ ${peso(p.balance)}</b></div></div>
       ${canPay ? `<div class="btnrow"><button type="button" class="btn ok" id="psPay">${ic("wallet")} Pay Salary</button></div>` : ""}
-      ${p.issued_at ? `<h3 class="sec-h">Salary Paid</h3><div id="psPays">${payGrid(pays.rows, [p], "Not paid yet.", [{ label: "", html: (x) => `<button type="button" class="btn small" data-rc="${x.id}">${ic("print")} Receipt</button>` }])}</div>` : ""}
+      ${p.issued_at ? `<h3 class="sec-h">Salary Paid</h3><div id="psPays">${payGrid(pays.rows, [p], "Not paid yet.", [{ label: "", html: (x) => `<button type="button" class="btn small" data-rc="${x.id}">${ic("print")} Receipt</button>${isAdmin() ? ` <button type="button" class="btn small danger" data-spdel="${x.id}">${ic("trash")} Delete</button>` : ""}` }])}</div>` : ""}
       <div class="docgrid">${E.docCard({ key: "slip", title: `Payslip ${p.payslip_no}`, sub: `Net ₱ ${peso(p.net_pay)} · ${monthText(p.period_month)}`, ownerType: "payslip", ownerId: p.id, att, print: () => E.openPreview(`Payslip ${p.payslip_no}`, [payslipPage(p, pays.rows)]), canUpload: E.canWrite("employees") })}</div>
       </div><div class="wfoot">${hr ? tools("payslips", p0, `Payslip ${p.payslip_no}`, { reload: () => V.payslip(id), afterDelete: () => (location.hash = "employee/" + em.id) }) : ""}
         <a class="btn" href="${hr ? "#employee/" + em.id : "#profile"}">Close</a></div></div>`;
     $$("[data-rc]").forEach((b) => (b.onclick = (ev) => { ev.stopPropagation(); const x = pays.rows.find((r) => r.id === b.dataset.rc); E.openPreview(`Salary Payment ${x.payment_no}`, [receiptPage(p, x)]); }));
     if ($("#psPay")) $("#psPay").onclick = () => payDialog({ employee: em, payslip: p.id }, () => V.payslip(id));
+    // 3.58: only the Director deletes a salary payment (the payslip is unpaid again by that amount)
+    $$("[data-spdel]").forEach((b) => (b.onclick = async (ev) => {
+      ev.stopPropagation();
+      const x = pays.rows.find((r) => r.id === b.dataset.spdel);
+      if (!(await E.confirmBox(`Delete salary payment <b>${esc(x.payment_no)}</b> (₱ ${esc(peso(x.amount))})?<br><br>Payslip ${esc(p.payslip_no)} is unpaid again by ₱ ${esc(peso(x.amount))}.`, { ok: "Delete", danger: true }))) return;
+      const { error } = await sb.rpc("delete_salary_payment", { p_id: x.id });
+      if (error) return fail(error, /delete_salary_payment/.test(error.message || "") ? "Run the database update RUN_062_TO_066.sql first" : "Could not delete the payment");
+      toast(`Salary payment ${x.payment_no} deleted.`); V.payslip(id);
+    }));
     E.bindDocCards($("#main"), () => V.payslip(id));
     bindTools($("#main"));
     E.setRecords(`Payslip: ${p.payslip_no}`);
