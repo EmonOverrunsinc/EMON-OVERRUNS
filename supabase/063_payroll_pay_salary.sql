@@ -41,7 +41,7 @@ create index if not exists payslips_period_idx on public.payslips(period_month);
 alter table public.salary_payments enable row level security;
 revoke all on public.salary_payments from anon;
 grant select on public.salary_payments to authenticated;
--- read: as the payslips (the Director, EO-Office, and the employee their own); a payment is made only by pay_salary()
+-- read: as the payslips (EMON HASAN, EO-Office, and the employee their own); a payment is made only by pay_salary()
 drop policy if exists "sp: read" on public.salary_payments;
 create policy "sp: read" on public.salary_payments for select to authenticated
   using ((select public.is_admin()) or (select public.has_module('employees'))

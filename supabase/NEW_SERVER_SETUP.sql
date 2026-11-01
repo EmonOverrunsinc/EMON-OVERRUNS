@@ -12396,7 +12396,7 @@ select case when to_regprocedure('public.set_form_visible(text,boolean)') is not
 -- ======== 062_edit_completed_order.sql ========
 -- =====================================================================
 -- EMON OVERRUNS E-PORTAL - Update 3.54: THE DIRECTOR EDITS A COMPLETED CUSTOMER ORDER
--- A COMPLETED order (delivered, with its invoice) can be changed by the Director: Edit on the order page, and its boxes
+-- A COMPLETED order (delivered, with its invoice) can be changed by EMON HASAN: Edit on the order page, and its boxes
 -- (add, change, remove). Saving it changes its invoice too (boxes, pcs, amount, terms, order date), so the order and the
 -- invoice always say the same; the statements of account follow by themselves. Staff cannot change a completed order.
 -- The customer of a completed order stays the same, and the amount cannot go below the payments linked to its invoice.
@@ -12405,7 +12405,7 @@ select case when to_regprocedure('public.set_form_visible(text,boolean)') is not
 -- =====================================================================
 do $$
 declare def text; n text;
-  -- save_customer_order: the Director may change a completed order (of an account that is not ACTIVE any more too)
+  -- save_customer_order: EMON HASAN may change a completed order (of an account that is not ACTIVE any more too)
   s_old1 text := 'if o.status not in (''pending'',''approved'') then raise exception ''Order % is % and cannot be changed''';
   s_new1 text := 'if o.status not in (''pending'',''approved'') and not (boss and o.status = ''completed'') then raise exception ''Order % is % and cannot be changed''';
   s_old2 text := 'if c.status <> ''active'' then raise exception ''An order is made only for an ACTIVE account';
@@ -12426,7 +12426,7 @@ declare def text; n text;
     perform set_config(''eo.allow_change'', ''off'', true);
   end if;
   if p_id is null and o.status = ''pending'' then';
-  -- the boxes of a completed order: the Director adds, changes and removes them
+  -- the boxes of a completed order: EMON HASAN adds, changes and removes them
   b_old1 text := 'if o.status not in (''pending'',''approved'') then raise exception ''Order % is %: boxes cannot be added''';
   b_new1 text := 'if o.status not in (''pending'',''approved'') and not (o.status = ''completed'' and public.is_admin()) then raise exception ''Order % is %: boxes cannot be added''';
   b_old2 text := 'if st not in (''pending'',''approved'') then raise exception ''Order % is %: its boxes cannot be changed''';
@@ -12454,7 +12454,7 @@ notify pgrst, 'reload schema';
 select case when position('3.54: a completed order' in pg_get_functiondef('public.save_customer_order(uuid,jsonb)'::regprocedure)) > 0
   and position('''completed'' and public.is_admin()' in pg_get_functiondef('public.add_order_box(uuid,jsonb)'::regprocedure)) > 0
   and position('''completed'' and public.is_admin()' in pg_get_functiondef('public.change_order_box(uuid,jsonb)'::regprocedure)) > 0
-  then 'UPDATE 3.54 READY - the Director edits a completed customer order (like ARS-2); its invoice changes with it'
+  then 'UPDATE 3.54 READY - EMON HASAN edits a completed customer order (like ARS-2); its invoice changes with it'
   else 'NOT READY - send this message to Claude' end as result;
 
 -- ======== 063_payroll_pay_salary.sql ========
@@ -12501,7 +12501,7 @@ create index if not exists payslips_period_idx on public.payslips(period_month);
 alter table public.salary_payments enable row level security;
 revoke all on public.salary_payments from anon;
 grant select on public.salary_payments to authenticated;
--- read: as the payslips (the Director, EO-Office, and the employee their own); a payment is made only by pay_salary()
+-- read: as the payslips (EMON HASAN, EO-Office, and the employee their own); a payment is made only by pay_salary()
 drop policy if exists "sp: read" on public.salary_payments;
 create policy "sp: read" on public.salary_payments for select to authenticated
   using ((select public.is_admin()) or (select public.has_module('employees'))
@@ -12629,7 +12629,7 @@ select case when to_regprocedure('public.issue_payslip(jsonb)') is not null and 
 -- * A completed order's invoice follows by itself when its boxes change (added, changed, removed) or the order is edited.
 -- * Boxes without pcs (0) are charged as ordered; an order with no pcs on its boxes is charged as ordered.
 -- * A box that matches no line (another item, code or batch no) is NOT ORDERED and not charged: the order page lists
---   it with its items and the Director adds its price - it is added to the order as a line and the invoice follows.
+--   it with its items and EMON HASAN adds its price - it is added to the order as a line and the invoice follows.
 -- * A line with no boxes (e.g. a fee) is charged as ordered.
 -- * The invoice cannot go below the payments linked to it.
 -- * The invoices of the orders completed before this update are charged as delivered now (not below linked payments).
@@ -12725,14 +12725,14 @@ end;
 $$;
 revoke execute on function public.co_charge_as_delivered(uuid) from public, anon, authenticated;
 
--- NOT ORDERED boxes (no line of the order): the Director gives their price; they are added to the order as a line
+-- NOT ORDERED boxes (no line of the order): EMON HASAN gives their price; they are added to the order as a line
 -- (items, code, batch no, boxes, pcs, price) and the invoice follows. p_code / p_lot / p_items name the group listed.
 create or replace function public.price_not_ordered(p_order uuid, p_code text, p_lot text, p_items text, p_price numeric) returns public.customer_orders
 language plpgsql security definer set search_path = '' as $$
 declare o public.customer_orders; g jsonb; pr numeric := round(coalesce(p_price, 0), 2); ln jsonb;
   k text := upper(trim(coalesce(p_code, ''))); l text := upper(trim(coalesce(p_lot, ''))); it text := upper(trim(coalesce(p_items, '')));
 begin
-  if not public.is_admin() then raise exception 'Only the Director gives the price'; end if;
+  if not public.is_admin() then raise exception 'Only EMON HASAN gives the price'; end if;
   select * into o from public.customer_orders where id = p_order for update;
   if not found then raise exception 'Order not found'; end if;
   if o.status = 'cancelled' then raise exception 'Order % is CANCELLED', o.order_no; end if;
@@ -12806,7 +12806,7 @@ declare r record; before numeric; after numeric; d jsonb;
 begin
   for r in select o.id, o.order_no, o.invoice_id from public.customer_orders o where o.status = 'completed' and o.invoice_id is not null order by o.order_no loop
     -- an old order whose boxes do not all match its lines (a box NOT ORDERED, or a line with boxes but none of them here)
-    -- is not changed: the Director checks it on the order page (Boxes tab) first
+    -- is not changed: EMON HASAN checks it on the order page (Boxes tab) first
     d := public.co_delivered(r.id);
     if coalesce((d ->> 'has_pcs')::boolean, false) and (jsonb_array_length(coalesce(d -> 'odd', '[]'::jsonb)) > 0
         or exists (select 1 from jsonb_array_elements(coalesce(d -> 'lines', '[]'::jsonb)) l where (l ->> 'ordered')::numeric > 0 and (l ->> 'delivered')::numeric = 0)) then
@@ -12891,7 +12891,7 @@ select case when to_regprocedure('public.verify_record_full(text)') is not null 
 --    used by people who are not signed in. A robot could try them thousands of times (to guess record numbers, usernames,
 --    card or paper codes). Now each internet address (IP) gets only a few tries a minute; then: "Too many tries. Please
 --    wait a minute and try again." People signed in to the E-Portal are not limited.
--- 2. Only the Director deletes a salary payment (Pay Salary) - the payslip is unpaid again by that amount.
+-- 2. Only EMON HASAN deletes a salary payment (Pay Salary) - the payslip is unpaid again by that amount.
 -- Needs RUN_062_TO_065.sql. Paste all of it in Supabase > SQL Editor > New query and press Run. Safe to run again.
 -- The last line says: UPDATE 3.58 READY - ...
 -- =====================================================================
@@ -12955,12 +12955,12 @@ begin
   end loop;
 end $$;
 
--- 2. the Director deletes a salary payment
+-- 2. EMON HASAN deletes a salary payment
 create or replace function public.delete_salary_payment(p_id uuid) returns void
 language plpgsql security definer set search_path = '' as $$
 declare r public.salary_payments;
 begin
-  if not public.is_admin() then raise exception 'Only the Director can delete a salary payment'; end if;
+  if not public.is_admin() then raise exception 'Only EMON HASAN can delete a salary payment'; end if;
   delete from public.salary_payments where id = p_id returning * into r;
   if r.id is null then raise exception 'Salary payment not found'; end if;
 end;
@@ -12974,16 +12974,16 @@ select case when to_regprocedure('private.guard(text,integer)') is not null
   and position('private.guard(' in pg_get_functiondef('public.verify_record(text)'::regprocedure)) > 0
   and position('private.guard(' in pg_get_functiondef('public.delivery_order(text,text)'::regprocedure)) > 0
   and to_regprocedure('public.delete_salary_payment(uuid)') is not null
-  then 'UPDATE 3.58 READY - robots get only a few tries a minute on the public pages; the Director deletes a salary payment'
+  then 'UPDATE 3.58 READY - robots get only a few tries a minute on the public pages; EMON HASAN deletes a salary payment'
   else 'NOT READY - send this message to Claude' end as result;
 
 -- ======== 067_box_lock.sql ========
 -- =====================================================================
 -- EMON OVERRUNS E-PORTAL - Update 3.59: THE DIRECTOR VERIFIES THE BOXES OF AN ORDER AND LOCKS THEM
--- On the order page (Boxes tab) the Director checks each ORDER line against the boxes ADDED (a wrong box shows
+-- On the order page (Boxes tab) EMON HASAN checks each ORDER line against the boxes ADDED (a wrong box shows
 -- [[U+274C]] NOT ORDERED), fixes them (remove the wrong box, or give its price), then presses VERIFY & LOCK BOXES: from then on
 -- no box of that order can be added, changed or removed - by anyone, also on the order paper's delivery page - until
--- the Director presses UNLOCK. Deleting the whole order (Director) still works.
+-- EMON HASAN presses UNLOCK. Deleting the whole order (EMON HASAN) still works.
 -- Needs RUN_062_TO_066.sql. Paste all of it in Supabase > SQL Editor > New query and press Run. Safe to run again.
 -- The last line says: UPDATE 3.59 READY - ...
 -- =====================================================================
@@ -12999,7 +12999,7 @@ declare o public.customer_orders;
 begin
   select * into o from public.customer_orders where id = case when tg_op = 'INSERT' then new.order_id else old.order_id end;
   if found and o.boxes_verified_at is not null then
-    raise exception 'The boxes of order % were verified and locked by % - ask the Director to unlock them', o.order_no, coalesce(o.boxes_verified_by_name, 'the Director');
+    raise exception 'The boxes of order % were verified and locked by % - ask EMON HASAN to unlock them', o.order_no, coalesce(o.boxes_verified_by_name, 'EMON HASAN');
   end if;
   return case when tg_op = 'DELETE' then old else new end;
 end;
@@ -13009,12 +13009,12 @@ drop trigger if exists co_boxes_locked on public.customer_order_boxes;
 create trigger co_boxes_locked before insert or update or delete on public.customer_order_boxes
   for each row execute function public.co_boxes_locked();
 
--- the Director verifies and locks the boxes (p_lock true), or unlocks them to fix (false)
+-- EMON HASAN verifies and locks the boxes (p_lock true), or unlocks them to fix (false)
 create or replace function public.lock_order_boxes(p_order uuid, p_lock boolean) returns public.customer_orders
 language plpgsql security definer set search_path = '' as $$
 declare o public.customer_orders;
 begin
-  if not public.is_admin() then raise exception 'Only the Director verifies and locks the boxes'; end if;
+  if not public.is_admin() then raise exception 'Only EMON HASAN verifies and locks the boxes'; end if;
   select * into o from public.customer_orders where id = p_order for update;
   if not found then raise exception 'Order not found'; end if;
   if p_lock and not exists (select 1 from public.customer_order_boxes where order_id = p_order) then raise exception 'Order % has no boxes to verify', o.order_no; end if;
@@ -13033,7 +13033,7 @@ notify pgrst, 'reload schema';
 
 select case when to_regprocedure('public.lock_order_boxes(uuid,boolean)') is not null
   and exists (select 1 from pg_trigger where tgname = 'co_boxes_locked')
-  then 'UPDATE 3.59 READY - the Director verifies and locks the boxes of an order (Boxes tab)'
+  then 'UPDATE 3.59 READY - EMON HASAN verifies and locks the boxes of an order (Boxes tab)'
   else 'NOT READY - send this message to Claude' end as result;
 $sql$;
 begin

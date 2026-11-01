@@ -6,7 +6,7 @@
 -- * A completed order's invoice follows by itself when its boxes change (added, changed, removed) or the order is edited.
 -- * Boxes without pcs (0) are charged as ordered; an order with no pcs on its boxes is charged as ordered.
 -- * A box that matches no line (another item, code or batch no) is NOT ORDERED and not charged: the order page lists
---   it with its items and the Director adds its price - it is added to the order as a line and the invoice follows.
+--   it with its items and EMON HASAN adds its price - it is added to the order as a line and the invoice follows.
 -- * A line with no boxes (e.g. a fee) is charged as ordered.
 -- * The invoice cannot go below the payments linked to it.
 -- * The invoices of the orders completed before this update are charged as delivered now (not below linked payments).
@@ -102,14 +102,14 @@ end;
 $$;
 revoke execute on function public.co_charge_as_delivered(uuid) from public, anon, authenticated;
 
--- NOT ORDERED boxes (no line of the order): the Director gives their price; they are added to the order as a line
+-- NOT ORDERED boxes (no line of the order): EMON HASAN gives their price; they are added to the order as a line
 -- (items, code, batch no, boxes, pcs, price) and the invoice follows. p_code / p_lot / p_items name the group listed.
 create or replace function public.price_not_ordered(p_order uuid, p_code text, p_lot text, p_items text, p_price numeric) returns public.customer_orders
 language plpgsql security definer set search_path = '' as $$
 declare o public.customer_orders; g jsonb; pr numeric := round(coalesce(p_price, 0), 2); ln jsonb;
   k text := upper(trim(coalesce(p_code, ''))); l text := upper(trim(coalesce(p_lot, ''))); it text := upper(trim(coalesce(p_items, '')));
 begin
-  if not public.is_admin() then raise exception 'Only the Director gives the price'; end if;
+  if not public.is_admin() then raise exception 'Only EMON HASAN gives the price'; end if;
   select * into o from public.customer_orders where id = p_order for update;
   if not found then raise exception 'Order not found'; end if;
   if o.status = 'cancelled' then raise exception 'Order % is CANCELLED', o.order_no; end if;
@@ -183,7 +183,7 @@ declare r record; before numeric; after numeric; d jsonb;
 begin
   for r in select o.id, o.order_no, o.invoice_id from public.customer_orders o where o.status = 'completed' and o.invoice_id is not null order by o.order_no loop
     -- an old order whose boxes do not all match its lines (a box NOT ORDERED, or a line with boxes but none of them here)
-    -- is not changed: the Director checks it on the order page (Boxes tab) first
+    -- is not changed: EMON HASAN checks it on the order page (Boxes tab) first
     d := public.co_delivered(r.id);
     if coalesce((d ->> 'has_pcs')::boolean, false) and (jsonb_array_length(coalesce(d -> 'odd', '[]'::jsonb)) > 0
         or exists (select 1 from jsonb_array_elements(coalesce(d -> 'lines', '[]'::jsonb)) l where (l ->> 'ordered')::numeric > 0 and (l ->> 'delivered')::numeric = 0)) then
