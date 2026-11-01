@@ -66,20 +66,43 @@
     return `${no ? no + " " : ""}${label}${n > 1 ? " " + n : ""}`;
   }
   // Returns the number of files that could not be saved (3.35: a file that fails in any way counts; it never stops the rest).
+  // 3.62: the names are given first, then up to 3 files go up at once; a bar at the bottom shows how far the upload is.
+  const upBar = (() => {
+    let el = null, hideT = 0;
+    return {
+      show(done, total, what) {
+        clearTimeout(hideT);
+        if (!el) { el = document.createElement("div"); el.className = "up-prog"; el.setAttribute("role", "status"); document.body.appendChild(el); }
+        el.innerHTML = `<span class="up-ic">${ic("upload")}</span><div class="up-txt"><b>${done < total ? `Uploading ${Math.min(done + 1, total)} of ${total}` : `Uploaded ${total} file${total === 1 ? "" : "s"}`}</b><small>${esc(what || "")}</small><i class="up-bar"><i style="width:${Math.round((done / total) * 100)}%"></i></i></div>`;
+        el.classList.toggle("done", done >= total);
+        requestAnimationFrame(() => el && el.classList.add("on"));
+      },
+      hide(ms = 1400) { clearTimeout(hideT); hideT = setTimeout(() => { if (el) { el.classList.remove("on"); const e0 = el; el = null; setTimeout(() => e0.remove(), 400); } }, ms); }
+    };
+  })();
   async function uploadRecords(ownerType, ownerId, kind, files) {
-    let failed = 0;
-    for (const raw of files) {
-      if (raw.size > 50 * 1024 * 1024) { failed++; toast("A file larger than 50 MB was skipped.", true); continue; }
+    let failed = 0, done = 0;
+    const list = [];
+    for (const raw of files) { if (raw.size > 50 * 1024 * 1024) { failed++; toast("A file larger than 50 MB was skipped.", true); } else list.push(raw); }
+    if (!list.length) return failed;
+    upBar.show(0, list.length, "Getting the files ready…");
+    // the names in order (FILE, FILE 2, FILE 3 …) before anything goes up
+    const names = [];
+    for (let i = 0; i < list.length; i++) names.push(await autoName(ownerType, ownerId, kind, i).catch(() => `File ${Date.now()}_${i}`));
+    const one = async (raw, i) => {
       try {
         const f = await E.slimFile(raw); // 2.2.2: a smaller picture, still clear in print
-        const name = await autoName(ownerType, ownerId, kind);
-        const path = `${ownerType}/${ownerId}/${slug(name)}_${Date.now()}.${extOf(f)}`;
+        const path = `${ownerType}/${ownerId}/${slug(names[i])}_${Date.now()}_${i}.${extOf(f)}`;
         const up = await sb.storage.from("records").upload(path, f, { contentType: f.type || "application/octet-stream" });
-        if (up.error) { failed++; console.error(up.error); continue; }
-        const ins = await sb.from("attachments").insert({ owner_type: ownerType, owner_id: ownerId, kind, storage_path: path, file_name: name, mime: f.type, size: f.size });
+        if (up.error) { failed++; console.error(up.error); return; }
+        const ins = await sb.from("attachments").insert({ owner_type: ownerType, owner_id: ownerId, kind, storage_path: path, file_name: names[i], mime: f.type, size: f.size });
         if (ins.error) { failed++; console.error(ins.error); sb.storage.from("records").remove([path]).catch(() => {}); }
       } catch (e) { failed++; console.error(e); }
-    }
+      finally { done++; upBar.show(done, list.length, names[i]); }
+    };
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(3, list.length) }, async () => { while (next < list.length) { const i = next++; await one(list[i], i); } }));
+    upBar.hide(failed ? 300 : 1400);
     return failed;
   }
   async function signedUrl(path, secs = 600) {
