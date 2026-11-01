@@ -1420,7 +1420,7 @@
       <div class="grid-foot"><span>Record 1 of ${rows.length}</span><span>${rows.length} record(s)</span></div></div>`;
   }
   function bindGrid(container, rows, onRow) {
-    if (!onRow) return;
+    if (!onRow || !container) return; // 3.64: a part of the page this login does not get
     $$("tbody tr.click", container).forEach((tr) => {
       tr.tabIndex = 0;
       const go = () => onRow(rows[Number(tr.dataset.i)]);

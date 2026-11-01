@@ -1101,7 +1101,8 @@
         summary: { title: "Summary", cols: ["", "Count", k === "od" ? "Balance Overdue (₱)" : "Total Amount (₱)"], rows: [], total: ["Total:", String(set[2].length), peso(total)] },
         criteria: `Customer: ${fullName(c)} (${c.account_no || ""})` }));
     }));
-    if (!["pending", "verified", "rejected"].includes(c.status)) renderSoaTab(c, invs.data || [], pays.data || [], memos.data || [], orders);
+    if (!$("#pfSoa")) { /* 3.64: no statements for this login */ }
+    else if (!["pending", "verified", "rejected"].includes(c.status)) renderSoaTab(c, invs.data || [], pays.data || [], memos.data || [], orders);
     else $("#pfSoa").innerHTML = `<div class="empty">Statements start after the account is approved.</div>`;
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.customer(c.id));
