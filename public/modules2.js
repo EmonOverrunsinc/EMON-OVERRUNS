@@ -644,6 +644,11 @@
     if (!p0) { $("#main").innerHTML = `<div class="empty">Payslip not found. <a href="#profile">Back</a></div>`; return; }
     const p = { ...withBalance([p0], bal)[0], employees: p0.employees };
     const em = p.employees;
+    // 3.67: an employee's OWN payslip shows its amounts (screen and print) also without "13 See Balances & History"
+    if (S.hideMoney && em?.profile_id && em.profile_id === S.profile?.id) {
+      S.hideMoney = false;
+      addEventListener("hashchange", () => { S.hideMoney = !!S.hideMoneyBase; }, { once: true });
+    }
     const hr = E.hasModule("employees");
     const canPay = E.canWrite("employees") && p.balance > 0;
     $(".band h1").textContent = `Payslip — ${p.payslip_no}`;

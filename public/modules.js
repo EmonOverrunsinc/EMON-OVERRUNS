@@ -2258,6 +2258,8 @@
     ]);
     if (!here()) return;
     const slips = E.withBalance(slips0, myBal);
+    // 3.67: an employee always sees their OWN salary, unpaid salary and payslips (also without "13 See Balances & History")
+    const hid = S.hideMoney; S.hideMoney = false;
     $("#main").innerHTML = `
       <section class="me-card">
         <div class="me-photo">${av ? `<img src="${esc(av)}" alt="Your photo">` : `<span>${esc(E.initials(myName()))}</span>`}
@@ -2294,6 +2296,7 @@
       ${emp ? `<h3>My Salary</h3>${E.salaryTiles(emp, E.salaryTotals(slips, myPays.rows))}
         <h3>My Payslips</h3><div id="mpSlips">${E.slipGrid(slips, "No payslips yet.")}</div>
         <h3>My Salary Payments</h3><div id="mpPays">${E.payGrid(myPays.rows, slips, "No salary paid yet.")}</div>` : ""}`;
+    S.hideMoney = hid;
     if (emp) { E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id)); E.bindGrid($("#mpPays"), myPays.rows, (r) => (location.hash = "payslip/" + r.payslip_id)); }
     if (emp && E.cardInfoBox) E.cardInfoBox($("#mpCard")); // the ID card (3.28: no PIN)
     $("#mpPw").onclick = () => E.changePassword();
