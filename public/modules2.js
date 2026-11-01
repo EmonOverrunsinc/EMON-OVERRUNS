@@ -11,7 +11,7 @@
   // 3.31: Purchase Order has its own menu access (5); no Employee (HR): 11 EO-Office gives Employees, Payroll and Job Applications
   const MODULES = [["customers", "1 Customer"], ["invoices", "2 Invoice"], ["payments", "3 Payment"], ["creditmemos", "4 Credit Memo"], ["purchase", "5 Purchase Order"], ["projects", "7 Project"], ["billing", "8 Billing"], ["inventory", "10 E-Bill"], ["eooffice", "11 EO-Office"], ["ai", "12 EVA AI"]];
   const accessText = (role, mods) => {
-    if (role === "admin") return "Everything (Director)";
+    if (role === "admin") return "Everything (EMON HASAN)";
     const list = (mods || []).map((m) => MODULES.find((x) => x[0] === m)?.[1]).filter(Boolean).join(", ") || "Dashboard and Community";
     return role === "viewer" ? `View only — ${list}` : list;
   };
@@ -35,7 +35,7 @@
       <div class="tabs" id="emF"><button type="button" class="on" data-f="current">Current</button><button type="button" data-f="terminated">Terminated</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${isAdmin() ? `<a class="btn primary" href="#newemployee">+ New Employee</a>` : ""}</div>
       <div id="emRes">${busy()}</div>`,
-      "Employees come from approved job applications, or the Director adds them here. Open an employee to record salary or advance payments, change access, or terminate them.");
+      "Employees come from approved job applications, or EMON HASAN adds them here. Open an employee to record salary or advance payments, change access, or terminate them.");
     const here = E.stillHere();
     const [{ data, error }, att] = await Promise.all([
       sb.from("employees").select("*").order("created_at", { ascending: false }),
@@ -67,7 +67,7 @@
     <label for="emRole">Access Level</label><select id="emRole">
       <option value="staff" ${role === "staff" ? "selected" : ""}>Employee — can add and record</option>
       <option value="viewer" ${role === "viewer" ? "selected" : ""}>Viewer — can only look</option>
-      <option value="admin" ${role === "admin" ? "selected" : ""}>Director — can do everything and approve</option></select>
+      <option value="admin" ${role === "admin" ? "selected" : ""}>Full Access — can do everything and approve</option></select>
     <span>Menu Access</span><div><div class="checks access">${MODULES.map(([k, l]) => `<label><input type="checkbox" name="emMod" value="${k}" ${mods.includes(k) ? "checked" : ""}> ${l}</label>`).join("")}</div>
       <small class="muted">Dashboard, Community, Messages, Verification and Download Forms are open to everyone.</small></div>`;
   const readAccess = () => ({ role: $("#emRole").value, modules: $$("input[name=emMod]:checked").map((x) => x.value) });
@@ -155,7 +155,7 @@
       }
       const id = E.uuid();
       const photo_path = await uploadPhoto("employee", id, $("#nePhoto").files[0]);
-      const { data, error } = await sb.from("employees").insert({ id, ...rec, photo_path, ...readAccess(), approval_status: "pending" /* 3.25: the Director approves it next; the ID card is made then */ }).select().single();
+      const { data, error } = await sb.from("employees").insert({ id, ...rec, photo_path, ...readAccess(), approval_status: "pending" /* 3.25: EMON HASAN approves it next; the ID card is made then */ }).select().single();
       if (error) { E.setBusy(e.target, false); return fail(error, /approval_status/.test(error.message || "") ? "Run the database update 035_employee_approval.sql first" : "Could not save the employee"); }
       let f = await E.uploadRecords("employee", id, "application", E.filesOf("neApp"));
       f += await E.uploadRecords("employee", id, "signature", E.filesOf("neSig"));
@@ -207,7 +207,7 @@
     $("#main").innerHTML = `
       ${em.status === "terminated" ? `<div class="banner closed">TERMINATED on ${mdy(em.termination_date)} — ${esc(em.termination_reason || "")}. The login is disabled.</div>` : ""}
       ${em.status === "suspended" ? `<div class="banner warn">⚠ SUSPENDED — the login is blocked until the employee is reactivated by an approved order.</div>` : ""}
-      ${em.approval_status === "pending" ? `<div class="banner warn">⚠ WAITING FOR APPROVAL — check the details and the portal access (Access &amp; Status). ${isAdmin() ? "Then press <b>Approve Employee</b>: the employee ID card is made and the login opens." : "The Director approves it."}</div>` : ""}
+      ${em.approval_status === "pending" ? `<div class="banner warn">⚠ WAITING FOR APPROVAL — check the details and the portal access (Access &amp; Status). ${isAdmin() ? "Then press <b>Approve Employee</b>: the employee ID card is made and the login opens." : "EMON HASAN approves it."}</div>` : ""}
       ${em.status === "waiting" && em.approval_status !== "pending" ? `<div class="banner warn">No login yet. Ask ${esc(em.first_name)} to open the portal, tap <b>Create Account</b> and use <b>${esc(em.email)}</b>. They can sign in immediately with the access below.</div>` : ""}
       <section class="cust-hero st-${esc(em.status)}">${photoBox(photo, (em.first_name[0] || "") + (em.last_name[0] || ""))}
         <div class="ch-main"><div class="ch-name"><h2>${esc(fullName(em))}</h2>${verifiedBadge(verified)}${em.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(em.status)}</div>
@@ -235,7 +235,7 @@
         <div data-p="1" hidden><div id="emSlips">${slipGrid(slips, "No payslips issued yet. Press Issue Payslip.")}</div></div>
         <div data-p="2" hidden><div id="emPays">${payGrid(pays.rows, slips, "No salary paid yet.")}</div></div>
         <div data-p="3" hidden>
-          ${isAdmin() ? `<div class="docgrid">${E.docCard({ key: "emp", title: `Employee Profile ${em.employee_no}`, sub: "Only the Director can open and print it", ownerType: "employee", ownerId: em.id, att, print: () => printProfile(), canUpload: false,
+          ${isAdmin() ? `<div class="docgrid">${E.docCard({ key: "emp", title: `Employee Profile ${em.employee_no}`, sub: "Only EMON HASAN can open and print it", ownerType: "employee", ownerId: em.id, att, print: () => printProfile(), canUpload: false,
             approved: empApproved ? { name: em.approved_by_name, at: em.approved_at } : null })}</div>` : ""}
           ${app ? `<div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${app.application_no}`, sub: `Approved ${app.approval_no || ""}`, ownerType: "job_application", ownerId: app.id, att: appAtt, print: () => printJobApp(app), canUpload: isAdmin(),
             approved: jaApproved(app) ? { name: app.approved_by_name, at: app.approved_at } : null })}</div>
@@ -885,7 +885,7 @@
           <div class="ch-ids">${E.idBox("Application No", a.application_no)}${E.idBox("Submitted", mdy(a.created_at))}${E.idBox("Phone", a.phone)}${E.idBox("Email", a.email)}</div></div></section>
       <div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${a.application_no}`, sub: "Print, have the applicant sign it, then upload the signed copy", ownerType: "job_application", ownerId: a.id, att, print: () => printJobApp(a), canUpload: isAdmin(),
         approved: jaApproved(a) ? { name: a.approved_by_name, at: a.approved_at } : null })}</div>
-      ${isAdmin() && a.status === "submitted" ? `<fieldset class="opt review"><legend>Director's Approval</legend><ol class="steps">
+      ${isAdmin() && a.status === "submitted" ? `<fieldset class="opt review"><legend>EMON HASAN's Approval</legend><ol class="steps">
         <li><b>Print</b> the job application form above and have the applicant sign it. You do not sign it by hand: your signature is printed on it when you approve.</li>
         <li><b>Upload the form signed by the applicant:</b> ${signed ? `<span class="ok-txt">✔ Uploaded.</span>` : `<span class="bad-txt">not uploaded yet</span> — press <b>Upload Signed Copy</b> on the form card.`}</li>
         <li><b>Choose access</b> for the new employee:<div class="fields wide" style="margin-top:6px">${accessFields("staff", ["customers"])}</div></li>
@@ -935,7 +935,7 @@
     E.shell("projects", "Project", `${E.eoTabs("projects")}
       <div class="tabs" id="pjTabs"><button type="button" class="on" data-f="approved">Approved</button><button type="button" data-f="pending">Waiting for Approval</button><button type="button" data-f="completed">Completed</button><button type="button" data-f="rejected">Rejected</button><button type="button" data-f="">All</button></div>
       <div class="btnrow">${E.canWrite("projects") ? `<a class="btn primary" href="#newproject">+ New Project Application</a>` : ""}</div><div id="pjRes">${busy()}</div>`,
-      "Submit a project with its budget: each line with its amount (the qty is optional). Once the Director approves it, the project moves to <b>Approved</b> and payments can be recorded against its total cost.");
+      "Submit a project with its budget: each line with its amount (the qty is optional). Once EMON HASAN approves it, the project moves to <b>Approved</b> and payments can be recorded against its total cost.");
     const fresh = E.loadGuard();
     const run = async (f) => {
       const ok = fresh(); // 3.35: the tab chosen last wins
@@ -1042,13 +1042,13 @@
         <div class="tiles"><div class="tile"><div class="k">Total Project Cost</div><div class="v">₱ ${peso(pr.total_cost)}</div></div>
           <div class="tile ok"><div class="k">Paid</div><div class="v">₱ ${peso(pr.total_paid)}</div></div>
           <div class="tile ${num(pr.remaining) > 0 ? "warn" : "ok"}"><div class="k">Remaining</div><div class="v">₱ ${peso(pr.remaining)}</div></div></div>
-        <div class="docgrid">${E.docCard({ key: "prj", title: `Project Application ${pr.project_no}`, sub: "Check it, then the Director approves it in the portal", ownerType: "project", ownerId: pr.id, att, print: printApp, canUpload: false, kind: "approval", copyName: "Approved Document",
+        <div class="docgrid">${E.docCard({ key: "prj", title: `Project Application ${pr.project_no}`, sub: "Check it, then EMON HASAN approves it in the portal", ownerType: "project", ownerId: pr.id, att, print: printApp, canUpload: false, kind: "approval", copyName: "Approved Document",
           approved: signed ? { name: pr.approved_by_name, at: pr.approved_at } : null })}</div>
         <div><b>Project Budget</b>${E.grid({ cols: [{ label: "Description", get: (r) => r.description }, { label: "Qty", num: true, get: qtyOf }, { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }], rows: lines, foot: { amount: peso(pr.total_cost) } })}</div>
         ${pr.status === "pending" ? `<fieldset class="opt review"><legend>Approval</legend>
           <ol class="steps"><li><b>Check</b> the project application above (Print / Download).</li>
           ${isAdmin() ? `<li><b>Decide:</b> no signed copy is needed — your signature is printed on the project application when you approve.<div class="fields wide"><label for="pjNote">Note</label><input type="text" id="pjNote"></div>
-            <div class="btnrow"><button type="button" class="btn ok" data-pa="approve">Approve Project</button><button type="button" class="btn danger" data-pa="reject">Reject</button></div></li>` : "<li>Waiting for the Director to approve.</li>"}</ol></fieldset>` : ""}
+            <div class="btnrow"><button type="button" class="btn ok" data-pa="approve">Approve Project</button><button type="button" class="btn danger" data-pa="reject">Reject</button></div></li>` : "<li>Waiting for EMON HASAN to approve.</li>"}</ol></fieldset>` : ""}
         ${pr.status === "approved" && w ? `<form class="opt" id="ppForm" novalidate style="border:1px solid var(--panel-line);background:var(--panel);padding:8px 10px"><b>Record Payment</b>
           <div class="formgrid"><div class="fields wide"><label for="ppDate">Date</label><input type="date" id="ppDate" value="${isoToday()}">
             <label for="ppAmt">Amount (₱) *</label><input type="number" id="ppAmt" min="0.01" step="0.01">
@@ -1123,7 +1123,7 @@
       <div class="tiles" id="blTiles">${["Companies", "Total Paid (PHP)", "Total Paid (BDT)", "This Month (BDT)"].map((k) => `<div class="tile"><div class="k">${k}</div><div class="v"><span class="spin sm"></span></div></div>`).join("")}</div>
       <div class="btnrow">${w ? `<a class="btn primary" href="#newvoucher">${ic("plus")} New Payment</a><a class="btn" href="#newpaycompany">${ic("plus")} Add Company</a>` : ""}</div>
       <div id="blRes">${busy()}</div>`,
-      "Add a company and choose its currency: PHP, BDT, or both. <b>New Payment</b> records the amount in that currency (for both: PHP × rate = BDT) and creates a payment voucher. E-bills are paid with a memo in the Director Portal.");
+      "Add a company and choose its currency: PHP, BDT, or both. <b>New Payment</b> records the amount in that currency (for both: PHP × rate = BDT) and creates a payment voucher. E-bills are paid with a memo in EMON HASAN Portal.");
     const here = E.stillHere();
     const { data, error } = await sb.from("pay_company_totals").select("*").order("name");
     if (!here()) return; // 3.35: another page was opened while the list loaded

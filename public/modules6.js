@@ -234,7 +234,7 @@
       ${isNew ? `<p class="muted" style="margin-top:0">Write what was found on the paper QC TEST form (Download Forms). When you submit, the QC test gets its number (QC-${new Date().getFullYear()}-0001, 0002 …) and the 2 stickers open to print: stick one on the paper form, then scan the form on the page of the QC test.</p>` : ""}
       ${res ? `<div class="qc-banner ${res.verdict.toLowerCase()}"><b>${res.verdict}</b><span>${res.score} / 100 · Pass ${res.pass} · Fail ${res.fail}${t.qty != null ? ` · Qty ${E.qtyText(t.qty)}` : ""}${res.qty ? ` · Qty Found ${res.qty}` : ""}</span><small>Checked ${esc(mdy(res.when))}${res.by ? ` by ${esc(res.by)}` : ""}</small></div>` : ""}
       ${isNew ? "" : `<div class="pgrid2 qc-head">${E.cell("QC No", t.qc_no)}${E.cell("Date", mdy(t.created_at))}</div>`}
-      ${full ? "" : `<div class="banner warn">${ic("bell")} The goods, the Qty, the colors and the mending number need the database update 043_qc_qty.sql to be changed here. Ask the Director.</div>`}
+      ${full ? "" : `<div class="banner warn">${ic("bell")} The goods, the Qty, the colors and the mending number need the database update 043_qc_qty.sql to be changed here. Ask EMON HASAN.</div>`}
       <fieldset class="opt"><legend>Goods</legend><div class="fields wide">
         ${field("qcSerial", "Serial No", t.serial_no, 60)}${field("qcItem", "Item", t.item, 120, "e.g. LADIES TENTOP")}${field("qcBrand", "Brand", t.brand, 80)}
         ${field("qcBatch", "Batch", t.batch, 60)}${field("qcCtn", "CTN", t.ctn, 60, "Carton number")}</div></fieldset>
@@ -328,7 +328,7 @@
           // the server does not have 043 yet: the QC test is made as before (without the Qty, the colors and the mending limit)
           const c = await sb.rpc("create_qc", { p_data: v.goods });
           error = c.error;
-          if (!error) { d = c.data; error = (await sb.rpc("qc_save", { p_id: d.id, p_data: result })).error; if (!error) toast("Saved without the Qty, the colors and the mending number: they need the database update 043_qc_qty.sql. Ask the Director.", true); }
+          if (!error) { d = c.data; error = (await sb.rpc("qc_save", { p_id: d.id, p_data: result })).error; if (!error) toast("Saved without the Qty, the colors and the mending number: they need the database update 043_qc_qty.sql. Ask EMON HASAN.", true); }
         }
         if (error) { btn.disabled = false; return fail(error, notSet(error) ? "Run the database update 025_qc_simple.sql first" : "Could not add the QC test"); }
         id = d.id;
@@ -480,7 +480,7 @@
             <label class="chk" id="cvWholeL" hidden><input type="checkbox" id="cvWhole"> Keep the whole picture (do not cut)</label></div></fieldset>
       </div><div class="wfoot"><button type="button" class="btn" id="cvCancel">Cancel</button><button type="submit" class="btn primary">${v ? "Save" : "Save Collection Voucher"}</button></div></form>`);
     const here = E.stillHere();
-    if (v && !canChange(v)) { toast("Only the Director can change this voucher now.", true); location.hash = "collection/" + v.id; return; }
+    if (v && !canChange(v)) { toast("Only EMON HASAN can change this voucher now.", true); location.hash = "collection/" + v.id; return; }
     let orig = null, ready = null, pending = null, token = 0, shownUrl = ""; // the picture chosen, the cleaned copy to save, the cleaning that is running
     const oldUrl = v?.receipt_path ? (await E.signedMap([v.receipt_path])).get(v.receipt_path) : "";
     if (!here() || !$("#cvPrev")) return;

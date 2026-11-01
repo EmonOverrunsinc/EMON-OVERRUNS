@@ -142,11 +142,11 @@
   function correctRecord(table, row, label, reload, opts = {}) {
     const fields = FIELDS[table];
     if (!fields) return toast("This record cannot be corrected.", true);
-    const admin = correctsAtOnce(table), boss = table === "customers" ? "main Director" : "Director";
+    const admin = correctsAtOnce(table), boss = "EMON HASAN";
     const m = E.modal(`${admin ? "Edit" : "Request Correction"} — ${label}`, `
-      <div class="hint">${admin ? `Saved at once by you (Director ${esc(S.profile?.full_name || "")}): the record shows the new details straight away.` : `Sent to the ${boss} for approval. When the ${boss} approves, the record takes the new details and you are told who approved it.`}</div>
+      <div class="hint">${admin ? `Saved at once by you (${esc(S.profile?.full_name || "")}): the record shows the new details straight away.` : `Sent to the ${boss} for approval. When the ${boss} approves, the record takes the new details and you are told who approved it.`}</div>
       <div class="fields wide edit-grid">${fields.map((f) => fieldInput(f, row[f.k])).join("")}</div>
-      ${MONEY.includes(table) && table !== "customer_invoices" ? `<small class="muted">Amounts and transaction dates cannot be changed here. If they are wrong, ${isAdmin() ? "delete this record" : "ask the Director to delete this record"} and record it again.</small>` : ""}
+      ${MONEY.includes(table) && table !== "customer_invoices" ? `<small class="muted">Amounts and transaction dates cannot be changed here. If they are wrong, ${isAdmin() ? "delete this record" : "ask EMON HASAN to delete this record"} and record it again.</small>` : ""}
       ${admin ? "" : `<label class="fl" for="edReason">Note for the ${boss} (optional)</label><textarea id="edReason" rows="2" placeholder="Optional"></textarea>`}`,
       `<button type="button" class="btn" data-x>Close</button><button type="button" class="btn primary" data-ok>${admin ? `${ic("check")} Save Changes` : "Send for Approval"}</button>`, { wide: true });
     $("[data-x]", m.el).onclick = m.close;
@@ -219,7 +219,7 @@
     E.shell("changes", "Corrections", `
       <div class="tabs" id="crF"><button type="button" class="on" data-f="pending">Waiting for Approval</button><button type="button" data-f="log">Change Log</button></div>
       <div id="crRes">${busy()}</div>`,
-      "Employees send <b>corrections</b> (wrong details) here. <b>Approve</b> puts the new details on the record; <b>Reject</b> leaves the record as it is. Either way the person who asked is told, with your name, and the correction is removed: the record keeps only a line naming the details changed and that you approved them (no old details). You edit records yourself with <b>Edit</b>: the record changes straight away. A customer's details are changed by the main Director only (<b>Edit Customer</b> on the customer).");
+      "Employees send <b>corrections</b> (wrong details) here. <b>Approve</b> puts the new details on the record; <b>Reject</b> leaves the record as it is. Either way the person who asked is told, with your name, and the correction is removed: the record keeps only a line naming the details changed and that you approved them (no old details). You edit records yourself with <b>Edit</b>: the record changes straight away. A customer's details are changed by EMON HASAN only (<b>Edit Customer</b> on the customer).");
     const fresh = E.loadGuard();
     const run = async (f) => {
       const ok = fresh(); // 3.35: the tab chosen last wins
@@ -248,7 +248,7 @@
           <table class="grid cr-diff"><thead><tr><th>Field</th><th>Original</th><th>Corrected</th></tr></thead><tbody>
             ${Object.keys(r.changes || {}).map((k) => `<tr><td>${esc(fieldLabel(r.target_table, k))}</td><td class="old">${esc(showVal(r.previous?.[k]))}</td><td class="new">${esc(showVal(r.changes[k]))}</td></tr>`).join("")}</tbody></table>
           ${r.status !== "pending" ? `<div class="cr-done">${r.status === "approved" ? "Approved" : "Rejected"} by ${esc(r.reviewed_by_name || "")} · ${esc(E.dateTime(r.reviewed_at))}${r.review_note ? " — " + esc(r.review_note) : ""}</div>`
-            : r.target_table === "customers" && !S.mainDirector ? `<div class="cr-done">Waiting for the main Director: a customer's details are changed by the main Director only.</div>`
+            : r.target_table === "customers" && !S.mainDirector ? `<div class="cr-done">Waiting for EMON HASAN: a customer's details are changed by EMON HASAN only.</div>`
             : `<div class="cr-act"><input type="text" placeholder="Note (optional)" data-note="${r.id}"><button type="button" class="btn ok" data-cr="${r.id}" data-a="approve">${ic("check")} Approve</button><button type="button" class="btn danger" data-cr="${r.id}" data-a="reject">Reject</button></div>`}
         </article>`).join("") : `<div class="empty">${f === "pending" ? "Nothing waiting for approval." : "Nothing here."}</div>`;
       $$("[data-cr]").forEach((b) => (b.onclick = async () => {
@@ -317,10 +317,10 @@
     const mine = await sb.from("employees").select("employee_no, approval_status").eq("profile_id", meId()).maybeSingle();
     const waiting = mine.data?.approval_status === "pending";
     $("#main").innerHTML = waiting ? `<section class="welcome-card"><h2>Welcome, ${esc(S.profile.full_name || "")}!</h2>
-      <p>Your employee profile <b>${esc(mine.data.employee_no || "")}</b> is <b>waiting for the Director's approval</b>. This page opens the portal by itself once it is approved.</p>
+      <p>Your employee profile <b>${esc(mine.data.employee_no || "")}</b> is <b>waiting for EMON HASAN's approval</b>. This page opens the portal by itself once it is approved.</p>
       <div class="btnrow"><button type="button" class="btn" id="apCheck">Check Again</button></div></section>` : `<section class="welcome-card"><h2>Welcome, ${esc(S.profile.full_name || "")}!</h2>
       <p>Your account <b>${esc(S.session.user.email)}</b> is ready. To work with ${esc(C.company.name)}, fill in the paper Employee Job Application Form at the office.
-        The Director adds you as an employee with this email (or links this account to your employee profile). This page opens the portal by itself once that is done.</p>
+        EMON HASAN adds you as an employee with this email (or links this account to your employee profile). This page opens the portal by itself once that is done.</p>
       <div class="btnrow"><button type="button" class="btn" id="apCheck">Check Again</button></div></section>`;
     $("#apCheck").onclick = () => { S.profile = null; E.route(); };
   };
@@ -343,7 +343,7 @@
         <div class="as-ic">${a.status === "approved" ? ic("check") : ic("doc")}</div>
         <div><h2>${a.status === "approved" ? "Approved — welcome to the team!" : "Application submitted — under review"}</h2>
           <p>${a.status === "approved" ? `Approval No <b>${esc(a.approval_no || "")}</b>. Sign out and sign in again to open the portal.`
-            : "Next: download the application form, sign it, and bring it to the office. The office uploads your signed form and the Director approves your application (the Director's signature is printed by the portal). This page opens the full portal by itself once you are approved."}</p></div></section>
+            : "Next: download the application form, sign it, and bring it to the office. The office uploads your signed form and EMON HASAN approves your application (EMON HASAN's signature is printed by the portal). This page opens the full portal by itself once you are approved."}</p></div></section>
       <div class="ch-ids big-ids">${E.idBox("Application No", a.application_no)}${E.idBox("Position", a.position_title)}${E.idBox("Company", a.company_name)}${E.idBox("Submitted", mdy(a.created_at))}${E.idBox("Status", a.status.toUpperCase())}</div>
       <div class="docgrid">${E.docCard({ key: "myja", title: `Job Application Form ${a.application_no}`, sub: "Download, print and sign", ownerType: "job_application", ownerId: a.id, att, print: () => E.printJobApp(a), canUpload: false, printLabel: "Download / Print Form",
         approved: a.status === "approved" && a.approved_by_name ? { name: a.approved_by_name, at: a.approved_at } : null })}</div>

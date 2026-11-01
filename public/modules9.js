@@ -11,7 +11,7 @@
   const E = window.EO;
   const { sb, C, esc, mdy, $, $$, isAdmin, toast, fail, ic, busy, fullName } = E;
   const W = 54, H = 85.6;
-  const STAMP = "brand/stamp.png"; // the company stamp (round seal, see-through), on the photo corner and by the Director's signature
+  const STAMP = "brand/stamp.png"; // the company stamp (round seal, see-through), on the photo corner and by EMON HASAN's signature
   let uid = 0;
 
   // ---------- the security background (SVG in mm) ----------
@@ -149,7 +149,7 @@
             ${card ? `<button type="button" class="btn primary" id="idcPrint">${ic("print")} Print / Download ID Card</button>` : ""}
             ${em.status !== "terminated" ? `<button type="button" class="btn" id="idcNew">${ic("plus")} ${card ? "Issue New Card" : "Issue ID Card"}</button>` : ""}
           </div>
-          <p class="muted small">Only the Director sees and prints the ID card. A new card stops the old one at once (lost or damaged card). The first time, the employee scans the card and makes a password there (no email needed); after that the employee scans the card and types that password. Give the card only to its employee: its first scan makes the password.</p>
+          <p class="muted small">Only EMON HASAN sees and prints the ID card. A new card stops the old one at once (lost or damaged card). The first time, the employee scans the card and makes a password there (no email needed); after that the employee scans the card and types that password. Give the card only to its employee: its first scan makes the password.</p>
         </div></div>
       ${list.length ? `<h4>Card History</h4>${E.grid({ cols: [{ label: "Card No", get: (r) => r.card_no }, { label: "Issued", get: (r) => mdy(r.issued_at) }, { label: "Issued By", get: (r) => r.issued_by_name || "" },
         { label: "Valid Until", get: (r) => mdy(r.valid_until) }, { label: "Status", get: (r) => STATE[r.status] || r.status.toUpperCase() }, { label: "Ended", get: (r) => (r.ended_at ? mdy(r.ended_at) : "") }], rows: list })}` : ""}`;
@@ -174,7 +174,7 @@
     if (error || !data || !el.isConnected) { el.remove(); return; }
     el.innerHTML = `<fieldset class="opt"><legend>My ID Card</legend>
         <p>Your ID card <b class="mono">${esc(data.card_no)}</b> (valid until ${esc(mdy(data.valid_until))}) signs you in: on the sign-in page press <b>Sign In with ID Card</b>, scan the card and type your password.</p>
-        <small class="muted">Anyone with your card and your password can open the portal as you. Lost your card? Tell the Director at once.</small></fieldset>`;
+        <small class="muted">Anyone with your card and your password can open the portal as you. Lost your card? Tell EMON HASAN at once.</small></fieldset>`;
   }
 
   // ---------- a scanned card (anyone): who it belongs to and whether it is valid ----------

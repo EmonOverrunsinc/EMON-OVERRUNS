@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.60";
+  const VERSION = "3.61";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.60.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.61.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -126,8 +126,8 @@
   const ebillStep = (s) => EBILL_STEP[s] || String(s || "").toUpperCase();
   const ebillPill = (s) => pill(s, ebillStep(s));
   // The top role is called Director in the portal (stored as "admin"); everyone else is shown with their job position.
-  const roleName = (r) => ({ admin: "Director", staff: "Employee", viewer: "Viewer" })[r] || r || "";
-  const personTitle = (role, position) => role === "admin" ? "Director" : position || roleName(role);
+  const roleName = (r) => ({ admin: "Full Access", staff: "Employee", viewer: "Viewer" })[r] || r || "";
+  const personTitle = (role, position) => role === "admin" ? "Managing Director" : position || roleName(role);
   // Seen in the last 3 minutes = active now.
   const online = (ts) => !!ts && Date.now() - new Date(ts).getTime() < 3 * 60 * 1000;
   function timeAgo(iso) {
@@ -648,10 +648,10 @@
         msg("ok", `<b>Welcome${data.name ? ", " + esc(data.name) : ""}!</b> This is your first sign-in: make your password. Next time, scan your ID card and type this password.`);
         show("#clNew", true); return $("#clNew1").focus();
       }
-      if (data.state === "account_exists") return msg("warn", `<b>You already have a portal account with your email ${esc(data.email_hint || "")}.</b> Sign in with your email and password, and ask the Director to link it to your employee profile.`);
-      const why = { no_account: "The first sign-in with the ID card needs the database update 039_card_first_password.sql. Ask the Director.", blocked: "Your login is blocked. Ask the Director.",
+      if (data.state === "account_exists") return msg("warn", `<b>You already have a portal account with your email ${esc(data.email_hint || "")}.</b> Sign in with your email and password, and ask EMON HASAN to link it to your employee profile.`);
+      const why = { no_account: "The first sign-in with the ID card needs the database update 039_card_first_password.sql. Ask EMON HASAN.", blocked: "Your login is blocked. Ask EMON HASAN.",
         replaced: "This ID card was replaced by a newer card. Use your new ID card.", ended: "This ID card is no longer valid.",
-        expired: `This ID card expired on ${esc(mdy(data.valid_until))}. Ask the Director for a new card.`, invalid: "This ID card is not valid." }[data.state] || "This ID card cannot sign in.";
+        expired: `This ID card expired on ${esc(mdy(data.valid_until))}. Ask EMON HASAN for a new card.`, invalid: "This ID card is not valid." }[data.state] || "This ID card cannot sign in.";
       msg("err", why);
       if (data.state === "invalid") r.hidden = true;
     };
@@ -892,13 +892,13 @@
   function renderDisabled() {
     authFrame("Account Disabled", `<div class="wbody login-form">${brandBlock()}
       <div class="banner closed">This account (${esc(S.session.user.email)}) is disabled.</div>
-      <p>Contact the Director of ${esc(C.company.name)} if you think this is a mistake.</p>
+      <p>Contact EMON HASAN of ${esc(C.company.name)} if you think this is a mistake.</p>
       <button class="btn big" id="dsOut">Sign Out</button></div>`);
     $("#dsOut").onclick = signOut;
   }
   function renderPending() {
     authFrame("Waiting for Approval", `<div class="wbody login-form">${brandBlock()}
-      <p>Signed in as <b>${esc(S.session.user.email)}</b>. Your account is waiting for approval by the Director.</p>
+      <p>Signed in as <b>${esc(S.session.user.email)}</b>. Your account is waiting for approval by EMON HASAN.</p>
       <div class="login-links"><button class="btn" id="pRefresh">Check Again</button><button class="btn" id="pOut">Sign Out</button></div></div>`);
     $("#pRefresh").onclick = async () => { S.profile = null; route(); };
     $("#pOut").onclick = signOut;
@@ -957,7 +957,7 @@
   // 2.4: a signed-in person asks the Director to delete their account. The request arrives in Contact Messages; the
   // Director then deletes the account on Login Accounts. Gives the reference number, or null.
   async function requestDeletion(position) {
-    if (!(await confirmBox("Ask the Director to <b>delete your E-Portal account</b>? When it is deleted you cannot sign in any more, and this cannot be undone.", { title: "Delete My Account", ok: "Send Request", danger: true }))) return null;
+    if (!(await confirmBox("Ask EMON HASAN to <b>delete your E-Portal account</b>? When it is deleted you cannot sign in any more, and this cannot be undone.", { title: "Delete My Account", ok: "Send Request", danger: true }))) return null;
     const email = S.session.user.email;
     const msg = `ACCOUNT DELETION REQUEST (signed in)\nAccount email: ${email}${S.profile?.username ? `\nUsername: @${S.profile.username}` : ""}\nPosition: ${personTitle(S.profile?.role, position)}`;
     const { data, error } = await sb.rpc("submit_contact_message", { p_name: S.profile?.full_name || email, p_reply_via: "email", p_reply_to: email, p_message: msg });
@@ -1825,7 +1825,7 @@
   async function viewForms() {
     const admin = isAdmin();
     const BUILT = [
-      { key: "signature", title: "SIGNATURE VERIFICATION FORM", note: "A4 form to collect a person's signature: boxes for three specimen signatures and the initials, and the Director's approval",
+      { key: "signature", title: "SIGNATURE VERIFICATION FORM", note: "A4 form to collect a person's signature: boxes for three specimen signatures and the initials, and EMON HASAN's approval",
         act: `<a class="btn primary" id="fmSvfPdf" href="forms/EMON-OVERRUNS-Signature-Verification-Form.pdf" download="EMON-OVERRUNS-Signature-Verification-Form.pdf">${ic("download")} Download PDF</a>
           <button type="button" class="btn" id="fmSvfPrint">${ic("print")} Print</button>`, run: () => window.EO.openBlankSignatureForm() },
       { key: "jobapp", title: "EMPLOYEE JOB APPLICATION FORM", note: "Empty A4 form for a new employee to fill in by hand: photo, address, emergency contact, personal information, work experience, position and signatures",
@@ -1834,7 +1834,7 @@
         act: `<button type="button" class="btn primary" id="fmQcPrint">${ic("print")} Print / Download PDF</button>`, run: () => window.EO.printBlankQc() }
     ];
     shell("forms", "Download Forms", `
-      ${admin ? `<form class="options" id="fmForm"><fieldset class="opt" style="flex:1 1 100%"><legend>Upload New Form (Director)</legend>
+      ${admin ? `<form class="options" id="fmForm"><fieldset class="opt" style="flex:1 1 100%"><legend>Upload New Form (EMON HASAN)</legend>
         <div class="formgrid"><div class="fields wide">
           <label for="fmTitle">Title</label><input type="text" id="fmTitle" required placeholder="e.g. Leave Application Form">
           <label for="fmCat">Category</label><input type="text" id="fmCat" list="fmCats" value="General">
