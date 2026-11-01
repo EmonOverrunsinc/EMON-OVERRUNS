@@ -2736,3 +2736,8 @@ input, select, textarea { transition: border-color .2s, box-shadow .2s, backgrou
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+/* 3.63: a staff login's name and the date across the screen (a screenshot shows who took it); never printed */
+#staffWm { position: fixed; inset: 0; z-index: 45; pointer-events: none; background-repeat: repeat; }
+@media print { #staffWm { display: none !important; } }
+.banner.info { background: #eef4ff; color: #1e3a6e; border: 1px solid #c7d7f5; display: flex; align-items: center; gap: 8px; }
+.banner.info svg { width: 18px; height: 18px; flex: none; }
