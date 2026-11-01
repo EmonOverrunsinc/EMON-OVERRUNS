@@ -560,7 +560,7 @@
   }
 
   // ---------- 3.60: the other accounts (each answer reads the server now; a login without that menu is told so) ----------
-  const noAccess = (what) => ({ html: `You have no access to <b>${esc(what)}</b>. Ask the Director to tick it in your Menu Access.` });
+  const noAccess = (what) => ({ html: `You have no access to <b>${esc(what)}</b>. Ask EMON HASAN to tick it in your Menu Access.` });
   const bdtM = (v) => `BDT ${peso(v)}`;
   const sumOf = (list, k) => list.reduce((s, x) => s + num(x[k]), 0);
   const inPeriod = (d, p) => !!d && String(d).slice(0, 10) >= p.from && String(d).slice(0, 10) <= p.to;

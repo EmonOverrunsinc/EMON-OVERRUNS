@@ -337,7 +337,7 @@
   // The AI box in the Gate Pass window: CLEAR or HOLD, how sure, why; the idea is kept to be written with the decision.
   const last = new Map(); // customer id → { row, idea }
   async function box(c, ctx) {
-    if (!E.canAI()) return ""; // 3.43: the Director and the staff given EVA AI
+    if (!E.canAI()) return ""; // 3.43: EMON HASAN and the staff given EVA AI
     let cur;
     try { cur = await current(); }
     catch (e) { return notSet(e) ? "" : `<div class="ai-box"><span class="ai-ic">${ic("ai")}</span><div><b>EVA AI</b><small>Could not be read: ${esc(e.message)}</small></div></div>`; }
@@ -350,7 +350,7 @@
     return `<div class="ai-box ${d.clear ? "clear" : "hold"}"><span class="ai-ic">${ic("ai")}</span><div>
       <b>EVA AI SUGGESTS: ${d.clear ? "CLEAR" : "HOLD"}</b> <span class="ai-sure">${surePct(d.sure)}% sure</span>
       ${d.reasons.length ? `<ul>${d.reasons.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
-      <small>Learned ${esc(mdy(cur.row.created_at))} from ${cur.row.samples} records and ${cur.row.decisions} Director decision${cur.row.decisions === 1 ? "" : "s"}. The AI only gives an idea; the Director decides.</small></div></div>`;
+      <small>Learned ${esc(mdy(cur.row.created_at))} from ${cur.row.samples} records and ${cur.row.decisions} decision${cur.row.decisions === 1 ? "" : "s"}. The AI only gives an idea; EMON HASAN decides.</small></div></div>`;
   }
   // the decision taken on a gate pass, written with the AI's idea (CLEAR: issued or approved; HOLD: on hold)
   async function logDecision(c, decision) {
@@ -378,11 +378,11 @@
     const decided = lg.filter((x) => x.decision), agreed = decided.filter((x) => x.decision === x.suggestion).length;
     $("#aiBody").innerHTML = `
       <section class="ai-hero"><span class="ai-ic big">${ic("ai")}</span><div><h2>EVA AI</h2>
-        <p>EMON Virtual Assistant, for the Director only. <b>Ask EVA</b> anything about your customers, money, orders, boxes, billing companies and their accounts, e-bills, payroll and employees, lots, projects and credit memos — or write any name or record number and EVA finds it: it understands your question with its own neural network and answers from the records on your server at that moment. For gate passes, a second neural network (14 inputs, 8 neurons, 1 answer) reads every customer record — invoices, payments, overdue days, credit memos and returns, charges and adjustments, open orders, suspensions, collection letters, gate pass holds — and gives its idea: <b>CLEAR</b> or <b>HOLD</b>, how sure it is, and why. You decide; each decision is learned the next time it learns.</p></div></section>
+        <p>EMON Virtual Assistant, for EMON HASAN only. <b>Ask EVA</b> anything about your customers, money, orders, boxes, billing companies and their accounts, e-bills, payroll and employees, lots, projects and credit memos — or write any name or record number and EVA finds it: it understands your question with its own neural network and answers from the records on your server at that moment. For gate passes, a second neural network (14 inputs, 8 neurons, 1 answer) reads every customer record — invoices, payments, overdue days, credit memos and returns, charges and adjustments, open orders, suspensions, collection letters, gate pass holds — and gives its idea: <b>CLEAR</b> or <b>HOLD</b>, how sure it is, and why. You decide; each decision is learned the next time it learns.</p></div></section>
       <h3 class="sec">Ask EVA</h3><div id="aiChat" class="ai-chat-card"></div>
       <div class="tiles ai-tiles">
         <div class="tile"><span class="tile-ic">${ic("clock")}</span><div class="k">Last Learned</div><div class="v ai-v">${top ? esc(E.dateTime(top.created_at)) : "Not yet"}</div><small>${top ? `by ${esc(top.trained_by_name || "")}` : "Press Learn Now"}</small></div>
-        <div class="tile"><span class="tile-ic">${ic("doc")}</span><div class="k">Records Learned From</div><div class="v">${top ? top.samples : 0}</div><small>${top ? `${top.decisions} Director decision${top.decisions === 1 ? "" : "s"}` : ""}</small></div>
+        <div class="tile"><span class="tile-ic">${ic("doc")}</span><div class="k">Records Learned From</div><div class="v">${top ? top.samples : 0}</div><small>${top ? `${top.decisions} decision${top.decisions === 1 ? "" : "s"}` : ""}</small></div>
         <div class="tile ok"><span class="tile-ic">${ic("check")}</span><div class="k">Right on Records It Had Not Seen</div><div class="v">${top?.accuracy != null ? `${num(top.accuracy).toFixed(0)}%` : "—"}</div><small>${top?.agree != null ? `${num(top.agree).toFixed(0)}% of your decisions` : ""}</small></div>
         <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">Agreed With the Decision</div><div class="v">${decided.length ? `${agreed} / ${decided.length}` : "—"}</div><small>gate passes decided with its idea</small></div>
       </div>
@@ -399,7 +399,7 @@
       <h3 class="sec">The AI's Folder on the Server</h3>
       <p class="muted">Bucket <b class="mono">${BUCKET}</b>, folder <b class="mono">${FOLDER}/</b>: what it learned last. Each Learn Now replaces the old file with the new one.</p>
       ${E.grid({ cols: [{ label: "Learned", get: (x) => E.dateTime(x.created_at) }, { label: "File", html: (x) => `<span class="mono">${esc(x.path)}</span>` }, { label: "Records", num: true, get: (x) => String(x.samples) },
-        { label: "Director Decisions", num: true, get: (x) => String(x.decisions) }, { label: "Right", num: true, get: (x) => (x.accuracy != null ? `${num(x.accuracy).toFixed(0)}%` : "—") }], rows: v, empty: "Empty: the AI has not learned yet." })}`;
+        { label: "EMON HASAN's Decisions", num: true, get: (x) => String(x.decisions) }, { label: "Right", num: true, get: (x) => (x.accuracy != null ? `${num(x.accuracy).toFixed(0)}%` : "—") }], rows: v, empty: "Empty: the AI has not learned yet." })}`;
     if (E.eva) { E.eva.mount($("#aiChat")); E.eva.boxSection($("#aiBoxes")).catch((err) => { if ($("#aiBoxes")) $("#aiBoxes").innerHTML = `<div class="empty">${esc(err.message)}</div>`; }); }
     $("#aiLearn").onclick = async (e) => {
       e.target.disabled = true; $("#aiProg").hidden = false;

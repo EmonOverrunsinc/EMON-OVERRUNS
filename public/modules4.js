@@ -59,7 +59,7 @@
       <div class="tabs" id="ivF"><button type="button" class="on" data-f="">All</button>${STATUS.map((s) => `<button type="button" data-f="${s}">${STATUS_NAME[s].toUpperCase()}</button>`).join("")}</div>
       <div class="inv-find"><input type="search" id="ivQ" placeholder="Search by e-bill no, company, batch no, bill no, system record no or shipping company" aria-label="Search e-bills"></div>
       <div id="ivRes">${busy()}</div>`,
-      "E-bills of the goods bought, in BDT. <b>Add E-Bill</b> records the bill with its items. Add the <b>Sales Report</b>, then the Director marks it <b>PAID</b>: the profit or loss shows after that.");
+      "E-bills of the goods bought, in BDT. <b>Add E-Bill</b> records the bill with its items. Add the <b>Sales Report</b>, then EMON HASAN marks it <b>PAID</b>: the profit or loss shows after that.");
     const here = E.stillHere();
     // 3.35: every e-bill (also past the 1000 rows the server sends at once), so the tiles count them all
     const { data, error } = await E.allRows(() => sb.from("stock_bill_totals")
@@ -101,7 +101,7 @@
     if (!here()) return; // 3.35: not drawn over the page the person went to
     if (error) return fail(error, "Could not load the companies");
     if (!(cos || []).length) {
-      $("#main").innerHTML = `<div class="empty">Add the company in Billing first.${E.canWrite("billing") ? ` <a class="btn primary" href="#newpaycompany">Add Company</a>` : " Ask the Director to add it."}</div>`;
+      $("#main").innerHTML = `<div class="empty">Add the company in Billing first.${E.canWrite("billing") ? ` <a class="btn primary" href="#newpaycompany">Add Company</a>` : " Ask EMON HASAN to add it."}</div>`;
       return;
     }
     $("#main").innerHTML = `
@@ -443,7 +443,7 @@
           <tr><th>EOO Fees, Other Fees and Penalties</th><td>− ${bdt(feesOf(b))}</td></tr><tr class="${p < 0 ? "loss" : "gain"}"><th>${p < 0 ? "Net Loss" : "Net Profit"}</th><td>${bdt(Math.abs(p))}</td></tr></tbody></table>
         <p class="muted">After PAID, the profit or loss is shown and the E-Bill gets its secret code. More sales reports can still be added. No payment is needed to mark it PAID.</p>
         ${bal > 0 ? `<div class="hint">Paid so far: ${bdt(b.paid_bdt)} · balance ${bdt(bal)}.</div>` : ""}`
-      : `<p>Mark <b>${esc(b.bill_no)}</b> as <b>SALES</b>? Net sales so far: <b>${bdt(b.net_sales)}</b>.</p><p class="muted">Sales reports, fees and penalties can still be added until the Director marks it PAID.</p>`;
+      : `<p>Mark <b>${esc(b.bill_no)}</b> as <b>SALES</b>? Net sales so far: <b>${bdt(b.net_sales)}</b>.</p><p class="muted">Sales reports, fees and penalties can still be added until EMON HASAN marks it PAID.</p>`;
     const m = E.modal(`Mark as ${what} — ${b.bill_no}`, `${body}<label class="fl" for="stNote">Note (optional)</label><input type="text" id="stNote">`,
       `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>Mark as ${what}</button>`);
     $("[data-x]", m.el).onclick = m.close;
@@ -723,7 +723,7 @@
   // E-bills are no longer in Billing: an old link to one opens the e-bill.
   V.ebill = (id) => {
     if (E.canOpen("stockbill")) { location.replace("#stockbill/" + id); return; }
-    toast("E-bills are in the E-Bill section now. Ask the Director for access.", true);
+    toast("E-bills are in the E-Bill section now. Ask EMON HASAN for access.", true);
     location.replace("#billing");
   };
 

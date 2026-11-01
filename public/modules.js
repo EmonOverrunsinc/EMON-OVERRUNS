@@ -215,7 +215,7 @@
     const signed = latestSigned(att, kind);
     if (approved) return `<div class="doccard signed esigned">
       <div class="dc-ic">${ic("doc")}<span class="dc-ok">${ic("check")}</span></div>
-      <div class="dc-main">${tg}<b>${esc(title)}</b><small>Approved${approved.name ? ` by ${esc(approved.name)}` : ""}${approved.at ? ` on ${mdy(approved.at)}` : ""} · the Director's signature is printed on it</small></div>
+      <div class="dc-main">${tg}<b>${esc(title)}</b><small>Approved${approved.name ? ` by ${esc(approved.name)}` : ""}${approved.at ? ` on ${mdy(approved.at)}` : ""} · EMON HASAN's signature is printed on it</small></div>
       <div class="dc-act"><button type="button" class="btn primary" data-dc-print="${esc(key)}">${ic("print")} ${esc(printLabel)}</button>
         ${signed ? `<button type="button" class="btn" data-dc-view="${esc(key)}">${ic("eye")} ${esc(copyName)}</button>` : ""}</div></div>`;
     const upId = `dcUp_${key.replace(/\W/g, "_")}`;
@@ -245,7 +245,7 @@
     return `<div class="doccard${f ? " signed" : ""}">
       <div class="dc-ic">${ic("doc")}${f ? `<span class="dc-ok">${ic("check")}</span>` : ""}</div>
       <div class="dc-main">${tag ? `<span class="dc-tag">${esc(tag)}</span>` : ""}<b>${esc(title)}</b><small>${f ? `On file · uploaded ${mdy(f.created_at)}` : esc(sub || "No copy yet")}</small>
-        ${wait ? `<small class="dc-wait">${ic("clock")} Update waiting for the Director's approval · sent ${mdy(wait.created_at)}</small>` : ""}</div>
+        ${wait ? `<small class="dc-wait">${ic("clock")} Update waiting for EMON HASAN's approval · sent ${mdy(wait.created_at)}</small>` : ""}</div>
       <div class="dc-act">${f ? `<button type="button" class="btn primary" data-dc-view="${esc(key)}">${ic("eye")} View</button>${rmBtn(f)}` : ""}
         ${wait ? `<button type="button" class="btn" data-dc-viewp="${esc(key)}">${ic("eye")} View Update</button>
           ${isAdmin() ? `<button type="button" class="btn ok" data-dc-ok="${esc(wait.id)}">${ic("check")} Approve</button><button type="button" class="btn danger" data-dc-no="${esc(wait.id)}">${ic("x")} Reject</button>` : ""}` : ""}
@@ -266,7 +266,7 @@
       $(".dc-main small", card).innerHTML = `<span class="spin sm"></span> Uploading…`;
       const d = DC.get(inp.dataset.dcUp);
       const f = await uploadRecords(inp.dataset.owner, inp.dataset.id, d?.kind || "signed_form", files);
-      toast(f ? "Upload failed." : d?.plain && d.update && !isAdmin() ? "Update sent to the Director for approval." : d?.plain ? `${d.copyName} saved.` : `${d?.copyName || "Signed copy"} uploaded. It now replaces the system copy.`, f > 0);
+      toast(f ? "Upload failed." : d?.plain && d.update && !isAdmin() ? "Update sent to EMON HASAN for approval." : d?.plain ? `${d.copyName} saved.` : `${d?.copyName || "Signed copy"} uploaded. It now replaces the system copy.`, f > 0);
       if (here()) reload();
     }));
     $$("[data-rm]", root).forEach((b) => (b.onclick = () => removeFile(b)));
@@ -372,7 +372,7 @@
   // and the photo (Change Photo). A new opening balance or opening date (the application date) also updates the
   // monthly statements: after Save everything is updated at once.
   function editCustomer(c, reload) {
-    if (!S.mainDirector) return toast("Only the main Director can edit a customer's details.", true);
+    if (!S.mainDirector) return toast("Only EMON HASAN can edit a customer's details.", true);
     const v = (x) => esc(x ?? "");
     const day = (x) => String(x || "").slice(0, 10);
     const yes = (on, name, a, b) => `<div class="checks"><label><input type="radio" name="${name}" value="no" ${on ? "" : "checked"}> ${a}</label><label><input type="radio" name="${name}" value="yes" ${on ? "checked" : ""}> ${b}</label></div>`;
@@ -553,7 +553,7 @@
     ]);
     if (!here()) return;
     if (cust.error) {
-      $("#main").insertAdjacentHTML("afterbegin", `<div class="hint err">The customer database is not set up yet. Ask the Director to run the setup script <b>002_customers_invoices_payments.sql</b>.</div>`);
+      $("#main").insertAdjacentHTML("afterbegin", `<div class="hint err">The customer database is not set up yet. Ask EMON HASAN to run the setup script <b>002_customers_invoices_payments.sql</b>.</div>`);
       return;
     }
     const cs = cust.data || [];
@@ -682,7 +682,7 @@
   };
 
   V.newcustomer = () => {
-    if (!E.canWrite("customers")) { toast("Only the Director and employees with Customer access can open customer accounts.", true); location.hash = "customers"; return; }
+    if (!E.canWrite("customers")) { toast("Only EMON HASAN and employees with Customer access can open customer accounts.", true); location.hash = "customers"; return; }
     E.shell("newcustomer", "New Customer Application", `
       <form class="window" id="ncForm" novalidate>
         <div class="wtitle">Customer Account Application</div>
@@ -707,7 +707,7 @@
           <fieldset class="opt"><legend>Full Address</legend>
             <div class="fields wide"><label for="ncAddr">Address *</label><input type="text" id="ncAddr" required placeholder="House no, street, barangay, city, province">
               <span>Location *</span><div class="checks loc-checks">${Object.entries(LOCATION).map(([k, l]) => `<label><input type="radio" name="ncLoc" value="${k}"> ${esc(l)}</label>`).join("")}</div>
-            </div><small>FOUND: the location was checked and found (for example, by a visit or a document). NOT FOUND: it was checked and not found. The Director can change it later from the customer profile.</small></fieldset>
+            </div><small>FOUND: the location was checked and found (for example, by a visit or a document). NOT FOUND: it was checked and not found. EMON HASAN can change it later from the customer profile.</small></fieldset>
           <fieldset class="opt"><legend>Account</legend><div class="fields wide">
             <label for="ncCredit">Credit Limit (₱)</label><input type="number" id="ncCredit" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
             <label for="ncOpen">Opening Balance (₱)</label><input type="number" id="ncOpen" min="0" step="0.01" inputmode="decimal" placeholder="Optional — leave empty if none">
@@ -865,7 +865,7 @@
       ${box("Customer Record", `<table class="vp-fields"><tbody>${row("Account Name", fullName(c))}${row("Account No", c.account_no)}${row("Application No", c.application_no)}
         ${c.business_name ? row("Business Name", c.business_name) : ""}${row(ok ? "Opening Date" : "Application Date", mdy(c.application_date))}${row("E-Portal Record Date", mdy(c.created_at))}
         ${row("Account Status", String(c.status).toUpperCase())}${row("Public ID", c.public_id)}${row("Paper Application Form", paper ? `On file · scanned ${mdy(paper.created_at)}` : "Not on file")}</tbody></table>`)}
-      ${box("Log Validation", `<table class="vp-fields"><tbody>${row("Verified By", ver?.actor_name || (ok && !ver ? "Approved directly by the Director" : ""))}${row("Date of Verification", ver ? mdy(ver.created_at) : "")}
+      ${box("Log Validation", `<table class="vp-fields"><tbody>${row("Verified By", ver?.actor_name || (ok && !ver ? "Approved directly by EMON HASAN" : ""))}${row("Date of Verification", ver ? mdy(ver.created_at) : "")}
         ${row("Approved By", ok ? apr?.actor_name || "" : "")}${row("Approval Date", ok ? mdy(apr?.created_at || c.reviewed_at) : "")}</tbody></table>`)}
       ${box("E-Portal Validation", `<div class="vp-valid"><table class="vp-fields"><tbody>${row("Validation No", vno)}${row("Validated On", at)}${row("Validated By", S.profile?.full_name || "")}</tbody></table>
         <div class="vp-qr"><img src="${E.qrDataUrl(`${location.origin}${location.pathname}#verify/${encodeURIComponent(c.public_id || c.account_no || "")}`)}" alt="Verification QR code"><small>Scan to verify online</small></div></div>`)}
@@ -1092,7 +1092,7 @@
     const facts = [["Name", fullName(c)], a.phone, a.email, a.address, a.business, a.start, a.fb, a.fbLink, a.fbExtra, a.credit, a.opening,
       ["Application Date", mdy(c.application_date)], a.issued];
     const verified = c.status === "verified";
-    return `<fieldset class="opt review"><legend>Director's Review — ${esc(c.application_no)}</legend>
+    return `<fieldset class="opt review"><legend>EMON HASAN's Review — ${esc(c.application_no)}</legend>
       <ol class="steps">
         <li><b>Application details:</b> everything written on the customer application form.
           <div class="rv-facts">${facts.map(([k, v, html]) => `<div><small>${esc(k)}</small><b>${html || esc(v || "—")}</b></div>`).join("")}</div>
@@ -1149,7 +1149,7 @@
           E.bindGrid(out, data, (r) => window.open("#customer/" + r.id, "_blank"));
           $("#rvAnyway").onclick = async (e) => {
             e.currentTarget.disabled = true;
-            if (await verify()) { $("#rvAnyway")?.closest(".btnrow").remove(); out.insertAdjacentHTML("beforeend", `<div class="addr-msg ok">✔ Verified by the Director.</div>`); }
+            if (await verify()) { $("#rvAnyway")?.closest(".btnrow").remove(); out.insertAdjacentHTML("beforeend", `<div class="addr-msg ok">✔ Verified by EMON HASAN.</div>`); }
             else if ($("#rvAnyway")) $("#rvAnyway").disabled = false;
           };
         }
@@ -1180,7 +1180,7 @@
       <div class="wbody"><div class="sub-grid">
         <div class="fields wide">
           <span>Account Name</span><b>${esc(fullName(c))}</b>
-          <span>Account No</span><b class="mono big">${c.account_no ? esc(c.account_no) : "Given when the Director approves"}</b>
+          <span>Account No</span><b class="mono big">${c.account_no ? esc(c.account_no) : "Given when EMON HASAN approves"}</b>
           <span>Application No</span><b class="mono">${esc(c.application_no)}</b>
           <span>Application Date</span><b>${mdy(c.application_date)}</b>
           <span>Public ID</span><b class="mono key">${esc(c.public_id)}</b>
@@ -1188,7 +1188,7 @@
           <span>Status</span><span>${pill(c.status)}</span>
         </div>
         <div class="sub-qr"><canvas id="subQr"></canvas><small>Scan to open this account</small></div></div>
-        <div class="hint">Next: press <b>Print / Download Application</b>, have the customer sign it, and submit the signed paper to the office. The Director has been notified.</div>
+        <div class="hint">Next: press <b>Print / Download Application</b>, have the customer sign it, and submit the signed paper to the office. EMON HASAN has been notified.</div>
       </div>
       <div class="wfoot"><button type="button" class="btn primary" id="subPrint">${ic("print")} Print / Download Application</button><a class="btn" href="#customer/${c.id}">Open Customer Profile</a><a class="btn" href="#newcustomer">New Customer</a></div></div>`;
     E.drawQr($("#subQr"), custQr(c));
@@ -1424,7 +1424,7 @@
   };
 
   V.newinvoice = async (custId) => {
-    if (!E.canWrite("invoices")) { toast("Only the Director and employees with Invoice access can record invoices.", true); location.hash = "invoices"; return; }
+    if (!E.canWrite("invoices")) { toast("Only EMON HASAN and employees with Invoice access can record invoices.", true); location.hash = "invoices"; return; }
     E.shell("newinvoice", "Record Invoice", `
       <form class="window" id="niForm" novalidate>
         <div class="wtitle">Record Invoice</div>
@@ -1590,7 +1590,7 @@
         $("#rtTB", m.el).textContent = tb; $("#rtTP", m.el).textContent = tp; $("#rtTA", m.el).textContent = peso(ta);
         if (!amtTyped && ta > 0) $("#rtAmt", m.el).value = ta.toFixed(2);
         $("#rtAdd", m.el).disabled = $$("#rtLines .rt-line", m.el).length >= 20;
-        $("#rtHint", m.el).textContent = `${kind() === "return" ? "The items come back: the return shows NOT RECEIVED until the warehouse marks it RECEIVED. " : "No goods come back (the warehouse status is not needed). "}The amount is taken off this invoice and the customer's balance, and shows as RETURN on the statement of account.${isAdmin() ? "" : " It waits for the Director's approval."}`;
+        $("#rtHint", m.el).textContent = `${kind() === "return" ? "The items come back: the return shows NOT RECEIVED until the warehouse marks it RECEIVED. " : "No goods come back (the warehouse status is not needed). "}The amount is taken off this invoice and the customer's balance, and shows as RETURN on the statement of account.${isAdmin() ? "" : " It waits for EMON HASAN's approval."}`;
       };
       const bindLines = () => $$("#rtLines .rt-line", m.el).forEach((tr) => {
         $$("input", tr).forEach((x) => (x.oninput = sum));
@@ -1611,7 +1611,7 @@
         const { error } = await sb.rpc("record_return", { p_invoice: inv.id, p_amount: amt, p_date: $("#rtDate", m.el).value || null, p_items: items.slice(0, 300),
           p_qty: ls.reduce((s, l) => s + l.pcs, 0), p_note: $("#rtNote", m.el).value.trim() || null, p_lines: ls, p_kind: kind(), p_boxes: ls.reduce((s, l) => s + l.boxes, 0) });
         if (error) { b.disabled = false; return fail(error, /record_return|p_lines/.test(error.message || "") ? "Run the database update 022_update_2_9.sql first" : "Could not save the return"); }
-        m.close(); toast(isAdmin() ? "Return saved and taken off the invoice." : "Return saved. It waits for the Director's approval."); V.invoice(id);
+        m.close(); toast(isAdmin() ? "Return saved and taken off the invoice." : "Return saved. It waits for EMON HASAN's approval."); V.invoice(id);
       };
       setTimeout(() => $(".rtI", m.el)?.focus(), 50);
     };
@@ -1698,7 +1698,7 @@
   };
 
   V.newpayment = async (custId) => {
-    if (!(E.canWrite("payments") || E.canWrite("invoices"))) { toast("Only the Director and employees with Payment access can record payments.", true); location.hash = "payments"; return; }
+    if (!(E.canWrite("payments") || E.canWrite("invoices"))) { toast("Only EMON HASAN and employees with Payment access can record payments.", true); location.hash = "payments"; return; }
     E.shell("newpayment", "Record Payment", `
       <form class="window" id="npForm" novalidate>
         <div class="wtitle">Record Payment</div>
@@ -1845,7 +1845,7 @@
   };
 
   V.newcreditmemo = async (custId) => {
-    if (!E.canWrite("creditmemos")) { toast("Only the Director and employees with Credit Memo access can create credit memos.", true); location.hash = "creditmemos"; return; }
+    if (!E.canWrite("creditmemos")) { toast("Only EMON HASAN and employees with Credit Memo access can create credit memos.", true); location.hash = "creditmemos"; return; }
     E.shell("newcreditmemo", "New Credit Memo", `
       <form class="window" id="cmForm" novalidate>
         <div class="wtitle">Customer Complaint / Credit Memo</div>
@@ -1885,7 +1885,7 @@
             ${fileField("cmProof", "Proof (photos / video)", 'multiple accept="image/*,video/*,application/pdf"')}</div></fieldset>
         </div>
         <div class="wfoot"><button type="button" class="btn" id="cmCancel">Cancel</button><button type="submit" class="btn primary">Submit for Approval</button></div>
-      </form>`, "After you submit it, the Director reviews and approves it. Approved <b>Credit</b> / <b>Discount</b> amounts are deducted from the account balance.");
+      </form>`, "After you submit it, EMON HASAN reviews and approves it. Approved <b>Credit</b> / <b>Discount</b> amounts are deducted from the account balance.");
     let cust = null;
     const freshPays = E.loadGuard();
     const loadPays = async () => {
@@ -1960,7 +1960,7 @@
       <div class="docgrid">${docCard({ key: "memo", title: `${m.is_return ? "Return" : "Credit Memo"} ${m.memo_no}`, tag: m.is_return ? "System Generated" : undefined, sub: `₱ ${peso(m.request_amount)} · ${mdy(m.memo_date)}`, ownerType: "credit_memo", ownerId: m.id, att, print: () => E.openPreview(`${m.is_return ? "Return" : "Credit Memo"} ${m.memo_no}`, m.is_return ? returnPage(m) : [memoPage(m)]),
         approved: memoApproved(m) ? { name: m.approved_by_name, at: m.approved_at } : null })}</div>
       <div><b>Proof</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No proof uploaded.")}</div>
-      ${isAdmin() && ["pending", "approved"].includes(m.status) ? `<fieldset class="opt review"><legend>Director's Decision</legend>
+      ${isAdmin() && ["pending", "approved"].includes(m.status) ? `<fieldset class="opt review"><legend>EMON HASAN's Decision</legend>
         <div class="fields wide"><label for="cmNote">Note</label><input type="text" id="cmNote"></div>
         <div class="btnrow">${m.status === "pending" ? `<button type="button" class="btn ok" data-a="approve">Approve</button><button type="button" class="btn danger" data-a="reject">Reject</button>` : `<button type="button" class="btn ok" data-a="paid">Mark as PAID / Settled</button>`}</div></fieldset>` : ""}
       </div><div class="wfoot">${tools("credit_memos", m, `Credit Memo ${m.memo_no}`, { reload: () => V.creditmemo(id), afterDelete: () => (location.hash = "creditmemos") })}<a class="btn" href="#creditmemos">Close</a></div></div>`;
@@ -2114,14 +2114,14 @@
         <div class="sv-row"><div class="sv-box sv-ini"><span>Initials</span></div><p>Sign inside each box with black or blue ink, the same way you sign every document. Keep each signature inside its box and do not touch the lines.</p></div>`;
     return `${printHead("SIGNATURE VERIFICATION FORM", `<div class="sb-no"><small>Form No</small><b>EO-SVF</b><small>${p ? `Ref: ${esc(ref)}` : "Version 2.0"}</small></div>`)}
       <div class="sv-form${p ? "" : " blank"}"><p class="sv-intro">${p ? `The signature of <b>${esc(p.full_name || "")}</b> kept on record by ${esc(C.company.name)}.`
-        : `Write your details, then sign three times in the boxes below. The Director checks the signatures; once approved, your signature is kept on record by ${esc(C.company.name)}.`}</p>
+        : `Write your details, then sign three times in the boxes below. EMON HASAN checks the signatures; once approved, your signature is kept on record by ${esc(C.company.name)}.`}</p>
       ${box("Personal Details", `<div class="pgrid2">${details.map(([k, x, c]) => cell(k, x || "", c || "")).join("")}</div>`)}
       ${box(p ? "Signature" : "Specimen Signatures", boxes)}
       ${box("Declaration", `<p class="pdecl">I confirm that ${p ? "this signature is" : "the signatures above are"} my own. I allow ${esc(C.company.name)} to keep ${p ? "it" : "them"} on record and to print my approved signature on the documents I prepare or approve in the ${esc(E.APP)}.</p>
         ${p ? `<div class="sv-by">Uploaded by <b>${esc(p.full_name || "")}</b>${p.signature_at ? ` on ${esc(mdy(p.signature_at))}` : ""} in the ${esc(E.APP)}.</div>` : sigs("Signature over Printed Name", "Date")}`)}
       ${box("For Office Use — Verification", `${p ? `<div class="sv-status ${esc(p.signature_status || "none")}">Status: <b>${esc(SIG_STATUS[p.signature_status] || "NO SIGNATURE YET")}</b>${p.signature_status === "rejected" && p.signature_note ? ` — ${esc(p.signature_note)}` : ""}</div>` : ""}
-        ${p ? one(sign ? "Approved by the Director" : "Verified and Approved by the Director / Date", sign)
-          : `${sigs("Received and Checked by / Date", "Verified and Approved by the Director / Date")}<div class="sv-remarks">Remarks:</div>`}`)}
+        ${p ? one(sign ? "Approved by EMON HASAN" : "Verified and Approved by EMON HASAN / Date", sign)
+          : `${sigs("Received and Checked by / Date", "Verified and Approved by EMON HASAN / Date")}<div class="sv-remarks">Remarks:</div>`}`)}
       </div><div class="rp-foot"><span>${esc(E.APP)} — Signature Verification Form EO-SVF</span><span>${p ? esc(ref) : "Keep this form in the person's file"}</span></div>`;
   }
   // One person's form (from My Profile or User): the signature on record and, once approved, the Director's signature.
@@ -2204,13 +2204,13 @@
         ${myPic ? `<div class="sig-show"><img src="${esc(myPic)}" alt="My signature"></div><div class="sig-st">${sigPill(sp.signature_status)}${sp.signature_status === "approved" && sp.signature_approved_by_name ? ` <small>by ${esc(sp.signature_approved_by_name)} on ${mdy(sp.signature_approved_at)}</small>` : ""}</div>` : `<p><b>No signature yet.</b></p>`}
         ${sp.signature_status === "rejected" && sp.signature_note ? `<div class="hint err">Not approved: ${esc(sp.signature_note)}. Upload a clearer signature.</div>` : ""}
         <p class="muted">${isAdmin() ? "Your signature is printed by itself on every document you approve (applications, credit memos, projects and signature forms)."
-          : "Upload your signature; the Director approves it, then your Signature Verification Form is ready."} Sign on white paper with dark ink, take a clear photo and upload it: the white paper is taken away for you.</p>
+          : "Upload your signature; EMON HASAN approves it, then your Signature Verification Form is ready."} Sign on white paper with dark ink, take a clear photo and upload it: the white paper is taken away for you.</p>
         <div class="btnrow"><label class="btn primary" for="mpSig">${ic("upload")} ${myPic ? "Change Signature" : "Upload Signature"}</label><input type="file" id="mpSig" accept="image/*" hidden data-save-now="preview">
           ${sp.signature_path ? `<button type="button" class="btn" id="mpSigForm">${ic("print")} Signature Verification Form</button><button type="button" class="btn danger" id="mpSigRm">${ic("trash")} Remove</button>`
             : `<button type="button" class="btn" id="mpSigBlank">${ic("print")} Blank Signature Verification Form</button>`}</div>
       </fieldset>
       ${isAdmin() ? "" : `<fieldset class="opt" id="mpDelBox"><legend>Delete My Account</legend>
-        <p>Ask the Director to delete your E-Portal account. Your login, name, photo, signature and messages are deleted.
+        <p>Ask EMON HASAN to delete your E-Portal account. Your login, name, photo, signature and messages are deleted.
           Business records the law requires us to keep (such as invoices, receipts and payslips) stay, shown as <b>Deleted User</b>.
           <a href="/delete-account" target="_blank" rel="noopener">More about deleting an account</a> · <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></p>
         <div class="btnrow"><button type="button" class="btn danger" id="mpDel">${ic("trash")} Request Account Deletion</button></div>
@@ -2226,13 +2226,13 @@
       $("#mpDel").disabled = true;
       const ref = await E.requestDeletion(emp?.position);
       if (!ref) { $("#mpDel").disabled = false; return; }
-      $("#mpDelDone").innerHTML = `<div class="hint ok">Request sent. Reference No <b class="mono">${esc(ref)}</b>. The Director will reply to ${esc(S.session.user.email)} and delete your account within 30 days.</div>`;
+      $("#mpDelDone").innerHTML = `<div class="hint ok">Request sent. Reference No <b class="mono">${esc(ref)}</b>. EMON HASAN will reply to ${esc(S.session.user.email)} and delete your account within 30 days.</div>`;
     };
     pickSignature($("#mpSig"), sp.id, "My Signature", async (path) => {
       const r = await sb.rpc("set_my_signature", { p_path: path });
       if (r.error) { fail(r.error, "Could not save the signature"); return false; }
       if (isAdmin()) await loadSignatures(true);
-      toast(isAdmin() ? "Signature saved. It is printed on the documents you approve." : "Signature saved. It waits for the Director's approval.");
+      toast(isAdmin() ? "Signature saved. It is printed on the documents you approve." : "Signature saved. It waits for EMON HASAN's approval.");
       V.profile(); return true;
     });
     if ($("#mpSigForm")) $("#mpSigForm").onclick = () => openSignatureForm(S.profile, emp);

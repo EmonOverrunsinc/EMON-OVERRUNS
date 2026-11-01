@@ -4,7 +4,7 @@
 --    used by people who are not signed in. A robot could try them thousands of times (to guess record numbers, usernames,
 --    card or paper codes). Now each internet address (IP) gets only a few tries a minute; then: "Too many tries. Please
 --    wait a minute and try again." People signed in to the E-Portal are not limited.
--- 2. Only the Director deletes a salary payment (Pay Salary) - the payslip is unpaid again by that amount.
+-- 2. Only EMON HASAN deletes a salary payment (Pay Salary) - the payslip is unpaid again by that amount.
 -- Needs RUN_062_TO_065.sql. Paste all of it in Supabase > SQL Editor > New query and press Run. Safe to run again.
 -- The last line says: UPDATE 3.58 READY - ...
 -- =====================================================================
@@ -68,12 +68,12 @@ begin
   end loop;
 end $$;
 
--- 2. the Director deletes a salary payment
+-- 2. EMON HASAN deletes a salary payment
 create or replace function public.delete_salary_payment(p_id uuid) returns void
 language plpgsql security definer set search_path = '' as $$
 declare r public.salary_payments;
 begin
-  if not public.is_admin() then raise exception 'Only the Director can delete a salary payment'; end if;
+  if not public.is_admin() then raise exception 'Only EMON HASAN can delete a salary payment'; end if;
   delete from public.salary_payments where id = p_id returning * into r;
   if r.id is null then raise exception 'Salary payment not found'; end if;
 end;
@@ -87,5 +87,5 @@ select case when to_regprocedure('private.guard(text,integer)') is not null
   and position('private.guard(' in pg_get_functiondef('public.verify_record(text)'::regprocedure)) > 0
   and position('private.guard(' in pg_get_functiondef('public.delivery_order(text,text)'::regprocedure)) > 0
   and to_regprocedure('public.delete_salary_payment(uuid)') is not null
-  then 'UPDATE 3.58 READY - robots get only a few tries a minute on the public pages; the Director deletes a salary payment'
+  then 'UPDATE 3.58 READY - robots get only a few tries a minute on the public pages; EMON HASAN deletes a salary payment'
   else 'NOT READY - send this message to Claude' end as result;

@@ -33,7 +33,7 @@
   // The person issuing: the Director's own signature is printed; anyone else signs the paper.
   const issuerBlock = () => {
     const sign = isAdmin() ? E.approvedBy(S.session?.user?.id, S.profile?.full_name, new Date().toISOString()) : null;
-    return `<div class="ol-sign one"><div class="ol-auth${sign?.pic ? " has-sig" : ""}">${sign?.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="ol-auth-name">${esc(S.profile?.full_name || "")}</div><div class="line"></div>${isAdmin() ? "Director · Authorized Representative" : "Issued by · Authorized Representative"}</div></div>`;
+    return `<div class="ol-sign one"><div class="ol-auth${sign?.pic ? " has-sig" : ""}">${sign?.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="ol-auth-name">${esc(S.profile?.full_name || "")}</div><div class="line"></div>${isAdmin() ? "Managing Director · Authorized Representative" : "Issued by · Authorized Representative"}</div></div>`;
   };
   const codes = (c, no) => `<div class="ph-codes"><div><img src="${E.pdf417DataUrl("EMONCUST|" + (c.account_no || c.application_no))}" alt="" class="ph-bar"><div class="mono">${esc(no)}</div></div>
     ${c.public_id ? `<img src="${E.qrDataUrl(verifyUrl(c.public_id))}" alt="Verification QR code" class="ph-qr">` : ""}</div>`;
@@ -148,10 +148,10 @@
   function gatePage(c, no, a, approved = null) {
     return `${E.printHead("GATE PASS CLEARANCE FOR DELIVERY", codes(c, no))}
       <div class="cert-no"><span>Gate Pass No: <b>${esc(no)}</b></span><span>Date Issued: <b>${esc(E.dateTime(new Date().toISOString()))}</b></span></div>
-      <div class="dc-head gp-clear"><b>CLEARED FOR DELIVERY</b><small>${approved ? `Cleared by the Director's approval of request ${esc(approved.order_no)}${approved.review_note ? ": " + esc(approved.review_note) : "."}` : a.byTrust ? `Cleared as a trusted customer: business since ${esc(mdy(a.since))}, buys regularly and keeps paying.` : "This account is open, within its credit limit and has no overdue invoice."}</small></div>
+      <div class="dc-head gp-clear"><b>CLEARED FOR DELIVERY</b><small>${approved ? `Cleared by EMON HASAN's approval of request ${esc(approved.order_no)}${approved.review_note ? ": " + esc(approved.review_note) : "."}` : a.byTrust ? `Cleared as a trusted customer: business since ${esc(mdy(a.since))}, buys regularly and keeps paying.` : "This account is open, within its credit limit and has no overdue invoice."}</small></div>
       <p class="cert-to">TO WHOM IT MAY CONCERN:</p>
       <p class="cert-body">This is to certify that the account of <b>${esc(fullName(c).toUpperCase())}</b>, Account No <b class="nw">${esc(c.account_no || "")}</b>, was checked by ${esc(C.company.name)}
-        on <span class="nw">${esc(mdy(a.today))}</span>${approved ? " and the delivery was approved by the Director" : a.byTrust ? ". The account is <b>ACTIVE</b> and is cleared as a <b>TRUSTED CUSTOMER</b> (an old account that buys regularly and keeps paying)" : `. The account is <b>ACTIVE</b>, ${a.limit != null ? "within its credit limit, " : ""}and every invoice is paid on or before its due date`}.
+        on <span class="nw">${esc(mdy(a.today))}</span>${approved ? " and the delivery was approved by EMON HASAN" : a.byTrust ? ". The account is <b>ACTIVE</b> and is cleared as a <b>TRUSTED CUSTOMER</b> (an old account that buys regularly and keeps paying)" : `. The account is <b>ACTIVE</b>, ${a.limit != null ? "within its credit limit, " : ""}and every invoice is paid on or before its due date`}.
         This gate pass clears the delivery of goods to this account on <span class="nw">${esc(mdy(a.today))}</span> only.</p>
       <div class="ol-sec">ACCOUNT</div>
       <table class="ol-grid"><tbody>${tr2("Name of Customer", esc(fullName(c)))}${tr2("Account No", esc(c.account_no || "—"))}${c.business_name ? tr2("Business Name", esc(c.business_name)) : ""}
@@ -170,7 +170,7 @@
     E.gateAI?.logDecision(c, "CLEAR"); // 3.38: the decision is written with the AI's idea
     await E.loadSignatures().catch(() => {});
     const no = stampNo(c);
-    issueDoc(c, "Gate Pass", no, gatePage(c, no, a, approved), approved ? `Cleared by the Director (${approved.order_no})` : `${a.byTrust ? "Cleared as a trusted customer" : "Cleared for delivery"} · balance PHP ${peso(a.bal)}`);
+    issueDoc(c, "Gate Pass", no, gatePage(c, no, a, approved), approved ? `Cleared by EMON HASAN (${approved.order_no})` : `${a.byTrust ? "Cleared as a trusted customer" : "Cleared for delivery"} · balance PHP ${peso(a.bal)}`);
   }
 
   async function gatePass(c, ctx) {
@@ -195,8 +195,8 @@
         <small>${a.byTrust ? "Cleared as a TRUSTED CUSTOMER (old, buys regularly, keeps paying). Open items allowed:" : a.ok ? "The account is open, within its credit limit and has no overdue invoice." : "Why the gate pass is not issued:"}</small></div></div>
       ${a.reasons.length ? `<ul class="gp-why">${a.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
       ${analysisHtml(a)}
-      ${!a.ok ? (wait ? `<div class="rq-item"><span>${ic("clock")}</span><div><b>Request for Clearance · ${esc(wait.order_no)}</b><small>Sent by ${esc(wait.created_by_name || "")} · waiting for the Director</small></div></div>`
-        : `<div class="fields wide" style="margin-top:10px"><label for="gaNote">${isAdmin() ? "Director's note" : "Note for the Director"}</label><textarea id="gaNote" rows="2" maxlength="600" placeholder="e.g. customer promised to pay on Friday; delivery is needed today"></textarea></div>`) : ""}`;
+      ${!a.ok ? (wait ? `<div class="rq-item"><span>${ic("clock")}</span><div><b>Request for Clearance · ${esc(wait.order_no)}</b><small>Sent by ${esc(wait.created_by_name || "")} · waiting for EMON HASAN</small></div></div>`
+        : `<div class="fields wide" style="margin-top:10px"><label for="gaNote">${isAdmin() ? "EMON HASAN's note" : "Note for EMON HASAN"}</label><textarea id="gaNote" rows="2" maxlength="600" placeholder="e.g. customer promised to pay on Friday; delivery is needed today"></textarea></div>`) : ""}`;
     aiIdea(c, ctx, out);
     const foot = $(".wfoot", m.el);
     const add = (html) => { foot.insertAdjacentHTML("beforeend", html); };
@@ -220,7 +220,7 @@
       const { data: o, error } = await sb.from("order_letters").insert(row).select().single();
       if (error) { $$("[data-req],[data-appr],[data-hold]", m.el).forEach((b) => (b.disabled = false)); return fail(error, "Could not send the request"); }
       m.close();
-      if (!decide) { toast(`Request for Clearance ${o.order_no} sent to the Director.`); return V.customer(c.id); }
+      if (!decide) { toast(`Request for Clearance ${o.order_no} sent to EMON HASAN.`); return V.customer(c.id); }
       const e2 = await applyDecision(c, a, o, decide, note);
       if (e2) { fail(e2, "Could not record the decision"); return V.customer(c.id); }
     };
@@ -252,7 +252,7 @@
         <small>Asked by ${esc(o.created_by_name || "")} on ${esc(mdy(o.order_date))}${o.details ? " · " + esc(o.details.split("\n")[0]) : ""}</small></div></div>
       ${a.reasons.length ? `<ul class="gp-why">${a.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
       ${analysisHtml(a)}
-      <div class="fields wide" style="margin-top:10px"><label for="gdNote">Director's note${action === "reject" ? " *" : ""}</label><textarea id="gdNote" rows="2" maxlength="600" placeholder="${action === "approve" ? "e.g. approved for today's delivery only" : "e.g. hold until the overdue invoices are paid"}"></textarea></div>`,
+      <div class="fields wide" style="margin-top:10px"><label for="gdNote">EMON HASAN's note${action === "reject" ? " *" : ""}</label><textarea id="gdNote" rows="2" maxlength="600" placeholder="${action === "approve" ? "e.g. approved for today's delivery only" : "e.g. hold until the overdue invoices are paid"}"></textarea></div>`,
       `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn ${action === "approve" ? "primary" : "danger"}" data-ok>${action === "approve" ? `${ic("check")} Approve &amp; Print Gate Pass` : `${ic("x")} Hold for Delivery`}</button>`, { wide: true });
     $("[data-x]", m.el).onclick = m.close;
     aiIdea(c, ctx, m.el);
@@ -275,7 +275,7 @@
     return [
       ...(orders || []).filter(isGate).map((o) => ({ at: o.created_at, no: o.order_no, what: "Request for Clearance", by: o.created_by_name || "",
         st: o.status === "pending" ? "WAITING FOR THE DIRECTOR" : o.status === "rejected" ? "REJECTED · HOLD FOR DELIVERY" : "APPROVED · CLEAR",
-        tone: o.status === "pending" ? "pending" : o.status === "rejected" ? "rejected" : "approved", note: [o.details?.split("\n")[0], o.review_note ? `Director: ${o.review_note}` : "", o.approved_by_name ? `decided by ${o.approved_by_name}` : ""].filter(Boolean).join(" · "), o })),
+        tone: o.status === "pending" ? "pending" : o.status === "rejected" ? "rejected" : "approved", note: [o.details?.split("\n")[0], o.review_note ? `EMON HASAN: ${o.review_note}` : "", o.approved_by_name ? `decided by ${o.approved_by_name}` : ""].filter(Boolean).join(" · "), o })),
       ...(events || []).filter((e) => /^GATE PASS GP-/.test(e.note || "")).map((e) => ({ at: e.created_at, no: (e.note.match(/GP-\S+/) || [""])[0], what: "Gate Pass Issued", by: e.actor_name || "", st: "ISSUED · CLEAR", tone: "approved", note: e.note.replace(/^GATE PASS \S+\s*·?\s*/, "") }))
     ].sort((x, y) => String(y.at).localeCompare(String(x.at)));
   }
@@ -346,7 +346,7 @@
       <div class="ol-sec">CLOSURE</div>
       <table class="ol-grid"><tbody>${tr2("Date Closed", esc(when || "—"))}${tr2("Reason for Closure", `<b>${esc(ord?.closure_reason || c.status_note || "—")}</b>`)}${ord ? tr2("Request No", esc(ord.order_no)) : ""}
         ${tr2("Balance at Issue", `<b>${php2(bal)}</b>`)}</tbody></table>
-      <p class="cert-body">This certificate is issued upon request. The account can be reopened only with the approval of the Director of ${esc(C.company.name)}.</p>
+      <p class="cert-body">This certificate is issued upon request. The account can be reopened only with the approval of EMON HASAN of ${esc(C.company.name)}.</p>
       ${issuerBlock()}
       <div class="rp-foot"><span>Scan the QR code to check this account online.</span><span>${esc(no)}</span></div>`;
   }
@@ -365,7 +365,7 @@
         ${keys.map((k) => `<tr><td>${esc(E.fieldLabel("customers", k))}</td><td>${val(k, r.previous?.[k])}</td><td><b>${val(k, r.changes[k])}</b></td></tr>`).join("")}</tbody></table>
       <p class="cert-body">I confirm that the new information above is true and correct, and I ask ${esc(C.company.name)} to update my account with it.</p>
       <div class="ol-sign"><div class="ol-auth"><div class="ol-auth-name">${esc(fullName(r.previous).toUpperCase())}</div><div class="line"></div>Customer · Signature over Printed Name / Date</div>
-        <div class="ol-auth${sign?.pic ? " has-sig" : ""}">${sign?.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="ol-auth-name">${sign ? esc(S.profile?.full_name || "") : ""}</div><div class="line"></div>Approved by · Director${sign ? ` · ${esc(mdy(isoToday()))}` : " / Date"}</div></div>
+        <div class="ol-auth${sign?.pic ? " has-sig" : ""}">${sign?.pic ? `<img class="esig" src="${esc(sign.pic)}" alt="Signature">` : ""}<div class="ol-auth-name">${sign ? esc(S.profile?.full_name || "") : ""}</div><div class="line"></div>Approved by · Managing Director${sign ? ` · ${esc(mdy(isoToday()))}` : " / Date"}</div></div>
       <div class="rp-foot"><span>Scan the QR code to check this account online.</span><span>${esc(no)}</span></div>`;
   }
   async function printUpdate(c, r) {
@@ -384,11 +384,11 @@
     const wait = pendingOf(ctx.orders)[0];
     const opts = [
       ["update", "edit", "Update Information", isAdmin() && S.mainDirector ? "Change the customer's details. Saved at once; the Update Form prints with the old and new details."
-        : "Change the customer's details. The Update Form prints with the old and new details; the Director approves the change.", isStaff()],
+        : "Change the customer's details. The Update Form prints with the old and new details; EMON HASAN approves the change.", isStaff()],
       ["balance", "wallet", "Account Balance Certificate", "The total outstanding balance as of today, with the unpaid invoices", true],
-      ["gate", "check", "Gate Pass", "Checks the whole payment record (invoices, payments, overdue, credit memos, returns, days to pay), then issues the Gate Pass Clearance for Delivery or says why not; a delivery not cleared can be sent to the Director", true],
+      ["gate", "check", "Gate Pass", "Checks the whole payment record (invoices, payments, overdue, credit memos, returns, days to pay), then issues the Gate Pass Clearance for Delivery or says why not; a delivery not cleared can be sent to EMON HASAN", true],
       ...Object.entries(STATUS_REQ).filter(([, x]) => x.from.includes(c.status)).map(([k, x]) => [k, x.icon, x.title,
-        wait ? `${wait.order_no} (${STATUS_REQ[wait.subject_type].title}) is waiting for the Director` : !canRequest() ? "You have no access to make this request" : `${x.sub}. ${isAdmin() ? "As the Director it is done at once." : "The Director approves it."}`,
+        wait ? `${wait.order_no} (${STATUS_REQ[wait.subject_type].title}) is waiting for EMON HASAN` : !canRequest() ? "You have no access to make this request" : `${x.sub}. ${isAdmin() ? "As EMON HASAN it is done at once." : "EMON HASAN approves it."}`,
         !wait && canRequest()]),
       ...(c.status === "closed" ? [["closurecert", "doc", "Certificate of Account Closure", "Print the certificate of this closed account", true]] : [])
     ];
@@ -428,7 +428,7 @@
         <span>Becomes</span><b>${esc(x.to)}</b><span>Balance Due</span><b class="${bal < 0 ? "neg" : ""}">₱ ${peso(bal)}</b></div></div>
       <div class="fields wide" style="margin-top:10px"><label for="rqWhy">Reason *</label><input type="text" id="rqWhy" maxlength="200" placeholder="${kind === "suspension" ? "e.g. overdue invoices not paid" : kind === "closure" ? "e.g. customer asked to close the account" : "e.g. balance settled"}">
         <label for="rqNote">Note</label><textarea id="rqNote" rows="2" maxlength="600" placeholder="Optional"></textarea></div>
-      <p class="muted" style="margin:8px 0 0">${isAdmin() ? "As the Director, the account changes as soon as you send it." : "The Director is told and approves or rejects it on this profile."}</p>`,
+      <p class="muted" style="margin:8px 0 0">${isAdmin() ? "As EMON HASAN, the account changes as soon as you send it." : "EMON HASAN is told and approves or rejects it on this profile."}</p>`,
       `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${ic("send")} ${isAdmin() ? `${esc(x.title)} Now` : "Send Request"}</button>`);
     $("[data-x]", m.el).onclick = m.close;
     $("[data-ok]", m.el).onclick = async (e) => {
@@ -442,7 +442,7 @@
         const { error: e2 } = await sb.rpc("review_order_letter", { p_id: o.id, p_action: "approve", p_note: null });
         if (e2) { m.close(); fail(e2, `Request ${o.order_no} was saved but could not be carried out`); return V.customer(c.id); }
         m.close(); toast(`Done: account ${c.account_no} is now ${x.to}.`);
-      } else { m.close(); toast(`Request ${o.order_no} sent to the Director.`); }
+      } else { m.close(); toast(`Request ${o.order_no} sent to EMON HASAN.`); }
       V.customer(c.id);
     };
   }
@@ -451,7 +451,7 @@
     const list = [...pendingOf(orders), ...(orders || []).filter((o) => isGate(o) && o.status === "pending")];
     if (!list.length) return "";
     return `<div class="rq-wait">${list.map((o) => `<div class="rq-item" data-o="${o.id}"><span>${ic("clock")}</span><div><b>${esc(isGate(o) ? "Request for Clearance (Gate Pass)" : STATUS_REQ[o.subject_type].title)} · ${esc(o.order_no)}</b>
-      <small>${esc(o.subject.replace(/^[^:]*:\s*/, ""))}${o.details ? " — " + esc(o.details) : ""} · asked by ${esc(o.created_by_name || "")} on ${esc(mdy(o.order_date))} · waiting for the Director</small></div>
+      <small>${esc(o.subject.replace(/^[^:]*:\s*/, ""))}${o.details ? " — " + esc(o.details) : ""} · asked by ${esc(o.created_by_name || "")} on ${esc(mdy(o.order_date))} · waiting for EMON HASAN</small></div>
       ${isAdmin() ? `<button type="button" class="btn small primary" data-ap="${o.id}">${ic("check")} Approve</button><button type="button" class="btn small danger" data-rj="${o.id}">${ic("x")} Reject</button>` : ""}</div>`).join("")}</div>`;
   }
   function bindRequests(c, orders, ctx = {}) {

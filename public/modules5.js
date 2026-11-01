@@ -23,7 +23,7 @@
   // ---------- list: review box, requests, approved by month, cancelled ----------
   V.purchase = async (tab, month) => {
     E.shell("purchase", "Purchase Order", `<div class="btnrow"><a class="btn primary" href="#newpurchase">${ic("plus")} New Purchase Order</a></div>
-      <div id="poBody">${busy()}</div>`, "Requests to buy a lot. The Director approves, asks for a new price (negotiation) or cancels. Approved lots are listed by month with their quantity and average price.");
+      <div id="poBody">${busy()}</div>`, "Requests to buy a lot. EMON HASAN approves, asks for a new price (negotiation) or cancels. Approved lots are listed by month with their quantity and average price.");
     // 3.32: not the small photo copies kept for the PDF (print_photos, up to 5 per approved order): only the order page needs them
     const { data, error } = await sb.from("purchase_orders").select("id, po_no, po_date, lot_name, total_qty, total_amount, created_by_name, created_at, status, arrived_at, pending_update, photos, approved_at")
       .order("created_at", { ascending: false }).limit(2000);
@@ -110,7 +110,7 @@
     box.innerHTML = `<div class="vo-bar"><button type="button" class="btn primary vo-rec">${ic("mic")} Record</button><button type="button" class="btn danger vo-stop" hidden>■ Stop</button>
         <span class="vo-time" aria-live="polite"></span><label class="btn vo-attach" for="voFile">${ic("clip")} Attach audio file</label><input type="file" id="voFile" accept="audio/*" multiple hidden></div>
       <div class="vo-list"></div>
-      <small class="muted">Up to ${MAX_VOICES} voice notes (${MAX_SECONDS / 60} minutes each). Press <b>Record</b>, speak, press <b>Stop</b>, then listen. The Director listens before deciding; the voice notes are deleted from the server when the order is approved.</small>`;
+      <small class="muted">Up to ${MAX_VOICES} voice notes (${MAX_SECONDS / 60} minutes each). Press <b>Record</b>, speak, press <b>Stop</b>, then listen. EMON HASAN listens before deciding; the voice notes are deleted from the server when the order is approved.</small>`;
     const list = $(".vo-list", box), recBtn = $(".vo-rec", box), stopBtn = $(".vo-stop", box), clock = $(".vo-time", box);
     const total = () => keep.length + picked.length;
     const render = () => {
@@ -230,7 +230,7 @@
         const r = await sb.rpc("set_purchase_photos", { p_id: po.id, p_photos: paths });
         // 3.32: when the photos are not saved the order keeps its old photos and the new uploads are taken off again
         if (r.error) {
-          toast(/Up to 2 product photos/.test(r.error.message) ? "The photos could not be saved: more than 2 photos need the database update 042_po_photos.sql. Ask the Director."
+          toast(/Up to 2 product photos/.test(r.error.message) ? "The photos could not be saved: more than 2 photos need the database update 042_po_photos.sql. Ask EMON HASAN."
             : "The photos could not be saved: " + r.error.message, true);
           const added = paths.filter((x) => !keep.includes(x));
           if (added.length) sb.storage.from("records").remove(added).then(() => {}, () => {});
@@ -253,7 +253,7 @@
           if (added.length) sb.storage.from("records").remove(added).then(() => {}, () => {});
         } else if (vgone.length) sb.storage.from("records").remove(vgone).then(() => {}, () => {});
       }
-      toast(p ? "Saved." : `Purchase order ${po.po_no} submitted. The Director reviews it.`);
+      toast(p ? "Saved." : `Purchase order ${po.po_no} submitted. EMON HASAN reviews it.`);
       location.hash = "po/" + po.id;
     };
   }
@@ -313,7 +313,7 @@
       ${(() => { const src = p.photos?.length ? p.photos.map((x) => urls.get(x) || "") : p.print_photos || [];
         return src.length ? `<div class="po-hero n${src.length}">${src.map((u) => `<button type="button" class="pp" data-img="${esc(u)}"><img src="${esc(u)}" alt="Product photo"></button>`).join("")}</div>` : p.status === "cancelled" ? `<small class="muted">The photos were deleted when the purchase order was cancelled.</small>` : ""; })()}
       ${p.status === "negotiation" ? `<div class="banner warn">${ic("bell")} EMON OVERRUNS authority does not agree with that price. Please negotiate the price, then ${mine ? "press <b>Edit</b>, change the details and submit again" : "the maker edits and submits again"}.${p.director_note ? " Note: " + esc(p.director_note) : ""}</div>` : ""}
-      ${p.status === "approved" ? `<div class="banner ok">${ic("check")} APPROVED by Director ${esc(p.approved_by_name || "")} · ${esc(E.dateTime(p.approved_at))}. Buy this lot at the approved price.${p.arrived_at ? ` <b>Arrived at the warehouse</b> ${esc(E.dateTime(p.arrived_at))}${p.arrived_by_name ? " · " + esc(p.arrived_by_name) : ""}.` : ""}</div>` : ""}
+      ${p.status === "approved" ? `<div class="banner ok">${ic("check")} APPROVED by ${esc(p.approved_by_name || "")} · ${esc(E.dateTime(p.approved_at))}. Buy this lot at the approved price.${p.arrived_at ? ` <b>Arrived at the warehouse</b> ${esc(E.dateTime(p.arrived_at))}${p.arrived_by_name ? " · " + esc(p.arrived_by_name) : ""}.` : ""}</div>` : ""}
       ${p.status === "cancelled" ? `<div class="banner closed">CANCELLED by ${esc(p.cancelled_by_name || "")} · ${esc(E.dateTime(p.cancelled_at))}${p.director_note ? " — " + esc(p.director_note) : ""}</div>` : ""}
       <div class="formgrid"><div class="fields wide"><span>Lot No</span><b class="mono">${esc(p.po_no)}</b><span>Lot Name</span><b>${esc(p.lot_name)}</b><span>Date</span><span>${mdy(p.po_date)}</span>
         <span>Processing Time</span><span>${esc(p.processing_time || "—")}</span></div>
@@ -323,12 +323,12 @@
         <tbody>${lines}</tbody><tfoot><tr><td colspan="4">TOTAL</td><td class="num">${qtyText(p.total_qty)}</td><td colspan="2" class="num">Average BDT <span id="ngAvg">${peso(avg(p))}</span></td><td class="num" id="ngTot">${peso(p.total_amount)}</td></tr></tfoot></table></div>
       ${netBox(p)}
       ${p.voices?.length ? `<div class="po-notes po-voices"><b>${ic("mic")} Voice notes (${p.voices.length})</b>${p.voices.map((v, i) => `<div class="vo-row"><b>Voice ${i + 1}</b><audio controls preload="metadata" src="${esc(vurls.get(v) || "")}"></audio></div>`).join("")}
-        <small class="muted">${isAdmin() ? "Listen before you decide. The voice notes are deleted from the server when you approve." : "They are deleted from the server when the Director approves."}</small></div>` : ""}
+        <small class="muted">${isAdmin() ? "Listen before you decide. The voice notes are deleted from the server when you approve." : "They are deleted from the server when EMON HASAN approves."}</small></div>` : ""}
       ${p.notes ? `<div class="po-notes"><b>Notes / Details</b><p>${esc(p.notes)}</p></div>` : ""}
       ${p.pending_update ? `<div class="linked-pays"><div class="lp-head"><b>Update asked by ${esc(p.pending_update.by || "")} · ${esc(E.dateTime(p.update_requested_at))}</b></div>
         ${E.grid({ cols: [{ label: "Item", get: (l) => l.item }, { label: "Brand", get: (l) => l.brand || "" }, { label: "Price (BDT)", num: true, get: (l) => peso(l.price) }, { label: "Quantity", num: true, get: (l) => qtyText(l.qty) }, { label: "Total (BDT)", num: true, get: (l) => peso(l.amount) }], rows: p.pending_update.items || [] })}
         ${isAdmin() ? `<div class="btnrow"><button type="button" class="btn ok" data-up="accept_update">${ic("check")} Approve Update</button><button type="button" class="btn danger" data-up="refuse_update">Refuse</button></div>` : ""}</div>` : ""}
-      ${isAdmin() && open ? `<fieldset class="opt review"><legend>Director's Decision</legend><div class="fields wide"><label for="poNote">Note</label><input type="text" id="poNote" placeholder="Optional; sent with a negotiation or a cancel"></div>
+      ${isAdmin() && open ? `<fieldset class="opt review"><legend>EMON HASAN's Decision</legend><div class="fields wide"><label for="poNote">Note</label><input type="text" id="poNote" placeholder="Optional; sent with a negotiation or a cancel"></div>
         <p class="muted" style="margin:4px 0">To negotiate, change the prices in the table above, then press <b>Negotiate</b>: ${esc(p.created_by_name || "the maker")} is told (notice and message) and submits again.</p>
         <div class="btnrow"><button type="button" class="btn ok" data-d="approve">${ic("check")} Approve</button><button type="button" class="btn" data-d="negotiate">${ic("edit")} Negotiate</button><button type="button" class="btn danger" data-d="cancel">Cancel Order</button></div></fieldset>` : ""}
       </div><div class="wfoot">
@@ -375,9 +375,9 @@
       toast("Marked arrived at the warehouse."); V.po(id);
     };
     if ($("#poUpd")) $("#poUpd").onclick = () => {
-      const m = E.modal(`Request Update — ${p.po_no}`, `<p class="muted" style="margin-top:0">The market price can go up or down. Change the items and prices; the Director approves the update and the purchase order then shows the new details.</p>
+      const m = E.modal(`Request Update — ${p.po_no}`, `<p class="muted" style="margin-top:0">The market price can go up or down. Change the items and prices; EMON HASAN approves the update and the purchase order then shows the new details.</p>
         <div id="upLines"></div><div class="fields wide"><label for="upProc">Processing Time</label><input type="text" id="upProc" value="${esc(p.processing_time || "")}"><label for="upNotes">Notes</label><input type="text" id="upNotes" value="${esc(p.notes || "")}"></div>`,
-        `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>Send to the Director</button>`, { wide: true });
+        `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>Send to EMON HASAN</button>`, { wide: true });
       const ed = linesEditor($("#upLines", m.el), p.items || []);
       $("[data-x]", m.el).onclick = m.close;
       $("[data-ok]", m.el).onclick = async (e) => {
@@ -385,7 +385,7 @@
         e.target.disabled = true;
         const { error: e2 } = await sb.rpc("purchase_order_after", { p_id: p.id, p_action: "request_update", p_data: { items, processing_time: $("#upProc", m.el).value, notes: $("#upNotes", m.el).value } });
         if (e2) { e.target.disabled = false; return fail(e2, "Could not send the update"); }
-        m.close(); toast("Update sent to the Director."); V.po(id);
+        m.close(); toast("Update sent to EMON HASAN."); V.po(id);
       };
     };
     keepPrint(p, urls);

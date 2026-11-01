@@ -1,6 +1,6 @@
 -- =====================================================================
 -- EMON OVERRUNS E-PORTAL - Update 3.54: THE DIRECTOR EDITS A COMPLETED CUSTOMER ORDER
--- A COMPLETED order (delivered, with its invoice) can be changed by the Director: Edit on the order page, and its boxes
+-- A COMPLETED order (delivered, with its invoice) can be changed by EMON HASAN: Edit on the order page, and its boxes
 -- (add, change, remove). Saving it changes its invoice too (boxes, pcs, amount, terms, order date), so the order and the
 -- invoice always say the same; the statements of account follow by themselves. Staff cannot change a completed order.
 -- The customer of a completed order stays the same, and the amount cannot go below the payments linked to its invoice.
@@ -9,7 +9,7 @@
 -- =====================================================================
 do $$
 declare def text; n text;
-  -- save_customer_order: the Director may change a completed order (of an account that is not ACTIVE any more too)
+  -- save_customer_order: EMON HASAN may change a completed order (of an account that is not ACTIVE any more too)
   s_old1 text := 'if o.status not in (''pending'',''approved'') then raise exception ''Order % is % and cannot be changed''';
   s_new1 text := 'if o.status not in (''pending'',''approved'') and not (boss and o.status = ''completed'') then raise exception ''Order % is % and cannot be changed''';
   s_old2 text := 'if c.status <> ''active'' then raise exception ''An order is made only for an ACTIVE account';
@@ -30,7 +30,7 @@ declare def text; n text;
     perform set_config(''eo.allow_change'', ''off'', true);
   end if;
   if p_id is null and o.status = ''pending'' then';
-  -- the boxes of a completed order: the Director adds, changes and removes them
+  -- the boxes of a completed order: EMON HASAN adds, changes and removes them
   b_old1 text := 'if o.status not in (''pending'',''approved'') then raise exception ''Order % is %: boxes cannot be added''';
   b_new1 text := 'if o.status not in (''pending'',''approved'') and not (o.status = ''completed'' and public.is_admin()) then raise exception ''Order % is %: boxes cannot be added''';
   b_old2 text := 'if st not in (''pending'',''approved'') then raise exception ''Order % is %: its boxes cannot be changed''';
@@ -58,5 +58,5 @@ notify pgrst, 'reload schema';
 select case when position('3.54: a completed order' in pg_get_functiondef('public.save_customer_order(uuid,jsonb)'::regprocedure)) > 0
   and position('''completed'' and public.is_admin()' in pg_get_functiondef('public.add_order_box(uuid,jsonb)'::regprocedure)) > 0
   and position('''completed'' and public.is_admin()' in pg_get_functiondef('public.change_order_box(uuid,jsonb)'::regprocedure)) > 0
-  then 'UPDATE 3.54 READY - the Director edits a completed customer order (like ARS-2); its invoice changes with it'
+  then 'UPDATE 3.54 READY - EMON HASAN edits a completed customer order (like ARS-2); its invoice changes with it'
   else 'NOT READY - send this message to Claude' end as result;

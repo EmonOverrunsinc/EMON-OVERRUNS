@@ -48,7 +48,7 @@ with t as (
     then 'OK     robots get only a few tries a minute on the public pages (3.58)'
     else 'CHECK  run RUN_062_TO_067.sql: robots can try the public pages without a limit' end
   union all
-  select 10, 'INFO   Director logins: ' || count(*) || ' (keep it to the people you trust)'
+  select 10, 'INFO   Full-access logins (like EMON HASAN): ' || count(*) || ' (keep it to the people you trust)'
   from public.profiles where role = 'admin' and status = 'active'
 )
 select result from t order by n;
