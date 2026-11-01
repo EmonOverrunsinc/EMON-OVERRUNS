@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.62";
+  const VERSION = "3.63";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.62.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.63.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -35,7 +35,8 @@
 
   // ---------- helpers ----------
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const peso = (n) => Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // 3.63: amounts are hidden (•••••) on the screens and prints of a staff login without "13 See Amounts (₱)"
+  const peso = (n) => (S.hideMoney ? "•••••" : Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   const pad = (n) => String(n).padStart(2, "0");
   // 2.9: small helpers shared by every section (they were written again in each file)
   const num = (v) => Number(v || 0);
@@ -254,6 +255,7 @@
 
   // Amount in words, voucher style: "PESOS ONE THOUSAND TWO HUNDRED AND 50/100 ONLY" (unit "TAKA" for BDT).
   function words(amount, unit = "PESOS") {
+    if (S.hideMoney) return "•••••";
     const ones = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN", "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN"];
     const tens = ["", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"];
     const under1000 = (n) => {
@@ -497,7 +499,7 @@
   // Sign out of this device only; the same account stays signed in on the user's other phones and computers.
   const signOut = () => sb.auth.signOut({ scope: "local" });
   async function loadProfile() {
-    if (!S.session) { S.profile = null; return; }
+    if (!S.session) { S.profile = null; S.hideMoney = false; staffMark(null); return; }
     const { data, error } = await sb.from("profiles").select("*").eq("id", S.session.user.id).maybeSingle();
     if (error) fail(error, "Could not load your profile");
     S.profile = data;
@@ -508,6 +510,17 @@
       data && data.role !== "admin" ? sb.from("employees").select("position").eq("profile_id", data.id).maybeSingle().then((r) => r.data?.position || "", () => "") : ""
     ]);
     S.mainDirector = md === true; S.position = pos;
+    // 3.63: a staff login sees amounts only with "13 See Amounts (₱)"; the screen carries the login's name (against screenshots)
+    S.hideMoney = !!data && data.role !== "admin" && Array.isArray(data.modules) && !data.modules.includes("money");
+    staffMark(data);
+  }
+  function staffMark(p) {
+    let el = document.getElementById("staffWm");
+    if (!p || p.role === "admin") { el?.remove(); return; }
+    const t = `${p.full_name || p.email || ""} · ${mdy(isoToday())}`.toUpperCase();
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="220"><text x="20" y="130" transform="rotate(-24 210 110)" font-family="Arial" font-size="17" font-weight="700" fill="#1f3a6e" fill-opacity=".07">${t.replace(/[&<>"]/g, "")}</text></svg>`;
+    if (!el) { el = document.createElement("div"); el.id = "staffWm"; el.setAttribute("aria-hidden", "true"); document.body.appendChild(el); }
+    el.style.backgroundImage = `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}")`;
   }
   const authRedirect = () => location.origin + location.pathname;
   function authFrame(title, inner) {
@@ -1720,7 +1733,9 @@
     // Every printed page shows the date it was printed (report listings and statements already carry their own);
     // a blank form (undated) does not.
     const printed = dateTime(new Date().toISOString());
-    const dated = (p) => (undated || /Date Printed|rp-stamp|Printed \d/.test(p) ? "" : `<div class="pg-date">Date Printed: ${esc(printed)}</div>`);
+    // 3.63: and who printed it
+    const by = S.profile?.full_name ? `Printed by: ${esc(String(S.profile.full_name).toUpperCase())}` : "";
+    const dated = (p) => (undated ? "" : /Date Printed|rp-stamp|Printed \d/.test(p) ? (by ? `<div class="pg-date">${by}</div>` : "") : `<div class="pg-date">Date Printed: ${esc(printed)}${by ? ` · ${by}` : ""}</div>`);
     S.docTitle = document.title;
     document.title = title; // "Save as PDF" uses this as the file name
     const pv = document.createElement("div");
