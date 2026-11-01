@@ -540,7 +540,7 @@ main h3 { margin: 14px 0 6px; color: var(--title-2); }
 .page > * { position: relative; z-index: 1; }
 .page > .rp-stamp { position: relative; }
 /* The date the page was printed, small in the top right corner */
-.page > .pg-date { position: absolute; top: 4.5mm; right: 14mm; font-size: 8.5px; color: #333; }
+.page > .pg-date { position: absolute; top: 2.8mm; right: 14mm; line-height: 1.2; font-size: 8.5px; color: #333; }
 .page.a5l > .pg-date { top: 2.5mm; right: 11mm; }
 /* 2.1: the foot of every printed page: the QR of the website (13 mm, easy to scan) with its address. It stands at the
    bottom of the page; a footer that already stands there keeps its place above it. */
