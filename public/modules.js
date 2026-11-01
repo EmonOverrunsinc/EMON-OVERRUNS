@@ -637,7 +637,7 @@
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
     // 3.60: no payslip reminder here (the Payroll page shows the employees without the month's payslip)
-    const [apps, jobs, changes, memos, contacts, copies, pos, cords] = await Promise.all([
+    const [apps, jobs, changes, memos, contacts, copies, pos, cords, prints] = await Promise.all([
       cnt(sb.from("customers").select("id", head).in("status", ["pending", "verified"])),
       cnt(sb.from("job_applications").select("id", head).eq("status", "submitted")),
       cnt(sb.from("change_requests").select("id", head).eq("status", "pending")),
@@ -645,12 +645,55 @@
       cnt(sb.from("contact_messages").select("id", head).eq("status", "new")),
       sb.from("attachments").select("owner_type, owner_id").eq("pending", true).order("created_at").limit(50).then((r) => r.data || [], () => []),
       cnt(sb.from("purchase_orders").select("id", head).eq("status", "pending")),
-      cnt(sb.from("customer_orders").select("id", head).eq("status", "pending"))
+      cnt(sb.from("customer_orders").select("id", head).eq("status", "pending")),
+      cnt(sb.from("print_requests").select("id", head).eq("status", "pending"))
     ]);
     return [[apps, "Customer application", "#customers"], [jobs, "Job application", "#jobapps"], [changes, "Correction", "#changes"], [memos, "Credit memo", "#creditmemos"],
-      [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [cords, "Customer order", "#custorders"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
+      [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [cords, "Customer order", "#custorders"], [prints, "Print request", "#printreqs"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
   }
   E.todoItems = todoItems;
+
+  // 3.65: an employee's print / download of an invoice, a payment or a statement of account needs EMON HASAN's approval;
+  // approved, it prints once (with the amounts) within 24 hours. EMON HASAN prints at any time.
+  async function gatePrint(kind, recordId, label, run) {
+    if (isAdmin()) return run();
+    const used = await sb.rpc("use_print", { p_kind: kind, p_record: recordId });
+    if (used.error) { console.warn("print approval needs 069_print_approval.sql", used.error.message); return run(); } // before the update: as before
+    if (used.data === true) {
+      const hid = S.hideMoney; S.hideMoney = false;
+      try { await run(); } finally { S.hideMoney = hid; }
+      return;
+    }
+    const { data: wait } = await sb.from("print_requests").select("id").eq("requested_by", E.meId()).eq("kind", kind).eq("record_id", recordId).eq("status", "pending").limit(1);
+    if (wait?.length) return toast(`${label}: your print request waits for EMON HASAN's approval.`);
+    if (!(await E.confirmBox(`Printing or downloading <b>${esc(label)}</b> needs EMON HASAN's approval.<br><br>Send the request now? You are told when it is approved; then you can print it once within 24 hours.`, { title: "Ask to Print", ok: "Send Request" }))) return;
+    const r = await sb.rpc("request_print", { p_kind: kind, p_record: recordId, p_label: label });
+    if (r.error) return fail(r.error, "Could not send the request");
+    toast("Request sent to EMON HASAN.");
+  }
+  E.gatePrint = gatePrint;
+  // EMON HASAN's Print Requests page
+  V.printreqs = async () => {
+    if (!isAdmin()) { location.hash = "dashboard"; return; }
+    E.shell("printreqs", "Print Requests", `<div id="prqRes">${busy()}</div>`, "An employee who wants to print or download an invoice, a payment or a statement of account asks here first. <b>Approve</b>: they can print it once within 24 hours.");
+    const here = E.stillHere();
+    const { data, error } = await sb.from("print_requests").select("*").order("created_at", { ascending: false }).limit(300);
+    if (!here()) return;
+    if (error) { $("#prqRes").innerHTML = `<div class="empty">Run the database update <b>069_print_approval.sql</b> first.</div>`; return; }
+    const ST = { pending: ["pending", "WAITING"], approved: ["approved", "APPROVED"], used: ["active", "PRINTED"], rejected: ["rejected", "NOT APPROVED"] };
+    const rows = data || [];
+    $("#prqRes").innerHTML = E.grid({ cols: [{ label: "Asked", get: (r) => E.dateTime(r.created_at) }, { label: "Employee", get: (r) => r.requested_by_name || "" }, { label: "Document", get: (r) => r.label },
+      { label: "Status", html: (r) => pill(...(ST[r.status] || ["pending", r.status])) },
+      { label: "", html: (r) => (r.status === "pending" ? `<button type="button" class="btn small ok" data-prq="${r.id}" data-ok="1">Approve</button> <button type="button" class="btn small danger" data-prq="${r.id}" data-ok="0">Reject</button>` : esc(r.decided_by_name || "")) }],
+      rows, empty: "No print request yet." });
+    $$("[data-prq]").forEach((b) => (b.onclick = async () => {
+      b.disabled = true;
+      const r = await sb.rpc("decide_print", { p_id: b.dataset.prq, p_ok: b.dataset.ok === "1" });
+      if (r.error) { b.disabled = false; return fail(r.error, "Could not decide"); }
+      toast(b.dataset.ok === "1" ? "Approved: the employee can print it once." : "Not approved."); V.printreqs();
+    }));
+    E.setRecords(`Print requests: ${rows.length}`);
+  };
   async function loadTodo() {
     const items = await todoItems();
     const el = $("#dTodo"); if (!el) return;
@@ -1344,11 +1387,11 @@
         { label: "Credit (₱)", num: true, get: (r) => peso(r.credit) }, { label: "Closing (₱)", num: true, get: (r) => peso(r.closing) },
         { label: "", html: () => `<span class="btn">Print SOA</span>` }], rows, onRow: true })}
       <small>One statement a month, made automatically on the 1st for the month just ended. The first is the month the account was opened (with any earlier entries); each month's closing balance is the next month's opening balance.</small>`;
-    E.bindGrid(box, rows, (r) => printSoa(c, r, txns, invs));
-    $("#soaAll", box).onclick = () => {
+    E.bindGrid(box, rows, (r) => gatePrint("soa", c.id, `SOA ${r.no || monthText(r.start)} · ${fullName(c)}`, () => printSoa(c, r, txns, invs)));
+    $("#soaAll", box).onclick = () => gatePrint("soa", c.id, `All Transactions · ${fullName(c)}`, () => {
       const start = txns.length ? monthStart(txns[0].date) : monthStart(c.application_date);
       E.openPreview(`All Transactions ${c.account_no}`, soaPages(c, { start, end: isoToday(), opening: 0, no: soaNo(isoToday(), c, true) }, within(txns, start, isoToday()), []));
-    };
+    });
   }
 
   // Admin: every customer's SOA for a month.
@@ -1582,7 +1625,7 @@
             <b>₱ ${peso(l.amount)}</b>${canLink ? `<button type="button" class="linkbtn" data-unlink="${l.id}">Unlink</button>` : `<span class="pill active">LINKED</span>`}</div>`).join("")
           : `<div class="empty small">No payment is linked to this invoice.</div>`}
         ${linksOn && active.length ? `<div class="lp-sum"><span>Linked to this invoice</span><b>₱ ${peso(active.reduce((s, l) => s + num(l.amount), 0))}</b>${need > 0.004 ? `<span>Still needed from a payment</span><b>₱ ${peso(need)}</b>` : ""}</div>` : ""}</div>
-      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}${deds.length ? ` · CORRECTED: ₱ ${peso(num(inv.total_amount) - deds.reduce((t, m) => t + num(m.request_amount), 0))}` : ""}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, active, deds)]) })}
+      <div class="docgrid">${docCard({ key: "inv", title: `Invoice ${inv.invoice_no}`, tag: "System Generated", sub: `Made by the E-Portal · ₱ ${peso(inv.total_amount)} · ${mdy(inv.invoice_date)}${deds.length ? ` · CORRECTED: ₱ ${peso(num(inv.total_amount) - deds.reduce((t, m) => t + num(m.request_amount), 0))}` : ""}`, ownerType: "invoice", ownerId: inv.id, att, kind: "__system", canUpload: false, print: () => gatePrint("invoice", inv.id, `Invoice ${inv.invoice_no}`, () => E.openPreview(`Invoice ${inv.invoice_no}`, [invoicePage(inv, active, deds)])) })}
         ${copyCard({ key: "invcopy", title: `Invoice ${inv.invoice_no}`, tag: "Paper Copy", sub: "Scan or upload the paper invoice", ownerType: "invoice", ownerId: inv.id, att, kind: "signed_form" })}</div>
       <div><b>Other Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No other files.")}</div>
       </div>
@@ -1818,7 +1861,7 @@
         ${links.length ? links.map((l) => `<div class="lp-row"><a href="#invoice/${l.invoice_id}"><b>${esc(l.customer_invoices?.invoice_no || "")}</b></a><span>Linked ${esc(E.dateTime(l.linked_at))}${l.linked_by_name ? ` by ${esc(l.linked_by_name)}` : ""}</span><b>₱ ${peso(l.amount)}</b><span class="pill active">LINKED</span></div>`).join("")
           : `<div class="empty small">Not linked to an invoice: it pays the customer's oldest invoices first. Link it on the invoice page (Link a Payment).</div>`}
         <div class="lp-sum"><span>Available to link</span><b>₱ ${peso(num(p.amount) - linked)}</b></div></div>`}
-      <div class="docgrid">${docCard({ key: "ack", title: `Acknowledgment Receipt ${p.receipt_no}`, sub: `₱ ${peso(p.amount)} · ${mdy(p.paid_date)}`, ownerType: "payment", ownerId: p.id, att, print: () => E.openPreview(`Acknowledgment ${p.receipt_no}`, [ackPage(p)]), uploadLabel: "Upload Copy", copyName: "Copy" })}</div>
+      <div class="docgrid">${docCard({ key: "ack", title: `Acknowledgment Receipt ${p.receipt_no}`, sub: `₱ ${peso(p.amount)} · ${mdy(p.paid_date)}`, ownerType: "payment", ownerId: p.id, att, print: () => gatePrint("payment", p.id, `Payment ${p.receipt_no}`, () => E.openPreview(`Acknowledgment ${p.receipt_no}`, [ackPage(p)])), uploadLabel: "Upload Copy", copyName: "Copy" })}</div>
       <div><b>Uploaded Receipts &amp; Files</b>${filesHtml(att.filter((a) => a.kind !== "signed_form"), "No receipts uploaded.")}</div>
       </div>
       <div class="wfoot">${tools("payments_received", p, `Receipt ${p.receipt_no}`, { reload: () => V.payment(id), afterDelete: () => (location.hash = "payments") })}<a class="btn" href="#payments">Close</a></div></div>`;
