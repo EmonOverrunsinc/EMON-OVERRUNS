@@ -1025,6 +1025,11 @@
       $$("#pfTabs button").forEach((x) => x.classList.toggle("on", x === t));
       $$(".tabpanes > div").forEach((p) => (p.hidden = p.dataset.p !== t.dataset.t));
     }));
+    // 3.64: a staff login without "13 See Balances & History" sees no purchase history (statements, invoices, payments, memos, overdue, returns)
+    if (S.hideMoney) {
+      [1, 2, 3, 4, 7, 8].forEach((i) => { $(`#pfTabs [data-t="${i}"]`)?.remove(); $(`.tabpanes [data-p="${i}"]`)?.remove(); });
+      $("#pfTabs")?.insertAdjacentHTML("beforebegin", `<div class="banner info">${ic("shield")} The balance and the purchase history of this customer are for EMON HASAN only. You can still record invoices, payments and orders.</div>`);
+    }
     E.keepTab("#pfTabs", "customer:" + c.id);
     if (showOrders) E.customerOrdersOf(c.id).then((rows) => {
       const el = $("#pfOrders"); if (!el || !here()) return;
@@ -1433,7 +1438,9 @@
     const { data, error } = await E.allRows(() => sb.from("invoice_balances").select("*").order("invoice_date", { ascending: false }).order("created_at", { ascending: false }).order("id"));
     if (!here()) return; // another page was opened while the invoices loaded
     if (error) return fail(error, "Could not load invoices");
-    const all = data || [];
+    // 3.64: a staff login without "13 See Balances & History" sees only the invoices it recorded
+    const all = S.hideMoney ? (data || []).filter((r) => r.created_by === E.meId()) : data || [];
+    if (S.hideMoney) $("#ivRes").insertAdjacentHTML("beforebegin", `<div class="banner info">${ic("shield")} You see only the invoices you recorded. The other invoices are for EMON HASAN only.</div>`);
     $$("#ivTabs [data-n]").forEach((x) => (x.textContent = `(${invPick(all, x.dataset.n).length})`));
     const run = (f) => {
       const rows = invPick(all, f);
@@ -1714,7 +1721,9 @@
     const { data, error } = await E.allRows(() => sb.from("payments_received").select("*, customers(first_name,last_name,account_no)").order("created_at", { ascending: false }).order("id"));
     if (!here()) return;
     if (error) return fail(error, "Could not load payments");
-    const rows = data || [];
+    // 3.64: a staff login without "13 See Balances & History" sees only the payments it recorded
+    const rows = S.hideMoney ? (data || []).filter((r) => r.created_by === E.meId()) : data || [];
+    if (S.hideMoney) $("#pyRes").insertAdjacentHTML("beforebegin", `<div class="banner info">${ic("shield")} You see only the payments you recorded. The other payments are for EMON HASAN only.</div>`);
     $("#pyRes").innerHTML = E.grid({ cols: PAY_COLS, rows, onRow: true, foot: { amount: peso(rows.reduce((s, r) => s + num(r.amount), 0)) }, empty: "No payments yet." });
     E.bindGrid($("#pyRes"), rows, (r) => (location.hash = "payment/" + r.id));
     E.setRecords(`Payments: ${rows.length}`);

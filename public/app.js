@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.63";
+  const VERSION = "3.64";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.63.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.64.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -35,7 +35,7 @@
 
   // ---------- helpers ----------
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  // 3.63: amounts are hidden (•••••) on the screens and prints of a staff login without "13 See Amounts (₱)"
+  // 3.63: amounts are hidden (•••••) on the screens and prints of a staff login without "13 See Balances & History (₱)"
   const peso = (n) => (S.hideMoney ? "•••••" : Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   const pad = (n) => String(n).padStart(2, "0");
   // 2.9: small helpers shared by every section (they were written again in each file)
@@ -510,7 +510,7 @@
       data && data.role !== "admin" ? sb.from("employees").select("position").eq("profile_id", data.id).maybeSingle().then((r) => r.data?.position || "", () => "") : ""
     ]);
     S.mainDirector = md === true; S.position = pos;
-    // 3.63: a staff login sees amounts only with "13 See Amounts (₱)"; the screen carries the login's name (against screenshots)
+    // 3.63: a staff login sees amounts only with "13 See Balances & History (₱)"; the screen carries the login's name (against screenshots)
     S.hideMoney = !!data && data.role !== "admin" && Array.isArray(data.modules) && !data.modules.includes("money");
     staffMark(data);
   }
