@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.65";
+  const VERSION = "3.66";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.65.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.66.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -2144,6 +2144,34 @@
     if (!booted) { booted = true; S.profile = null; setTimeout(() => Promise.race([loadBranding(), new Promise((r) => setTimeout(r, 350))]).then(route), 0); return; }
     if (changedUser) { S.profile = null; badgeState.at = 0; pageMemo.clear(); trail.length = 0; stopTimers(); setTimeout(route, 0); }
   });
+
+  // 3.66: every date box shows the portal's date (JUNE 30 2026; a month box: JUNE 2026), not the phone's own format
+  // (30/06/2026). The box stays the phone's / computer's own date picker; only what it shows is written over it.
+  const valDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  function dateBox(inp) {
+    if (inp.dataset.dx || !inp.parentNode) return;
+    inp.dataset.dx = "1";
+    const wrap = document.createElement("span");
+    wrap.className = "dx";
+    inp.parentNode.insertBefore(wrap, inp);
+    wrap.appendChild(inp);
+    const show = document.createElement("span");
+    show.className = "dx-show"; show.setAttribute("aria-hidden", "true");
+    wrap.appendChild(show);
+    const paint = () => {
+      const v = valDesc.get.call(inp);
+      show.textContent = v ? (inp.type === "month" ? monthText(v + "-01") : mdy(v)) : (inp.type === "month" ? "Choose the month" : "Choose a date");
+      wrap.classList.toggle("dx-none", !v);
+    };
+    // a value set by the portal (not typed) shows too
+    Object.defineProperty(inp, "value", { configurable: true, get() { return valDesc.get.call(this); }, set(v) { valDesc.set.call(this, v); paint(); } });
+    inp.addEventListener("input", paint); inp.addEventListener("change", paint);
+    paint();
+  }
+  const dateBoxes = (root) => root.querySelectorAll?.('input[type="date"]:not([data-dx]), input[type="month"]:not([data-dx])').forEach(dateBox);
+  new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.matches?.('input[type="date"], input[type="month"]')) dateBox(n); else dateBoxes(n); } })
+    .observe(document.documentElement, { childList: true, subtree: true });
+  dateBoxes(document);
 
   // exposed for testing barcode round-trips
   window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words, need };
