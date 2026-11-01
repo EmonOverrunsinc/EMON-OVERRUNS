@@ -2741,3 +2741,11 @@ input, select, textarea { transition: border-color .2s, box-shadow .2s, backgrou
 @media print { #staffWm { display: none !important; } }
 .banner.info { background: #eef4ff; color: #1e3a6e; border: 1px solid #c7d7f5; display: flex; align-items: center; gap: 8px; }
 .banner.info svg { width: 18px; height: 18px; flex: none; }
+/* 3.66: the portal's date written over the date box (the box keeps its own picker) */
+.dx { position: relative; display: block; min-width: 0; }
+.dx > input { width: 100%; color: transparent !important; }
+.dx > input::-webkit-datetime-edit { color: transparent; }
+.dx > .dx-show { position: absolute; left: 12px; right: 38px; top: 50%; transform: translateY(-50%); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink, #1c2433); font-size: inherit; }
+.dx.dx-none > .dx-show { color: #8a94a6; }
+.dx > input { display: block; box-sizing: border-box; -webkit-appearance: none; appearance: none; text-align: left; min-height: 36px; margin: 0; }
+.dx > input[type=month] { border: 1px solid #d2d2d7; border-radius: var(--ctl-r, 10px); padding: 7px 10px; background: #fff; font-size: 14px; min-width: 170px; }

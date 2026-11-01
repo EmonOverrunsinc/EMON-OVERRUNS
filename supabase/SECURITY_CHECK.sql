@@ -32,7 +32,7 @@ with t as (
     else 'CHECK  other functions a visitor can run: ' || string_agg(proname, ', ') filter (where proname not in ('card_set_password','card_state',
       'check_employee_card','co_paper_folder','delivery_add_box','delivery_complete','delivery_find_box','delivery_order','delivery_photos',
       'delivery_remove_box','delivery_save','login_email','submit_contact_message','username_available','verify_record')) end
-  from pg_proc p where pronamespace = 'public'::regnamespace and prosecdef and has_function_privilege('anon', p.oid, 'execute')
+  from pg_proc p where pronamespace = 'public'::regnamespace and prosecdef and has_function_privilege('anon', p.oid, 'execute') and p.prorettype <> 'event_trigger'::regtype
   union all
   select 7, case when to_regprocedure('public.verify_record_full(text)') is not null and not has_function_privilege('anon', 'public.verify_record_full(text)', 'execute')
     then 'OK     the public Verify page shows no names or amounts to visitors (3.57)'
