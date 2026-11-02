@@ -9,7 +9,7 @@
   const VERSION = "3.73";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.74.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.75"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -1029,6 +1029,7 @@
     ["forms", "Download Forms", () => true, "download"],
     ["printreqs", "Print Requests", () => isAdmin(), "print"], // 3.65
     ["gateai", "EVA AI", () => isAdmin(), "ai"], // 3.38 (3.38.1: named EVA, EMON Virtual Assistant)
+    ["kyc", "KYC Verification", () => isAdmin(), "idcard"], // 3.75: optional KYC with a live face check
     ["legal", "Legal Terms", () => true, "doc"] // 3.69: the terms every login accepts; EMON HASAN sees every acceptance
   ];
   const ACTIVE_OF = { employees: "eooffice", newemployee: "eooffice", editemployee: "eooffice", employee: "eooffice", payroll: "eooffice", payslip: "eooffice", creditmemos: "eooffice", newcreditmemo: "eooffice", creditmemo: "eooffice", projects: "eooffice", newproject: "eooffice", project: "eooffice", jobapps: "eooffice", jobapp: "eooffice", positions: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", ebill: "inventory", custorders: "eooffice", newcustorder: "eooffice", editcustorder: "eooffice", custorder: "eooffice", insurance: "eooffice", find: "", profile: "", settings: "" };
