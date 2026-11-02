@@ -173,17 +173,55 @@
     return `${os} · ${br}${app} · screen ${screen.width}x${screen.height} · ${ua}`.slice(0, 400);
   };
 
+  // 3.71: what the device can tell (kept with the agreement)
+  const deviceDetails = () => {
+    const ua = navigator.userAgent || "";
+    let tz = ""; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (_) {}
+    return { device: device().split(" · ").slice(0, 3).join(" · "), screen: `${screen.width}x${screen.height}`, time_zone: tz, language: navigator.language || "",
+      platform: navigator.userAgentData?.platform || navigator.platform || "", touch: (navigator.maxTouchPoints || 0) > 0, cpu_cores: navigator.hardwareConcurrency || null,
+      local_time: new Date().toString().slice(0, 60), user_agent: ua.slice(0, 300) };
+  };
+  // the location, when the phone or computer allows it (asks the person); never blocks for long
+  const getLocation = () => new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve({ status: "not available on this device" });
+    let done = false; const end = (v) => { if (!done) { done = true; resolve(v); } };
+    setTimeout(() => end({ status: "no answer from the device" }), 9000);
+    navigator.geolocation.getCurrentPosition(
+      (p) => end({ status: "allowed", lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6), accuracy_m: Math.round(p.coords.accuracy || 0), at: new Date(p.timestamp || Date.now()).toISOString() }),
+      (e) => end({ status: e && e.code === 1 ? "not allowed by the person" : "not available" }), { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+  });
+  const locText = (l) => (!l ? "—" : l.status === "allowed" ? `${l.lat}, ${l.lng} (within ${l.accuracy_m} m) · maps.google.com/?q=${l.lat},${l.lng}` : String(l.status || "—").toUpperCase());
+  // the signature pad (finger, pen or mouse)
+  function sigPad(canvas) {
+    const ctx = canvas.getContext("2d"); let drawing = false, last = null, inked = false;
+    const fit = () => { const r = canvas.getBoundingClientRect(); canvas.width = Math.max(300, Math.round(r.width * 2)); canvas.height = Math.round(canvas.width * 0.32);
+      ctx.lineWidth = 5; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#0b1f4d"; ctx.clearRect(0, 0, canvas.width, canvas.height); inked = false; };
+    const pt = (e) => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) * (canvas.width / r.width), (e.clientY - r.top) * (canvas.height / r.height)]; };
+    canvas.addEventListener("pointerdown", (e) => { e.preventDefault(); canvas.setPointerCapture?.(e.pointerId); drawing = true; last = pt(e); });
+    canvas.addEventListener("pointermove", (e) => { if (!drawing) return; const p2 = pt(e); ctx.beginPath(); ctx.moveTo(...last); ctx.lineTo(...p2); ctx.stroke(); last = p2; if (!inked) { inked = true; canvas.dispatchEvent(new Event("inked")); } });
+    const up = () => { drawing = false; }; canvas.addEventListener("pointerup", up); canvas.addEventListener("pointerleave", up); canvas.addEventListener("pointercancel", up);
+    requestAnimationFrame(fit);
+    return { clear: () => { fit(); canvas.dispatchEvent(new Event("inked")); }, inked: () => inked, png: () => canvas.toDataURL("image/png") };
+  }
+
   // ---------- the print: the terms, and the acceptance when there is one ----------
   function pages(acc, t = "portal") {
     if (acc) t = typeOf(acc.terms_version);
     const head = E.printHead(TYPES[t], `<div class="mono">${esc(acc?.ref_no || "VERSION " + VER(t))}</div>`);
     const secs = sectionsFor(t);
     const one = (list, first) => `${first ? head : ""}<div class="lg-print">${list.map(([h, b]) => `<section class="lg-sec"><h4>${esc(h)}</h4>${b}</section>`).join("")}</div>`;
-    const accBox = acc ? `<div class="lg-print"><section class="lg-sec lg-acc"><h4>ACCEPTANCE RECORD</h4><table class="ol-grid"><tbody>
-        ${[["Acceptance No", acc.ref_no], ["Agreement", TYPES[t]], ["Name", acc.full_name], ["Email", acc.email], ["Role", acc.role === "admin" ? "Managing Director (full access)" : acc.role],
-          ["Version", acc.terms_version], ["Accepted On", E.dateTime(acc.accepted_at)], ["Agreed", "YES — \"I have read all and I agree\" ticked and submitted"],
-          ["Device", acc.device], ["IP Address", acc.ip_address || "—"], ["Text Fingerprint (SHA-256)", acc.terms_hash]].map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v || "")}</td></tr>`).join("")}
-      </tbody></table><p class="pdecl">This record was made by the EMON OVERRUNS E-PORTAL server when the person above pressed Submit. It cannot be changed or deleted.</p></section></div>` : "";
+    const d = acc?.details || {};
+    const accBox = acc ? `<div class="lg-print"><section class="lg-sec lg-acc"><h4>SIGNED AGREEMENT RECORD</h4><table class="ol-grid"><tbody>
+        ${[["Acceptance No", acc.ref_no], ["Agreement", TYPES[t]], ["Version", acc.terms_version], ["Name", acc.full_name], ["Role", acc.role === "admin" ? "Managing Director (full access)" : acc.role],
+          ["Email", acc.email || d.email], ["Username", d.username], ["Employee No", d.employee_no], ["Position", d.position], ["Account No", d.account_no], ["Application No", d.application_no],
+          ["Business Name", d.business_name], ["Phone", d.phone], ["Public ID", d.public_id], ["Login ID", d.login_id || acc.user_id], ["Customer ID", d.customer_id || acc.customer_id],
+          ["Agreed On (Date and Time)", `${E.dateTime(acc.accepted_at)} (Philippine time)`], ["Agreed", "YES — \"I have read all and I agree\" ticked and submitted"],
+          ["Location", locText(acc.location)], ["IP Address", acc.ip_address || "—"], ["Device", d.device || String(acc.device || "").split(" · ").slice(0, 3).join(" · ")],
+          ["Screen · Language · Time Zone", [d.screen, d.language, d.time_zone].filter(Boolean).join(" · ")], ["Device Local Time", d.local_time], ["Browser", d.user_agent || acc.device],
+          ["Text Fingerprint (SHA-256)", acc.terms_hash]].filter(([, v]) => v != null && v !== "").map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}
+      </tbody></table>
+      ${acc.signature ? `<div class="lg-sig"><img src="${esc(acc.signature)}" alt="Signature"><div class="lg-sigline">${esc(String(acc.full_name || "").toUpperCase())}</div><small>Signature drawn when agreeing · ${esc(E.dateTime(acc.accepted_at))}</small></div>` : ""}
+      <p class="pdecl">This record was made by the EMON OVERRUNS E-PORTAL server when the person above pressed Submit. It cannot be changed or deleted. It is an electronic document and an electronic signature under Republic Act No. 8792.</p></section></div>` : "";
     const out = [one(secs.slice(0, 3), true)];
     for (let i = 3; i < secs.length; i += 2) out.push(one(secs.slice(i, i + 2), false));
     out[out.length - 1] += accBox;
@@ -228,11 +266,18 @@
       <div class="legal-body" id="lgBody" tabindex="0">${termsHtml(t)}<p class="lg-end">— END OF THE ${esc(TYPES[t])} —</p></div>
       <div class="legal-foot">
         <label class="lg-agree"><input type="checkbox" id="lgAgree"> <span><b>I have read all and I agree</b> to all of this ${esc(TYPES[t])}.</span></label>
+        ${t === "employee" ? `<div class="lg-sigbox" id="lgSigBox" hidden><div class="lg-sigh"><b>Sign here</b> (required) <button type="button" class="linkbtn" id="lgSigClear">Clear</button></div><canvas id="lgSig" aria-label="Signature pad"></canvas></div>` : ""}
+        <small class="muted">${ic("shield")} When you submit, your IDs, device, IP address and location (if your device allows it) are kept with your agreement.</small>
         <div class="btnrow"><button type="button" class="btn" id="lgPrint">${ic("print")} Print / Download</button><button type="button" class="btn danger" id="lgOut">${ic("x")} Reject</button>
           <button type="button" class="btn primary" id="lgSubmit" disabled>${ic("check")} Submit</button></div>
         <small class="muted">Signed in as ${esc(who)}. ${opts.onSubmit ? "Your account opens only after you agree." : "The portal opens only after you agree."} <b>Reject</b> signs you out; the agreement shows again at your next sign in.</small></div></div>`;
     document.body.appendChild(ov);
-    $("#lgAgree", ov).onchange = (e) => { $("#lgSubmit", ov).disabled = !e.target.checked; };
+    let pad = null;
+    const ready = () => { $("#lgSubmit", ov).disabled = !$("#lgAgree", ov).checked || (t === "employee" && !(pad && pad.inked())); };
+    $("#lgAgree", ov).onchange = (e) => {
+      if (t === "employee") { $("#lgSigBox", ov).hidden = !e.target.checked; if (e.target.checked && !pad) { pad = sigPad($("#lgSig", ov)); $("#lgSig", ov).addEventListener("inked", ready); $("#lgSigClear", ov).onclick = () => pad.clear(); } }
+      ready();
+    };
     $("#lgOut", ov).onclick = async () => {
       if (!(await E.confirmBox(`<b>Reject the ${esc(TYPES[t])}?</b><br><br>You will be signed out now. You cannot use the portal until you agree. The rejection is recorded.`, { title: "Reject", ok: "Reject and Sign Out", danger: true }))) return;
       ov.remove();
@@ -249,14 +294,19 @@
     $("#lgSubmit", ov).onclick = async (e) => {
       if (!$("#lgAgree", ov).checked) return;
       const btn = e.currentTarget; btn.disabled = true;
+      const busyTxt = btn.innerHTML; btn.innerHTML = `<span class="spin sm"></span> Saving…`;
+      const extra = { details: deviceDetails(), location: await getLocation(), signature: t === "employee" && pad ? pad.png() : null };
+      btn.innerHTML = busyTxt;
       if (opts.onSubmit) { // a customer (Public ID + Private PIN, no login)
-        const r = await opts.onSubmit(await sha256(plain(t)), device());
+        const r = await opts.onSubmit(await sha256(plain(t)), device(), extra);
         if (!r?.ok) { btn.disabled = false; return toast(r?.error || "Could not record your agreement.", true); }
         ov.classList.add("out"); setTimeout(() => ov.remove(), 220);
         toast(`Thank you. Your agreement ${r.ref_no || ""} is recorded. Your account is VERIFIED.`);
         return opts.after?.(r);
       }
-      const { data, error } = await sb.rpc("accept_legal_terms", { p_version: VER(t), p_hash: await sha256(plain(t)), p_device: device() });
+      const base = { p_version: VER(t), p_hash: await sha256(plain(t)), p_device: device() };
+      let { data, error } = await sb.rpc("accept_legal_terms", { ...base, p_details: extra.details, p_location: extra.location, p_signature: extra.signature });
+      if (error && /function|schema cache|PGRST202/i.test(error.message + (error.code || ""))) ({ data, error } = await sb.rpc("accept_legal_terms", base)); // the server has not 076 yet
       if (error) { btn.disabled = false; return fail(error, "Could not record your agreement"); }
       ov.classList.add("out"); setTimeout(() => { ov.remove(); E.route(); }, 220); // the next agreement, if there is one; else the portal opens
       toast(`Thank you. Your ${TYPES[t]} ${data?.ref_no || ""} is recorded.`);
@@ -266,7 +316,7 @@
   // ---------- Legal Terms page (menu OTHER) ----------
   V.legal = async () => {
     E.shell("legal", "Legal Terms", `<div id="lgRes">${busy()}</div>`, isAdmin()
-      ? "Every login accepts these terms once after signing in. Each acceptance is kept on the server for good: who, when, device, IP address and the fingerprint of the exact text. Find anyone here and print their record."
+      ? "Every login and customer agrees before using the portal. Each agreement is kept on the server for good: who, their IDs, date and time, device, IP address, location (when allowed), the employee's signature and the fingerprint of the exact text. Press a line to open its signed agreement and download it as a PDF."
       : "The terms you accepted, and your acceptance record. Print or download it any time.");
     const here = E.stillHere();
     const [acc, profs, rej] = await Promise.all([
@@ -300,6 +350,7 @@
         { label: "Acceptance No", get: (r) => r.ref_no || "" }, { label: "Name", get: (r) => r.full_name || "" }, { label: "Email", get: (r) => r.email || "" },
         { label: "Role", get: (r) => (r.role === "admin" ? "Full Access" : r.role || "") }, { label: "Agreement", get: (r) => TYPES[typeOf(r.terms_version)] },
         { label: "Accepted On", get: (r) => E.dateTime(r.accepted_at) }, { label: "IP Address", get: (r) => r.ip_address || "" },
+        { label: "Location", get: (r) => (r.location?.status === "allowed" ? "✔ FOUND" : r.location ? "NOT ALLOWED" : "—") }, { label: "Signature", get: (r) => (r.signature ? "✔ SIGNED" : "") },
         { label: "Device", get: (r) => String(r.device || "").split(" · ").slice(0, 3).join(" · ") }], rows: list, onRow: true, empty: "No acceptance matches." });
       E.bindGrid($("#lgList"), list, (r) => printTerms(r));
     };
@@ -356,7 +407,11 @@
       if (data.agreed) return open(data);
       show({ type: "customer", who: `${data.name} (${data.account_no || ""})`, onOut: () => renderCustLogin(),
         onReject: (dev) => sb.rpc("customer_reject_terms", { p_public: pub, p_pin: pin, p_version: VER("customer"), p_device: dev }),
-        onSubmit: async (hash, dev) => { const r = await sb.rpc("customer_accept_terms", { p_public: pub, p_pin: pin, p_version: VER("customer"), p_hash: hash, p_device: dev }); return r.error ? { ok: false, error: r.error.message } : r.data; },
+        onSubmit: async (hash, dev, extra = {}) => {
+          const base = { p_public: pub, p_pin: pin, p_version: VER("customer"), p_hash: hash, p_device: dev };
+          let r = await sb.rpc("customer_accept_terms", { ...base, p_details: extra.details || null, p_location: extra.location || null, p_signature: extra.signature || null });
+          if (r.error && /function|schema cache|PGRST202/i.test(r.error.message + (r.error.code || ""))) r = await sb.rpc("customer_accept_terms", base); // the server has not 076 yet
+          return r.error ? { ok: false, error: r.error.message } : r.data; },
         after: (r) => open({ ...data, agreed: r }) });
     };
   }
@@ -381,6 +436,11 @@
     if (!el) return;
     const { data, error } = await sb.rpc("customer_legal", { p_customer: customerId });
     if (error || !el.isConnected) return;
+    if (data && isAdmin()) {
+      el.innerHTML = `<button type="button" class="ver-badge" title="Open the customer's signed agreement (PDF) · ${esc(E.dateTime(data.accepted_at))} · ${esc(data.ref_no || "")}">${ic("check")} VERIFIED</button>`;
+      el.firstChild.onclick = async () => { const { data: a } = await sb.from("legal_acceptances").select("*").eq("customer_id", customerId).order("accepted_at", { ascending: false }).limit(1).maybeSingle(); if (a) printTerms(a); };
+      return;
+    }
     el.innerHTML = data ? `<span class="ver-badge" title="Agreed to all the legal terms on ${esc(E.dateTime(data.accepted_at))} · ${esc(data.ref_no || "")}">${ic("check")} VERIFIED</span>` : `<span class="ver-badge no" title="The customer has not signed in and agreed to the legal terms yet">NOT VERIFIED</span>`;
   }
 
