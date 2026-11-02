@@ -7,6 +7,8 @@
   "use strict";
   const E = window.EO, V = (window.EO_VIEWS = window.EO_VIEWS || {});
   const { sb, S, C, esc, peso, mdy, $, $$, isAdmin, toast, fail, ic, busy, num, fullName } = E;
+  // 3.76: the payment due extension of an insured order's invoice (days after its due date; insurance settings)
+  let DUE = 15;
   const METHODS = { gcash: "GCash / Online", bank: "Bank Transfer / Deposit", cash: "Cash", check: "Check", other: "Other" };
   const ST = { unpaid: ["pending", "WAITING FOR PAYMENT"], review: ["pending", "PAYMENT IN REVIEW"], rejected: ["rejected", "PAYMENT NOT ACCEPTED"], cancelled: ["rejected", "CANCELLED"] };
   const canW = () => isAdmin() || E.canWrite("eooffice");
@@ -14,7 +16,8 @@
   const needUpdate = `<div class="empty">Insurance needs the database update 3.72 (077_insurance.sql). Ask EMON HASAN to run it.</div>`;
 
   async function settings() {
-    const { data } = await sb.from("company_settings").select("ins_box_price, ins_rate_pct, pay_qr_path, pay_qr_note").eq("id", 1).maybeSingle();
+    const { data } = await sb.from("company_settings").select("*").eq("id", 1).maybeSingle();
+    if (data?.ins_due_days != null) DUE = Number(data.ins_due_days);
     return data || { ins_box_price: 50, ins_rate_pct: 0.5 };
   }
   // EMON HASAN's InstaPay QR is the default until another one is uploaded in Insurance Settings
@@ -149,6 +152,7 @@
     return `<fieldset class="opt"><legend>Insurance Settings (EMON HASAN)</legend><div class="ins-set">
       <div class="fields"><label for="isBp">Price per Box (₱)</label><input type="number" id="isBp" min="0" step="0.01" value="${esc(s.ins_box_price ?? 50)}">
         <label for="isRate">Rate of the Order Value (%)</label><input type="number" id="isRate" min="0" max="100" step="0.001" value="${esc(s.ins_rate_pct ?? 0.5)}">
+        ${s.ins_due_days != null ? `<label for="isDue">Payment Due Extension (days after the invoice due date)</label><input type="number" id="isDue" min="0" max="120" step="1" value="${esc(s.ins_due_days)}">` : ""}
         <label for="isNote">Payment Note (under the QR)</label><input type="text" id="isNote" maxlength="160" placeholder="e.g. GCASH 0917 000 0000 · EMON HASAN" value="${esc(s.pay_qr_note || "")}"></div>
       <div class="ins-qr-set"><img src="${esc(q)}" alt="Payment QR code"><small class="muted">${s.pay_qr_path ? "Uploaded QR" : "InstaPay QR (default)"}</small>
         <label class="btn" for="isQr">${ic("image")} Change Payment QR</label><input type="file" id="isQr" accept="image/*" hidden></div></div>
@@ -156,7 +160,7 @@
   }
   function bindSettings(s) {
     $("#isSave").onclick = async () => {
-      const r = await sb.from("company_settings").update({ ins_box_price: num($("#isBp").value), ins_rate_pct: num($("#isRate").value), pay_qr_note: $("#isNote").value.trim() || null, updated_at: new Date().toISOString() }).eq("id", 1);
+      const r = await sb.from("company_settings").update({ ins_box_price: num($("#isBp").value), ins_rate_pct: num($("#isRate").value), pay_qr_note: $("#isNote").value.trim() || null, ...($("#isDue") ? { ins_due_days: Math.round(num($("#isDue").value)) } : {}), updated_at: new Date().toISOString() }).eq("id", 1);
       if (r.error) return fail(r.error, "Could not save");
       toast("Insurance settings saved."); V.insurance();
     };
@@ -297,9 +301,11 @@
       <li><b>WRONG BUNDLE:</b> a bundle with the wrong items or the wrong number of pieces is exchanged or completed free of charge.</li>
       <li><b>WRONG BOX:</b> a box delivered by mistake (not in the order, or meant for another customer) is collected and replaced free — ${esc(C.company.name)} pays the shipping fee both ways.</li>
       <li><b>WRONG QUANTITY:</b> boxes or pieces missing against the order and the delivery list are delivered free or credited to the account.</li>
-      <li><b>UNSOLD BOXES:</b> sealed boxes not sold can be returned and exchanged for new items of the same value.</li></ol>
+      <li><b>UNSOLD BOXES:</b> sealed boxes not sold can be returned and exchanged for new items of the same value.</li>
+      <li><b>PAYMENT DUE EXTENSION:</b> the invoice of this order gets <b>${DUE} more days</b> to pay after its due date (e.g. ordered NOV 15 on 15 DAYS terms: due NOV 30 → <b>DEC 15</b>).</li></ol>
     <h4>POLICY PERIOD</h4><ol>
-      <li>From the date of issue until <b>15 days after the delivery</b>${i?.valid_until ? ` (<b>expires ${esc(mdy(i.valid_until))}</b>)` : ""}. No claim is accepted after the coverage expires.</li></ol>
+      <li><b>BENEFITS EXPIRE:</b> from the date of issue until <b>15 days after the delivery</b>${i?.valid_until ? ` (<b>${esc(mdy(i.valid_until))}</b>)` : ""}. No claim is accepted after that.</li>
+      <li><b>PAYMENT DUE EXTENSION:</b> the invoice due date (from the terms: 7, 15 or 30 days) <b>+ ${DUE} days</b>${i?._due ? ` (<b>${esc(mdy(i._due.base))} → ${esc(mdy(i._due.ext))}</b>)` : ""}.</li></ol>
     <h4>CONDITIONS</h4><ol>
       <li>The box must be kept <b>SEALED</b> as delivered. <b>An opened box cannot be claimed</b> (the seal and the box serial no are checked against the delivery list).</li>
       <li>Only the insured boxes of order ${esc(i?.order_no || "")} are covered. Every exchange is for items of the same value; there is no cash refund.</li></ol>
@@ -317,12 +323,22 @@
     const approver = (!i.issued_by_eva && String(i.approved_by_name || "").split(" · ").pop().trim()) || DIRECTOR;
     return { approver, verified: { name: i.issued_by_eva ? "EVA AI" : approver, note: "" }, issued: { name: approver, note: `Coverage issued · ${E.dateTime(i.approved_at)}` } };
   }
+  // 3.76: the invoice due date of an insured order: before and after the extension
+  const plusDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  async function dueOf(invoice) {
+    if (!invoice?.id) return null;
+    const [b, c] = await Promise.all([sb.from("invoice_balances").select("due_date").eq("id", invoice.id).maybeSingle(), sb.from("customer_invoices").select("*").eq("id", invoice.id).maybeSingle()]);
+    const ext = b.data?.due_date, days = Number(c.data?.due_extension_days || 0);
+    return ext && days ? { base: plusDays(ext, -days), ext, days } : null;
+  }
   async function printCert(i, o, invoice, cv) {
     await E.loadSignatures?.().catch(() => {});
     const st = stateOf(i), c = o?.customers || {}, ok = st.k === "valid";
     const who = certSigners(i);
     const sign = E.approvedBy(i.issued_by_eva ? null : i.approved_by, who.approver, i.approved_at) || { name: who.approver, at: i.approved_at, pic: "" };
     const until = i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY";
+    await settings().catch(() => {}); // the due extension days
+    i = { ...i, _due: await dueOf(invoice) };
     const name = i.customer_name || fullName(c), boxes = `${E.qtyText(i.boxes)} ${Number(i.boxes) === 1 ? "BOX" : "BOXES"}`;
     const ordBar = i.order_no ? `<div class="ic-ord"><img src="${E.pdf417DataUrl("EMONCO|" + i.order_no)}" alt="" class="ph-bar"><small>ORDER NO</small><b class="mono">${esc(i.order_no)}</b></div>` : "";
     const codes = `<img src="${E.pdf417DataUrl("EMONINS|" + i.ins_no)}" alt="" class="ph-bar"><div class="mono">${esc(i.ins_no)}</div>`;
@@ -337,7 +353,9 @@
             <p>${c.account_no ? `(Account No <b>${esc(c.account_no)}</b>) ` : ""}is covered by EO-Office Insurance for <b>${esc(boxes)} (SEALED)</b> of order <b>${esc(i.order_no || "")}</b>,
             from <b>${esc(mdy(i.issued_at))}</b> until <b>${esc(until)}</b>, under the coverage and terms below.</p></div>${ordBar}
         </div>
-        <div class="ic-tiles">${tile("Certificate No", i.ins_no)}${tile("Boxes Covered", boxes)}${tile("Premium Paid", "PHP " + peso(i.amount))}${tile(ok || st.k === "expired" ? "Valid Until" : "Status", ok || st.k === "expired" ? until : st.label, "hl")}</div>
+        <div class="ic-tiles">${tile("Certificate No", i.ins_no)}${tile("Boxes Covered", boxes)}${tile("Premium Paid", "PHP " + peso(i.amount))}${tile(ok || st.k === "expired" ? "Payment Due (extended)" : "Status", ok || st.k === "expired" ? (i._due ? mdy(i._due.ext) : `DUE DATE + ${DUE} DAYS`) : st.label, "hl")}</div>
+        <div class="ic-dates"><div><small>1 · BENEFITS EXPIRE</small><b>${esc(until)}</b><span>exchange / return benefits end</span></div>
+          <div><small>2 · PAYMENT DUE EXTENSION</small><b>${i._due ? `${esc(mdy(i._due.base))} → ${esc(mdy(i._due.ext))}` : `INVOICE DUE DATE + ${DUE} DAYS`}</b><span>+${DUE} days to pay after the invoice due date</span></div></div>
         <div class="ic-cols">
           <div><div class="ic-h">INSURED ORDER</div>${kv([["Customer", name], ["Account No", c.account_no || ""], ["Order No", i.order_no || ""], ["Invoice No", invoice?.invoice_no || (o?.status === "completed" ? "" : "AFTER DELIVERY")],
             ["Order Value", `PHP ${peso(i.order_amount)}`], ["Delivery", o?.delivered_at ? E.dateTime(o.delivered_at) : "NOT YET DELIVERED"]])}</div>
@@ -363,7 +381,7 @@
     if (i) {
       const st = stateOf(i);
       el.innerHTML = `<a class="ins-strip ${st.k}" href="#insurance/${i.id}"><span class="ins-seal">${ic("shield")}</span><span><small>INSURANCE ${esc(i.ins_no)}</small><b>${st.k === "valid" ? "COVERED" : esc(st.label)}</b></span>
-        ${i.status === "active" ? `<span class="ins-exp"><small>EXPIRES</small><b>${esc(st.short || "")}</b></span>` : ""}</a>`;
+        ${i.status === "active" ? `<span class="ins-exp"><small>BENEFITS EXPIRE</small><b>${esc(st.short || "")}</b><small>PAYMENT DUE +${DUE} DAYS</small></span>` : ""}</a>`;
       return;
     }
     if (!eligible(o) || !canW()) return;
@@ -422,9 +440,9 @@
   }
   const insNote = "Paid separately · fixed when issued · not added to this invoice (stays the same if the order changes)";
   const insBox = (i) => !i ? "" : `<a class="ins-strip valid ins-inv" href="#insurance/${i.id}"><span class="ins-seal">${ic("shield")}</span><span><small>INSURANCE COVERAGE ${esc(i.ins_no)} · STATUS: PAID</small>
-      <b>Coverage ₱ ${peso(i.amount)}</b><span class="ins-note">${esc(insNote)}</span></span><span class="ins-exp"><small>EXPIRES</small><b>${esc(stateOf(i).short || "")}</b></span></a>`;
-  const insPrintBox = (i) => !i ? "" : E.box("Insurance Coverage", `<div class="prow3">${E.cell("Certificate No", i.ins_no)}${E.cell("Coverage Amount (₱)", peso(i.amount))}${E.cell("Expires", i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY")}</div>
+      <b>Coverage ₱ ${peso(i.amount)}</b><span class="ins-note">${esc(insNote)}</span></span><span class="ins-exp"><small>BENEFITS EXPIRE</small><b>${esc(stateOf(i).short || "")}</b><small>PAYMENT DUE +${DUE} DAYS</small></span></a>`;
+  const insPrintBox = (i) => !i ? "" : E.box("Insurance Coverage", `<div class="prow3">${E.cell("Certificate No", i.ins_no)}${E.cell("Coverage Amount (₱)", peso(i.amount))}${E.cell("Benefits Expire", i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY")}</div><div class="prow3">${E.cell("Payment Due Extension", `+${DUE} DAYS AFTER THE DUE DATE`)}</div>
       <div class="pcell"><div class="pl">Note</div><div class="pv">STATUS: PAID · ${esc(insNote.toUpperCase())}</div></div>`);
 
-  Object.assign(E, { insOrderStrip, insVerify, insOffer, insForOrder, insForInvoice, insBox, insPrintBox });
+  Object.assign(E, { insDueOf: dueOf, insOrderStrip, insVerify, insOffer, insForOrder, insForInvoice, insBox, insPrintBox });
 })();

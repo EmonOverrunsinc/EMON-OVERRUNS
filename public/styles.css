@@ -2952,3 +2952,8 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .kyc-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; color: #0f5d2c; background: #e3f6ea; border: 1px solid #9fd8b6; border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
 .kyc-badge .ic { width: 12px; height: 12px; stroke: #0f7a43; }
 .lg-strict { color: #b42318; white-space: nowrap; } .lg-timer { font-variant-numeric: tabular-nums; }
+/* 3.76: the 2 dates of the coverage: benefits expire · payment due extension */
+.ic-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 2mm; margin: 0 0 2.5mm; }
+.ic-dates > div { border: 1.5px solid #0f7a43; border-radius: 6px; padding: 1.4mm 2.5mm; background: #fff; }
+.ic-dates small { display: block; font-size: 6.6pt; font-weight: 800; letter-spacing: .12em; color: #0f7a43; } .ic-dates b { display: block; font-size: 10.5pt; color: #0a2f1b; } .ic-dates span { display: block; font-size: 6.8pt; color: #4b5f53; }
+.ins-exp small + b + small { margin-top: 2px; }
