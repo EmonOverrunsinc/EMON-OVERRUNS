@@ -957,7 +957,7 @@
     E.shell("customer", "Customer Profile", busy());
     const here = E.stillHere();
     // 3.0: the customer and everything on the page are asked for at the same time (all need only the id)
-    const [c, att, bal, invs, pays, memos, ev, secret, ords] = await Promise.all([
+    const [c, att, bal, invs, pays, memos, ev, secret, ords, aiLog] = await Promise.all([
       getCustomer(id),
       attachmentsOf("customer", id),
       sb.from("customer_balances").select("*").eq("customer_id", id).maybeSingle(),
@@ -966,7 +966,8 @@
       sb.from("credit_memos").select("*").eq("customer_id", id).order("memo_date", { ascending: false }).order("created_at", { ascending: false }),
       sb.from("customer_events").select("*").eq("customer_id", id).order("created_at"),
       isAdmin() ? sb.from("customer_secrets").select("private_code").eq("customer_id", id).maybeSingle() : Promise.resolve({ data: null }),
-      sb.from("order_letters").select("*").eq("customer_id", id).order("created_at", { ascending: false })
+      sb.from("order_letters").select("*").eq("customer_id", id).order("created_at", { ascending: false }),
+      E.canAI?.() ? sb.from("ai_gate_log").select("id, suggestion, p_clear, reasons, decision, decided_by_name, created_at").eq("customer_id", id).then((r) => r, () => ({ data: [] })) : Promise.resolve({ data: [] })
     ]);
     if (!here()) return; // another page was opened while this one loaded
     if (!c) { $("#main").innerHTML = `<div class="empty">Customer not found. <a href="#customers">Back to Customers</a></div>`; return; }
@@ -985,7 +986,7 @@
     const overdue = (invs.data || []).filter(isOverdue).sort((x, y) => String(x.due_date).localeCompare(String(y.due_date)));
     const rets = [], cms = [];
     for (const m of memos.data || []) (m.is_return ? rets : cms).push(m);
-    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${cms.length})`, `Documents (${att.length})`, "History", `Overdue (${overdue.length})`, `Returns (${rets.length})`, `Gate Pass (${E.gateHistoryRows ? E.gateHistoryRows(orders, ev.data || []).length : 0})`];
+    const tabs = ["Details", "Statement of Account", `Invoices (${(invs.data || []).length})`, `Payments (${(pays.data || []).length})`, `Credit Memos (${cms.length})`, `Documents (${att.length})`, "History", `Overdue (${overdue.length})`, `Returns (${rets.length})`, `Gate Pass (${E.gateHistoryRows ? E.gateHistoryRows(orders, ev.data || [], aiLog.data || []).length : 0})`];
     const showOrders = isStaff() && !!E.customerOrdersOf; // 3.37: the customer's orders (tab 10)
     if (showOrders) tabs.push("Customer Orders");
     $(".band h1").textContent = `Customer — ${fullName(c)}`;
@@ -1030,7 +1031,7 @@
         <div data-p="5" hidden>${filesHtml(att.map((a) => a.kind === "signed_form" ? { ...a, kind: "application" } : a), "No documents yet.")}${isStaff() && c.status !== "closed" ? `<div class="fields wide" style="margin-top:8px">${fileField("pfAdd", "Add Requirement", "multiple data-save-now")}</div>` : ""}</div>
         <div data-p="7" hidden>${overdue.length ? `<div class="btnrow"><button type="button" class="btn small" data-hprint="od">${ic("print")} Print</button></div>` : ""}${E.grid({ cols: OD_HIST, rows: overdue, onRow: true, empty: "No overdue invoice." })}</div>
         <div data-p="8" hidden>${rets.length ? `<div class="btnrow"><button type="button" class="btn small" data-hprint="rt">${ic("print")} Print</button></div>` : ""}${E.grid({ cols: RET_HIST, rows: rets, onRow: true, empty: "No returns." })}</div>
-        <div data-p="9" hidden>${E.gateHistoryHtml ? E.gateHistoryHtml(orders, ev.data || []) : ""}</div>
+        <div data-p="9" hidden>${E.gateHistoryHtml ? E.gateHistoryHtml(orders, ev.data || [], aiLog.data || []) : ""}</div>
         ${showOrders ? `<div data-p="10" hidden id="pfOrders">${busy()}</div>` : ""}
         <div data-p="6" hidden>${E.grid({ cols: [{ label: "Date / Time", get: (r) => stamp(new Date(r.at)) }, { label: "Action", get: (r) => r.action }, { label: "By", get: (r) => r.by }, { label: "Note", get: (r) => r.note },
           ...(isAdmin() ? [{ label: "", html: (r) => `<button type="button" class="btn small danger" data-hdel="${r.src}:${r.id}" aria-label="Delete this history line">${ic("trash")}</button>` }] : [])], rows: history })}</div>
