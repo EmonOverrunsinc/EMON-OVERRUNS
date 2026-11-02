@@ -46,6 +46,23 @@
     }
     return [...out];
   };
+  // the reference no of a payment slip (GCash, Maya, InstaPay, banks): after "Ref No / Reference / Trace / Transaction /
+  // Confirmation", on the same line or the next; spaces inside the number are taken out. Without a label: the longest
+  // number of 10 to 20 digits on the slip (not the amount, not a phone number).
+  function findRef(text, amounts = []) {
+    const t = String(text || "");
+    const fix = (v) => v.replace(/[Oo]/g, "0").replace(/[Il|]/g, "1").replace(/[\s-]/g, "");
+    const label = /(?:ref(?:erence)?\.?\s*(?:no|number|#|code|id)?|trace\.?\s*(?:no|number)?|transaction\.?\s*(?:no|number|id|ref)?|txn\.?\s*(?:no|id)?|confirmation\.?\s*(?:no|number|code)?|invoice\.?\s*no|control\.?\s*no)\.?\s*[:#.]?/ig;
+    let m;
+    while ((m = label.exec(t))) {
+      const after = t.slice(m.index + m[0].length, m.index + m[0].length + 60).replace(/^[\s:#.]+/, "");
+      const v = (after.match(/^([A-Z0-9](?:[A-Z0-9]|[ -](?=[A-Z0-9])){5,40})/i) || [])[1];
+      if (v) { const r = fix(v); if (/\d{4,}/.test(r) && r.length >= 6) return r.slice(0, 40); }
+    }
+    const nums = [...t.matchAll(/(?<![\d.,])(\d[\d ]{8,24}\d)(?![\d.,])/g)].map((x) => x[1].replace(/\s/g, ""))
+      .filter((d) => d.length >= 10 && d.length <= 20 && !/^(?:0?9\d{9}|639\d{9})$/.test(d) && !amounts.some((a) => d === String(Math.round(a * 100))));
+    return nums.sort((a, b) => b.length - a.length)[0] || "";
+  }
   async function evaRead(file, onStep) {
     const T = await loadOcr();
     const base = new URL("vendor/ocr/", location.href).href;
@@ -54,7 +71,7 @@
     try {
       const { data } = await w.recognize(file);
       const text = String(data?.text || "").replace(/[ \t]+/g, " ").trim();
-      const ref = (text.match(/(?:ref(?:erence)?\.?\s*(?:no\.?|number|#)?|trace\s*no\.?|transaction\s*(?:no\.?|id))\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{5,})/i) || [])[1] || "";
+      const ref = findRef(text, moneyIn(text));
       return { text, amounts: moneyIn(text), ref };
     } finally { w.terminate().catch?.(() => {}); }
   }
@@ -221,10 +238,10 @@
         const fee = (a) => FEES.find((f) => Math.abs(a - num(i.amount) - f) < 0.009);
         const hit = [...r.amounts].sort((a, b) => fee(a) - fee(b)).find((a) => fee(a) != null);
         eva = { ...r, matched: hit != null, amount: hit ?? (r.amounts.length ? Math.max(...r.amounts) : null), fee: hit != null ? fee(hit) : 0 };
-        if (r.ref && !$("#ipRef").value.trim()) $("#ipRef").value = r.ref.slice(0, 60);
+        if (r.ref) { $("#ipRef").value = r.ref.slice(0, 60); $("#ipRef").classList.add("eva-filled"); }
         $("#ipEva").innerHTML = `<div class="eva-read ${eva.matched ? "ok" : "no"}"><img src="${esc(url)}" alt="Payment slip"><div>
           <b>${ic(eva.matched ? "check" : "x")} ${eva.matched ? `EVA READ ₱ ${peso(hit)}${eva.fee ? ` (₱ ${peso(i.amount)} + ₱ ${peso(eva.fee)} transfer fee)` : ""} — STATUS: PAID` : r.amounts.length ? `EVA READ ₱ ${r.amounts.map(peso).join(", ₱ ")} — STATUS: NOT PAID (premium ₱ ${peso(i.amount)})` : "EVA COULD NOT READ AN AMOUNT — STATUS: TO CHECK"}</b>
-          <small>${eva.matched ? "Press Submit: the coverage is issued at once." : "You can still submit: EMON HASAN checks the payment."}${r.ref ? ` · Reference ${esc(r.ref)}` : ""}</small></div></div>`;
+          <small>${eva.matched ? "Press Submit: the coverage is issued at once." : "You can still submit: EMON HASAN checks the payment."}${r.ref ? ` · Reference no <b>${esc(r.ref)}</b> filled in by EVA` : " · Reference no not found: type it"}</small></div></div>`;
       } catch (err) { if ($("#ipEva")) $("#ipEva").innerHTML = `<div class="banner warn">${ic("ai")} EVA could not read it (${esc(err.message)}). Submit it: EMON HASAN checks the payment.</div>`; }
     };
     if ($("#ipCam")) $("#ipCam").onchange = (e) => { const f = e.target.files[0]; if (!f) return; const dt = new DataTransfer(); dt.items.add(f); $("#ipFile").files = dt.files; readSlip(f); };
