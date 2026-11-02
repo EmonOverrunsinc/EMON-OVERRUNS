@@ -195,11 +195,10 @@
         <div class="ins-paygrid"><div class="ins-qr"><button type="button" class="ins-qr-btn" id="ipQrBig" aria-label="Show the QR code big"><img src="${esc(q)}" alt="EMON OVERRUNS payment QR code"></button>
           <div class="btnrow center"><button type="button" class="btn small" id="ipQrZoom">${ic("eye")} Big QR</button><a class="btn small" href="${esc(q)}" download="EMON-OVERRUNS-InstaPay-QR.png">${ic("download")} Save QR</a></div>
           <div class="ins-amt"><small>SCAN WITH ANY BANK OR E-WALLET APP (INSTAPAY) · AMOUNT TO PAY</small><b>₱ ${peso(i.amount)}</b>${s.pay_qr_note ? `<span>${esc(s.pay_qr_note)}</span>` : ""}<span class="mono">Ref: ${esc(i.ins_no)}</span></div></div>
-          <div><ol class="ins-steps"><li>Scan the QR code and pay <b>₱ ${peso(i.amount)}</b>.</li><li>Take a screenshot or photo of the payment receipt.</li><li>Upload it below with the reference no and press <b>Submit for Review</b>.</li><li>EMON HASAN checks the payment: the coverage is issued by itself.</li></ol>
-            <div class="btnrow ins-slip"><label class="btn primary" for="ipCam">${ic("camera")} Scan Payment Slip</label><input type="file" id="ipCam" accept="image/*" capture="environment" hidden>
-              <label class="btn" for="ipFile">${ic("image")} Upload Receipt</label></div>
+          <div><ol class="ins-steps"><li>Scan the QR code and pay <b>₱ ${peso(i.amount)}</b>.</li><li>Save the payment receipt (screenshot).</li><li>Press <b>Upload Receipt</b>: EVA reads the amount and the reference no, then press <b>Submit</b>.</li><li>EMON HASAN checks the payment: the coverage is issued by itself.</li></ol>
+            <div class="btnrow ins-slip"><label class="btn primary" for="ipFile">${ic("image")} Upload Receipt</label></div>
             <div id="ipEva"></div>
-            <div class="fields wide"><label for="ipFile">Proof of Payment *</label><input type="file" id="ipFile" accept="image/*,application/pdf">
+            <div class="fields wide"><label for="ipFile">Proof of Payment *</label><input type="file" id="ipFile" accept="image/*,application/pdf" data-scan="1">
               <label for="ipMethod">Paid By</label><select id="ipMethod">${Object.entries(METHODS).map(([k, l]) => `<option value="${k}" ${k === (i.pay_method || "gcash") ? "selected" : ""}>${l}</option>`).join("")}</select>
               <label for="ipRef">Reference No</label><input type="text" id="ipRef" maxlength="60" value="${esc(i.pay_ref || "")}" placeholder="e.g. GCash ref no"></div>
             <div class="btnrow"><button type="button" class="btn primary" id="ipSend">${ic("send")} Submit for Review</button></div></div></div></fieldset>` : "";
@@ -244,7 +243,6 @@
           <small>${eva.matched ? "Press Submit: the coverage is issued at once." : "You can still submit: EMON HASAN checks the payment."}${r.ref ? ` · Reference no <b>${esc(r.ref)}</b> filled in by EVA` : " · Reference no not found: type it"}</small></div></div>`;
       } catch (err) { if ($("#ipEva")) $("#ipEva").innerHTML = `<div class="banner warn">${ic("ai")} EVA could not read it (${esc(err.message)}). Submit it: EMON HASAN checks the payment.</div>`; }
     };
-    if ($("#ipCam")) $("#ipCam").onchange = (e) => { const f = e.target.files[0]; if (!f) return; const dt = new DataTransfer(); dt.items.add(f); $("#ipFile").files = dt.files; readSlip(f); };
     if ($("#ipFile")) $("#ipFile").onchange = (e) => readSlip(e.target.files[0]);
     if ($("#ipSend")) $("#ipSend").onclick = async (e) => {
       const raw = $("#ipFile").files[0] || evaFile;
