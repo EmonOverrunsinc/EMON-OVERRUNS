@@ -310,17 +310,19 @@
       <li>The premium is not refundable once the coverage is issued. This coverage is a service of ${esc(C.company.name)} under the Customer Agreement accepted in the E-Portal.</li></ol></div>`;
 
   // ---------- the certificate (PDF) ----------
-  // 3.73.4: VERIFIED BY EVA AI (or EMON HASAN when checked by hand) and APPROVED BY EMON HASAN, with the signature.
+  // 3.73.4: VERIFIED BY EVA AI (or the person who checked the slip by hand) and ISSUED BY the person who approved it
+  // (EMON HASAN when EVA AI issued it by itself), with the signature.
   const DIRECTOR = "EMON HASAN";
   function certSigners(i) {
-    const verified = { name: i.issued_by_eva ? "EVA AI" : DIRECTOR, note: "" };
-    return { verified, approved: { name: DIRECTOR, note: `Coverage approved · ${E.dateTime(i.approved_at)}` } };
+    const approver = (!i.issued_by_eva && String(i.approved_by_name || "").split(" · ").pop().trim()) || DIRECTOR;
+    return { approver, verified: { name: i.issued_by_eva ? "EVA AI" : approver, note: "" }, issued: { name: approver, note: `Coverage issued · ${E.dateTime(i.approved_at)}` } };
   }
   async function printCert(i, o, invoice, cv) {
     await E.loadSignatures?.().catch(() => {});
     const st = stateOf(i), c = o?.customers || {}, ok = st.k === "valid";
-    const sign = E.approvedBy(i.issued_by_eva ? null : i.approved_by, DIRECTOR, i.approved_at) || { name: DIRECTOR, at: i.approved_at, pic: "" };
-    const who = certSigners(i), until = i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY";
+    const who = certSigners(i);
+    const sign = E.approvedBy(i.issued_by_eva ? null : i.approved_by, who.approver, i.approved_at) || { name: who.approver, at: i.approved_at, pic: "" };
+    const until = i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY";
     const name = i.customer_name || fullName(c), boxes = `${E.qtyText(i.boxes)} ${Number(i.boxes) === 1 ? "BOX" : "BOXES"}`;
     const ordBar = i.order_no ? `<div class="ic-ord"><img src="${E.pdf417DataUrl("EMONCO|" + i.order_no)}" alt="" class="ph-bar"><small>ORDER NO</small><b class="mono">${esc(i.order_no)}</b></div>` : "";
     const codes = `<img src="${E.pdf417DataUrl("EMONINS|" + i.ins_no)}" alt="" class="ph-bar"><div class="mono">${esc(i.ins_no)}</div>`;
@@ -342,10 +344,10 @@
           <div><div class="ic-h">PREMIUM PAID</div>${kv([["Calculation", `${boxes} × PHP ${peso(i.box_price)} + ${num(i.rate_pct)}% of PHP ${peso(i.order_amount)}`], ["Premium", `PHP ${peso(i.amount)}`],
             ["In Words", E.words(i.amount, "PESOS")], ["Paid By", METHODS[i.pay_method] || i.pay_method || ""], ["Reference No", i.pay_ref || ""], ["Collection Voucher", cv?.cv_no || ""]])}</div>
         </div>
-        <div class="ic-who">${party("VERIFIED BY", who.verified, i.issued_by_eva ? "ai" : "check")}${party("APPROVED BY", who.approved, "stamp")}</div>
+        <div class="ic-who">${party("VERIFIED BY", who.verified, i.issued_by_eva ? "ai" : "check")}${party("ISSUED BY", who.issued, "stamp")}</div>
         <div class="ins-cert-terms">${benefitsHtml(i)}</div>
       </div>
-      ${E.sigs("Customer / Insured", "Approved by", sign)}
+      ${E.sigs("Customer / Insured", "Issued by", sign)}
       <div class="rp-foot"><span>Scan the QR code to verify this coverage online.</span><span>${esc(i.ins_no)}</span></div>`;
     E.openPreview(`Insurance Certificate ${i.ins_no}`, [page], { onePage: true });
   }
