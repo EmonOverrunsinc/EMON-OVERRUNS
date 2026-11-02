@@ -273,7 +273,14 @@
         <small class="muted">Signed in as ${esc(who)}. ${opts.onSubmit ? "Your account opens only after you agree." : "The portal opens only after you agree."} <b>Reject</b> signs you out; the agreement shows again at your next sign in.</small></div></div>`;
     document.body.appendChild(ov);
     let pad = null;
-    const ready = () => { $("#lgSubmit", ov).disabled = !$("#lgAgree", ov).checked || (t === "employee" && !(pad && pad.inked())); };
+    // the Submit button is always visible: grey until "I agree" is ticked (and the employee signs), then blue
+    const ready = () => {
+      const btn = $("#lgSubmit", ov), off = !$("#lgAgree", ov).checked || (t === "employee" && !(pad && pad.inked()));
+      btn.disabled = off;
+      btn.style.cssText = off ? "background:#8fa1c4;border-color:#8fa1c4;color:#fff;opacity:1;cursor:not-allowed" : "background:#0a66c2;border-color:#0a66c2;color:#fff;opacity:1";
+      btn.title = off ? (t === "employee" && $("#lgAgree", ov).checked ? "Sign first" : "Tick \"I have read all and I agree\" first") : "";
+    };
+    ready();
     $("#lgAgree", ov).onchange = (e) => {
       if (t === "employee") { $("#lgSigBox", ov).hidden = !e.target.checked; if (e.target.checked && !pad) { pad = sigPad($("#lgSig", ov)); $("#lgSig", ov).addEventListener("inked", ready); $("#lgSigClear", ov).onclick = () => pad.clear(); } }
       ready();
@@ -299,7 +306,7 @@
       btn.innerHTML = busyTxt;
       if (opts.onSubmit) { // a customer (Public ID + Private PIN, no login)
         const r = await opts.onSubmit(await sha256(plain(t)), device(), extra);
-        if (!r?.ok) { btn.disabled = false; return toast(r?.error || "Could not record your agreement.", true); }
+        if (!r?.ok) { ready(); return toast(r?.error || "Could not record your agreement.", true); }
         ov.classList.add("out"); setTimeout(() => ov.remove(), 220);
         toast(`Thank you. Your agreement ${r.ref_no || ""} is recorded. Your account is VERIFIED.`);
         return opts.after?.(r);
@@ -307,7 +314,7 @@
       const base = { p_version: VER(t), p_hash: await sha256(plain(t)), p_device: device() };
       let { data, error } = await sb.rpc("accept_legal_terms", { ...base, p_details: extra.details, p_location: extra.location, p_signature: extra.signature });
       if (error && /function|schema cache|PGRST202/i.test(error.message + (error.code || ""))) ({ data, error } = await sb.rpc("accept_legal_terms", base)); // the server has not 076 yet
-      if (error) { btn.disabled = false; return fail(error, "Could not record your agreement"); }
+      if (error) { ready(); return fail(error, "Could not record your agreement"); }
       ov.classList.add("out"); setTimeout(() => { ov.remove(); E.route(); }, 220); // the next agreement, if there is one; else the portal opens
       toast(`Thank you. Your ${TYPES[t]} ${data?.ref_no || ""} is recorded.`);
     };
