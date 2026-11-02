@@ -439,7 +439,7 @@
     // 3.38.1: everything in one PDF: the order (with its invoice and delivery), the Delivery Sheet with the boxes, the check photos
     $("#coAll").onclick = async () => { await E.loadSignatures().catch(() => {}); E.openPreview(`Customer Order ${o.order_no} — All Details`, allPages(o, inv, boxes, urls)); };
     bindBoxes(o, boxes, reload);
-    if (o.status === "approved" && w && !deliverNow) bindDelivery(o, boxes, urls, reload);
+    if ((o.status === "approved" && w && !deliverNow) || canFixDelivery(o)) bindDelivery(o, boxes, urls, reload);
     $$("[data-ph]").forEach((b) => (b.onclick = () => E.lightbox(b.dataset.ph)));
     E.setRecords(`Customer order: ${o.order_no}`);
   }
@@ -729,14 +729,19 @@
   // ---------- delivery: the photos, COMPLETE (3.45: no rider or car details) ----------
   function deliveryHtml(o, urls, w) {
     const pics = (o.delivery_photos || []).map((p) => ({ p, u: urls.get(p) || "" }));
-    const edit = o.status === "approved" && w;
-    const photos = `<div class="po-photos co-photos">${pics.map((x, i) => `<div class="po-pic"><button type="button" class="co-ph" data-ph="${esc(x.u)}" aria-label="Open delivery photo ${i + 1}"><img src="${esc(x.u)}" alt="Delivery photo"></button>${edit ? `<button type="button" data-rmph="${esc(x.p)}" aria-label="Remove photo">×</button>` : ""}</div>`).join("")}</div>`;
-    if (!edit) return `<div class="pgrid2 qc-head">${E.cell("Delivered", o.delivered_at ? E.dateTime(o.delivered_at) : "")}${E.cell(o.status === "completed" ? "Completed By" : "Submitted By", o.completed_by_name || o.delivery_request_by || "")}</div>${pics.length ? photos : ""}`;
+    const edit = o.status === "approved" && w, fix = canFixDelivery(o);
+    const photos = `<div class="po-photos co-photos">${pics.map((x, i) => `<div class="po-pic"><button type="button" class="co-ph" data-ph="${esc(x.u)}" aria-label="Open delivery photo ${i + 1}"><img src="${esc(x.u)}" alt="Delivery photo"></button>${edit || fix ? `<button type="button" data-rmph="${esc(x.p)}" aria-label="Remove photo">×</button>` : ""}</div>`).join("")}</div>`;
+    // 3.68: a completed delivery is changed only by EMON HASAN and the employee who completed it
+    if (!edit) return `<div class="pgrid2 qc-head">${E.cell("Delivered", o.delivered_at ? E.dateTime(o.delivered_at) : "")}${E.cell(o.status === "completed" ? "Completed By" : "Submitted By", o.completed_by_name || o.delivery_request_by || "")}
+        ${o.delivery_note ? E.cell("Note", o.delivery_note) : ""}${o.delivery_edited_at ? E.cell("Last Edited", `${E.dateTime(o.delivery_edited_at)} · ${o.delivery_edited_by_name || ""}`) : ""}</div>${pics.length ? photos : ""}
+      ${fix ? `<div class="btnrow"><button type="button" class="btn" id="dvFix">${ic("edit")} Edit Delivery</button><label class="btn" for="dvPic" ${pics.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="dvPic" accept="image/*" multiple hidden></div>
+        <small class="muted">Only EMON HASAN and the employee who completed this delivery can edit it.</small>` : ""}`;
     return `<h4 class="co-h4">Delivery Photos (optional, up to ${MAX_PHOTOS})</h4>${photos}
       <div class="btnrow"><label class="btn" for="dvPic" id="dvPicL" ${pics.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="dvPic" accept="image/*" multiple hidden></div>
       <div class="co-done"><button type="button" class="btn ok big" id="dvDone">${ic("check")} Complete Delivery</button>
         <small>A photo of the delivery is optional. COMPLETE makes the customer's invoice by itself (₱ ${peso(o.total_amount)}).</small></div>`;
   }
+  const canFixDelivery = (o) => o.status === "completed" && (isAdmin() || (!!o.completed_by && o.completed_by === meId()));
   function bindDelivery(o, boxes, urls, reload) {
     const setPhotos = async (list) => {
       const { data: gone, error } = await sb.rpc("set_order_photos", { p_id: o.id, p_photos: list });
@@ -765,7 +770,8 @@
       if (!(await E.confirmBox("Remove this photo?", { ok: "Remove", danger: true }))) return;
       if (await setPhotos((o.delivery_photos || []).filter((p) => p !== b.dataset.rmph))) reload();
     }));
-    $("#dvDone").onclick = async (e) => {
+    if ($("#dvFix")) $("#dvFix").onclick = () => fixDelivery(o, reload);
+    if ($("#dvDone")) $("#dvDone").onclick = async (e) => {
       const short = nBoxes(boxes) !== num(o.total_boxes);
       const msg = `${chargeSays(o, boxes)}Complete the delivery of <b>${esc(o.order_no)}</b>?<br><br>The invoice is made and billed to <b>${esc(custName(o))}</b> by itself${o._dl?.has_pcs && nBoxes(boxes) ? "" : `: <b>₱ ${peso(o.total_amount)}</b>, ${esc(boxesText(o.total_boxes))}, ${qtyText(o.total_pcs)} pcs`}${o.payment_terms ? `, ${esc(o.payment_terms)}` : ""}.`
         + (short ? `<br><br><b>Note:</b> ${nBoxes(boxes)} box(es) were scanned, the order has ${qtyText(o.total_boxes)}.` : "") + "<br><br>This cannot be undone.";
@@ -774,6 +780,24 @@
       const { error } = await sb.rpc("complete_customer_order", { p_id: o.id });
       if (error) { e.target.disabled = false; return fail(error, "Could not complete the order"); }
       toast(`Order ${o.order_no} completed. The invoice was made and billed to ${custName(o)}.`); reload();
+    };
+  }
+
+  function fixDelivery(o, reload) {
+    const local = (iso) => { if (!iso) return ""; const d = new Date(new Date(iso).toLocaleString("en-US", { timeZone: "Asia/Manila" })); const z = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`; };
+    const m = E.modal(`Edit Delivery — ${o.order_no}`, `<div class="fields wide">
+        <label for="fdAt">Date and Time of Delivery</label><input type="datetime-local" id="fdAt" value="${esc(local(o.delivered_at))}">
+        <label for="fdNote">Note</label><textarea id="fdNote" rows="2" maxlength="300">${esc(o.delivery_note || "")}</textarea></div>
+      <p class="muted">The change is saved with your name and the time.</p>`,
+      `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${ic("check")} Save</button>`);
+    $("[data-x]", m.el).onclick = m.close;
+    $("[data-ok]", m.el).onclick = async (e) => {
+      const at = $("#fdAt", m.el).value;
+      e.currentTarget.disabled = true;
+      const { error } = await sb.rpc("edit_order_delivery", { p_id: o.id, p_data: { delivered_at: at ? at + ":00+08:00" : "", delivery_note: $("#fdNote", m.el).value.trim() } });
+      if (error) { e.currentTarget.disabled = false; return fail(error, "Could not save the delivery"); }
+      m.close(); toast(`Delivery of ${o.order_no} saved.`); reload();
     };
   }
 
