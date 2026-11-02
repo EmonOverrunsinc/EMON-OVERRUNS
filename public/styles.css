@@ -2918,3 +2918,8 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .ins-cert, .ins-cert .ins-terms, .ins-cert + .psig { text-transform: uppercase; } .ins-cert .ins-cert-terms .ins-terms li { font-size: 7.1pt; }
 /* 3.73.4: the agreements in UPPERCASE (popup, Read, print and PDF); the text itself (and its fingerprint) does not change */
 .legal-body, .lg-print { text-transform: uppercase; }
+/* 3.74: the customer's history and SOA on My Account */
+.cust-soa { display: flex; align-items: center; gap: 12px; justify-content: space-between; border: 2px solid #0a66c2; border-radius: 14px; padding: 12px 14px; margin: 12px 0 8px; background: #f2f7ff; flex-wrap: wrap; }
+.cust-soa small { display: block; font-size: 11px; letter-spacing: .12em; color: #0a3d91; font-weight: 700; } .cust-soa b { display: block; font-size: 16px; } .cust-soa span { font-size: 12px; color: #555; }
+.cust-h { margin: 14px 0 6px; font-size: 13px; letter-spacing: .12em; color: #0a3d91; } .cust-list td, .cust-list th { font-size: 13px; white-space: nowrap; }
+.cust-hist .tblwrap { overflow-x: auto; }

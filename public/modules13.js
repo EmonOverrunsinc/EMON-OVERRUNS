@@ -424,7 +424,7 @@
       E.setBusy(e.target, false);
       if (error) return fail(error, "Could not sign in");
       if (!data?.ok) { $("#cuPin").value = ""; $("#cuPin").focus(); return toast(data?.error || "Wrong Public ID or Private PIN.", true); }
-      const open = (d) => custHome(d, () => E.route());
+      const open = (d) => custHome(d, () => E.route(), { pub, pin });
       if (data.agreed) return open(data);
       show({ type: "customer", who: `${data.name} (${data.account_no || ""})`, onOut: () => renderCustLogin(),
         onReject: (dev) => sb.rpc("customer_reject_terms", { p_public: pub, p_pin: pin, p_version: VER("customer"), p_device: dev }),
@@ -436,21 +436,43 @@
         after: (r) => open({ ...data, agreed: r }) });
     };
   }
-  function custHome(d, out) {
+  function custHome(d, out, key = {}) {
     const peso = (n) => Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // 3.74: no agreement button once agreed (it shows only once); the history and the SOA instead
     E.authFrame("My Account", `<div class="wbody login-form cust-home">
       ${E.brandBlock()}<h3 class="cust-name">${esc(d.name)}<small>${esc([d.business_name, d.account_no].filter(Boolean).join(" · "))}</small></h3>
       ${Number(d.credit_limit) >= 1000000 ? `<div class="vip-badge big">${ic("shield")} VIP CUSTOMER<small>Credit limit ₱ ${peso(d.credit_limit)}</small></div>` : ""}
-      <div class="cust-ver ${d.agreed ? "ok" : ""}">${d.agreed ? `✅ <b>VERIFIED</b><small>Agreed to all the terms on ${esc(E.dateTime(d.agreed.accepted_at))} · ${esc(d.agreed.ref_no || "")}</small>` : "<b>NOT VERIFIED</b>"}</div>
+      <div class="cust-ver ${d.agreed ? "ok" : ""}">${d.agreed ? "✅ <b>VERIFIED</b>" : "<b>NOT VERIFIED</b>"}</div>
       <table class="grid cust-tbl"><tbody>
         <tr><th>Account No</th><td>${esc(d.account_no || "")}</td></tr><tr><th>Account Status</th><td>${E.pill(d.status)}</td></tr>
         <tr><th>Customer Since</th><td>${esc(E.mdy(d.opened) || "")}</td></tr>
         ${d.credit_limit != null ? `<tr><th>Credit Limit</th><td>₱ ${peso(d.credit_limit)}</td></tr>` : ""}
         ${d.balance_due != null ? `<tr><th>Balance Due</th><td><b>₱ ${peso(d.balance_due)}</b></td></tr>` : ""}</tbody></table>
+      <div id="chHist" class="cust-hist">${busy()}</div>
       <p class="hint small">If anything here is wrong, contact the office of ${esc(co())} immediately: ${esc(addr())} · ${esc(C.company.email)}.</p>
-      <div class="btnrow"><button type="button" class="btn" id="chTerms">${ic("doc")} Read the Customer Agreement</button><button type="button" class="btn primary" id="chOut">Sign Out</button></div></div>`);
-    $("#chTerms").onclick = () => showTerms("customer");
+      <div class="btnrow"><button type="button" class="btn primary" id="chOut">Sign Out</button></div></div>`);
     $("#chOut").onclick = out;
+    if (key.pub && key.pin && d.agreed) custHistory(key);
+    else if ($("#chHist")) $("#chHist").innerHTML = "";
+  }
+  // 3.74: the customer's orders, invoices, payments and the SOA (current month first; earlier months to choose)
+  async function custHistory(key) {
+    const box = $("#chHist");
+    const { data, error } = await sb.rpc("customer_history", { p_public: key.pub, p_pin: key.pin });
+    if (!box || !box.isConnected) return;
+    if (error || !data?.ok) { box.innerHTML = /customer_history|schema cache|PGRST202/.test(error?.message || "") ? "" : `<div class="banner warn">${esc(data?.error || error?.message || "Could not load your history.")}</div>`; return; }
+    const peso = (n) => Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const soa = E.custSoa ? E.custSoa(data) : null;
+    const tbl = (title, head, rows, empty) => `<h4 class="cust-h">${esc(title)}</h4>${rows.length ? `<div class="tblwrap"><table class="grid cust-list"><thead><tr>${head.map((h, i) => `<th${i >= head.length - 1 ? ' class="num"' : ""}>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>` : `<div class="muted small">${esc(empty)}</div>`}`;
+    const cur = soa?.months[0];
+    box.innerHTML = `${soa ? `<div class="cust-soa"><div><small>STATEMENT OF ACCOUNT</small><b>${esc(soa.monthText(cur).toUpperCase())} (TO DATE)</b><span>${esc(soa.period(cur).no)}</span></div>
+        <button type="button" class="btn primary" id="chSoa">${ic("download")} Download SOA</button></div>
+        ${soa.months.length > 1 ? `<div class="btnrow"><select id="chSoaM">${soa.months.map((m, i) => `<option value="${m}">${esc(soa.monthText(m).toUpperCase())}${i ? "" : " (TO DATE)"}</option>`).join("")}</select><button type="button" class="btn" id="chSoaOld">${ic("print")} Other Month</button></div>` : ""}` : ""}
+      ${tbl("MY ORDERS", ["Order No", "Date", "Status", "Boxes", "Amount (₱)"], (data.orders || []).slice(0, 30).map((o) => `<tr><td>${esc(o.order_no || "")}</td><td>${esc(E.mdy(o.order_date))}</td><td>${E.pill(o.status === "completed" ? "delivered" : o.status)}</td><td>${esc(String(o.total_boxes || 0))}</td><td class="num">${peso(o.total_amount)}</td></tr>`), "No orders yet.")}
+      ${tbl("MY INVOICES", ["Invoice No", "Date", "Status", "Balance (₱)", "Amount (₱)"], (data.invoices || []).slice(0, 30).map((i) => `<tr><td>${esc(i.invoice_no || "")}</td><td>${esc(E.mdy(i.invoice_date))}</td><td>${E.pill(i.pay_status || "")}</td><td>${peso(i.balance)}</td><td class="num">${peso(i.total_amount)}</td></tr>`), "No invoices yet.")}
+      ${tbl("MY PAYMENTS", ["Receipt No", "Date", "Amount (₱)"], (data.payments || []).slice(0, 30).map((p) => `<tr><td>${esc(p.receipt_no || "")}</td><td>${esc(E.mdy(p.paid_date))}</td><td class="num">${peso(p.amount)}</td></tr>`), "No payments yet.")}`;
+    if ($("#chSoa")) $("#chSoa").onclick = () => soa.print(cur);
+    if ($("#chSoaOld")) $("#chSoaOld").onclick = () => soa.print($("#chSoaM").value);
   }
   // VERIFIED on the customer profile (staff)
   async function custVerified(el, customerId) {
