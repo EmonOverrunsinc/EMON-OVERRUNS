@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.68";
+  const VERSION = "3.69";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.68.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.69.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -1023,7 +1023,8 @@
     ["logins", "Login Accounts", () => isAdmin(), "key"],
     ["forms", "Download Forms", () => true, "download"],
     ["printreqs", "Print Requests", () => isAdmin(), "print"], // 3.65
-    ["gateai", "EVA AI", () => isAdmin(), "ai"] // 3.38 (3.38.1: named EVA, EMON Virtual Assistant)
+    ["gateai", "EVA AI", () => isAdmin(), "ai"], // 3.38 (3.38.1: named EVA, EMON Virtual Assistant)
+    ["legal", "Legal Terms", () => true, "doc"] // 3.69: the terms every login accepts; EMON HASAN sees every acceptance
   ];
   const ACTIVE_OF = { employees: "eooffice", newemployee: "eooffice", editemployee: "eooffice", employee: "eooffice", payroll: "eooffice", payslip: "eooffice", creditmemos: "eooffice", newcreditmemo: "eooffice", creditmemo: "eooffice", projects: "eooffice", newproject: "eooffice", project: "eooffice", jobapps: "eooffice", jobapp: "eooffice", positions: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", ebill: "inventory", custorders: "eooffice", newcustorder: "eooffice", editcustorder: "eooffice", custorder: "eooffice", find: "", profile: "", settings: "" };
   // Older addresses from version 1.0.
@@ -2105,6 +2106,7 @@
       return;
     }
     if (S.profile.status === "disabled") return renderDisabled();
+    window.EO.legalGate?.(); // 3.69: the legal terms popup until this login accepts them
     if (S.profile.status !== "active") {
       if (key === "verify" && V.verify) return V.verify(arg);
       if (key === "delivery" && V.delivery) return V.delivery(arg, extra);

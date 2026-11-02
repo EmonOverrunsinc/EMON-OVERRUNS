@@ -271,46 +271,52 @@
     E.gateAI.box(c, ctx).then((html) => { const v = $(".gp-verdict", root); if (html && v && root.isConnected) v.insertAdjacentHTML("afterend", html); }, () => {});
   };
   // The Gate Pass history of the customer: every Request for Clearance (waiting / approved / on hold) and every gate pass issued
-  // 3.68: a Request for Clearance is 2 lines: the SYSTEM REJECT (the portal's check, and EVA AI's HOLD when it said so),
-  // then who decided it (CLEARED BY name / HOLD BY name). EVA AI's own HOLD ideas are lines too, with who cleared after.
+  // 3.69: ONE line for each request: what the system said (and EVA AI), what EMON HASAN did, and the status
+  // (CLEARED, or FREEZE ACCOUNT while it is on hold). EVA AI's own HOLD ideas and the gate passes issued are lines too.
+  const U = (x) => String(x || "").toUpperCase();
+  const pctHold = (l) => Math.round((1 - Number(l.p_clear)) * 100);
   function gateHistoryRows(orders, events, ai = []) {
     const why = (o) => String(o.subject || "").replace(/^Gate Pass Clearance:?\s*/, "");
     const aiNear = (o) => (ai || []).find((l) => l.suggestion === "HOLD" && Math.abs(new Date(l.created_at) - new Date(o.approved_at || o.created_at)) < 6 * 3600 * 1000);
     const rows = [];
     for (const o of (orders || []).filter(isGate)) {
       const hold = aiNear(o);
-      rows.push({ at: o.created_at, no: o.order_no, what: "System Check", by: hold ? "SYSTEM · EVA AI" : "SYSTEM", st: hold ? "SYSTEM + AI REJECT · NOT CLEAR" : "SYSTEM REJECT · NOT CLEAR", tone: "rejected",
-        note: [why(o), hold ? `EVA AI: HOLD (${Math.round((1 - Number(hold.p_clear)) * 100)}% sure)${hold.reasons ? " · " + hold.reasons : ""}` : "", `asked by ${o.created_by_name || ""}`].filter(Boolean).join(" · "), o });
-      if (o.status === "approved" || o.status === "applied") rows.push({ at: o.approved_at || o.created_at, no: o.order_no, what: "Clearance Approved", by: o.approved_by_name || "", st: `CLEARED BY ${String(o.approved_by_name || "").toUpperCase()}`, tone: "approved", note: o.review_note || "", o });
-      else if (o.status === "rejected") rows.push({ at: o.approved_at || o.created_at, no: o.order_no, what: "Hold for Delivery", by: o.approved_by_name || "", st: `HOLD BY ${String(o.approved_by_name || "").toUpperCase()}`, tone: "rejected", note: o.review_note || "", o });
-      else rows.push({ at: o.created_at, no: o.order_no, what: "Request for Clearance", by: o.created_by_name || "", st: "WAITING FOR EMON HASAN", tone: "pending", note: o.details?.split("\n")[0] || "", o });
+      const r = { at: o.created_at, no: o.order_no, sys: hold ? "SYSTEM + AI REJECT · NOT CLEAR" : "SYSTEM REJECT · NOT CLEAR", sysNote: [why(o), hold ? `EVA AI: HOLD ${pctHold(hold)}% sure` : ""].filter(Boolean).join(" · "), asked: o.created_by_name || "", o };
+      if (o.status === "rejected") Object.assign(r, { act: `HOLD BY ${U(o.approved_by_name)}`, actTone: "rejected", actNote: [E.dateTime(o.approved_at), o.review_note].filter(Boolean).join(" · "), st: "FREEZE ACCOUNT", tone: "rejected" });
+      else if (o.status === "pending") Object.assign(r, { act: "WAITING FOR EMON HASAN", actTone: "pending", actNote: o.details?.split("\n")[0] || "", st: "WAITING", tone: "pending" });
+      else Object.assign(r, { act: `APPROVED BY ${U(o.approved_by_name)}`, actTone: "approved", actNote: [E.dateTime(o.approved_at), o.review_note].filter(Boolean).join(" · "), st: `CLEARED BY ${U(o.approved_by_name)}`, tone: "approved" });
+      rows.push(r);
     }
-    for (const e of (events || []).filter((e) => /^GATE PASS GP-/.test(e.note || ""))) rows.push({ at: e.created_at, no: (e.note.match(/GP-\S+/) || [""])[0], what: "Gate Pass Issued", by: e.actor_name || "", st: "ISSUED · CLEAR", tone: "approved", note: e.note.replace(/^GATE PASS \S+\s*·?\s*/, "") });
-    // EVA AI said HOLD but the gate pass was cleared without a request (a trusted customer, or EMON HASAN at once)
+    for (const e of (events || []).filter((e) => /^GATE PASS GP-/.test(e.note || ""))) rows.push({ at: e.created_at, no: (e.note.match(/GP-\S+/) || [""])[0], sys: "SYSTEM CLEAR", sysTone: "approved", sysNote: e.note.replace(/^GATE PASS \S+\s*·?\s*/, ""),
+      act: `GATE PASS ISSUED BY ${U(e.actor_name)}`, actTone: "approved", actNote: "", st: "CLEARED", tone: "approved" });
+    // EVA AI said HOLD on a gate pass that was decided without a request (a trusted customer, or EMON HASAN at once)
     const used = new Set((orders || []).filter(isGate).map(aiNear).filter(Boolean).map((l) => l.id));
-    for (const l of (ai || []).filter((l) => l.suggestion === "HOLD" && !used.has(l.id))) {
-      rows.push({ at: l.created_at, no: "EVA AI", what: "AI Check", by: "SYSTEM · EVA AI", st: "AI REJECT · HOLD", tone: "rejected", note: `${Math.round((1 - Number(l.p_clear)) * 100)}% sure${l.reasons ? " · " + l.reasons : ""}` });
-      if (l.decision === "CLEAR") rows.push({ at: new Date(new Date(l.created_at).getTime() + 1000).toISOString(), no: "EVA AI", what: "Cleared", by: l.decided_by_name || "", st: `CLEARED BY ${String(l.decided_by_name || "").toUpperCase()}`, tone: "approved", note: "the AI's HOLD was not agreed" });
-      else if (l.decision === "HOLD") rows.push({ at: new Date(new Date(l.created_at).getTime() + 1000).toISOString(), no: "EVA AI", what: "Hold", by: l.decided_by_name || "", st: `HOLD BY ${String(l.decided_by_name || "").toUpperCase()}`, tone: "rejected", note: "agreed with the AI" });
+    for (const l of (ai || []).filter((l) => l.suggestion === "HOLD" && !used.has(l.id) && l.decision)) {
+      const ok = l.decision === "CLEAR";
+      rows.push({ at: l.created_at, no: "EVA AI", sys: "AI REJECT · HOLD", sysNote: `${pctHold(l)}% sure${l.reasons ? " · " + l.reasons : ""}`,
+        act: `${ok ? "CLEARED" : "HOLD"} BY ${U(l.decided_by_name)}`, actTone: ok ? "approved" : "rejected", actNote: ok ? "the AI's HOLD was not agreed" : "agreed with the AI",
+        st: ok ? `CLEARED BY ${U(l.decided_by_name)}` : "FREEZE ACCOUNT", tone: ok ? "approved" : "rejected" });
     }
-    return rows.map((r, k) => ({ r, k })).sort((x, y) => String(y.r.at).localeCompare(String(x.r.at)) || y.k - x.k).map((x) => x.r);
+    return rows.sort((x, y) => String(y.at).localeCompare(String(x.at)));
   }
-  // the gate pass now: the newest request decides (SYSTEM REJECT until someone clears it, then CLEARED BY name)
-  function gateNow(orders) {
-    const o = (orders || []).filter(isGate).sort((x, y) => String(y.created_at).localeCompare(String(x.created_at)))[0];
-    if (!o) return "";
-    const [cls, big, small] = o.status === "pending" ? ["no", "SYSTEM REJECT · NOT CLEAR", `Request ${o.order_no} waits for EMON HASAN`]
-      : o.status === "rejected" ? ["no", `HOLD BY ${String(o.approved_by_name || "").toUpperCase()}`, `System reject agreed on ${E.dateTime(o.approved_at)}${o.review_note ? " · " + o.review_note : ""}`]
-      : ["ok", `CLEARED BY ${String(o.approved_by_name || "").toUpperCase()}`, `The system said NOT CLEAR; cleared on ${E.dateTime(o.approved_at)}${o.review_note ? " · " + o.review_note : ""}`];
-    return `<div class="gp-verdict gp-now ${cls}"><span>${ic(cls === "ok" ? "check" : "x")}</span><div><b>${esc(big)}</b><small>${esc(small)} · ${esc(o.order_no)}</small></div></div>`;
+  // the gate pass now: the newest line decides (FREEZE ACCOUNT while on hold, CLEARED BY name when cleared)
+  function gateNow(rows) {
+    const r = rows[0];
+    if (!r) return "";
+    const cls = r.tone === "approved" ? "ok" : "no";
+    return `<div class="gp-verdict gp-now ${cls}"><span>${ic(cls === "ok" ? "check" : r.tone === "pending" ? "clock" : "x")}</span><div><b>${esc(r.st)}</b>
+      <small>${esc(r.no)} · System: ${esc(r.sys)} · Action: ${esc(r.act)}${r.actNote ? " · " + esc(r.actNote) : ""}</small></div></div>`;
   }
   // the History tab line of an approved Request for Clearance (the server writes it as "other by <request no>")
   const gateEventLabel = (ev) => (/^other by /i.test(ev.action) && String(ev.note || "").startsWith(GATE) ? `GATE PASS CLEARANCE APPROVED (${ev.action.replace(/^other by /i, "")})` : null);
   function gateHistoryHtml(orders, events, ai = []) {
     const rows = gateHistoryRows(orders, events, ai);
     if (!rows.length) return `<div class="empty">No gate pass or request for clearance yet.</div>`;
-    return `${gateNow(orders)}<table class="grid"><thead><tr><th>Date / Time</th><th>No</th><th>Type</th><th>Status</th><th>Note</th><th>By</th></tr></thead><tbody>
-      ${rows.map((r) => `<tr><td>${esc(E.dateTime(r.at))}</td><td>${esc(r.no)}</td><td>${esc(r.what)}</td><td>${E.pill(r.tone, r.st)}</td><td>${esc(r.note)}</td><td>${esc(r.by)}</td></tr>`).join("")}</tbody></table>`;
+    return `${gateNow(rows)}<div class="grid-wrap"><table class="grid gp-hist"><thead><tr><th>Date / Time</th><th>No</th><th>System Result</th><th>Action of EMON HASAN</th><th>Status</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td>${esc(E.dateTime(r.at))}${r.asked ? `<small>asked by ${esc(r.asked)}</small>` : ""}</td><td>${esc(r.no)}</td>
+        <td>${E.pill(r.sysTone || "rejected", r.sys)}${r.sysNote ? `<small>${esc(r.sysNote)}</small>` : ""}</td>
+        <td>${E.pill(r.actTone, r.act)}${r.actNote ? `<small>${esc(r.actNote)}</small>` : ""}</td>
+        <td>${E.pill(r.tone, r.st)}</td></tr>`).join("")}</tbody></table></div>`;
   }
 
   // ======================================================================
