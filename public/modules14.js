@@ -291,27 +291,29 @@
     E.setRecords?.(`Insurance: ${i.ins_no}`);
   }
 
-  // the benefits and the terms (screen and certificate)
-  const benefitsHtml = (i) => `<div class="ins-terms"><h4>BENEFITS</h4><ol>
-      <li><b>Free exchange of mistaken items:</b> items delivered by mistake (wrong item, size, quality or quantity against the order) are exchanged free.</li>
-      <li><b>Free return of a mistaken box delivery:</b> a box delivered by mistake is returned free — ${esc(C.company.name)} covers the shipping fee both ways.</li>
-      <li><b>Exchange of unsold boxes:</b> boxes not sold can be returned and exchanged for new items of the same value.</li></ol>
-    <h4>TERMS AND CONDITIONS</h4><ol>
-      <li>The coverage is valid from the day it is issued until <b>15 days after the delivery</b>${i?.valid_until ? ` (<b>expires ${esc(mdy(i.valid_until))}</b>)` : ""}. No claim is accepted after it expires.</li>
+  // the coverage, in insurance wording (screen and certificate)
+  const benefitsHtml = (i) => `<div class="ins-terms"><h4>COVERAGE — WHAT IS INSURED</h4><ol>
+      <li><b>WRONG ITEM:</b> an item delivered that is not in the order (wrong style, size, colour or quality) is exchanged free of charge.</li>
+      <li><b>WRONG BUNDLE:</b> a bundle with the wrong items or the wrong number of pieces is exchanged or completed free of charge.</li>
+      <li><b>WRONG BOX:</b> a box delivered by mistake (not in the order, or meant for another customer) is collected and replaced free — ${esc(C.company.name)} pays the shipping fee both ways.</li>
+      <li><b>WRONG QUANTITY:</b> boxes or pieces missing against the order and the delivery list are delivered free or credited to the account.</li>
+      <li><b>UNSOLD BOXES:</b> sealed boxes not sold can be returned and exchanged for new items of the same value.</li></ol>
+    <h4>POLICY PERIOD</h4><ol>
+      <li>From the date of issue until <b>15 days after the delivery</b>${i?.valid_until ? ` (<b>expires ${esc(mdy(i.valid_until))}</b>)` : ""}. No claim is accepted after the coverage expires.</li></ol>
+    <h4>CONDITIONS</h4><ol>
       <li>The box must be kept <b>SEALED</b> as delivered. <b>An opened box cannot be claimed</b> (the seal and the box serial no are checked against the delivery list).</li>
-      <li>It covers only the boxes of order ${esc(i?.order_no || "")}. An exchange is for items of the same value; there is no cash refund.</li>
+      <li>Only the insured boxes of order ${esc(i?.order_no || "")} are covered. Every exchange is for items of the same value; there is no cash refund.</li></ol>
+    <h4>EXCLUSIONS — NOT COVERED</h4><ol>
+      <li>Damage, loss or theft after delivery; opened boxes; items already sold; change of mind; any claim after the expiry date.</li></ol>
+    <h4>CLAIMS AND PREMIUM</h4><ol>
       <li>To claim, contact the office of ${esc(C.company.name)} with the certificate no and the box serial nos before the expiry date.</li>
-      <li>Not covered: damage, loss or theft after delivery, opened boxes, items already sold, or changes of mind after the coverage expires.</li>
       <li>The premium is not refundable once the coverage is issued. This coverage is a service of ${esc(C.company.name)} under the Customer Agreement accepted in the E-Portal.</li></ol></div>`;
 
   // ---------- the certificate (PDF) ----------
-  // 3.73.4: VERIFIED BY (EVA AI read the payment slip, or EMON HASAN checked it) and APPROVED BY EMON HASAN, with his signature.
+  // 3.73.4: VERIFIED BY EVA AI (or EMON HASAN when checked by hand) and APPROVED BY EMON HASAN, with the signature.
   const DIRECTOR = "EMON HASAN";
   function certSigners(i) {
-    const fee = i.issued_by_eva && Number(i.eva_amount) > Number(i.amount) ? Math.round((Number(i.eva_amount) - Number(i.amount)) * 100) / 100 : 0;
-    const verified = i.issued_by_eva
-      ? { name: "EVA AI", note: `Payment slip read: PHP ${peso(i.eva_amount ?? i.amount)}${fee ? ` (with transfer fee PHP ${peso(fee)})` : ""} · STATUS: PAID` }
-      : { name: DIRECTOR, note: "Payment slip checked by hand" };
+    const verified = { name: i.issued_by_eva ? "EVA AI" : DIRECTOR, note: "" };
     return { verified, approved: { name: DIRECTOR, note: `Coverage approved · ${E.dateTime(i.approved_at)}` } };
   }
   async function printCert(i, o, invoice, cv) {
@@ -319,24 +321,25 @@
     const st = stateOf(i), c = o?.customers || {}, ok = st.k === "valid";
     const sign = E.approvedBy(i.issued_by_eva ? null : i.approved_by, DIRECTOR, i.approved_at) || { name: DIRECTOR, at: i.approved_at, pic: "" };
     const who = certSigners(i), until = i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY";
-    const name = i.customer_name || fullName(c);
+    const name = i.customer_name || fullName(c), boxes = `${E.qtyText(i.boxes)} ${Number(i.boxes) === 1 ? "BOX" : "BOXES"}`;
+    const ordBar = i.order_no ? `<div class="ic-ord"><img src="${E.pdf417DataUrl("EMONCO|" + i.order_no)}" alt="" class="ph-bar"><small>ORDER NO</small><b class="mono">${esc(i.order_no)}</b></div>` : "";
     const codes = `<img src="${E.pdf417DataUrl("EMONINS|" + i.ins_no)}" alt="" class="ph-bar"><div class="mono">${esc(i.ins_no)}</div>`;
     const kv = (rows) => `<table class="ic-kv">${rows.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v === "" || v == null ? "&nbsp;" : esc(v)}</td></tr>`).join("")}</table>`;
     const tile = (k, v, cls = "") => `<div class="ic-tile ${cls}"><small>${esc(k)}</small><b>${esc(v)}</b></div>`;
-    const party = (role, p, icon) => `<div class="ic-party"><div class="ic-pi">${ic(icon)}</div><div><small>${esc(role)}</small><b>${esc(p.name)}</b><span>${esc(p.note)}</span></div></div>`;
+    const party = (role, p, icon) => `<div class="ic-party"><div class="ic-pi">${ic(icon)}</div><div><small>${esc(role)}</small><b>${esc(p.name)}</b>${p.note ? `<span>${esc(p.note)}</span>` : ""}</div></div>`;
     const page = `${E.printHead("INSURANCE COVERAGE CERTIFICATE", `<div class="ph-codes co-codes"><div>${codes}</div><div class="co-qr"><img src="${E.qrDataUrl(E.verifyUrl(i.ins_no))}" alt="QR code: verify" class="ph-qr"><small class="co-verify">VERIFY</small></div></div>`)}
       <div class="ins-cert ${st.k}">
         <div class="ic-hero">
           <div class="ic-seal"><div class="ins-seal big">${ic("shield")}</div><b>${ok ? "COVERED" : esc(st.label)}</b><span>EO-OFFICE INSURANCE</span></div>
           <div class="ic-say"><small>THIS CERTIFIES THAT</small><b class="ic-name">${esc(name)}</b>
-            <p>${c.account_no ? `(Account No <b>${esc(c.account_no)}</b>) ` : ""}is covered by EO-Office Insurance for <b>${esc(E.qtyText(i.boxes))} sealed box(es)</b> of order <b>${esc(i.order_no || "")}</b>,
-            from <b>${esc(mdy(i.issued_at))}</b> until <b>${esc(until)}</b>, under the benefits and terms below.</p></div>
+            <p>${c.account_no ? `(Account No <b>${esc(c.account_no)}</b>) ` : ""}is covered by EO-Office Insurance for <b>${esc(boxes)} (SEALED)</b> of order <b>${esc(i.order_no || "")}</b>,
+            from <b>${esc(mdy(i.issued_at))}</b> until <b>${esc(until)}</b>, under the coverage and terms below.</p></div>${ordBar}
         </div>
-        <div class="ic-tiles">${tile("Certificate No", i.ins_no)}${tile("Boxes Covered", E.qtyText(i.boxes))}${tile("Premium Paid", "PHP " + peso(i.amount))}${tile(ok || st.k === "expired" ? "Valid Until" : "Status", ok || st.k === "expired" ? until : st.label, "hl")}</div>
+        <div class="ic-tiles">${tile("Certificate No", i.ins_no)}${tile("Boxes Covered", boxes)}${tile("Premium Paid", "PHP " + peso(i.amount))}${tile(ok || st.k === "expired" ? "Valid Until" : "Status", ok || st.k === "expired" ? until : st.label, "hl")}</div>
         <div class="ic-cols">
           <div><div class="ic-h">INSURED ORDER</div>${kv([["Customer", name], ["Account No", c.account_no || ""], ["Order No", i.order_no || ""], ["Invoice No", invoice?.invoice_no || (o?.status === "completed" ? "" : "AFTER DELIVERY")],
             ["Order Value", `PHP ${peso(i.order_amount)}`], ["Delivery", o?.delivered_at ? E.dateTime(o.delivered_at) : "NOT YET DELIVERED"]])}</div>
-          <div><div class="ic-h">PREMIUM PAID</div>${kv([["Calculation", `${E.qtyText(i.boxes)} × PHP ${peso(i.box_price)} + ${num(i.rate_pct)}% of PHP ${peso(i.order_amount)}`], ["Premium", `PHP ${peso(i.amount)}`],
+          <div><div class="ic-h">PREMIUM PAID</div>${kv([["Calculation", `${boxes} × PHP ${peso(i.box_price)} + ${num(i.rate_pct)}% of PHP ${peso(i.order_amount)}`], ["Premium", `PHP ${peso(i.amount)}`],
             ["In Words", E.words(i.amount, "PESOS")], ["Paid By", METHODS[i.pay_method] || i.pay_method || ""], ["Reference No", i.pay_ref || ""], ["Collection Voucher", cv?.cv_no || ""]])}</div>
         </div>
         <div class="ic-who">${party("VERIFIED BY", who.verified, i.issued_by_eva ? "ai" : "check")}${party("APPROVED BY", who.approved, "stamp")}</div>

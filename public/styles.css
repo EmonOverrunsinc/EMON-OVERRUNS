@@ -2890,7 +2890,8 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 /* 3.73.4: the coverage certificate, redesigned */
 .ins-cert { border: 2.5px double #0f7a43; border-radius: 10px; padding: 3.5mm 4mm 2.5mm; margin: 2mm 0 0; background: linear-gradient(180deg, #f3fbf6 0, #fff 32mm); position: relative; }
 .ins-cert.expired, .ins-cert.cancelled, .ins-cert.rejected { border-color: #888; background: #fafafa; }
-.ic-hero { display: grid; grid-template-columns: 34mm 1fr; gap: 4mm; align-items: center; }
+.ic-hero { display: grid; grid-template-columns: 34mm 1fr auto; gap: 4mm; align-items: center; }
+.ic-ord { text-align: center; width: 44mm; } .ic-ord img { width: 44mm; height: 13mm; object-fit: fill; display: block; } .ic-ord small { display: block; font-size: 6.4pt; letter-spacing: .14em; color: #4b5f53; margin-top: 1mm; } .ic-ord b { font-size: 8.6pt; }
 .ic-seal { text-align: center; border: 2px solid #138a4b; border-radius: 50%; width: 31mm; height: 31mm; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #0f5d2c; box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 4px #9fd8b6; background: #fff; }
 .ic-seal .ins-seal { width: 30px; height: 30px; } .ic-seal .ins-seal .ic { width: 17px; height: 17px; }
 .ic-seal b { font-size: 11pt; letter-spacing: .08em; margin-top: 2px; } .ic-seal span { font-size: 5pt; font-weight: 700; letter-spacing: .04em; }
