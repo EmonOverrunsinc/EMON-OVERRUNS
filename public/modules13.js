@@ -218,7 +218,7 @@
     const secs = sectionsFor(t);
     const one = (list, first) => `${first ? head : ""}<div class="lg-print">${list.map(([h, b]) => `<section class="lg-sec"><h4>${esc(h)}</h4>${b}</section>`).join("")}</div>`;
     const d = acc?.details || {};
-    const accBox = acc ? `<div class="lg-print"><section class="lg-sec lg-acc"><h4>SIGNED AGREEMENT RECORD</h4><table class="ol-grid"><tbody>
+    const accBox = acc ? `<div class="lg-print"><section class="lg-sec lg-acc"><h4>AGREEMENT RECORD</h4><table class="ol-grid"><tbody>
         ${[["Acceptance No", acc.ref_no], ["Agreement", TYPES[t]], ["Version", acc.terms_version], ["Name", acc.full_name], ["Role", acc.role === "admin" ? "Managing Director (full access)" : acc.role],
           ["Email", acc.email || d.email], ["Username", d.username], ["Employee No", d.employee_no], ["Position", d.position], ["Account No", d.account_no], ["Application No", d.application_no],
           ["Business Name", d.business_name], ["Phone", d.phone], ["Public ID", d.public_id], ["Login ID", d.login_id || acc.user_id], ["Customer ID", d.customer_id || acc.customer_id],
@@ -227,7 +227,6 @@
           ["Screen · Language · Time Zone", [d.screen, d.language, d.time_zone].filter(Boolean).join(" · ")], ["Device Local Time", d.local_time], ["Browser", d.user_agent || acc.device],
           ["Text Fingerprint (SHA-256)", acc.terms_hash]].filter(([, v]) => v != null && v !== "").map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}
       </tbody></table>
-      ${acc.signature ? `<div class="lg-sig"><img src="${esc(acc.signature)}" alt="Signature"><div class="lg-sigline">${esc(String(acc.full_name || "").toUpperCase())}</div><small>Signature drawn when agreeing · ${esc(E.dateTime(acc.accepted_at))}</small></div>` : ""}
       <p class="pdecl">This record was made by the EMON OVERRUNS E-PORTAL server when the person above pressed Submit. It cannot be changed or deleted. It is an electronic document and an electronic signature under Republic Act No. 8792.</p></section></div>` : "";
     const out = [one(secs.slice(0, 3), true)];
     for (let i = 3; i < secs.length; i += 2) out.push(one(secs.slice(i, i + 2), false));
@@ -274,7 +273,6 @@
       <div class="legal-body" id="lgBody" tabindex="0">${termsHtml(t)}<p class="lg-end">— END OF THE ${esc(TYPES[t])} —</p></div>
       <div class="legal-foot">
         <label class="lg-agree"><input type="checkbox" id="lgAgree"> <span><b>I have read all and I agree</b> to all of this ${esc(TYPES[t])}.</span></label>
-        ${t === "employee" ? `<div class="lg-sigbox" id="lgSigBox" hidden><div class="lg-sigh"><b>Sign here</b> (required) <button type="button" class="linkbtn" id="lgSigClear">Clear</button></div><canvas id="lgSig" aria-label="Signature pad"></canvas></div>` : ""}
         <small class="muted">${ic("shield")} When you submit, your IDs, device, IP address and location (if your device allows it) are kept with your agreement.</small>
         <div class="btnrow"><button type="button" class="btn" id="lgPrint">${ic("print")} Print / Download</button><button type="button" class="btn danger" id="lgOut">${ic("x")} Reject</button>
           <button type="button" class="btn primary" id="lgSubmit" disabled>${ic("check")} Submit</button></div>
@@ -283,14 +281,13 @@
     let pad = null;
     // the Submit button is always visible: grey until "I agree" is ticked (and the employee signs), then blue
     const ready = () => {
-      const btn = $("#lgSubmit", ov), off = !$("#lgAgree", ov).checked || (t === "employee" && !(pad && pad.inked()));
+      const btn = $("#lgSubmit", ov), off = !$("#lgAgree", ov).checked;
       btn.disabled = off;
       btn.style.cssText = off ? "background:#8fa1c4;border-color:#8fa1c4;color:#fff;opacity:1;cursor:not-allowed" : "background:#0a66c2;border-color:#0a66c2;color:#fff;opacity:1";
-      btn.title = off ? (t === "employee" && $("#lgAgree", ov).checked ? "Sign first" : "Tick \"I have read all and I agree\" first") : "";
+      btn.title = off ? "Tick \"I have read all and I agree\" first" : "";
     };
     ready();
     $("#lgAgree", ov).onchange = (e) => {
-      if (t === "employee") { $("#lgSigBox", ov).hidden = !e.target.checked; if (e.target.checked && !pad) { pad = sigPad($("#lgSig", ov)); $("#lgSig", ov).addEventListener("inked", ready); $("#lgSigClear", ov).onclick = () => pad.clear(); } }
       ready();
     };
     $("#lgOut", ov).onclick = async () => {
@@ -310,7 +307,7 @@
       if (!$("#lgAgree", ov).checked) return;
       const btn = e.currentTarget; btn.disabled = true;
       const busyTxt = btn.innerHTML; btn.innerHTML = `<span class="spin sm"></span> Saving…`;
-      const extra = { details: deviceDetails(), location: await getLocation(), signature: t === "employee" && pad ? pad.png() : null };
+      const extra = { details: deviceDetails(), location: await getLocation(), signature: null }; // 3.73.3: no signature on the agreements
       btn.innerHTML = busyTxt;
       if (opts.onSubmit) { // a customer (Public ID + Private PIN, no login)
         const r = await opts.onSubmit(await sha256(plain(t)), device(), extra);
@@ -331,7 +328,7 @@
   // ---------- Legal Terms page (menu OTHER) ----------
   V.legal = async () => {
     E.shell("legal", "Legal Terms", `<div id="lgRes">${busy()}</div>`, isAdmin()
-      ? `Every login and customer agrees before using the portal. Each agreement is kept on the server for good: who, their IDs, date and time, device, IP address, location (when allowed), the employee's signature and the fingerprint of the exact text. Only the latest version (${REL}) shows here; older agreements stay kept on the server. Press a line to open its signed agreement and download it as a PDF.`
+      ? `Every login and customer agrees before using the portal. Each agreement is kept on the server for good: who, their IDs, date and time, device, IP address, location (when allowed) and the fingerprint of the exact text. Only the latest version (${REL}) shows here; older agreements stay kept on the server. Press a line to open its signed agreement and download it as a PDF.`
       : "The terms you accepted, and your acceptance record. Print or download it any time.");
     const here = E.stillHere();
     await syncVersion();
@@ -366,7 +363,7 @@
         { label: "Acceptance No", get: (r) => r.ref_no || "" }, { label: "Name", get: (r) => r.full_name || "" }, { label: "Email", get: (r) => r.email || "" },
         { label: "Role", get: (r) => (r.role === "admin" ? "Full Access" : r.role || "") }, { label: "Agreement", get: (r) => TYPES[typeOf(r.terms_version)] },
         { label: "Accepted On", get: (r) => E.dateTime(r.accepted_at) }, { label: "IP Address", get: (r) => r.ip_address || "" },
-        { label: "Location", get: (r) => (r.location?.status === "allowed" ? "✔ FOUND" : r.location ? "NOT ALLOWED" : "—") }, { label: "Signature", get: (r) => (r.signature ? "✔ SIGNED" : "") },
+        { label: "Location", get: (r) => (r.location?.status === "allowed" ? "✔ FOUND" : r.location ? "NOT ALLOWED" : "—") },
         { label: "Device", get: (r) => String(r.device || "").split(" · ").slice(0, 3).join(" · ") }], rows: list, onRow: true, empty: "No acceptance matches." });
       E.bindGrid($("#lgList"), list, (r) => printTerms(r));
     };
