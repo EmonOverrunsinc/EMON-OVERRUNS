@@ -589,6 +589,7 @@
       <div class="login-links"><button type="button" class="linkbtn" id="toForgot">Forgot password?</button></div>
       <div class="login-or">or</div>
       <button type="button" class="btn big" id="toCard">${ic("idcard")} Sign In with ID Card</button>
+      <button type="button" class="btn big" id="toCust">${ic("user")} Customer Sign In (Public ID)</button>
     </form>`);
     bindEyes();
     if (linkError) {
@@ -599,6 +600,7 @@
     $("#toSignup").onclick = () => renderSignup();
     $("#toForgot").onclick = () => renderForgot($("#lgId").value.trim());
     $("#toCard").onclick = () => renderCardLogin();
+    $("#toCust").onclick = () => window.EO.renderCustLogin?.(); // 3.69
     $("#lgForm").onsubmit = async (e) => {
       e.preventDefault();
       const id = $("#lgId").value.trim(), password = $("#lgPass").value;
@@ -2187,7 +2189,7 @@
     isAdmin, isStaff, canAI, meId, kvTable, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, 
     drawPdf417, pdf417DataUrl, drawQr, qrDataUrl, decodeImageFile, slimFile, scanDialog, openScanned, isCustKey, keepTab, stillHere, loadGuard, allRows,
-    roleName, personTitle, publicUrl, logoHtml, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route,
+    roleName, personTitle, publicUrl, logoHtml, loadBranding, loadProfile, refreshBadge, refreshBadges, initials, avatarUrl, route, authFrame, brandBlock,
     requestDeletion, TERMS, termsDue, changePassword: () => renderSetPassword(false)
   });
 })();

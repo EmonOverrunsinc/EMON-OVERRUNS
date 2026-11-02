@@ -147,7 +147,8 @@
     })().finally(() => { checking = null; });
     return checking;
   }
-  function show() {
+  function show(opts = {}) {
+    const who = opts.who || S.profile?.full_name || S.profile?.email || "";
     const ov = document.createElement("div");
     ov.className = "legal-ov";
     ov.innerHTML = `<div class="legal-win" role="dialog" aria-modal="true" aria-labelledby="lgTitle">
@@ -157,10 +158,10 @@
         <label class="lg-agree"><input type="checkbox" id="lgAgree"> <span><b>I have read all and I agree</b> to the Terms of Use, the Data Privacy Notice and Consent, the Confidentiality and Non-Disclosure terms, the Electronic Signature Consent and the terms on records, charges and payment above.</span></label>
         <div class="btnrow"><button type="button" class="btn" id="lgPrint">${ic("print")} Print / Download</button><button type="button" class="btn" id="lgOut">Sign Out</button>
           <button type="button" class="btn primary" id="lgSubmit" disabled>${ic("check")} Submit</button></div>
-        <small class="muted">Signed in as ${esc(S.profile.full_name || S.profile.email || "")}. The portal opens after you submit.</small></div></div>`;
+        <small class="muted">Signed in as ${esc(who)}. ${opts.onSubmit ? "Your account opens after you submit." : "The portal opens after you submit."}</small></div></div>`;
     document.body.appendChild(ov);
     $("#lgAgree", ov).onchange = (e) => { $("#lgSubmit", ov).disabled = !e.target.checked; };
-    $("#lgOut", ov).onclick = () => { ov.remove(); sb.auth.signOut({ scope: "local" }); };
+    $("#lgOut", ov).onclick = () => { ov.remove(); if (opts.onOut) opts.onOut(); else sb.auth.signOut({ scope: "local" }); };
     $("#lgPrint", ov).onclick = () => {
       ov.hidden = true; printTerms(null);
       const t = setInterval(() => { if (!$(".preview")) { clearInterval(t); ov.hidden = false; } }, 400);
@@ -168,6 +169,13 @@
     $("#lgSubmit", ov).onclick = async (e) => {
       if (!$("#lgAgree", ov).checked) return;
       const btn = e.currentTarget; btn.disabled = true;
+      if (opts.onSubmit) { // a customer (Public ID + Private PIN, no login)
+        const r = await opts.onSubmit(await sha256(plain()), device());
+        if (!r?.ok) { btn.disabled = false; return toast(r?.error || "Could not record your agreement.", true); }
+        ov.classList.add("out"); setTimeout(() => ov.remove(), 220);
+        toast(`Thank you. Your agreement ${r.ref_no || ""} is recorded. Your account is VERIFIED.`);
+        return opts.after?.(r);
+      }
       const { data, error } = await sb.rpc("accept_legal_terms", { p_version: VERSION, p_hash: await sha256(plain()), p_device: device() });
       if (error) { btn.disabled = false; return fail(error, "Could not record your agreement"); }
       S.legalOk = S.profile.id;
@@ -219,10 +227,73 @@
     draw();
   };
 
+  // ---------- 3.69: CUSTOMER SIGN IN: scan the Public ID QR, type the Private PIN; agree; VERIFIED ----------
+  const CUST_KEY = /EO[0-9A-F]{40}/i;
+  function renderCustLogin() {
+    let pub = "";
+    E.authFrame("Customer Sign In", `<form class="wbody login-form" id="cuForm" novalidate>
+      ${E.brandBlock()}
+      <div class="cl-scan"><button type="button" class="btn big primary" id="cuCam">${ic("camera")} Scan My Public ID</button>
+        <div class="cl-read" id="cuRead" hidden></div></div>
+      <div id="cuStep" hidden>
+        <label class="fl" for="cuPin">Private PIN</label>
+        <input type="password" id="cuPin" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="20" placeholder="XXXX-XXXX-XXXX" inputmode="text">
+        <button class="btn primary big" type="submit">Sign In</button></div>
+      <div class="hint small">Scan the QR code of your <b>Public ID</b> (on your customer papers), then type your <b>Private PIN</b> given by ${esc(co())}. Keep your Private PIN secret.</div>
+      <div class="login-links"><button type="button" class="linkbtn" id="cuBack">Back to Sign In</button></div></form>`);
+    const take = (t) => {
+      const m = String(t || "").match(CUST_KEY);
+      if (!m) return toast("This is not an EMON OVERRUNS customer Public ID. Scan the QR code of your Public ID.", true);
+      pub = m[0].toUpperCase();
+      const r = $("#cuRead"); r.hidden = false; r.innerHTML = `${ic("check")} Public ID ${esc(pub.slice(0, 6))}…${esc(pub.slice(-4))}`;
+      $("#cuStep").hidden = false; $("#cuPin").focus();
+    };
+    $("#cuCam").onclick = () => E.scanDialog(take, { title: "Scan Your Public ID", hint: "Hold the QR code of your Public ID in front of the camera." });
+    $("#cuBack").onclick = () => E.route();
+    $("#cuForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const pin = $("#cuPin").value.trim();
+      if (!pub) return toast("Scan your Public ID first.", true);
+      if (!pin) { toast("Type your Private PIN.", true); return $("#cuPin").focus(); }
+      E.setBusy(e.target, true, "Signing in");
+      const { data, error } = await sb.rpc("customer_portal", { p_public: pub, p_pin: pin, p_version: VERSION });
+      E.setBusy(e.target, false);
+      if (error) return fail(error, "Could not sign in");
+      if (!data?.ok) { $("#cuPin").value = ""; $("#cuPin").focus(); return toast(data?.error || "Wrong Public ID or Private PIN.", true); }
+      const open = (d) => custHome(d, () => E.route());
+      if (data.agreed) return open(data);
+      show({ who: `${data.name} (${data.account_no || ""})`, onOut: () => renderCustLogin(),
+        onSubmit: async (hash, dev) => { const r = await sb.rpc("customer_accept_terms", { p_public: pub, p_pin: pin, p_version: VERSION, p_hash: hash, p_device: dev }); return r.error ? { ok: false, error: r.error.message } : r.data; },
+        after: (r) => open({ ...data, agreed: r }) });
+    };
+  }
+  function custHome(d, out) {
+    const peso = (n) => Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    E.authFrame("My Account", `<div class="wbody login-form cust-home">
+      ${E.brandBlock()}<h3 class="cust-name">${esc(d.name)}<small>${esc([d.business_name, d.account_no].filter(Boolean).join(" · "))}</small></h3>
+      <div class="cust-ver ${d.agreed ? "ok" : ""}">${d.agreed ? `✅ <b>VERIFIED</b><small>Agreed to all the terms on ${esc(E.dateTime(d.agreed.accepted_at))} · ${esc(d.agreed.ref_no || "")}</small>` : "<b>NOT VERIFIED</b>"}</div>
+      <table class="grid cust-tbl"><tbody>
+        <tr><th>Account No</th><td>${esc(d.account_no || "")}</td></tr><tr><th>Account Status</th><td>${E.pill(d.status)}</td></tr>
+        <tr><th>Customer Since</th><td>${esc(E.mdy(d.opened) || "")}</td></tr>
+        ${d.credit_limit != null ? `<tr><th>Credit Limit</th><td>₱ ${peso(d.credit_limit)}</td></tr>` : ""}
+        ${d.balance_due != null ? `<tr><th>Balance Due</th><td><b>₱ ${peso(d.balance_due)}</b></td></tr>` : ""}</tbody></table>
+      <p class="hint small">If anything here is wrong, contact the office of ${esc(co())} immediately: ${esc(addr())} · ${esc(C.company.email)}.</p>
+      <div class="btnrow"><button type="button" class="btn" id="chTerms">${ic("doc")} Read the Terms</button><button type="button" class="btn primary" id="chOut">Sign Out</button></div></div>`);
+    $("#chTerms").onclick = showTerms;
+    $("#chOut").onclick = out;
+  }
+  // VERIFIED on the customer profile (staff)
+  async function custVerified(el, customerId) {
+    if (!el) return;
+    const { data, error } = await sb.rpc("customer_legal", { p_customer: customerId });
+    if (error || !el.isConnected) return;
+    el.innerHTML = data ? `<span class="pill approved" title="Agreed to the legal terms on ${esc(E.dateTime(data.accepted_at))} · ${esc(data.ref_no || "")}">✅ VERIFIED</span>` : `<span class="pill pending" title="The customer has not signed in and agreed to the legal terms yet">NOT VERIFIED</span>`;
+  }
+
   // the terms in a window (the Create Account form, before signing in)
   const showTerms = () => {
     const m = E.modal("Legal Terms, Data Privacy & E-Signature Consent", `<div class="legal-body page-like">${termsHtml()}</div>`, `<button type="button" class="btn primary" data-x>Close</button>`, { wide: true });
     $("[data-x]", m.el).onclick = m.close;
   };
-  Object.assign(E, { legalGate, showTerms, LEGAL_VERSION: VERSION });
+  Object.assign(E, { legalGate, showTerms, renderCustLogin, custVerified, LEGAL_VERSION: VERSION });
 })();
