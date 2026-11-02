@@ -13712,7 +13712,8 @@ select case when to_regprocedure('public.accept_legal_terms(text,text,text,jsonb
 -- 1. Staff (EO-Office) or EMON HASAN adds it by the order number: the order details and the premium show.
 -- 2. Payment: EMON HASAN's payment QR code and the amount show; after paying, the proof of payment is uploaded and
 --    submitted for review.
--- 3. EMON HASAN reviews: APPROVE issues the coverage at once (certificate with EMON HASAN's signature) and makes a
+-- 3. EVA AI reads the payment slip: when the amount on it is the premium, the coverage is issued at once. Otherwise
+--    EMON HASAN reviews: APPROVE issues the coverage at once (certificate with EMON HASAN's signature) and makes a
 --    COLLECTION VOUCHER for the amount by itself (with the proof as its receipt); REJECT sends it back with a note.
 -- 4. The coverage is valid until 15 days after the delivery (it shows "VALID UNTIL 15 DAYS AFTER DELIVERY" before).
 --    The order page shows the COVERED badge and EXPIRES date; anyone can verify the certificate (INS-[[U+2026]]) or the order.
@@ -13755,11 +13756,17 @@ create table if not exists public.order_insurance (
   issued_at timestamptz,
   valid_until date,
   cv_id uuid references public.collection_vouchers(id) on delete set null,
+  eva_amount numeric(14,2),      -- the amount EVA read on the payment slip
+  eva_text text,                 -- what EVA read (kept for checking)
+  issued_by_eva boolean not null default false,
   created_by uuid references public.profiles(id) on delete set null default auth.uid(),
   created_by_name text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.order_insurance add column if not exists eva_amount numeric(14,2);
+alter table public.order_insurance add column if not exists eva_text text;
+alter table public.order_insurance add column if not exists issued_by_eva boolean not null default false;
 create index if not exists order_insurance_order_idx on public.order_insurance(order_id);
 create index if not exists order_insurance_customer_idx on public.order_insurance(customer_id);
 create index if not exists order_insurance_status_idx on public.order_insurance(status, valid_until);
@@ -13830,10 +13837,31 @@ $$;
 revoke execute on function public.submit_insurance_payment(uuid, text, text, text) from public, anon;
 grant execute on function public.submit_insurance_payment(uuid, text, text, text) to authenticated;
 
--- 5. EMON HASAN decides: approve = the coverage is issued and the collection voucher is made by itself
+-- 5. issuing a coverage: the coverage, the expiry and the collection voucher (inside function: EMON HASAN or EVA)
+create or replace function public.ins_issue(p_id uuid, p_by_name text, p_note text, p_eva boolean) returns public.order_insurance
+language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
+declare r public.order_insurance; o public.customer_orders; cv uuid; ym text := to_char(now(), 'YYYYMM');
+begin
+  select * into r from public.order_insurance where id = p_id for update;
+  select * into o from public.customer_orders where id = r.order_id;
+  insert into public.collection_vouchers (cv_no, cv_date, received_from, amount, method, reference_no, note, receipt_path, created_by, created_by_name)
+  values ('CV-' || ym || '-' || lpad(public.next_counter('CV' || ym)::text, 3, '0'), current_date, left(coalesce(r.customer_name, 'CUSTOMER'), 120), r.amount,
+    coalesce(r.pay_method, 'gcash'), r.pay_ref, left('INSURANCE ' || r.ins_no || ' [[U+00B7]] ORDER ' || coalesce(r.order_no, '') || case when p_eva then ' [[U+00B7]] VERIFIED BY EVA AI' else '' end, 300),
+    r.proof_path, auth.uid(), left(p_by_name, 120))
+  returning id into cv;
+  update public.order_insurance set status = 'active', review_note = nullif(left(trim(coalesce(p_note, '')), 300), ''), approved_by = case when p_eva then null else auth.uid() end,
+    approved_by_name = left(p_by_name, 120), approved_at = now(), issued_at = now(), cv_id = cv, issued_by_eva = p_eva,
+    valid_until = case when o.delivered_at is not null then (o.delivered_at at time zone 'Asia/Manila')::date + 15 end, updated_at = now()
+  where id = p_id returning * into r;
+  return r;
+end;
+$$;
+revoke execute on function public.ins_issue(uuid, text, text, boolean) from public, anon, authenticated;
+
+-- EMON HASAN decides: approve = the coverage is issued and the collection voucher is made by itself
 create or replace function public.decide_insurance(p_id uuid, p_action text, p_note text default null) returns public.order_insurance
 language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
-declare r public.order_insurance; o public.customer_orders; me text := (select full_name from public.profiles where id = auth.uid()); cv uuid; ym text := to_char(now(), 'YYYYMM');
+declare r public.order_insurance; me text := (select full_name from public.profiles where id = auth.uid());
 begin
   if not public.is_admin() then raise exception 'Only EMON HASAN can approve an insurance'; end if;
   select * into r from public.order_insurance where id = p_id for update;
@@ -13844,15 +13872,7 @@ begin
     update public.order_insurance set status = 'rejected', review_note = left(trim(p_note), 300), approved_by = auth.uid(), approved_by_name = me, approved_at = now(), updated_at = now()
     where id = p_id returning * into r;
   elsif p_action = 'approve' then
-    select * into o from public.customer_orders where id = r.order_id;
-    insert into public.collection_vouchers (cv_no, cv_date, received_from, amount, method, reference_no, note, receipt_path, created_by, created_by_name)
-    values ('CV-' || ym || '-' || lpad(public.next_counter('CV' || ym)::text, 3, '0'), current_date, left(coalesce(r.customer_name, 'CUSTOMER'), 120), r.amount,
-      coalesce(r.pay_method, 'gcash'), r.pay_ref, left('INSURANCE ' || r.ins_no || ' [[U+00B7]] ORDER ' || coalesce(r.order_no, ''), 300), r.proof_path, auth.uid(), me)
-    returning id into cv;
-    update public.order_insurance set status = 'active', review_note = nullif(left(trim(coalesce(p_note, '')), 300), ''), approved_by = auth.uid(), approved_by_name = me,
-      approved_at = now(), issued_at = now(), cv_id = cv,
-      valid_until = case when o.delivered_at is not null then (o.delivered_at at time zone 'Asia/Manila')::date + 15 end, updated_at = now()
-    where id = p_id returning * into r;
+    r := public.ins_issue(p_id, me, p_note, false);
   else raise exception 'Unknown action';
   end if;
   if r.created_by is distinct from auth.uid() then
@@ -13864,6 +13884,28 @@ end;
 $$;
 revoke execute on function public.decide_insurance(uuid, text, text) from public, anon;
 grant execute on function public.decide_insurance(uuid, text, text) to authenticated;
+
+-- EVA AI read the payment slip: the amount on it is the premium [[U+2192]] the coverage is issued at once (EMON HASAN is told and
+-- sees what EVA read). Any other amount, or nothing read: it stays in review for EMON HASAN.
+create or replace function public.eva_issue_insurance(p_id uuid, p_amount numeric, p_text text) returns public.order_insurance
+language plpgsql security definer set search_path = '' as $$
+declare r public.order_insurance; me text := (select full_name from public.profiles where id = auth.uid());
+begin
+  if not (public.qc_can_write() or public.is_admin()) then raise exception 'Not allowed'; end if;
+  select * into r from public.order_insurance where id = p_id for update;
+  if not found then raise exception 'Insurance not found'; end if;
+  update public.order_insurance set eva_amount = round(p_amount, 2), eva_text = left(p_text, 2000), updated_at = now() where id = p_id returning * into r;
+  if r.status <> 'review' or p_amount is null or abs(round(p_amount, 2) - r.amount) > 0.009 or position(to_char(r.amount, 'FM999999990.00') in replace(coalesce(p_text, ''), ',', '')) = 0 then
+    return r; -- not matched: EMON HASAN decides
+  end if;
+  r := public.ins_issue(p_id, 'EVA AI (payment slip read: PHP ' || to_char(r.amount, 'FM999,999,990.00') || ') [[U+00B7]] ' || coalesce(me, ''), 'Payment verified by EVA AI', true);
+  perform public.notify_user(p.id, 'Insurance ' || r.ins_no || ' issued by EVA AI', 'Payment slip read: PHP ' || to_char(r.amount, 'FM999,999,990.00') || ' [[U+00B7]] order ' || r.order_no, 'insurance/' || r.id)
+  from public.profiles p where p.role = 'admin' and p.status = 'active' and p.id is distinct from auth.uid();
+  return r;
+end;
+$$;
+revoke execute on function public.eva_issue_insurance(uuid, numeric, text) from public, anon;
+grant execute on function public.eva_issue_insurance(uuid, numeric, text) to authenticated;
 
 -- EMON HASAN cancels a coverage that is not issued (gives back the proof file to delete)
 create or replace function public.cancel_insurance(p_id uuid) returns text

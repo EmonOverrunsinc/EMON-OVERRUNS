@@ -30,6 +30,35 @@
       <tr><td>Order value ₱ ${peso(value)} × ${num(rate)}%</td><td class="num">₱ ${peso(c.b)}</td></tr>
       <tr class="tot"><td><b>INSURANCE PREMIUM</b></td><td class="num"><b>₱ ${peso(c.total)}</b></td></tr></tbody></table>`;
   };
+  // ---------- 3.72: EVA reads the payment slip (text reading runs on this device; nothing is sent away) ----------
+  let ocrLib = null;
+  const loadOcr = () => (ocrLib ||= new Promise((ok, bad) => {
+    if (window.Tesseract) return ok(window.Tesseract);
+    const sc = document.createElement("script"); sc.src = "vendor/ocr/tesseract.min.js"; sc.async = true;
+    sc.onload = () => (window.Tesseract ? ok(window.Tesseract) : bad(new Error("EVA could not start the reader")));
+    sc.onerror = () => { ocrLib = null; bad(new Error("EVA could not load the reader. Check the internet.")); };
+    document.head.appendChild(sc);
+  }));
+  const moneyIn = (text) => {
+    const out = new Set();
+    for (const m of String(text || "").replace(/[Oo](?=[\d,.]*\d)/g, "0").matchAll(/(?:₱|PHP|Php|P)?\s?((?:\d{1,3}(?:[,\s]\d{3})+|\d+)[.,]\d{2})(?!\d)/g)) {
+      const v = Number(m[1].replace(/[,\s](?=\d{3}\b)/g, "").replace(",", ".")); if (v > 0 && v < 1e8) out.add(Math.round(v * 100) / 100);
+    }
+    return [...out];
+  };
+  async function evaRead(file, onStep) {
+    const T = await loadOcr();
+    const base = new URL("vendor/ocr/", location.href).href;
+    const w = await T.createWorker("eng", 1, { workerPath: base + "worker.min.js", corePath: base, langPath: base.replace(/\/$/, ""), gzip: true,
+      logger: (m) => onStep?.(m.status, m.progress) });
+    try {
+      const { data } = await w.recognize(file);
+      const text = String(data?.text || "").replace(/[ \t]+/g, " ").trim();
+      const ref = (text.match(/(?:ref(?:erence)?\.?\s*(?:no\.?|number|#)?|trace\s*no\.?|transaction\s*(?:no\.?|id))\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{5,})/i) || [])[1] || "";
+      return { text, amounts: moneyIn(text), ref };
+    } finally { w.terminate().catch?.(() => {}); }
+  }
+
   // the coverage state of an insurance
   function stateOf(i) {
     if (i.status !== "active") return { k: ST[i.status]?.[0] || "pending", label: ST[i.status]?.[1] || String(i.status).toUpperCase(), rank: i.status === "review" ? 1 : i.status === "unpaid" ? 2 : 4 };
@@ -147,11 +176,15 @@
           <div class="btnrow center"><button type="button" class="btn small" id="ipQrZoom">${ic("eye")} Big QR</button><a class="btn small" href="${esc(q)}" download="EMON-OVERRUNS-InstaPay-QR.png">${ic("download")} Save QR</a></div>
           <div class="ins-amt"><small>SCAN WITH ANY BANK OR E-WALLET APP (INSTAPAY) · AMOUNT TO PAY</small><b>₱ ${peso(i.amount)}</b>${s.pay_qr_note ? `<span>${esc(s.pay_qr_note)}</span>` : ""}<span class="mono">Ref: ${esc(i.ins_no)}</span></div></div>
           <div><ol class="ins-steps"><li>Scan the QR code and pay <b>₱ ${peso(i.amount)}</b>.</li><li>Take a screenshot or photo of the payment receipt.</li><li>Upload it below with the reference no and press <b>Submit for Review</b>.</li><li>EMON HASAN checks the payment: the coverage is issued by itself.</li></ol>
+            <div class="btnrow ins-slip"><label class="btn primary" for="ipCam">${ic("camera")} Scan Payment Slip</label><input type="file" id="ipCam" accept="image/*" capture="environment" hidden>
+              <label class="btn" for="ipFile">${ic("image")} Upload Receipt</label></div>
+            <div id="ipEva"></div>
             <div class="fields wide"><label for="ipFile">Proof of Payment *</label><input type="file" id="ipFile" accept="image/*,application/pdf">
               <label for="ipMethod">Paid By</label><select id="ipMethod">${Object.entries(METHODS).map(([k, l]) => `<option value="${k}" ${k === (i.pay_method || "gcash") ? "selected" : ""}>${l}</option>`).join("")}</select>
               <label for="ipRef">Reference No</label><input type="text" id="ipRef" maxlength="60" value="${esc(i.pay_ref || "")}" placeholder="e.g. GCash ref no"></div>
             <div class="btnrow"><button type="button" class="btn primary" id="ipSend">${ic("send")} Submit for Review</button></div></div></div></fieldset>` : "";
     const proofBox = i.proof_path ? `<fieldset class="opt"><legend>Proof of Payment</legend><div class="pgrid2 qc-head">${E.cell("Paid By", METHODS[i.pay_method] || i.pay_method || "")}${E.cell("Reference No", i.pay_ref || "")}${E.cell("Submitted", i.proof_at ? `${E.dateTime(i.proof_at)} · ${i.proof_by_name || ""}` : "")}${E.cell("Amount (₱)", peso(i.amount), "hl")}</div>
+        ${i.eva_amount != null || i.issued_by_eva ? `<div class="banner ${i.issued_by_eva ? "ok" : "warn"}">${ic("ai")} <b>EVA AI</b> read <b>₱ ${peso(i.eva_amount)}</b> on the payment slip${i.issued_by_eva ? " — it matches: the coverage was issued by itself." : ` — the premium is ₱ ${peso(i.amount)}: EMON HASAN checks it.`}</div>` : i.status === "review" && i.proof_path ? `<div class="banner warn">${ic("ai")} EVA AI could not read the amount on this proof: EMON HASAN checks it.</div>` : ""}
         ${proof ? (isPdf ? `<button type="button" class="btn" id="ipOpen">${ic("eye")} Open the Proof (PDF)</button>` : `<button type="button" class="cv-receipt" id="ipOpen" aria-label="Open the proof"><img src="${esc(proof)}" alt="Proof of payment"></button>`) : ""}
         ${i.status === "review" && isAdmin() ? `<div class="fields wide" style="margin-top:10px"><label for="ipNote">EMON HASAN's note</label><input type="text" id="ipNote" maxlength="300" placeholder="needed to reject"></div>
           <div class="btnrow"><button type="button" class="btn danger" id="ipNo">${ic("x")} Reject</button><button type="button" class="btn ok" id="ipOk">${ic("check")} Payment Received · Issue Coverage</button></div>` : i.status === "review" ? `<div class="banner info">Waiting for EMON HASAN to check the payment.</div>` : ""}</fieldset>` : "";
@@ -171,9 +204,30 @@
     if ($("#ipQrBig")) { $("#ipQrBig").onclick = bigQr; $("#ipQrZoom").onclick = bigQr; }
     if ($("#ipOpen")) $("#ipOpen").onclick = () => E.viewFile({ storage_path: i.proof_path, mime: isPdf ? "application/pdf" : "image/jpeg", file_name: `${i.ins_no} Proof of Payment` });
     if ($("#ipCert")) $("#ipCert").onclick = () => printCert(i, o, invoice, cv);
+    // the slip: scanned with the camera or uploaded; EVA reads it at once
+    let eva = null, evaFile = null;
+    const readSlip = async (raw) => {
+      evaFile = raw; eva = null;
+      const box = $("#ipEva"); if (!box || !raw) return;
+      if (/pdf/i.test(raw.type)) { box.innerHTML = `<div class="banner warn">${ic("ai")} EVA reads photos only: this PDF goes to EMON HASAN to check.</div>`; return; }
+      const url = URL.createObjectURL(raw);
+      box.innerHTML = `<div class="eva-read"><img src="${esc(url)}" alt="Payment slip"><div><b>${ic("ai")} EVA is reading the payment slip…</b><div class="ga-bar"><i id="ipEvaBar"></i></div><small id="ipEvaStep">Starting</small></div></div>`;
+      try {
+        const r = await evaRead(raw, (st, pr) => { const b = $("#ipEvaBar"), t = $("#ipEvaStep"); if (b) b.style.width = `${Math.round((pr || 0) * 100)}%`; if (t) t.textContent = st || ""; });
+        if (evaFile !== raw || !$("#ipEva")) return;
+        const hit = r.amounts.find((a) => Math.abs(a - num(i.amount)) < 0.009);
+        eva = { ...r, matched: hit != null, amount: hit ?? (r.amounts.length ? Math.max(...r.amounts) : null) };
+        if (r.ref && !$("#ipRef").value.trim()) $("#ipRef").value = r.ref.slice(0, 60);
+        $("#ipEva").innerHTML = `<div class="eva-read ${eva.matched ? "ok" : "no"}"><img src="${esc(url)}" alt="Payment slip"><div>
+          <b>${ic(eva.matched ? "check" : "x")} ${eva.matched ? `EVA READ ₱ ${peso(hit)} — AMOUNT MATCHES` : r.amounts.length ? `EVA READ ₱ ${r.amounts.map(peso).join(", ₱ ")} — NOT ₱ ${peso(i.amount)}` : "EVA COULD NOT READ AN AMOUNT"}</b>
+          <small>${eva.matched ? "Press Submit: the payment is received and the coverage is issued at once." : "You can still submit: EMON HASAN checks the payment."}${r.ref ? ` · Reference ${esc(r.ref)}` : ""}</small></div></div>`;
+      } catch (err) { if ($("#ipEva")) $("#ipEva").innerHTML = `<div class="banner warn">${ic("ai")} EVA could not read it (${esc(err.message)}). Submit it: EMON HASAN checks the payment.</div>`; }
+    };
+    if ($("#ipCam")) $("#ipCam").onchange = (e) => { const f = e.target.files[0]; if (!f) return; const dt = new DataTransfer(); dt.items.add(f); $("#ipFile").files = dt.files; readSlip(f); };
+    if ($("#ipFile")) $("#ipFile").onchange = (e) => readSlip(e.target.files[0]);
     if ($("#ipSend")) $("#ipSend").onclick = async (e) => {
-      const raw = $("#ipFile").files[0];
-      if (!raw) { $("#ipFile").focus(); return toast("Upload the proof of payment.", true); }
+      const raw = $("#ipFile").files[0] || evaFile;
+      if (!raw) { $("#ipFile").focus(); return toast("Scan or upload the payment slip.", true); }
       const btn = e.currentTarget; btn.disabled = true; toast("Uploading the proof…");
       const f = /pdf/i.test(raw.type) ? raw : await E.slimFile(raw, "photo");
       const path = `insurance/${i.id}/proof_${Date.now()}.${E.extOf(f)}`;
@@ -181,7 +235,21 @@
       if (up.error) { btn.disabled = false; return fail(up.error, "Upload failed"); }
       const { error: e2 } = await sb.rpc("submit_insurance_payment", { p_id: i.id, p_path: path, p_method: $("#ipMethod").value, p_ref: $("#ipRef").value.trim() });
       if (e2) { btn.disabled = false; sb.storage.from("records").remove([path]).then(() => {}, () => {}); return fail(e2, "Could not submit"); }
+      if (eva && eva.text) {
+        const { data: r2 } = await sb.rpc("eva_issue_insurance", { p_id: i.id, p_amount: eva.amount, p_text: eva.text.slice(0, 2000) });
+        if (r2?.status === "active") return paidCard(r2);
+      }
       toast("Proof of payment submitted. EMON HASAN will check it."); insPage(i.id);
+    };
+    // PAYMENT RECEIVED: the coverage is issued (EVA matched the amount)
+    const paidCard = (r) => {
+      const st2 = stateOf(r);
+      const m = E.modal("Payment Received", `<div class="ins-paid"><div class="ins-seal big">${ic("check")}</div><b>PAYMENT RECEIVED</b>
+        <span>₱ ${peso(r.amount)} · read and verified by EVA AI</span><div class="ins-paid-cov">${ic("shield")} YOUR COVERAGE IS ISSUED<small>${esc(r.ins_no)} · ORDER ${esc(r.order_no || "")}</small><em>${r.valid_until ? `EXPIRES ${esc(mdy(r.valid_until))}` : "VALID UNTIL 15 DAYS AFTER DELIVERY"}</em></div>
+        <small class="muted">A collection voucher was made by itself. EMON HASAN can see what EVA read.</small></div>`,
+        `<button type="button" class="btn primary" data-x>${ic("download")} Open the Coverage</button>`);
+      $("[data-x]", m.el).onclick = () => { m.close(); insPage(r.id); };
+      toast(`Payment received. Coverage ${r.ins_no} issued — ${st2.label}.`);
     };
     const decide = async (action) => {
       const note = $("#ipNote").value.trim();
@@ -220,7 +288,7 @@
   async function printCert(i, o, invoice, cv) {
     await E.loadSignatures?.().catch(() => {});
     const st = stateOf(i), c = o?.customers || {};
-    const sign = E.approvedBy(i.approved_by, i.approved_by_name, i.approved_at);
+    const sign = i.issued_by_eva ? E.approvedBy(null, "EMON HASAN", i.approved_at) || { name: "EMON HASAN", at: i.approved_at, pic: "" } : E.approvedBy(i.approved_by, i.approved_by_name, i.approved_at);
     const codes = `<img src="${E.pdf417DataUrl("EMONINS|" + i.ins_no)}" alt="" class="ph-bar"><div class="mono">${esc(i.ins_no)}</div>`;
     const page = `${E.printHead("INSURANCE COVERAGE CERTIFICATE", `<div class="ph-codes co-codes"><div>${codes}</div><div class="co-qr"><img src="${E.qrDataUrl(E.verifyUrl(i.ins_no))}" alt="QR code: verify" class="ph-qr"><small class="co-verify">VERIFY</small></div></div>`)}
       <div class="ins-cert-seal ${st.k}"><div class="ins-seal big">${ic("shield")}</div><div><b>${st.k === "valid" ? "COVERED" : esc(st.label)}</b>

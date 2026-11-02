@@ -2873,3 +2873,14 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .ins-qr-full img { width: min(86vw, 70vh, 560px); aspect-ratio: 1; object-fit: contain; image-rendering: pixelated; background: #fff; }
 .ins-qr-full b { font-size: 28px; color: #0a3d91; }
 @media (max-width: 760px) { .ins-offer { flex-wrap: wrap; } .ins-offer-amt { width: 100%; text-align: right; } }
+/* 3.72: EVA reads the payment slip */
+.ins-slip { margin: 6px 0; }
+.eva-read { display: flex; gap: 12px; align-items: center; border: 1px solid #c9d6ef; background: #f5f8ff; border-radius: 12px; padding: 10px; margin: 8px 0; }
+.eva-read img { width: 74px; height: 96px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd; flex: none; }
+.eva-read b { display: block; font-size: 14px; } .eva-read small { display: block; font-size: 12px; color: #555; margin-top: 3px; }
+.eva-read .ga-bar { height: 6px; background: #e3e8f4; border-radius: 4px; overflow: hidden; margin-top: 6px; } .eva-read .ga-bar i { display: block; height: 100%; width: 0; background: #0a66c2; transition: width .3s; }
+.eva-read.ok { border-color: #9fd8ae; background: #eefaf1; color: #135c2a; } .eva-read.no { border-color: #f0d38a; background: #fff8e8; color: #7a5300; }
+.ins-paid { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 6px; }
+.ins-paid > b { font-size: 24px; color: #0f7a43; letter-spacing: .06em; } .ins-paid > span { color: #333; }
+.ins-paid-cov { border: 2px solid #1fa463; border-radius: 14px; padding: 10px 16px; margin: 6px 0; font-weight: 800; color: #0f5d2c; font-size: 16px; display: flex; flex-direction: column; gap: 2px; align-items: center; }
+.ins-paid-cov .ic { width: 22px; height: 22px; } .ins-paid-cov small { font-weight: 600; font-size: 12px; } .ins-paid-cov em { font-style: normal; font-size: 18px; color: #0a3d91; }
