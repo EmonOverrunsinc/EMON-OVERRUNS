@@ -2997,12 +2997,12 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .c2.expired .c2-band, .c2.cancelled .c2-band { background: #4b5563; }
 .c2.back .c2-cols { column-count: 3; column-gap: 5mm; flex: 1; } .c2-cl { break-inside: avoid; margin-bottom: 2.2mm; } .c2-cl h4 { margin: 0 0 .8mm; font-size: 8pt; color: var(--nv); border-bottom: 1px solid var(--gd); padding-bottom: .4mm; } .c2-cl p { margin: 0; font-size: 8.6pt; line-height: 1.45; text-align: justify; } .c2.back .c2-cl { margin-bottom: 3.2mm; } .c2.back .c2-cl h4 { font-size: 9pt; }
 .c2-ack p { margin: 1mm 0 0; font-size: 8pt; } .c2-ackline { display: inline-block; width: 55mm; border-bottom: 1px solid #10203f; margin: 0 1mm; } .c2-ackline.s { width: 24mm; }
-/* 3.78: the certificate on A4 portrait */
-.page.bare .c2 { min-height: 281mm; } .page.bare:has(.c2) { padding: 8mm 9mm 6mm; }
-.c2-main { grid-template-columns: 1fr; } .c2-right { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; align-items: start; }
-.c2-band { padding: 3mm 4mm; } .c2-co b, .c2-title b { font-size: 15pt; } .c2-title i { min-width: 50mm; } .c2-no { min-width: 48mm; }
-.c2.back .c2-cols { column-count: 2; }
-.c2-date b { font-size: 11pt; }
+/* 3.78.1: the certificate on A4 landscape: schedule left, premium / payment due right; the wording in 3 columns */
+.page.a4l.bare { padding: 7mm 9mm 5mm; } .page.a4l .c2 { min-height: 197mm; gap: 2mm; }
+.c2-main { grid-template-columns: 1.85fr 1fr; } .c2-right { display: flex; flex-direction: column; gap: 1mm; }
+.c2.back .c2-cols { column-count: 3; }
+.c2-date b { font-size: 11pt; } .page.a4l .c2-decl p { font-size: 8.4pt; line-height: 1.42; margin-bottom: 1.2mm; }
+.page.a4l .c2-sigbox { height: 17mm; } .page.a4l .c2-tbl td { padding: 1.1mm 1.8mm; } .page.a4l .c2-fld { min-height: 9mm; }
 .c2-main { align-content: start; flex: 0 0 auto; gap: 4mm; } .c2-sigs { margin-top: auto; } .c2-tbl td { padding: 1.8mm 2mm; } .c2-fld b { font-size: 10pt; }
 .c2-decl p { margin: 0 0 2mm; font-size: 9.2pt; line-height: 1.55; text-align: justify; } .c2-decl { margin-top: 1mm; }
 /* ===== 3.78 insurance screens in the EMON OVERRUNS document design (navy, gold, field boxes) ===== */
