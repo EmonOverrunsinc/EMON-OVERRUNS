@@ -136,6 +136,7 @@
           <p class="muted" style="margin:6px 0">Each box scanned fills the order lines from the box database (your Google Sheet): product and brand, code (style), pcs and lot no (batch). Then write the price. The boxes go on the order when you save it.</p>
           <div id="cfList"></div></fieldset>
         <fieldset class="opt"><legend>Order Lines</legend><div id="coLines"></div></fieldset>
+        ${o ? "" : `<div id="coInsOffer"></div>`}
       </div><div class="wfoot"><button type="button" class="btn" id="coCancel">Cancel</button><button type="submit" class="btn primary">${o ? "Save" : isAdmin() ? "Save Order" : "Save and Send to EMON HASAN"}</button></div></form>`,
       isAdmin() ? "" : "CREATE ORDER: the order goes to EMON HASAN to approve. Approved, it is PREPARED: EMON HASAN's signature is on the printed order and the delivery can start.");
     let cust = preset && preset.status === "active" ? preset : null;
@@ -188,6 +189,9 @@
     $("#coDate").addEventListener("change", () => { if ($("#coTerms").value) fillDue(); });
     if (!$("#coDue").value) fillDue();
     $("#coCancel").onclick = () => history.back();
+    // 3.72: ADD COVERAGE below the items (new orders): the premium follows the lines; saved, the insurance is made and its payment opens
+    let insOn = false;
+    if (!o && E.insOffer) E.insOffer($("#coInsOffer"), () => ed.read().lines, (v) => (insOn = v));
     $("#coForm").onsubmit = async (e) => {
       e.preventDefault();
       if (!cust) return toast("Choose the customer (an ACTIVE account).", true);
@@ -203,6 +207,11 @@
       if (error) { E.setBusy(e.target, false); return fail(error, /save_order_with_boxes/.test(error.message || "") && notSet(error) ? "Run the database update 052_order_scan.sql first" : notSet(error) ? "Run the database update RUN_041_TO_046.sql first" : o?.status === "completed" && /cannot be changed/.test(error.message || "") ? "Run the database update 062_edit_completed_order.sql first" : "Could not save the order"); }
       const withB = picked.length ? ` with ${boxesText(picked.length)}` : "";
       toast(o ? `Saved${withB}.${o.status === "completed" ? " The invoice was changed too." : ""}` : row.status === "approved" ? `Order ${row.order_no} saved and approved${withB}.` : `Order ${row.order_no} saved and sent to EMON HASAN${withB}.`);
+      if (insOn && !o) {
+        const r = await sb.rpc("request_insurance", { p_order: row.id });
+        if (!r.error) { toast(`Order ${row.order_no} saved with COVERAGE ${r.data.ins_no}: pay by the QR code, then submit the proof.`); location.hash = "insurance/" + r.data.id; return; }
+        toast(`Order saved, but the coverage could not be added: ${r.error.message}`, true);
+      }
       location.hash = "custorder/" + row.id;
     };
   }
@@ -371,7 +380,7 @@
           <div class="pcell co-invstat"><div class="pl">Status</div><div class="pv">${payPill(inv)}</div></div></div>
           ${o._dl?.has_pcs && nBoxes(boxes) ? `<div class="banner ok co-verified">✅ VERIFIED WITH SERIAL NO — the invoice charges the delivery list: ${esc(boxesText(nBoxes(boxes)))} · ${qtyText(o._dl.pcs)} pcs</div>` : ""}` : `<div class="empty small">The invoice is on the customer's account.</div>`;
     const tabs = ["Order Lines", `Boxes (${nBoxes(boxes)})`, "Delivery", ...(o.status === "completed" ? ["Invoice"] : [])];
-    $("#main").innerHTML = `${head}${stepper}${banner}
+    $("#main").innerHTML = `${head}${stepper}${banner}<div id="coIns"></div>
       ${isAdmin() && o.status === "approved" && o.delivery_request_at ? `<fieldset class="opt review"><legend>Delivery Approval</legend><p class="muted" style="margin:0 0 8px">${vsText(o.total_boxes, nBoxes(boxes), false)} · ${(o.delivery_photos || []).length} photo(s): see the Boxes and Delivery tabs.</p><div class="btnrow"><button type="button" class="btn ok" id="coDvOk">${ic("check")} Approve Delivery · COMPLETE</button><button type="button" class="btn danger" id="coDvNo">Reject</button></div></fieldset>` : ""}
       ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>EMON HASAN's Decision</legend><div class="btnrow"><button type="button" class="btn ok" id="coApprove">${ic("check")} Approve · 2 PREPARED</button><button type="button" class="btn danger" id="coCancelO">Cancel Order</button></div></fieldset>` : ""}
       <div class="due-card co-amt"><div><div class="k">Order Amount</div><div class="v">₱ ${peso(o.total_amount)}</div></div><small>${esc(E.words(o.total_amount))}${o.note ? ` · Note: ${esc(o.note)}` : ""}</small></div>
@@ -440,6 +449,7 @@
     $("#coAll").onclick = async () => { await E.loadSignatures().catch(() => {}); E.openPreview(`Customer Order ${o.order_no} — All Details`, allPages(o, inv, boxes, urls)); };
     bindBoxes(o, boxes, reload);
     if ((o.status === "approved" && w && !deliverNow) || canFixDelivery(o)) bindDelivery(o, boxes, urls, reload);
+    E.insOrderStrip?.(o, $("#coIns")); // 3.72: insurance COVERED / EXPIRES, or Add Insurance before delivery
     $$("[data-ph]").forEach((b) => (b.onclick = () => E.lightbox(b.dataset.ph)));
     E.setRecords(`Customer order: ${o.order_no}`);
   }

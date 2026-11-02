@@ -399,6 +399,9 @@
       }
       $("#vfCode").value = t.replace(/^.*#verify\//i, "");
       $("#vfResult").innerHTML = `<div class="vf-wait">${busy("Searching the records")}</div>`;
+      // 3.72: an insurance certificate (INS-…) or an order with coverage (OR-…)
+      const insHtml = await E.insVerify?.($("#vfCode").value);
+      if (insHtml) { if ($("#vfResult")) { $(".verify-hero").hidden = true; $("#vfResult").innerHTML = insHtml; } return; }
       const shown = $("#vfCode").value;
       if (decodeURIComponent(location.hash.slice(1)) !== "verify/" + shown) history.replaceState(null, "", "#verify/" + encodeURIComponent(shown));
       const [{ data, error }] = await Promise.all([sb.rpc("verify_record", { p_code: t }), new Promise((r) => setTimeout(r, 450))]);
