@@ -276,9 +276,23 @@
         <small class="muted">${ic("shield")} When you submit, your IDs, device, IP address and location (if your device allows it) are kept with your agreement.</small>
         <div class="btnrow"><button type="button" class="btn" id="lgPrint">${ic("print")} Print / Download</button><button type="button" class="btn danger" id="lgOut">${ic("x")} Reject</button>
           <button type="button" class="btn primary" id="lgSubmit" disabled>${ic("check")} Submit</button></div>
-        <small class="muted">Signed in as ${esc(who)}. ${opts.onSubmit ? "Your account opens only after you agree." : "The portal opens only after you agree."} <b>Reject</b> signs you out; the agreement shows again at your next sign in.</small></div></div>`;
+        <small class="muted">Signed in as ${esc(who)}. ${opts.onSubmit ? "Your account opens only after you agree." : "The portal opens only after you agree."} <b>Reject</b> signs you out; the agreement shows again at your next sign in. <b class="lg-strict">Not agreed in <span class="lg-timer">3:00</span> = signed out.</b></small></div></div>`;
     document.body.appendChild(ov);
     let pad = null;
+    // 3.75.1: STRICT: not agreed within 3 minutes = signed out (a login only; a customer goes back to its sign in)
+    const LIMIT = window.EO_LEGAL_LIMIT || 180; // (a test can make it shorter)
+    let left = LIMIT;
+    const tick = setInterval(async () => {
+      if (!ov.isConnected) return clearInterval(tick);
+      left--;
+      const t = $(".lg-timer", ov); if (t) t.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+      if (left > 0) return;
+      clearInterval(tick); ov.remove();
+      if (opts.onSubmit) { toast("Not agreed in time. Sign in again to agree.", true); return opts.onOut?.(); }
+      S.legalOk = null;
+      await sb.auth.signOut({ scope: "local" });
+      toast("Not agreed in time: you are signed out. You can use the portal only after you agree.", true);
+    }, 1000);
     // the Submit button is always visible: grey until "I agree" is ticked (and the employee signs), then blue
     const ready = () => {
       const btn = $("#lgSubmit", ov), off = !$("#lgAgree", ov).checked;

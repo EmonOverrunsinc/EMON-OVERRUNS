@@ -583,7 +583,8 @@
       ${brandBlock()}
       <div class="seg" role="tablist"><button type="button" class="on" role="tab" aria-selected="true">Sign In</button><button type="button" role="tab" id="toSignup">Create Account</button></div>
       <label class="fl" for="lgId">Email or Username</label>
-      <input type="text" id="lgId" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(preset)}" required>
+      <div class="in-scan"><input type="text" id="lgId" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(preset)}" required>
+        <button type="button" class="in-scan-btn" id="lgScanId" title="Sign in with your ID card: scan it" aria-label="Sign in with your ID card (scan)">${ic("scan")}</button></div>
       ${pwField("lgPass", "Password", "current-password")}
       <button class="btn primary big" type="submit">Sign In</button>
       <div class="login-links"><button type="button" class="linkbtn" id="toForgot">Forgot password?</button></div>
@@ -600,6 +601,7 @@
     $("#toSignup").onclick = () => renderSignup();
     $("#toForgot").onclick = () => renderForgot($("#lgId").value.trim());
     $("#toCard").onclick = () => renderCardLogin();
+    $("#lgScanId").onclick = () => { renderCardLogin(); $("#clCam")?.click(); }; // 3.75.1: the scan icon in the email box opens the ID card scan at once
     $("#toCust").onclick = () => window.EO.renderCustLogin?.(); // 3.69
     $("#lgForm").onsubmit = async (e) => {
       e.preventDefault();

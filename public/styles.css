@@ -2945,3 +2945,10 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .kyc-gal figure { margin: 0; } .kyc-gal figcaption { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-align: center; color: #334155; margin-top: 3px; }
 .kyc-tbl th { text-align: left; width: 34%; } .kyc-rev .kyc-tbl { margin-top: 12px; }
 @media (max-width: 600px) { .kyc-ids { grid-template-columns: 1fr; } }
+/* 3.75.1: the ID card scan icon inside the Email or Username box */
+.in-scan { position: relative; } .in-scan input { width: 100%; padding-right: 52px; box-sizing: border-box; }
+.in-scan-btn { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); width: 40px; height: 36px; border: 0; border-radius: 10px; background: #0a66c2; color: #fff; display: grid; place-items: center; cursor: pointer; }
+.in-scan-btn .ic { width: 20px; height: 20px; stroke: #fff; } .in-scan-btn:active { transform: translateY(-50%) scale(.95); }
+.kyc-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; color: #0f5d2c; background: #e3f6ea; border: 1px solid #9fd8b6; border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
+.kyc-badge .ic { width: 12px; height: 12px; stroke: #0f7a43; }
+.lg-strict { color: #b42318; white-space: nowrap; } .lg-timer { font-variant-numeric: tabular-nums; }

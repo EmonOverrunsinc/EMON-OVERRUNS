@@ -16,6 +16,16 @@
   const MOVES = [["left", "TURN YOUR HEAD SLOWLY TO THE LEFT"], ["right", "TURN YOUR HEAD SLOWLY TO THE RIGHT"], ["up", "LOOK UP"], ["smile", "SMILE"], ["close", "MOVE CLOSER TO THE CAMERA"]];
   const pickMoves = () => [["straight", "LOOK STRAIGHT AT THE CAMERA"], ...MOVES.map((m) => [Math.random(), m]).sort((a, b) => a[0] - b[0]).slice(0, 3).map((x) => x[1])];
 
+  // the logins that are KYC VERIFIED (for the badge on the employee list and pages); kept for a minute
+  let idsMemo = null, idsAt = 0;
+  const kycIds = async () => {
+    if (idsMemo && Date.now() - idsAt < 60000) return idsMemo;
+    const { data, error } = await sb.rpc("kyc_verified_ids");
+    idsMemo = new Set(error ? [] : data || []); idsAt = Date.now();
+    return idsMemo;
+  };
+  const kycBadgeHtml = `<span class="kyc-badge" title="KYC verified: ID + live face check">${ic("shield")} KYC VERIFIED</span>`;
+
   // ---------- the KYC card on My Profile ----------
   async function kycCard(el) {
     if (!el || !S.profile) return;
@@ -27,12 +37,13 @@
     el.hidden = false;
     el.innerHTML = `<legend>KYC Verification <small class="muted">(optional)</small></legend>
       <div class="kyc-state ${state}">${ic(state === "approved" ? "shield" : state === "pending" ? "clock" : "idcard")}<div><b>${esc((ST[state] || ST.none)[1])}</b>
-        <small>${state === "approved" ? `${esc(ok.id_type)} · verified by ${esc(ok.reviewed_by_name || "EMON HASAN")} · ${esc(E.dateTime(ok.reviewed_at))}`
-          : state === "pending" ? `Sent ${esc(E.dateTime(last.submitted_at))} · ${esc(last.ref_no || "")}. EMON HASAN checks it.`
-          : state === "rejected" ? `Reason: ${esc(last.review_note || "")}. You can send it again.`
+        <small>${state === "approved" ? `${esc(ok.id_type)} · ${esc(ok.reviewed_by_name || "EVA AI")} · ${esc(E.dateTime(ok.reviewed_at))}`
+          : state === "pending" ? `Sent ${esc(E.dateTime(last.submitted_at))} · ${esc(last.ref_no || "")}.`
+          : state === "rejected" ? `Reason: ${esc(last.review_note || "")}. You can do it again.`
           : "Verify your identity with your ID and a live face check by the camera. It takes about 2 minutes."}</small></div></div>
-      ${state === "pending" ? "" : `<div class="btnrow"><button type="button" class="btn ${state === "approved" ? "" : "primary"}" id="kycGo">${ic("camera")} ${state === "approved" ? "Update My KYC" : state === "rejected" ? "Send KYC Again" : "Start KYC Verification"}</button></div>`}`;
+      ${state === "pending" ? "" : `<div class="btnrow"><button type="button" class="btn ${state === "approved" ? "" : "primary"}" id="kycGo">${ic("camera")} ${state === "approved" ? "Update My KYC" : state === "rejected" ? "Do KYC Again" : "Start KYC Verification"}</button></div>`}`;
     if ($("#kycGo", el)) $("#kycGo", el).onclick = () => startKyc(() => kycCard(el));
+    const h = $(".me-main h2"); if (h && state === "approved" && !$(".kyc-badge", h)) h.insertAdjacentHTML("beforeend", kycBadgeHtml);
   }
 
   // ---------- the live face check ----------
@@ -125,7 +136,7 @@
       $$("[data-p]", el).forEach((s) => (s.hidden = s.dataset.p !== String(p)));
       $$(".kyc-steps li", el).forEach((li) => li.classList.toggle("on", Number(li.dataset.s) <= p));
       $("#kyBackBtn", el).hidden = p === 1;
-      $("#kyNext", el).innerHTML = p === 2 ? (st.live?.liveness.passed ? "Next" : `${ic("camera")} Start Live Check`) : p === 3 ? `${ic("check")} Send KYC` : "Next";
+      $("#kyNext", el).innerHTML = p === 2 ? (st.live?.liveness.passed ? "Next" : `${ic("camera")} Start Live Check`) : p === 3 ? `${ic("check")} Submit & Verify` : "Next";
     };
     const pic = (inp, key) => ($(inp, el).onchange = async (e) => {
       const f = e.target.files?.[0]; if (!f) return;
@@ -173,7 +184,7 @@
           birth_date: $("#kyBirth", el).value || null, id_front: front, id_back: back, selfies, liveness: st.live.liveness,
           device: `${navigator.userAgent}`.slice(0, 400) } });
         if (error) throw error;
-        m.close(); toast("KYC sent. EMON HASAN checks it; you are told when it is verified."); done?.();
+        m.close(); idsMemo = null; toast("✅ KYC VERIFIED — your ID and live face check are done."); done?.();
       } catch (err) { btn.disabled = false; show(3); fail(err, /submit_kyc|schema cache|PGRST202/.test(err.message || "") ? "Run the database update 082_kyc.sql first" : "Could not send the KYC"); }
     };
     const summary = () => {
@@ -188,10 +199,10 @@
   }
 
   // ---------- EMON HASAN: the KYC Verification page ----------
-  V.kyc = async (filter = "pending") => {
+  V.kyc = async (filter = "approved") => {
     if (!isAdmin()) { location.hash = "dashboard"; return; }
-    E.shell("kyc", "KYC Verification", `<div class="tabs" id="kyF">${[["pending", "Waiting for Review"], ["approved", "KYC Verified"], ["rejected", "Not Approved"], ["", "All"]].map(([k, l]) => `<button type="button" data-f="${k}" class="${k === filter ? "on" : ""}">${l}</button>`).join("")}</div><div id="kyRes">${busy()}</div>`,
-      "Every login can verify who they are (optional): the ID and a live face check by the camera. Compare the face photos with the ID, then <b>Approve</b> (KYC VERIFIED) or <b>Reject</b> with the reason.");
+    E.shell("kyc", "KYC Verification", `<div class="tabs" id="kyF">${[["approved", "KYC Verified"], ["rejected", "Revoked / Not Approved"], ["pending", "Waiting"], ["", "All"]].map(([k, l]) => `<button type="button" data-f="${k}" class="${k === filter ? "on" : ""}">${l}</button>`).join("")}</div><div id="kyRes">${busy()}</div>`,
+      "Every login can verify who they are (optional): the ID and a live face check by the camera. When the live check passes, the KYC is VERIFIED at once (EVA AI) and the badge shows on the employee. Open one to see the ID and face photos; <b>Revoke</b> it with the reason if anything is wrong.");
     const here = E.stillHere();
     let q = sb.from("kyc_verifications").select("*").order("submitted_at", { ascending: false }).limit(500);
     q = filter ? q.eq("status", filter) : q.neq("status", "replaced");
@@ -202,7 +213,7 @@
     const rows = data || [];
     $("#kyRes").innerHTML = E.grid({ cols: [{ label: "Sent", get: (r) => E.dateTime(r.submitted_at) }, { label: "Ref No", get: (r) => r.ref_no || "" }, { label: "Name", get: (r) => r.full_name || r.email || "" },
       { label: "ID", get: (r) => `${r.id_type} · ${r.id_number}` }, { label: "Live Face", get: (r) => (r.liveness?.passed ? "✅ PASSED" : "❌") }, { label: "Status", html: (r) => pill(r.status) }],
-      rows, onRow: true, empty: filter === "pending" ? "No KYC waiting for review." : "No KYC here." });
+      rows, onRow: true, empty: "No KYC here." });
     E.bindGrid($("#kyRes"), rows, (r) => review(r));
     E.setRecords?.(`KYC: ${rows.length}`);
   };
@@ -220,19 +231,20 @@
         <tr><th>Live Face Check</th><td>${L.passed ? "✅ PASSED" : "❌ NOT PASSED"} · moves: ${esc((L.moves || []).map((x) => `${x.move.toUpperCase()} (change ${x.change})`).join(", "))} · movement ${esc(String(L.alive ?? ""))}${L.face_detector ? ` · face seen: ${L.face_ok ? "YES" : "NO"}` : ""}</td></tr>
         <tr><th>Sent</th><td>${esc(E.dateTime(r.submitted_at))} · IP ${esc(r.ip_address || "")}</td></tr>
         <tr><th>Status</th><td>${pill(r.status)}${r.reviewed_at ? ` · ${esc(r.reviewed_by_name || "")} · ${esc(E.dateTime(r.reviewed_at))}` : ""}${r.review_note ? ` · ${esc(r.review_note)}` : ""}</td></tr></tbody></table>
-      ${r.status === "pending" ? `<div class="fields wide"><label for="kyNote">Reason (needed to reject)</label><input type="text" id="kyNote" maxlength="300" placeholder="e.g. The face does not match the ID / the ID photo is not clear"></div>` : ""}</div>`,
-      `<button type="button" class="btn" data-x>Close</button>${r.status === "pending" ? `<button type="button" class="btn danger" id="kyNo">Reject</button><button type="button" class="btn ok" id="kyOk">${ic("check")} Approve · KYC VERIFIED</button>` : ""}`, { wide: true });
+      ${["pending", "approved"].includes(r.status) ? `<div class="fields wide"><label for="kyNote">Reason (needed to ${r.status === "approved" ? "revoke" : "reject"})</label><input type="text" id="kyNote" maxlength="300" placeholder="e.g. The face does not match the ID / the ID photo is not clear"></div>` : ""}</div>`,
+      `<button type="button" class="btn" data-x>Close</button>${r.status === "pending" ? `<button type="button" class="btn danger" id="kyNo">Reject</button><button type="button" class="btn ok" id="kyOk">${ic("check")} Approve · KYC VERIFIED</button>` : r.status === "approved" ? `<button type="button" class="btn danger" id="kyNo">Revoke KYC</button>` : ""}`, { wide: true });
     $("[data-x]", m.el).onclick = m.close;
     $$("[data-big]", m.el).forEach((img) => (img.onclick = () => img.dataset.big && E.lightbox?.(img.dataset.big, img.alt)));
     const decide = async (ok) => {
       const note = $("#kyNote", m.el)?.value.trim() || "";
-      if (!ok && !note) { toast("Type the reason for rejecting.", true); return $("#kyNote", m.el).focus(); }
+      if (!ok && !note) { toast("Type the reason.", true); return $("#kyNote", m.el).focus(); }
       const { error } = await sb.rpc("decide_kyc", { p_id: r.id, p_ok: ok, p_note: note });
       if (error) return fail(error, "Could not decide");
-      m.close(); toast(ok ? `${r.full_name || "The login"} is KYC VERIFIED.` : "Rejected. The person is told the reason."); V.kyc("pending");
+      m.close(); idsMemo = null; toast(ok ? `${r.full_name || "The login"} is KYC VERIFIED.` : `${r.status === "approved" ? "Revoked" : "Rejected"}. The person is told the reason.`); V.kyc(ok ? "approved" : "rejected");
     };
-    if ($("#kyOk", m.el)) { $("#kyOk", m.el).onclick = () => decide(true); $("#kyNo", m.el).onclick = () => decide(false); }
+    if ($("#kyOk", m.el)) $("#kyOk", m.el).onclick = () => decide(true);
+    if ($("#kyNo", m.el)) $("#kyNo", m.el).onclick = () => decide(false);
   }
 
-  Object.assign(E, { kycCard, startKyc });
+  Object.assign(E, { kycCard, startKyc, kycIds, kycBadgeHtml });
 })();

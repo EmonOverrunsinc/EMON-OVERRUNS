@@ -2,7 +2,7 @@
 -- EMON OVERRUNS E-PORTAL - UPDATE 3.75: RUN 080 + 081 + 082 TOGETHER (safe to run again, also if 080 and 081 were run)
 -- 080: customers see their own orders, invoices, payments and download their SOA
 -- 081: the order is modified as delivered (the invoice and the SOA follow)
--- 082: optional KYC verification with a live face check; EMON HASAN approves (KYC VERIFIED)
+-- 082: optional KYC with a live face check: VERIFIED at once when the check passes; the badge shows on every employee
 -- Paste all of it in Supabase > SQL Editor > New query and press Run.
 -- The last line says: UPDATE 3.75 READY ...
 -- =====================================================================
@@ -161,7 +161,9 @@ select case when position('co_follow_delivered' in pg_get_functiondef('public.co
 --  * a LIVE FACE check by the camera: the person follows moves shown on the screen (look straight, turn left, turn
 --    right, smile ...); a photo is taken at each move and the movement between them is measured (a printed photo or a
 --    screen does not pass). The photos and the check results are kept.
--- EMON HASAN compares the face with the ID and APPROVES (KYC VERIFIED) or REJECTS (with the reason). The person is told.
+-- 3.75.1: no person needs to check it: when the live face check passes, the KYC is VERIFIED at once (by EVA AI) and the
+-- KYC VERIFIED badge shows on the person (My Profile, the employee list and the employee page). EMON HASAN sees every KYC
+-- and can REVOKE one (with the reason); the person is told.
 -- The KYC photos are seen only by the person and EMON HASAN. Every submission is kept (a new one replaces a waiting one).
 -- Paste all of it in Supabase > SQL Editor > New query and press Run. Safe to run again.
 -- The last line says: UPDATE 3.75 READY - ...
@@ -228,17 +230,18 @@ begin
     if f not like dir || '%' then raise exception 'The KYC photos must be in your own folder'; end if;
     if not exists (select 1 from storage.objects o where o.bucket_id = 'records' and o.name = f) then raise exception 'A KYC photo was not found. Do it again'; end if;
   end loop;
-  update public.kyc_verifications set status = 'replaced' where user_id = me.id and status = 'pending';
+  update public.kyc_verifications set status = 'replaced' where user_id = me.id and status in ('pending', 'approved');
   select count(*) + 1 into n from public.kyc_verifications where submitted_at::date = current_date;
   insert into public.kyc_verifications (ref_no, user_id, full_name, email, role, id_type, id_number, id_expiry, birth_date, id_front_path, id_back_path,
-    selfie_paths, liveness, device, ip_address)
+    selfie_paths, liveness, device, ip_address, status, reviewed_by_name, reviewed_at)
   values ('KYC-' || to_char(now(), 'YYYYMMDD') || lpad(n::text, 3, '0') || '-' || upper(substr(md5(me.id::text || clock_timestamp()::text), 1, 4)),
     me.id, me.full_name, me.email, me.role, left(upper(trim(p ->> 'id_type')), 60), left(upper(trim(p ->> 'id_number')), 40),
     nullif(p ->> 'id_expiry', '')::date, nullif(p ->> 'birth_date', '')::date, p ->> 'id_front', nullif(p ->> 'id_back', ''), sel,
-    case when char_length((p -> 'liveness')::text) <= 6000 then p -> 'liveness' end, left(p ->> 'device', 400), public.legal_ip())
+    case when char_length((p -> 'liveness')::text) <= 6000 then p -> 'liveness' end, left(p ->> 'device', 400), public.legal_ip(),
+    'approved', 'EVA AI · LIVE FACE CHECK', now())
   returning * into r;
   if not public.is_admin() then
-    perform public.notify_admins('KYC verification to review', coalesce(me.full_name, me.email) || ' sent the KYC (' || r.id_type || ') with the live face check · ' || r.ref_no, 'kyc');
+    perform public.notify_admins('KYC VERIFIED · ' || coalesce(me.full_name, me.email), r.id_type || ' · live face check passed · ' || r.ref_no || '. Open KYC Verification to see it (Revoke if anything is wrong).', 'kyc');
   end if;
   return r;
 end;
@@ -246,7 +249,7 @@ $$;
 revoke execute on function public.submit_kyc(jsonb) from public, anon;
 grant execute on function public.submit_kyc(jsonb) to authenticated;
 
--- EMON HASAN approves (KYC VERIFIED) or rejects (with the reason); the person is told
+-- EMON HASAN approves a waiting one or rejects / REVOKES a KYC (with the reason); the person is told
 create or replace function public.decide_kyc(p_id uuid, p_ok boolean, p_note text) returns public.kyc_verifications
 language plpgsql security definer set search_path = '' set timezone to 'Asia/Manila' as $$
 declare r public.kyc_verifications; me text := (select full_name from public.profiles where id = auth.uid());
@@ -254,14 +257,14 @@ begin
   if not public.is_admin() then raise exception 'Only EMON HASAN can do this'; end if;
   select * into r from public.kyc_verifications where id = p_id for update;
   if not found then raise exception 'KYC not found'; end if;
-  if r.status <> 'pending' then raise exception 'This KYC is % already', upper(r.status); end if;
+  if r.status not in ('pending', 'approved') or (p_ok and r.status = 'approved') then raise exception 'This KYC is % already', upper(r.status); end if;
   if not p_ok and coalesce(trim(p_note), '') = '' then raise exception 'Type the reason for rejecting'; end if;
   update public.kyc_verifications set status = case when p_ok then 'approved' else 'rejected' end, review_note = nullif(left(trim(coalesce(p_note, '')), 300), ''),
     reviewed_by = auth.uid(), reviewed_by_name = me, reviewed_at = now()
   where id = p_id returning * into r;
   if r.user_id is distinct from auth.uid() then
     perform public.notify_user(r.user_id, case when p_ok then 'KYC VERIFIED' else 'KYC not approved' end,
-      case when p_ok then 'Your identity is verified (' || r.ref_no || ').' else 'Reason: ' || r.review_note || '. You can send the KYC again from My Profile.' end, 'profile');
+      case when p_ok then 'Your identity is verified (' || r.ref_no || ').' else 'Reason: ' || r.review_note || '. You can do the KYC again from My Profile.' end, 'profile');
   end if;
   return r;
 end;
@@ -279,8 +282,16 @@ $$;
 revoke execute on function public.kyc_state(uuid) from public, anon;
 grant execute on function public.kyc_state(uuid) to authenticated;
 
+-- the logins that are KYC VERIFIED (for the badge on the employee list and pages): only who, nothing of the KYC itself
+create or replace function public.kyc_verified_ids() returns uuid[]
+language sql stable security definer set search_path = '' as $$
+  select case when public.is_active() then coalesce((select array_agg(distinct user_id) from public.kyc_verifications where status = 'approved'), '{}') end;
+$$;
+revoke execute on function public.kyc_verified_ids() from public, anon;
+grant execute on function public.kyc_verified_ids() to authenticated;
+
 notify pgrst, 'reload schema';
 
 select case when to_regprocedure('public.submit_kyc(jsonb)') is not null and exists (select 1 from pg_policies where policyname = 'storage records: kyc private')
-  then 'UPDATE 3.75 READY - optional KYC verification with a live face check; EMON HASAN approves (KYC VERIFIED)'
+  then 'UPDATE 3.75 READY - optional KYC with a live face check: VERIFIED at once when the check passes; the badge shows on every employee'
   else 'NOT READY - send this message to Claude' end as result;
