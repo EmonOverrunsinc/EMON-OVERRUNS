@@ -219,15 +219,15 @@
     const one = (list, first) => `${first ? head : ""}<div class="lg-print">${list.map(([h, b]) => `<section class="lg-sec"><h4>${esc(h)}</h4>${b}</section>`).join("")}</div>`;
     const d = acc?.details || {};
     const accBox = acc ? `<div class="lg-print"><section class="lg-sec lg-acc"><h4>AGREEMENT RECORD</h4><table class="ol-grid"><tbody>
-        ${[["Acceptance No", acc.ref_no], ["Agreement", TYPES[t]], ["Version", acc.terms_version], ["Name", acc.full_name], ["Role", acc.role === "admin" ? "Managing Director (full access)" : acc.role],
+        ${[["Acceptance No", acc.ref_no], ["Agreement", TYPES[t]], ["Version", acc.terms_version], ["Name", acc.full_name], ["Role", acc.role === "admin" ? "Managing Director (full access)" : acc.role === "staff" ? "Employee (staff)" : acc.role],
           ["Email", acc.email || d.email], ["Username", d.username], ["Employee No", d.employee_no], ["Position", d.position], ["Account No", d.account_no], ["Application No", d.application_no],
           ["Business Name", d.business_name], ["Phone", d.phone], ["Public ID", d.public_id], ["Login ID", d.login_id || acc.user_id], ["Customer ID", d.customer_id || acc.customer_id],
           ["Agreed On (Date and Time)", `${E.dateTime(acc.accepted_at)} (Philippine time)`], ["Agreed", "YES — \"I have read all and I agree\" ticked and submitted"],
-          ["Location", locText(acc.location)], ["IP Address", acc.ip_address || "—"], ["Device", d.device || String(acc.device || "").split(" · ").slice(0, 3).join(" · ")],
+          ["Location", acc.location?.status === "allowed" ? locText(acc.location) : ""], ["IP Address", acc.ip_address || "—"], ["Device", d.device || String(acc.device || "").split(" · ").slice(0, 3).join(" · ")],
           ["Screen · Language · Time Zone", [d.screen, d.language, d.time_zone].filter(Boolean).join(" · ")], ["Device Local Time", d.local_time], ["Browser", d.user_agent || acc.device],
-          ["Text Fingerprint (SHA-256)", acc.terms_hash]].filter(([, v]) => v != null && v !== "").map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}
+          ["Text Fingerprint (SHA-256)", acc.terms_hash]].filter(([, v]) => v != null && v !== "").map(([k, v]) => `<tr><th>${esc(String(k).toUpperCase())}</th><td>${esc(String(v).toUpperCase())}</td></tr>`).join("")}
       </tbody></table>
-      <p class="pdecl">This record was made by the EMON OVERRUNS E-PORTAL server when the person above pressed Submit. It cannot be changed or deleted. It is an electronic document and an electronic signature under Republic Act No. 8792.</p></section></div>` : "";
+      <p class="pdecl">THIS RECORD WAS MADE BY THE EMON OVERRUNS E-PORTAL SERVER WHEN THE PERSON ABOVE PRESSED SUBMIT. IT CANNOT BE CHANGED OR DELETED. IT IS AN ELECTRONIC DOCUMENT AND AN ELECTRONIC SIGNATURE UNDER REPUBLIC ACT NO. 8792.</p></section></div>` : "";
     const out = [one(secs.slice(0, 3), true)];
     for (let i = 3; i < secs.length; i += 2) out.push(one(secs.slice(i, i + 2), false));
     out[out.length - 1] += accBox;
@@ -328,7 +328,7 @@
   // ---------- Legal Terms page (menu OTHER) ----------
   V.legal = async () => {
     E.shell("legal", "Legal Terms", `<div id="lgRes">${busy()}</div>`, isAdmin()
-      ? `Every login and customer agrees before using the portal. Each agreement is kept on the server for good: who, their IDs, date and time, device, IP address, location (when allowed) and the fingerprint of the exact text. Only the latest version (${REL}) shows here; older agreements stay kept on the server. Press a line to open its signed agreement and download it as a PDF.`
+      ? `Every login and customer agrees before using the portal. Each agreement is kept on the server for good: who, their IDs, date and time, device, IP address, location (when allowed) and the fingerprint of the exact text. Only the latest version (${REL}) shows here, one line per person; older agreements stay kept on the server. Press a line to open the person's signed agreements and download them as a PDF.`
       : "The terms you accepted, and your acceptance record. Print or download it any time.");
     const here = E.stillHere();
     await syncVersion();
@@ -336,10 +336,14 @@
       sb.from("legal_acceptances").select("*").order("accepted_at", { ascending: false }).limit(2000),
       isAdmin() ? sb.from("profiles").select("id, full_name, email, role, status").order("full_name") : Promise.resolve({ data: [] }),
       isAdmin() ? sb.from("legal_rejections").select("*").order("rejected_at", { ascending: false }).limit(500).then((r) => r, () => ({ data: [] })) : Promise.resolve({ data: [] })]);
-    const rejected = (rej.data || []).filter((r) => isCurrent(r.terms_version)); // 3.73: only the latest version shows (the older ones stay kept on the server)
     if (!here() || !$("#lgRes")) return;
     if (acc.error) { $("#lgRes").innerHTML = `<div class="empty">The server needs update 3.69 first (073_legal_terms.sql).</div>`; return; }
-    const rows = (acc.data || []).filter((r) => isCurrent(r.terms_version));
+    const rows = (acc.data || []).filter((r) => isCurrent(r.terms_version)); // 3.73: only the latest version shows (the older ones stay kept on the server)
+    // 3.73.4: one line per person — the latest; a rejection shows only when the person has not agreed after it
+    const who = (r) => r.user_id || r.customer_id || r.id;
+    const agreedAt = new Map(); rows.forEach((r) => { const k = who(r) + "|" + r.terms_version; if (!agreedAt.has(k)) agreedAt.set(k, r.accepted_at); });
+    const seenRej = new Set();
+    const rejected = (rej.data || []).filter((r) => isCurrent(r.terms_version) && !(agreedAt.get(who(r) + "|" + r.terms_version) > r.rejected_at) && !seenRej.has(who(r)) && seenRej.add(who(r)));
     if (!isAdmin()) {
       const needs = needsOf(S.profile);
       $("#lgRes").innerHTML = needs.map((t) => {
@@ -356,21 +360,24 @@
     const waiting = (profs.data || []).filter((p) => p.status === "active" && missingOf(p).length);
     const done = { size: (profs.data || []).filter((p) => p.status === "active" && !missingOf(p).length).length };
     const custOk = new Set(rows.filter((r) => r.customer_id && r.terms_version === VER("customer")).map((r) => r.customer_id)).size;
+    const byWho = new Map(); rows.forEach((r) => { const k = who(r); if (!byWho.has(k)) byWho.set(k, []); byWho.get(k).push(r); });
+    const people = [...byWho.values()].map((all) => ({ ...all[0], all, kinds: all.map((r) => TYPES[typeOf(r.terms_version)]).reverse().join(" + ") }));
+    const printAll = (p) => E.openPreview(`${p.kinds} ${p.full_name || ""}`, p.all.slice().reverse().flatMap((r) => pages(r)));
     const draw = () => {
       const q = ($("#lgQ")?.value || "").trim().toLowerCase();
-      const list = rows.filter((r) => !q || [r.ref_no, r.full_name, r.email, r.ip_address, r.device, r.role, TYPES[typeOf(r.terms_version)]].some((x) => String(x || "").toLowerCase().includes(q)));
+      const list = people.filter((r) => !q || [...r.all.map((x) => x.ref_no), r.full_name, r.email, r.ip_address, r.device, r.role, r.kinds].some((x) => String(x || "").toLowerCase().includes(q)));
       $("#lgList").innerHTML = E.grid({ cols: [
         { label: "Acceptance No", get: (r) => r.ref_no || "" }, { label: "Name", get: (r) => r.full_name || "" }, { label: "Email", get: (r) => r.email || "" },
-        { label: "Role", get: (r) => (r.role === "admin" ? "Full Access" : r.role || "") }, { label: "Agreement", get: (r) => TYPES[typeOf(r.terms_version)] },
+        { label: "Role", get: (r) => (r.role === "admin" ? "Full Access" : r.role || "") }, { label: "Agreement", get: (r) => r.kinds },
         { label: "Accepted On", get: (r) => E.dateTime(r.accepted_at) }, { label: "IP Address", get: (r) => r.ip_address || "" },
-        { label: "Location", get: (r) => (r.location?.status === "allowed" ? "✔ FOUND" : r.location ? "NOT ALLOWED" : "—") },
+        { label: "Location", get: (r) => (r.location?.status === "allowed" ? "✔ FOUND" : "") },
         { label: "Device", get: (r) => String(r.device || "").split(" · ").slice(0, 3).join(" · ") }], rows: list, onRow: true, empty: "No acceptance matches." });
-      E.bindGrid($("#lgList"), list, (r) => printTerms(r));
+      E.bindGrid($("#lgList"), list, printAll);
     };
     $("#lgRes").innerHTML = `<div class="tiles"><div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">Logins Fully Accepted</div><div class="v">${done.size}</div><small>portal + employee agreements</small></div>
         <div class="tile"><span class="tile-ic">${ic("clock")}</span><div class="k">Not Yet Accepted</div><div class="v">${waiting.length}</div><small>active logins</small></div>
         <div class="tile"><span class="tile-ic">${ic("check")}</span><div class="k">Customers Verified</div><div class="v">${custOk}</div><small>customer agreement</small></div>
-        <div class="tile"><span class="tile-ic">${ic("doc")}</span><div class="k">All Records</div><div class="v">${rows.length}</div></div></div>
+        <div class="tile"><span class="tile-ic">${ic("doc")}</span><div class="k">People Agreed</div><div class="v">${people.length}</div></div></div>
       <div class="btnrow">${Object.entries(TYPES).map(([t, n]) => `<button type="button" class="btn" data-pt="${t}">${ic("print")} ${esc(n)}</button>`).join("")}</div>
       <div class="btnrow"><input type="search" id="lgQ" placeholder="Find by name, email, acceptance no, agreement, IP or device" style="flex:1;min-width:200px"></div>
       <div id="lgList"></div>

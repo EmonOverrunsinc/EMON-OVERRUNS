@@ -378,6 +378,7 @@
           <div class="pcell"><div class="pl">Invoice No</div><div class="pv">${E.canOpen("invoice") ? `<a href="#invoice/${inv.id}"><b>${esc(inv.invoice_no)}</b></a>` : `<b>${esc(inv.invoice_no)}</b>`}</div></div>
           ${E.cell("Invoice Date", mdy(inv.invoice_date))}${E.cell("Terms of Payment", inv.payment_terms || "")}${E.cell("Due Date", mdy(inv.due_date))}${E.cell("Amount (₱)", peso(inv.total_amount), "hl")}${E.cell("Balance (₱)", peso(inv.balance))}
           <div class="pcell co-invstat"><div class="pl">Status</div><div class="pv">${payPill(inv)}</div></div></div>
+          <div id="coInvIns"></div>
           ${o._dl?.has_pcs && nBoxes(boxes) ? `<div class="banner ok co-verified">✅ VERIFIED WITH SERIAL NO — the invoice charges the delivery list: ${esc(boxesText(nBoxes(boxes)))} · ${qtyText(o._dl.pcs)} pcs</div>` : ""}` : `<div class="empty small">The invoice is on the customer's account.</div>`;
     const tabs = ["Order Lines", `Boxes (${nBoxes(boxes)})`, "Delivery", ...(o.status === "completed" ? ["Invoice"] : [])];
     $("#main").innerHTML = `${head}${stepper}${banner}<div id="coIns"></div>
@@ -450,6 +451,7 @@
     bindBoxes(o, boxes, reload);
     if ((o.status === "approved" && w && !deliverNow) || canFixDelivery(o)) bindDelivery(o, boxes, urls, reload);
     E.insOrderStrip?.(o, $("#coIns")); // 3.72: insurance COVERED / EXPIRES, or Add Insurance before delivery
+    if (E.insForOrder && $("#coInvIns")) E.insForOrder(o.id).then((i) => { if (i && $("#coInvIns")) $("#coInvIns").innerHTML = E.insBox(i); }); // 3.73.4: on the Invoice tab
     $$("[data-ph]").forEach((b) => (b.onclick = () => E.lightbox(b.dataset.ph)));
     E.setRecords(`Customer order: ${o.order_no}`);
   }
