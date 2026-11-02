@@ -195,8 +195,7 @@
         <div class="ins-paygrid"><div class="ins-qr"><button type="button" class="ins-qr-btn" id="ipQrBig" aria-label="Show the QR code big"><img src="${esc(q)}" alt="EMON OVERRUNS payment QR code"></button>
           <div class="btnrow center"><button type="button" class="btn small" id="ipQrZoom">${ic("eye")} Big QR</button><a class="btn small" href="${esc(q)}" download="EMON-OVERRUNS-InstaPay-QR.png">${ic("download")} Save QR</a></div>
           <div class="ins-amt"><small>SCAN WITH ANY BANK OR E-WALLET APP (INSTAPAY) · AMOUNT TO PAY</small><b>₱ ${peso(i.amount)}</b>${s.pay_qr_note ? `<span>${esc(s.pay_qr_note)}</span>` : ""}<span class="mono">Ref: ${esc(i.ins_no)}</span></div></div>
-          <div><ol class="ins-steps"><li>Scan the QR code and pay <b>₱ ${peso(i.amount)}</b>.</li><li>Save the payment receipt (screenshot).</li><li>Press <b>Upload Receipt</b>: EVA reads the amount and the reference no, then press <b>Submit</b>.</li><li>EMON HASAN checks the payment: the coverage is issued by itself.</li></ol>
-            <div class="btnrow ins-slip"><label class="btn primary" for="ipFile">${ic("image")} Upload Receipt</label></div>
+          <div><ol class="ins-steps"><li>Scan the QR code and pay <b>₱ ${peso(i.amount)}</b>.</li><li>Save the payment receipt (screenshot).</li><li>Choose the receipt in <b>Proof of Payment</b>: EVA reads the amount and the reference no, then press <b>Submit</b>.</li><li>EMON HASAN checks the payment: the coverage is issued by itself.</li></ol>
             <div id="ipEva"></div>
             <div class="fields wide"><label for="ipFile">Proof of Payment *</label><input type="file" id="ipFile" accept="image/*,application/pdf" data-scan="1">
               <label for="ipMethod">Paid By</label><select id="ipMethod">${Object.entries(METHODS).map(([k, l]) => `<option value="${k}" ${k === (i.pay_method || "gcash") ? "selected" : ""}>${l}</option>`).join("")}</select>
