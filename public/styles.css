@@ -2916,3 +2916,5 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .ins-cert .ins-cert-terms { column-count: 2; column-gap: 5mm; } .ins-cert .ins-cert-terms .ins-terms h4 { break-after: avoid; color: #0f7a43; }
 .ins-cert .ins-cert-terms .ins-terms li { font-size: 7.4pt; line-height: 1.3; break-inside: avoid; } .ins-cert .ins-cert-terms .ins-terms ol { padding-left: 4.5mm; }
 .ins-cert, .ins-cert .ins-terms, .ins-cert + .psig { text-transform: uppercase; } .ins-cert .ins-cert-terms .ins-terms li { font-size: 7.1pt; }
+/* 3.73.4: the agreements in UPPERCASE (popup, Read, print and PDF); the text itself (and its fingerprint) does not change */
+.legal-body, .lg-print { text-transform: uppercase; }
