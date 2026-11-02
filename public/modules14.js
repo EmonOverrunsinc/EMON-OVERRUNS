@@ -365,7 +365,7 @@
   const dueSum = (terms) => { const d = termsDays(terms); return d == null ? `TERMS + ${DUE} DAYS INSURANCE` : `${d} DAYS TERMS + ${DUE} DAYS INSURANCE = ${d + DUE} DAYS`; };
 
   // ---------- 3.78 the certificate: EMON OVERRUNS document design (navy band, gold lines, field boxes), A4 landscape,
-  // A4 portrait, 2 pages like an original certificate of insurance: FRONT = the schedule; BACK = the policy wording ----------
+  // A4 landscape, 2 pages like an original certificate of insurance: FRONT = the schedule; BACK = the policy wording ----------
   async function printCert(i, o, invoice, cv) {
     await E.loadSignatures?.().catch(() => {});
     await settings().catch(() => {});
@@ -449,7 +449,7 @@
       </div>
       <div class="c2-ack">${sec("ACKNOWLEDGMENT")}<p>I have read and I agree to these terms. &nbsp; <span class="c2-ackline"></span> Signature of the Insured over Printed Name &nbsp; <span class="c2-ackline s"></span> Date</p></div>
       <div class="c2-foot"><span>This certificate is valid only when its number is verified by the QR code.</span><span>${co} &nbsp;|&nbsp; Pasay City, Metro Manila</span></div></div>`;
-    E.openPreview(`Insurance Certificate ${i.ins_no}`, [front, back], { bare: true }); // 3.78: A4 portrait
+    E.openPreview(`Insurance Certificate ${i.ins_no}`, [front, back], { size: "a4l", bare: true }); // 3.78.1: A4 landscape
   }
 
   // ======================================================================
