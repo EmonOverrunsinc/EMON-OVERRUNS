@@ -1,0 +1,274 @@
+/* EMON OVERRUNS E-PORTAL — 3.72: EO-OFFICE INSURANCE (ORDER COVERAGE).
+   Added BEFORE delivery by the order number: premium = boxes x PHP 50 + 0.5% of the order value (EMON HASAN sets both).
+   Pay by EMON HASAN's QR code (the amount under it) → upload the proof of payment → EMON HASAN approves → the coverage is
+   issued (certificate PDF with EMON HASAN's signature) and a collection voucher is made by itself. Valid until 15 days
+   after the delivery. The order page shows COVERED and the EXPIRES date; anyone can verify the certificate (INS-…). */
+(function () {
+  "use strict";
+  const E = window.EO, V = (window.EO_VIEWS = window.EO_VIEWS || {});
+  const { sb, S, C, esc, peso, mdy, $, $$, isAdmin, toast, fail, ic, busy, num, fullName } = E;
+  const METHODS = { gcash: "GCash / Online", bank: "Bank Transfer / Deposit", cash: "Cash", check: "Check", other: "Other" };
+  const ST = { unpaid: ["pending", "WAITING FOR PAYMENT"], review: ["pending", "PAYMENT IN REVIEW"], rejected: ["rejected", "PAYMENT NOT ACCEPTED"], cancelled: ["rejected", "CANCELLED"] };
+  const canW = () => isAdmin() || E.canWrite("eooffice");
+  const notSet = (e) => /order_insurance|ins_box_price|does not exist|schema cache|PGRST20|42P01|42703/.test(String(e?.message || "") + (e?.code || ""));
+  const needUpdate = `<div class="empty">Insurance needs the database update 3.72 (077_insurance.sql). Ask EMON HASAN to run it.</div>`;
+
+  async function settings() {
+    const { data } = await sb.from("company_settings").select("ins_box_price, ins_rate_pct, pay_qr_path, pay_qr_note").eq("id", 1).maybeSingle();
+    return data || { ins_box_price: 50, ins_rate_pct: 0.5 };
+  }
+  // EMON HASAN's InstaPay QR is the default until another one is uploaded in Insurance Settings
+  const DEFAULT_QR = "brand/pay-qr-instapay.png";
+  const qrUrl = (s) => (s?.pay_qr_path ? E.publicUrl("branding", s.pay_qr_path) : DEFAULT_QR);
+  const round2 = (n) => Math.round(num(n) * 100) / 100;
+  // the premium: boxes x price per box + rate % of the order value
+  const calc = (boxes, value, bp, rate) => { const a = round2(num(boxes) * num(bp)), b = round2(num(value) * num(rate) / 100); return { a, b, total: round2(a + b) }; };
+  const calcHtml = (boxes, value, bp, rate) => {
+    const c = calc(boxes, value, bp, rate);
+    return `<table class="grid ins-calc"><tbody>
+      <tr><td>${E.qtyText(boxes)} box(es) × ₱ ${peso(bp)}</td><td class="num">₱ ${peso(c.a)}</td></tr>
+      <tr><td>Order value ₱ ${peso(value)} × ${num(rate)}%</td><td class="num">₱ ${peso(c.b)}</td></tr>
+      <tr class="tot"><td><b>INSURANCE PREMIUM</b></td><td class="num"><b>₱ ${peso(c.total)}</b></td></tr></tbody></table>`;
+  };
+  // the coverage state of an insurance
+  function stateOf(i) {
+    if (i.status !== "active") return { k: ST[i.status]?.[0] || "pending", label: ST[i.status]?.[1] || String(i.status).toUpperCase(), rank: i.status === "review" ? 1 : i.status === "unpaid" ? 2 : 4 };
+    if (!i.valid_until) return { k: "valid", label: "COVERED · VALID UNTIL 15 DAYS AFTER DELIVERY", short: "15 DAYS AFTER DELIVERY", rank: 0 };
+    return i.valid_until >= E.isoToday() ? { k: "valid", label: `COVERED · EXPIRES ${mdy(i.valid_until)}`, short: mdy(i.valid_until), rank: 0 } : { k: "expired", label: `EXPIRED ${mdy(i.valid_until)}`, short: `EXPIRED ${mdy(i.valid_until)}`, rank: 3 };
+  }
+  const badge = (i) => { const s = stateOf(i); return `<span class="ins-badge ${s.k}">${ic(s.k === "valid" ? "shield" : s.k === "expired" ? "clock" : s.k === "rejected" ? "x" : "clock")} ${esc(s.label)}</span>`; };
+  const eligible = (o) => ["pending", "approved"].includes(o.status) && !o.delivered_at && !o.delivery_request_at;
+
+  // ======================================================================
+  // The Insurance page (EO-Office): new by order no, the list (valid on top), EMON HASAN's settings
+  // ======================================================================
+  V.insurance = async (id) => {
+    if (id) return insPage(id);
+    E.shell("insurance", "Insurance", `${E.eoTabs("insurance")}<div id="insBody">${busy()}</div>`, "Order coverage, added before delivery: boxes × ₱ 50 + 0.5% of the order value. Free exchange of mistaken items, free return of a mistaken delivery (shipping fee covered) and exchange of unsold sealed boxes, until 15 days after delivery.");
+    const here = E.stillHere();
+    const [rs, s] = await Promise.all([sb.from("order_insurance").select("*").order("created_at", { ascending: false }).limit(1000), settings()]);
+    if (!here() || !$("#insBody")) return;
+    if (rs.error) { $("#insBody").innerHTML = notSet(rs.error) ? needUpdate : `<div class="empty">${esc(rs.error.message)}</div>`; return; }
+    const rows = (rs.data || []).map((i) => ({ ...i, _s: stateOf(i) })).sort((x, y) => x._s.rank - y._s.rank || String(x._s.rank === 0 ? x.valid_until || "9999" : "").localeCompare(String(y._s.rank === 0 ? y.valid_until || "9999" : "")) || String(y.created_at).localeCompare(String(x.created_at)));
+    const n = (k) => rows.filter((r) => r._s.k === k).length;
+    const collected = rows.filter((r) => r.status === "active").reduce((t, r) => t + num(r.amount), 0);
+    $("#insBody").innerHTML = `<div class="tiles">
+        <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">Valid Coverages</div><div class="v">${n("valid")}</div></div>
+        <div class="tile"><span class="tile-ic">${ic("clock")}</span><div class="k">Payment in Review</div><div class="v">${rows.filter((r) => r.status === "review").length}</div></div>
+        <div class="tile"><span class="tile-ic">${ic("clock")}</span><div class="k">Waiting for Payment</div><div class="v">${rows.filter((r) => r.status === "unpaid" || r.status === "rejected").length}</div></div>
+        ${S.hideMoney ? "" : `<div class="tile"><span class="tile-ic">${ic("doc")}</span><div class="k">Premiums Collected</div><div class="v">₱ ${peso(collected)}</div></div>`}</div>
+      ${canW() ? `<fieldset class="opt"><legend>New Insurance</legend><div class="ins-find"><input type="text" id="insNo" placeholder="Order No, e.g. OR-202611-0002" autocapitalize="characters" spellcheck="false">
+        <button type="button" class="btn" id="insScan">${ic("camera")} Scan</button><button type="button" class="btn primary" id="insFind">${ic("search")} Find Order</button></div><div id="insOrder"></div></fieldset>` : ""}
+      ${isAdmin() ? settingsHtml(s) : ""}
+      <h3 class="sec">Coverages <small class="muted">valid first</small></h3>
+      <div id="insList">${E.grid({ cols: [
+        { label: "Insurance No", get: (r) => r.ins_no || "" }, { label: "Order No", get: (r) => r.order_no || "" }, { label: "Customer", get: (r) => r.customer_name || "" },
+        { label: "Boxes", num: true, get: (r) => E.qtyText(r.boxes) }, { label: "Premium (₱)", num: true, get: (r) => peso(r.amount) },
+        { label: "Status", html: (r) => badge(r) }, { label: "Created", get: (r) => E.dateTime(r.created_at) }], rows, onRow: true, empty: "No insurance yet." })}</div>`;
+    E.bindGrid($("#insList"), rows, (r) => (location.hash = "insurance/" + r.id));
+    if (isAdmin()) bindSettings(s);
+    if (!canW()) return;
+    const find = async () => {
+      const no = $("#insNo").value.trim().toUpperCase().replace(/^.*\|/, "");
+      if (!no) return toast("Type or scan the order number.", true);
+      $("#insOrder").innerHTML = busy("Finding the order");
+      const { data: o } = await sb.from("customer_orders").select("*, customers(first_name, last_name, account_no)").eq("order_no", no).maybeSingle();
+      if (!o) { $("#insOrder").innerHTML = `<div class="empty small">Order ${esc(no)} not found.</div>`; return; }
+      const { data: open } = await sb.from("order_insurance").select("id, ins_no, status").eq("order_id", o.id).in("status", ["unpaid", "review", "active"]).limit(1);
+      const c = calc(o.total_boxes, o.total_amount, s.ins_box_price, s.ins_rate_pct);
+      $("#insOrder").innerHTML = `<div class="ins-ord">${E.cell("Order No", o.order_no)}${E.cell("Customer", fullName(o.customers || {}))}${E.cell("Account No", o.customers?.account_no || "")}
+          ${E.cell("Order Status", String(o.status).toUpperCase())}${E.cell("Boxes", E.qtyText(o.total_boxes))}${E.cell("Order Value (₱)", peso(o.total_amount))}</div>
+        ${calcHtml(o.total_boxes, o.total_amount, s.ins_box_price, s.ins_rate_pct)}
+        ${open?.length ? `<div class="banner warn">Order ${esc(o.order_no)} already has insurance <a href="#insurance/${open[0].id}">${esc(open[0].ins_no)}</a>.</div>`
+          : !eligible(o) ? `<div class="banner warn">Order ${esc(o.order_no)} is already delivered or ${esc(String(o.status).toUpperCase())}: insurance is added only before delivery.</div>`
+          : `<div class="btnrow"><button type="button" class="btn primary" id="insAdd">${ic("shield")} Add Insurance · ₱ ${peso(c.total)}</button></div>`}`;
+      if ($("#insAdd")) $("#insAdd").onclick = async (e) => { e.currentTarget.disabled = true; addFor(o.id); };
+    };
+    $("#insFind").onclick = find;
+    $("#insNo").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); find(); } };
+    $("#insScan").onclick = () => E.scanDialog((t) => { const m = String(t || "").match(/OR-\d{6}-\d{3,}/i); $("#insNo").value = m ? m[0].toUpperCase() : String(t || "").trim(); find(); }, { title: "Scan the Order Paper" });
+  };
+  async function addFor(orderId) {
+    const { data, error } = await sb.rpc("request_insurance", { p_order: orderId });
+    if (error) return fail(error, "Could not add the insurance");
+    toast(`Insurance ${data.ins_no} added. Pay by the QR code, then submit the proof of payment.`);
+    location.hash = "insurance/" + data.id;
+  }
+
+  function settingsHtml(s) {
+    const q = qrUrl(s);
+    return `<fieldset class="opt"><legend>Insurance Settings (EMON HASAN)</legend><div class="ins-set">
+      <div class="fields"><label for="isBp">Price per Box (₱)</label><input type="number" id="isBp" min="0" step="0.01" value="${esc(s.ins_box_price ?? 50)}">
+        <label for="isRate">Rate of the Order Value (%)</label><input type="number" id="isRate" min="0" max="100" step="0.001" value="${esc(s.ins_rate_pct ?? 0.5)}">
+        <label for="isNote">Payment Note (under the QR)</label><input type="text" id="isNote" maxlength="160" placeholder="e.g. GCASH 0917 000 0000 · EMON HASAN" value="${esc(s.pay_qr_note || "")}"></div>
+      <div class="ins-qr-set"><img src="${esc(q)}" alt="Payment QR code"><small class="muted">${s.pay_qr_path ? "Uploaded QR" : "InstaPay QR (default)"}</small>
+        <label class="btn" for="isQr">${ic("image")} Change Payment QR</label><input type="file" id="isQr" accept="image/*" hidden></div></div>
+      <div class="btnrow"><button type="button" class="btn primary" id="isSave">${ic("check")} Save Settings</button></div></fieldset>`;
+  }
+  function bindSettings(s) {
+    $("#isSave").onclick = async () => {
+      const r = await sb.from("company_settings").update({ ins_box_price: num($("#isBp").value), ins_rate_pct: num($("#isRate").value), pay_qr_note: $("#isNote").value.trim() || null, updated_at: new Date().toISOString() }).eq("id", 1);
+      if (r.error) return fail(r.error, "Could not save");
+      toast("Insurance settings saved."); V.insurance();
+    };
+    $("#isQr").onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const path = `PayQR_${Date.now()}.${E.extOf(f)}`;
+      const up = await sb.storage.from("branding").upload(path, f, { contentType: f.type });
+      if (up.error) return fail(up.error, "Upload failed");
+      const r = await sb.from("company_settings").update({ pay_qr_path: path, updated_at: new Date().toISOString() }).eq("id", 1);
+      if (r.error) return fail(r.error, "Could not save the QR code");
+      toast("Payment QR saved."); V.insurance();
+    };
+  }
+
+  // ======================================================================
+  // One insurance: the order, the premium, the payment (QR + proof), the review, the coverage and its certificate
+  // ======================================================================
+  async function insPage(id) {
+    E.shell("insurance", "Insurance", busy());
+    const here = E.stillHere();
+    const { data: i, error } = await sb.from("order_insurance").select("*").eq("id", id).maybeSingle();
+    if (!here()) return;
+    if (error) { $("#main").innerHTML = notSet(error) ? needUpdate : `<div class="empty">${esc(error.message)}</div>`; return; }
+    if (!i) { $("#main").innerHTML = `<div class="empty">Insurance not found. <a href="#insurance">Back to Insurance</a></div>`; return; }
+    const [o, s, cv, inv, proof] = await Promise.all([
+      sb.from("customer_orders").select("*, customers(first_name, last_name, account_no)").eq("id", i.order_id).maybeSingle().then((r) => r.data),
+      settings(),
+      i.cv_id ? sb.from("collection_vouchers").select("id, cv_no").eq("id", i.cv_id).maybeSingle().then((r) => r.data, () => null) : null,
+      null, i.proof_path ? E.signedMap([i.proof_path]).then((m) => m.get(i.proof_path) || "") : ""]);
+    const invoice = o?.invoice_id ? (await sb.from("customer_invoices").select("id, invoice_no").eq("id", o.invoice_id).maybeSingle()).data : inv;
+    if (!here()) return;
+    const st = stateOf(i), q = qrUrl(s), isPdf = /\.pdf$/i.test(i.proof_path || "");
+    $(".band h1") && ($(".band h1").textContent = `Insurance — ${i.ins_no}`);
+    const payBox = ["unpaid", "rejected"].includes(i.status) && canW() ? `<fieldset class="opt ins-pay"><legend>Payment</legend>
+        ${i.status === "rejected" ? `<div class="banner warn"><b>Payment not accepted</b>${i.review_note ? `: ${esc(i.review_note)}` : ""}. Submit the right proof again.</div>` : ""}
+        <div class="ins-paygrid"><div class="ins-qr">${q ? `<img src="${esc(q)}" alt="EMON OVERRUNS payment QR code">` : `<div class="empty small">EMON HASAN has not added the payment QR code yet.</div>`}
+          <div class="ins-amt"><small>SCAN WITH ANY BANK OR E-WALLET APP (INSTAPAY) · AMOUNT TO PAY</small><b>₱ ${peso(i.amount)}</b>${s.pay_qr_note ? `<span>${esc(s.pay_qr_note)}</span>` : ""}<span class="mono">Ref: ${esc(i.ins_no)}</span></div></div>
+          <div><ol class="ins-steps"><li>Scan the QR code and pay <b>₱ ${peso(i.amount)}</b>.</li><li>Take a screenshot or photo of the payment receipt.</li><li>Upload it below with the reference no and press <b>Submit for Review</b>.</li><li>EMON HASAN checks the payment: the coverage is issued by itself.</li></ol>
+            <div class="fields wide"><label for="ipFile">Proof of Payment *</label><input type="file" id="ipFile" accept="image/*,application/pdf">
+              <label for="ipMethod">Paid By</label><select id="ipMethod">${Object.entries(METHODS).map(([k, l]) => `<option value="${k}" ${k === (i.pay_method || "gcash") ? "selected" : ""}>${l}</option>`).join("")}</select>
+              <label for="ipRef">Reference No</label><input type="text" id="ipRef" maxlength="60" value="${esc(i.pay_ref || "")}" placeholder="e.g. GCash ref no"></div>
+            <div class="btnrow"><button type="button" class="btn primary" id="ipSend">${ic("send")} Submit for Review</button></div></div></div></fieldset>` : "";
+    const proofBox = i.proof_path ? `<fieldset class="opt"><legend>Proof of Payment</legend><div class="pgrid2 qc-head">${E.cell("Paid By", METHODS[i.pay_method] || i.pay_method || "")}${E.cell("Reference No", i.pay_ref || "")}${E.cell("Submitted", i.proof_at ? `${E.dateTime(i.proof_at)} · ${i.proof_by_name || ""}` : "")}${E.cell("Amount (₱)", peso(i.amount), "hl")}</div>
+        ${proof ? (isPdf ? `<button type="button" class="btn" id="ipOpen">${ic("eye")} Open the Proof (PDF)</button>` : `<button type="button" class="cv-receipt" id="ipOpen" aria-label="Open the proof"><img src="${esc(proof)}" alt="Proof of payment"></button>`) : ""}
+        ${i.status === "review" && isAdmin() ? `<div class="fields wide" style="margin-top:10px"><label for="ipNote">EMON HASAN's note</label><input type="text" id="ipNote" maxlength="300" placeholder="needed to reject"></div>
+          <div class="btnrow"><button type="button" class="btn danger" id="ipNo">${ic("x")} Reject</button><button type="button" class="btn ok" id="ipOk">${ic("check")} Payment Received · Issue Coverage</button></div>` : i.status === "review" ? `<div class="banner info">Waiting for EMON HASAN to check the payment.</div>` : ""}</fieldset>` : "";
+    $("#main").innerHTML = `${E.eoTabs("insurance")}
+      <div class="ins-head ${st.k}"><div class="ins-seal">${ic("shield")}</div><div><small>${esc(i.ins_no)} · ORDER ${esc(i.order_no || "")}</small><b>${esc(st.label)}</b>
+        <span>${esc(i.customer_name || "")} · ${E.qtyText(i.boxes)} box(es) · premium ₱ ${peso(i.amount)}</span></div></div>
+      ${i.status === "active" ? `<div class="btnrow"><button type="button" class="btn primary" id="ipCert">${ic("download")} Insurance Certificate (PDF)</button>${cv ? `<a class="btn" href="#collection/${cv.id}">${ic("doc")} Collection Voucher ${esc(cv.cv_no)}</a>` : ""}</div>` : ""}
+      <fieldset class="opt"><legend>Order</legend><div class="pgrid2 qc-head">
+        <div class="pcell"><div class="pl">Order No</div><div class="pv">${o ? `<a href="#custorder/${o.id}"><b>${esc(o.order_no)}</b></a>` : esc(i.order_no || "")}</div></div>
+        ${E.cell("Customer", i.customer_name || "")}${E.cell("Account No", o?.customers?.account_no || "")}${E.cell("Order Status", o ? String(o.status).toUpperCase() : "")}
+        ${E.cell("Delivered", o?.delivered_at ? E.dateTime(o.delivered_at) : "NOT YET")}${E.cell("Invoice No", invoice?.invoice_no || "")}</div></fieldset>
+      <fieldset class="opt"><legend>Premium</legend>${calcHtml(i.boxes, i.order_amount, i.box_price, i.rate_pct)}<p class="muted">${esc(E.words(i.amount, "PESOS"))}</p></fieldset>
+      ${payBox}${proofBox}
+      <fieldset class="opt"><legend>Benefits and Terms</legend>${benefitsHtml(i)}</fieldset>
+      <div class="btnrow">${isAdmin() && i.status !== "active" && i.status !== "cancelled" ? `<button type="button" class="btn danger" id="ipCancel">${ic("trash")} Cancel</button>` : ""}<a class="btn" href="#insurance">Back</a></div>`;
+    if ($("#ipOpen")) $("#ipOpen").onclick = () => E.viewFile({ storage_path: i.proof_path, mime: isPdf ? "application/pdf" : "image/jpeg", file_name: `${i.ins_no} Proof of Payment` });
+    if ($("#ipCert")) $("#ipCert").onclick = () => printCert(i, o, invoice, cv);
+    if ($("#ipSend")) $("#ipSend").onclick = async (e) => {
+      const raw = $("#ipFile").files[0];
+      if (!raw) { $("#ipFile").focus(); return toast("Upload the proof of payment.", true); }
+      const btn = e.currentTarget; btn.disabled = true; toast("Uploading the proof…");
+      const f = /pdf/i.test(raw.type) ? raw : await E.slimFile(raw, "photo");
+      const path = `insurance/${i.id}/proof_${Date.now()}.${E.extOf(f)}`;
+      const up = await sb.storage.from("records").upload(path, f, { contentType: f.type || "image/jpeg" });
+      if (up.error) { btn.disabled = false; return fail(up.error, "Upload failed"); }
+      const { error: e2 } = await sb.rpc("submit_insurance_payment", { p_id: i.id, p_path: path, p_method: $("#ipMethod").value, p_ref: $("#ipRef").value.trim() });
+      if (e2) { btn.disabled = false; sb.storage.from("records").remove([path]).then(() => {}, () => {}); return fail(e2, "Could not submit"); }
+      toast("Proof of payment submitted. EMON HASAN will check it."); insPage(i.id);
+    };
+    const decide = async (action) => {
+      const note = $("#ipNote").value.trim();
+      if (action === "reject" && !note) { $("#ipNote").focus(); return toast("Write why the payment is not accepted.", true); }
+      if (action === "approve" && !(await E.confirmBox(`Payment of <b>₱ ${peso(i.amount)}</b> received for <b>${esc(i.ins_no)}</b>?<br><br>The coverage is issued now (certificate with your signature) and a collection voucher is made by itself.`, { title: "Issue Coverage", ok: "Issue Coverage" }))) return;
+      const { error: e2 } = await sb.rpc("decide_insurance", { p_id: i.id, p_action: action, p_note: note || null });
+      if (e2) return fail(e2, "Could not save");
+      toast(action === "approve" ? `Coverage ${i.ins_no} issued. The collection voucher was made.` : "Payment not accepted: sent back."); insPage(i.id);
+    };
+    if ($("#ipOk")) $("#ipOk").onclick = () => decide("approve");
+    if ($("#ipNo")) $("#ipNo").onclick = () => decide("reject");
+    if ($("#ipCancel")) $("#ipCancel").onclick = async () => {
+      if (!(await E.confirmBox(`Cancel insurance <b>${esc(i.ins_no)}</b>?`, { ok: "Cancel Insurance", danger: true }))) return;
+      const { data: gone, error: e2 } = await sb.rpc("cancel_insurance", { p_id: i.id });
+      if (e2) return fail(e2, "Could not cancel");
+      if (gone) sb.storage.from("records").remove([gone]).then(() => {}, () => {});
+      toast("Cancelled."); location.hash = "insurance";
+    };
+    E.setRecords?.(`Insurance: ${i.ins_no}`);
+  }
+
+  // the benefits and the terms (screen and certificate)
+  const benefitsHtml = (i) => `<div class="ins-terms"><h4>BENEFITS</h4><ol>
+      <li><b>Free exchange of mistaken items:</b> items delivered by mistake (wrong item, size, quality or quantity against the order) are exchanged free.</li>
+      <li><b>Free return of a mistaken box delivery:</b> a box delivered by mistake is returned free — ${esc(C.company.name)} covers the shipping fee both ways.</li>
+      <li><b>Exchange of unsold boxes:</b> boxes not sold can be returned and exchanged for new items of the same value.</li></ol>
+    <h4>TERMS AND CONDITIONS</h4><ol>
+      <li>The coverage is valid from the day it is issued until <b>15 days after the delivery</b>${i?.valid_until ? ` (<b>expires ${esc(mdy(i.valid_until))}</b>)` : ""}. No claim is accepted after it expires.</li>
+      <li>The box must be kept <b>SEALED</b> as delivered. <b>An opened box cannot be claimed</b> (the seal and the box serial no are checked against the delivery list).</li>
+      <li>It covers only the boxes of order ${esc(i?.order_no || "")}. An exchange is for items of the same value; there is no cash refund.</li>
+      <li>To claim, contact the office of ${esc(C.company.name)} with the certificate no and the box serial nos before the expiry date.</li>
+      <li>Not covered: damage, loss or theft after delivery, opened boxes, items already sold, or changes of mind after the coverage expires.</li>
+      <li>The premium is not refundable once the coverage is issued. This coverage is a service of ${esc(C.company.name)} under the Customer Agreement accepted in the E-Portal.</li></ol></div>`;
+
+  // ---------- the certificate (PDF) ----------
+  async function printCert(i, o, invoice, cv) {
+    await E.loadSignatures?.().catch(() => {});
+    const st = stateOf(i), c = o?.customers || {};
+    const sign = E.approvedBy(i.approved_by, i.approved_by_name, i.approved_at);
+    const codes = `<img src="${E.pdf417DataUrl("EMONINS|" + i.ins_no)}" alt="" class="ph-bar"><div class="mono">${esc(i.ins_no)}</div>`;
+    const page = `${E.printHead("INSURANCE COVERAGE CERTIFICATE", `<div class="ph-codes co-codes"><div>${codes}</div><div class="co-qr"><img src="${E.qrDataUrl(E.verifyUrl(i.ins_no))}" alt="QR code: verify" class="ph-qr"><small class="co-verify">VERIFY</small></div></div>`)}
+      <div class="ins-cert-seal ${st.k}"><div class="ins-seal big">${ic("shield")}</div><div><b>${st.k === "valid" ? "COVERED" : esc(st.label)}</b>
+        <span>${i.valid_until ? `VALID UNTIL ${esc(mdy(i.valid_until))}` : "VALID UNTIL 15 DAYS AFTER DELIVERY"}</span></div></div>
+      ${E.cxTop([["Certificate No", i.ins_no], ["Order No", i.order_no || ""], ["Date Issued", E.dateTime(i.issued_at)], ["Expires", i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY"]])}
+      ${E.cxSec("INSURED")}${E.cxKv([["Customer", i.customer_name || fullName(c)], ["Account No", c.account_no || ""], ["Order No", i.order_no || ""], ["Invoice No", invoice?.invoice_no || (o?.status === "completed" ? "" : "AFTER DELIVERY")],
+        ["Boxes Covered", E.qtyText(i.boxes)], ["Order Value", `PHP ${peso(i.order_amount)}`], ["Delivery", o?.delivered_at ? E.dateTime(o.delivered_at) : "NOT YET DELIVERED"]])}
+      ${E.cxSec("PREMIUM PAID")}${E.cxKv([["Calculation", `${E.qtyText(i.boxes)} box(es) × PHP ${peso(i.box_price)} + ${num(i.rate_pct)}% of PHP ${peso(i.order_amount)}`], ["Premium", `PHP ${peso(i.amount)} · ${E.words(i.amount, "PESOS")}`],
+        ["Paid By", `${METHODS[i.pay_method] || i.pay_method || ""}${i.pay_ref ? " · Ref " + i.pay_ref : ""}`], ["Collection Voucher", cv?.cv_no || ""], ["Approved By", `${i.approved_by_name || ""} · ${E.dateTime(i.approved_at)}`]])}
+      <div class="ins-cert-terms">${benefitsHtml(i)}</div>
+      ${E.sigs("Customer / Insured", "Issued by", sign)}
+      <div class="rp-foot"><span>Scan the QR code to verify this coverage online.</span><span>${esc(i.ins_no)}</span></div>`;
+    E.openPreview(`Insurance Certificate ${i.ins_no}`, [page], { onePage: true });
+  }
+
+  // ======================================================================
+  // On the customer order page: COVERED badge with the EXPIRES date, or Add Insurance before delivery
+  // ======================================================================
+  async function insOrderStrip(o, el) {
+    if (!el || !o) return;
+    const { data, error } = await sb.from("order_insurance").select("*").eq("order_id", o.id).neq("status", "cancelled").order("created_at", { ascending: false }).limit(1);
+    if (error || !el.isConnected) return;
+    const i = data?.[0];
+    if (i) {
+      const st = stateOf(i);
+      el.innerHTML = `<a class="ins-strip ${st.k}" href="#insurance/${i.id}"><span class="ins-seal">${ic("shield")}</span><span><small>INSURANCE ${esc(i.ins_no)}</small><b>${st.k === "valid" ? "COVERED" : esc(st.label)}</b></span>
+        ${i.status === "active" ? `<span class="ins-exp"><small>EXPIRES</small><b>${esc(st.short || "")}</b></span>` : ""}</a>`;
+      return;
+    }
+    if (!eligible(o) || !canW()) return;
+    const s = await settings(); if (!el.isConnected) return;
+    const c = calc(o.total_boxes, o.total_amount, s.ins_box_price, s.ins_rate_pct);
+    el.innerHTML = `<div class="ins-strip none"><span class="ins-seal">${ic("shield")}</span><span><small>NO INSURANCE</small><b>Protect this order before delivery</b></span>
+      <button type="button" class="btn primary small" id="coInsAdd">${ic("shield")} Add Insurance · ₱ ${peso(c.total)}</button></div>`;
+    $("#coInsAdd").onclick = async (e) => { e.currentTarget.disabled = true; addFor(o.id); };
+  }
+
+  // ---------- Verification: an insurance certificate (INS-…) or an order with coverage (OR-…) ----------
+  async function insVerify(code) {
+    const t = String(code || "").trim().replace(/^EMONINS\|/i, "");
+    if (!/^(INS|OR)-/i.test(t)) return null;
+    const { data, error } = await sb.rpc("verify_insurance", { p_code: t });
+    if (error || !data?.found) return null;
+    const ok = data.state !== "EXPIRED";
+    return `<div class="${ok ? "vf-ok" : "vf-bad"}"><div class="vf-seal">${ic("shield")}</div><div class="vf-title">INSURANCE ${ok ? "COVERAGE FOUND" : "EXPIRED"}</div>
+      <div class="vf-sub"><b>${esc(data.state === "VALID" ? `VALID UNTIL ${mdy(data.valid_until)}` : data.state === "EXPIRED" ? `EXPIRED ${mdy(data.valid_until)}` : data.state)}</b></div>
+      <table class="grid vf-ins"><tbody><tr><th>Certificate No</th><td>${esc(data.ins_no)}</td></tr><tr><th>Order No</th><td>${esc(data.order_no || "")}</td></tr>
+        <tr><th>Customer</th><td>${esc(data.customer || "")}</td></tr><tr><th>Boxes Covered</th><td>${E.qtyText(data.boxes)}</td></tr>
+        <tr><th>Issued</th><td>${esc(E.dateTime(data.issued_at))}</td></tr><tr><th>Delivered</th><td>${data.delivered ? "YES" : "NOT YET"}</td></tr></tbody></table>
+      <small>Checked ${esc(E.dateTime(new Date().toISOString()))} · ${esc(E.APP)}</small></div>`;
+  }
+
+  Object.assign(E, { insOrderStrip, insVerify });
+})();
