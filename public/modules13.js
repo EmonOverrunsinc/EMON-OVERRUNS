@@ -10,7 +10,14 @@
 
   // 3 agreements: PORTAL TERMS OF USE (every login), EMPLOYEE AGREEMENT (employees and staff, besides the portal terms) and
   // CUSTOMER AGREEMENT (customers, by Public ID + Private PIN). Each has its own version and record.
-  const REL = "3.72 · NOVEMBER 02 2026"; // a new version = everyone agrees again
+  // the current version comes from the server (company_settings.legal_version, 078) so the screen and the server rule
+  // always ask for the same one; a new version = everyone agrees again
+  let REL = "3.72 · NOVEMBER 02 2026";
+  let synced = null;
+  const syncVersion = () => (synced ||= sb.from("company_settings").select("legal_version").eq("id", 1).maybeSingle()
+    .then(({ data, error }) => { if (!error && data?.legal_version) REL = data.legal_version; }, () => {}));
+  syncVersion();
+  const isCurrent = (v) => String(v || "").endsWith(" " + REL);
   const TYPES = { portal: "PORTAL TERMS OF USE", employee: "EMPLOYEE AGREEMENT", customer: "CUSTOMER AGREEMENT" };
   const VER = (t) => `${t.toUpperCase()} ${REL}`;
   const typeOf = (v) => (/^EMPLOYEE /.test(v || "") ? "employee" : /^CUSTOMER /.test(v || "") ? "customer" : "portal");
@@ -239,6 +246,7 @@
     if ($(".legal-ov")) return false;
     if (checking) return checking;
     checking = (async () => {
+      await syncVersion();
       const needs = needsOf(S.profile);
       const { data, error } = await sb.from("legal_acceptances").select("terms_version").eq("user_id", S.profile.id).in("terms_version", needs.map(VER));
       if (error) { if (/legal_acceptances|does not exist|schema cache|42P01|PGRST20/.test(error.message + (error.code || ""))) { S.legalOk = S.profile.id; return true; } return false; } // the server has not 073 yet
@@ -323,17 +331,18 @@
   // ---------- Legal Terms page (menu OTHER) ----------
   V.legal = async () => {
     E.shell("legal", "Legal Terms", `<div id="lgRes">${busy()}</div>`, isAdmin()
-      ? "Every login and customer agrees before using the portal. Each agreement is kept on the server for good: who, their IDs, date and time, device, IP address, location (when allowed), the employee's signature and the fingerprint of the exact text. Press a line to open its signed agreement and download it as a PDF."
+      ? `Every login and customer agrees before using the portal. Each agreement is kept on the server for good: who, their IDs, date and time, device, IP address, location (when allowed), the employee's signature and the fingerprint of the exact text. Only the latest version (${REL}) shows here; older agreements stay kept on the server. Press a line to open its signed agreement and download it as a PDF.`
       : "The terms you accepted, and your acceptance record. Print or download it any time.");
     const here = E.stillHere();
+    await syncVersion();
     const [acc, profs, rej] = await Promise.all([
       sb.from("legal_acceptances").select("*").order("accepted_at", { ascending: false }).limit(2000),
       isAdmin() ? sb.from("profiles").select("id, full_name, email, role, status").order("full_name") : Promise.resolve({ data: [] }),
       isAdmin() ? sb.from("legal_rejections").select("*").order("rejected_at", { ascending: false }).limit(500).then((r) => r, () => ({ data: [] })) : Promise.resolve({ data: [] })]);
-    const rejected = rej.data || [];
+    const rejected = (rej.data || []).filter((r) => isCurrent(r.terms_version)); // 3.73: only the latest version shows (the older ones stay kept on the server)
     if (!here() || !$("#lgRes")) return;
     if (acc.error) { $("#lgRes").innerHTML = `<div class="empty">The server needs update 3.69 first (073_legal_terms.sql).</div>`; return; }
-    const rows = acc.data || [];
+    const rows = (acc.data || []).filter((r) => isCurrent(r.terms_version));
     if (!isAdmin()) {
       const needs = needsOf(S.profile);
       $("#lgRes").innerHTML = needs.map((t) => {
@@ -406,6 +415,7 @@
       if (!pub) return toast("Scan your Public ID first.", true);
       if (!pin) { toast("Type your Private PIN.", true); return $("#cuPin").focus(); }
       E.setBusy(e.target, true, "Signing in");
+      await syncVersion();
       const { data, error } = await sb.rpc("customer_portal", { p_public: pub, p_pin: pin, p_version: VER("customer") });
       E.setBusy(e.target, false);
       if (error) return fail(error, "Could not sign in");
@@ -457,5 +467,5 @@
     const m = E.modal(TYPES[t], `<div class="legal-body page-like">${termsHtml(t)}</div>`, `<button type="button" class="btn primary" data-x>Close</button>`, { wide: true });
     $("[data-x]", m.el).onclick = m.close;
   };
-  Object.assign(E, { legalGate, showTerms, renderCustLogin, custVerified, LEGAL_VERSION: VER("portal") });
+  Object.assign(E, { legalGate, showTerms, renderCustLogin, custVerified, legalVersion: () => VER("portal") });
 })();

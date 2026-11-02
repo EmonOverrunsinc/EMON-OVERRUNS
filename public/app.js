@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.72";
+  const VERSION = "3.73";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.72.3"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.73.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -749,7 +749,7 @@
       setBusy(e.target, true, "Creating account"); // 3.35: at once, so a second press cannot send the form twice
       await check();
       if (!unameOk) { setBusy(e.target, false); return toast(`The username “${username}” is not available. Choose another.`, true); }
-      const { data, error } = await sb.auth.signUp({ email, password: p1, options: { data: { full_name, username, legal_agreed: window.EO.LEGAL_VERSION || "", legal_agreed_at: new Date().toISOString() }, emailRedirectTo: authRedirect() } });
+      const { data, error } = await sb.auth.signUp({ email, password: p1, options: { data: { full_name, username, legal_agreed: window.EO.legalVersion?.() || "", legal_agreed_at: new Date().toISOString() }, emailRedirectTo: authRedirect() } });
       setBusy(e.target, false);
       if (error && timedOut(error)) {
         // 3.29.1: the email server was slow. The account may still have been made (then its username is taken now):
