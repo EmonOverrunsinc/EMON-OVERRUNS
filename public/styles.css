@@ -2885,3 +2885,4 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .ins-paid-cov { border: 2px solid #1fa463; border-radius: 14px; padding: 10px 16px; margin: 6px 0; font-weight: 800; color: #0f5d2c; font-size: 16px; display: flex; flex-direction: column; gap: 2px; align-items: center; }
 .ins-paid-cov .ic { width: 22px; height: 22px; } .ins-paid-cov small { font-weight: 600; font-size: 12px; } .ins-paid-cov em { font-style: normal; font-size: 18px; color: #0a3d91; }
 .ins-paidchip { margin-left: auto; background: #0f7a43; color: #fff; border-radius: 999px; padding: 6px 14px; font-weight: 800; letter-spacing: .05em; display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; } .ins-paidchip .ic { width: 16px; height: 16px; stroke: #fff; }
+#ipRef.eva-filled { background: #eefaf1; border-color: #1fa463; }
