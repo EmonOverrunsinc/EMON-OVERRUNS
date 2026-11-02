@@ -219,15 +219,15 @@
     const one = (list, first) => `${first ? head : ""}<div class="lg-print">${list.map(([h, b]) => `<section class="lg-sec"><h4>${esc(h)}</h4>${b}</section>`).join("")}</div>`;
     const d = acc?.details || {};
     const accBox = acc ? `<div class="lg-print"><section class="lg-sec lg-acc"><h4>AGREEMENT RECORD</h4><table class="ol-grid"><tbody>
-        ${[["Acceptance No", acc.ref_no], ["Agreement", TYPES[t]], ["Version", acc.terms_version], ["Name", acc.full_name], ["Role", acc.role === "admin" ? "Managing Director (full access)" : acc.role],
+        ${[["Acceptance No", acc.ref_no], ["Agreement", TYPES[t]], ["Version", acc.terms_version], ["Name", acc.full_name], ["Role", acc.role === "admin" ? "Managing Director (full access)" : acc.role === "staff" ? "Employee (staff)" : acc.role],
           ["Email", acc.email || d.email], ["Username", d.username], ["Employee No", d.employee_no], ["Position", d.position], ["Account No", d.account_no], ["Application No", d.application_no],
           ["Business Name", d.business_name], ["Phone", d.phone], ["Public ID", d.public_id], ["Login ID", d.login_id || acc.user_id], ["Customer ID", d.customer_id || acc.customer_id],
           ["Agreed On (Date and Time)", `${E.dateTime(acc.accepted_at)} (Philippine time)`], ["Agreed", "YES — \"I have read all and I agree\" ticked and submitted"],
-          ["Location", locText(acc.location)], ["IP Address", acc.ip_address || "—"], ["Device", d.device || String(acc.device || "").split(" · ").slice(0, 3).join(" · ")],
+          ["Location", acc.location?.status === "allowed" ? locText(acc.location) : ""], ["IP Address", acc.ip_address || "—"], ["Device", d.device || String(acc.device || "").split(" · ").slice(0, 3).join(" · ")],
           ["Screen · Language · Time Zone", [d.screen, d.language, d.time_zone].filter(Boolean).join(" · ")], ["Device Local Time", d.local_time], ["Browser", d.user_agent || acc.device],
-          ["Text Fingerprint (SHA-256)", acc.terms_hash]].filter(([, v]) => v != null && v !== "").map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}
+          ["Text Fingerprint (SHA-256)", acc.terms_hash]].filter(([, v]) => v != null && v !== "").map(([k, v]) => `<tr><th>${esc(String(k).toUpperCase())}</th><td>${esc(String(v).toUpperCase())}</td></tr>`).join("")}
       </tbody></table>
-      <p class="pdecl">This record was made by the EMON OVERRUNS E-PORTAL server when the person above pressed Submit. It cannot be changed or deleted. It is an electronic document and an electronic signature under Republic Act No. 8792.</p></section></div>` : "";
+      <p class="pdecl">THIS RECORD WAS MADE BY THE EMON OVERRUNS E-PORTAL SERVER WHEN THE PERSON ABOVE PRESSED SUBMIT. IT CANNOT BE CHANGED OR DELETED. IT IS AN ELECTRONIC DOCUMENT AND AN ELECTRONIC SIGNATURE UNDER REPUBLIC ACT NO. 8792.</p></section></div>` : "";
     const out = [one(secs.slice(0, 3), true)];
     for (let i = 3; i < secs.length; i += 2) out.push(one(secs.slice(i, i + 2), false));
     out[out.length - 1] += accBox;
@@ -363,7 +363,7 @@
         { label: "Acceptance No", get: (r) => r.ref_no || "" }, { label: "Name", get: (r) => r.full_name || "" }, { label: "Email", get: (r) => r.email || "" },
         { label: "Role", get: (r) => (r.role === "admin" ? "Full Access" : r.role || "") }, { label: "Agreement", get: (r) => TYPES[typeOf(r.terms_version)] },
         { label: "Accepted On", get: (r) => E.dateTime(r.accepted_at) }, { label: "IP Address", get: (r) => r.ip_address || "" },
-        { label: "Location", get: (r) => (r.location?.status === "allowed" ? "✔ FOUND" : r.location ? "NOT ALLOWED" : "—") },
+        { label: "Location", get: (r) => (r.location?.status === "allowed" ? "✔ FOUND" : "") },
         { label: "Device", get: (r) => String(r.device || "").split(" · ").slice(0, 3).join(" · ") }], rows: list, onRow: true, empty: "No acceptance matches." });
       E.bindGrid($("#lgList"), list, (r) => printTerms(r));
     };
