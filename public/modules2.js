@@ -25,6 +25,7 @@
   }
   const photoBox = (url, fallback) => `<div class="ch-photo">${url ? `<img src="${esc(url)}" alt="">` : `<span>${esc(fallback)}</span>`}</div>`;
   const verifiedBadge = (on) => on ? `<span class="vbadge" title="Verified employee">${ic("check")}</span>` : "";
+  const kycBadge = (r, ids) => (r?.profile_id && ids?.has(r.profile_id) ? `<span class="kyc-badge" title="KYC verified: ID + live face check">${ic("shield")} KYC VERIFIED</span>` : ""); // 3.75.1
 
   // ======================================================================
   // 5. Employee
@@ -37,9 +38,10 @@
       <div id="emRes">${busy()}</div>`,
       "Employees come from approved job applications, or EMON HASAN adds them here. Open an employee to record salary or advance payments, change access, or terminate them.");
     const here = E.stillHere();
-    const [{ data, error }, att] = await Promise.all([
+    const [{ data, error }, att, kycIds] = await Promise.all([
       sb.from("employees").select("*").order("created_at", { ascending: false }),
-      sb.from("attachments").select("owner_id, kind").eq("owner_type", "employee").in("kind", ["signature", "signed_form", "application"])
+      sb.from("attachments").select("owner_id, kind").eq("owner_type", "employee").in("kind", ["signature", "signed_form", "application"]),
+      E.kycIds ? E.kycIds() : new Set()
     ]);
     if (!here()) return; // 3.35: another page was opened while the list loaded
     if (error) return fail(error, "Could not load employees");
@@ -48,7 +50,7 @@
     const run = (f) => {
       const rows = f === "current" ? all.filter((r) => r.status !== "terminated") : f ? all.filter((r) => r.status === f) : all;
       $("#emRes").innerHTML = E.grid({ cols: [
-        { label: "Employee No", get: (r) => r.employee_no }, { label: "Name", html: (r) => `${esc(fullName(r))} ${verifiedBadge(r.verified)}` }, { label: "Position", get: (r) => r.position || "" },
+        { label: "Employee No", get: (r) => r.employee_no }, { label: "Name", html: (r) => `${esc(fullName(r))} ${verifiedBadge(r.verified)}${kycBadge(r, kycIds)}` }, { label: "Position", get: (r) => r.position || "" },
         { label: "Email", get: (r) => r.email }, { label: "Access", get: (r) => accessText(r.role, r.modules) },
         { label: "Salary (₱)", num: true, get: (r) => peso(r.monthly_salary) },
         { label: "Status", html: (r) => r.approval_status === "pending" ? `<span class="pill pending">WAITING FOR APPROVAL</span>` : r.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(r.status) }],
@@ -200,6 +202,7 @@
     const slips = withBalance(ps.data || [], bal);
     const app = ja.data;
     const verified = em.status === "active" && (!!em.job_application_id || att.some((a) => ["signature", "signed_form", "application"].includes(a.kind)));
+    const kycIds = E.kycIds ? await E.kycIds() : new Set(); // 3.75.1: KYC VERIFIED badge
     const canPay = E.canWrite("employees") && em.status !== "terminated";
     const st = salaryTotals(slips, pays.rows), acct = salaryAccount(slips, pays.rows);
     const empApproved = em.approval_status === "approved" && !!em.approved_by_name;
@@ -210,7 +213,7 @@
       ${em.approval_status === "pending" ? `<div class="banner warn">⚠ WAITING FOR APPROVAL — check the details and the portal access (Access &amp; Status). ${isAdmin() ? "Then press <b>Approve Employee</b>: the employee ID card is made and the login opens." : "EMON HASAN approves it."}</div>` : ""}
       ${em.status === "waiting" && em.approval_status !== "pending" ? `<div class="banner warn">No login yet. Ask ${esc(em.first_name)} to open the portal, tap <b>Create Account</b> and use <b>${esc(em.email)}</b>. They can sign in immediately with the access below.</div>` : ""}
       <section class="cust-hero st-${esc(em.status)}">${photoBox(photo, (em.first_name[0] || "") + (em.last_name[0] || ""))}
-        <div class="ch-main"><div class="ch-name"><h2>${esc(fullName(em))}</h2>${verifiedBadge(verified)}${em.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(em.status)}</div>
+        <div class="ch-main"><div class="ch-name"><h2>${esc(fullName(em))}</h2>${verifiedBadge(verified)}${kycBadge(em, kycIds)}${em.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(em.status)}</div>
           <div class="ch-sub">${esc(em.position || "—")} · ${esc(em.email)}${em.phone ? " · " + esc(em.phone) : ""}</div>
           <div class="ch-ids">${E.idBox("Employee No", em.employee_no)}${E.idBox("Date Hired", mdy(em.date_hired))}${E.idBox("Monthly Salary (₱)", peso(em.monthly_salary))}${E.idBox("Access Level", E.roleName(em.role).toUpperCase())}</div></div></section>
       ${salaryTiles(em, st)}
