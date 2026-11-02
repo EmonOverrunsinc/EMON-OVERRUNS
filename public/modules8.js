@@ -281,7 +281,7 @@
     const rows = [];
     for (const o of (orders || []).filter(isGate)) {
       const hold = aiNear(o);
-      const r = { at: o.created_at, no: o.order_no, sys: hold ? "SYSTEM + AI REJECT · NOT CLEAR" : "SYSTEM REJECT · NOT CLEAR", sysNote: [why(o), hold ? `EVA AI: HOLD ${pctHold(hold)}% sure` : ""].filter(Boolean).join(" · "), asked: o.created_by_name || "", o };
+      const r = { at: o.created_at, when: o.status === "pending" ? o.created_at : o.approved_at || o.created_at, no: o.order_no, sys: hold ? "SYSTEM + AI REJECT · NOT CLEAR" : "SYSTEM REJECT · NOT CLEAR", sysNote: [why(o), hold ? `EVA AI: HOLD ${pctHold(hold)}% sure` : ""].filter(Boolean).join(" · "), asked: o.created_by_name || "", o };
       if (o.status === "rejected") Object.assign(r, { act: `HOLD BY ${U(o.approved_by_name)}`, actTone: "rejected", actNote: [E.dateTime(o.approved_at), o.review_note].filter(Boolean).join(" · "), st: "FREEZE ACCOUNT", tone: "rejected" });
       else if (o.status === "pending") Object.assign(r, { act: "WAITING FOR EMON HASAN", actTone: "pending", actNote: o.details?.split("\n")[0] || "", st: "WAITING", tone: "pending" });
       else Object.assign(r, { act: `APPROVED BY ${U(o.approved_by_name)}`, actTone: "approved", actNote: [E.dateTime(o.approved_at), o.review_note].filter(Boolean).join(" · "), st: `CLEARED BY ${U(o.approved_by_name)}`, tone: "approved" });
@@ -297,7 +297,24 @@
         act: `${ok ? "CLEARED" : "HOLD"} BY ${U(l.decided_by_name)}`, actTone: ok ? "approved" : "rejected", actNote: ok ? "the AI's HOLD was not agreed" : "agreed with the AI",
         st: ok ? `CLEARED BY ${U(l.decided_by_name)}` : "FREEZE ACCOUNT", tone: ok ? "approved" : "rejected" });
     }
-    return rows.sort((x, y) => String(y.at).localeCompare(String(x.at)));
+    return rows.sort((x, y) => String(y.when || y.at).localeCompare(String(x.when || x.at)));
+  }
+  // 3.69: the gate pass on the customer profile: the current status, the action and the date (the newest line decides:
+  // FREEZE ACCOUNT while on hold, CLEARED FOR DELIVERY when cleared again or a gate pass is issued)
+  function gateCard(orders, events, ai = []) {
+    const rows = gateHistoryRows(orders, events, ai);
+    if (!rows.length) return "";
+    const r = rows[0], ok = r.tone === "approved", wait = r.tone === "pending";
+    const status = ok ? "CLEARED FOR DELIVERY" : wait ? "WAITING · SYSTEM REJECT" : "FREEZE ACCOUNT";
+    return `<div class="gp-card ${ok ? "ok" : wait ? "wait" : "no"}" id="gpCard"><span class="gp-ic">${ic(ok ? "check" : wait ? "clock" : "x")}</span>
+      <div class="gp-cell"><small>Gate Pass · Current Status</small><b>${esc(status)}</b><span>${esc(r.no)} · ${esc(r.sys)}</span></div>
+      <div class="gp-cell"><small>Action</small><b>${esc(r.act)}</b>${r.actNote ? `<span>${esc(r.actNote)}</span>` : ""}</div>
+      <div class="gp-cell"><small>${ok ? "Date Issued" : "Date"}</small><b>${esc(E.dateTime(r.when || r.at))}</b></div>
+      <button type="button" class="btn small" id="gpHist">${ic("clock")} History (${rows.length})</button></div>`;
+  }
+  function bindGateCard(orders, events, ai = []) {
+    const b = document.getElementById("gpHist");
+    if (b) b.onclick = () => E.modal("Gate Pass History", gateHistoryHtml(orders, events, ai), "", { wide: true });
   }
   // the gate pass now: the newest line decides (FREEZE ACCOUNT while on hold, CLEARED BY name when cleared)
   function gateNow(rows) {
@@ -521,5 +538,5 @@
     $("button", el).onclick = () => E.modal(`${label} · ${fullName(c)}`, `<p class="stand-since">Business with us ${esc(sinceTxt)}</p>${analysisHtml(a)}`, "", { wide: true });
   }
 
-  Object.assign(E, { gatePass, standingBadge, gateCheck, customerRequest, requestsHtml, bindRequests, gateHistoryHtml, gateHistoryRows, gateEventLabel });
+  Object.assign(E, { gatePass, standingBadge, gateCheck, customerRequest, requestsHtml, bindRequests, gateHistoryHtml, gateHistoryRows, gateEventLabel, gateCard, bindGateCard });
 })();

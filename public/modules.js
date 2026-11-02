@@ -1007,6 +1007,7 @@
       </section>
       <div class="due-card ${num(b.balance_due) > 0 ? "warn" : num(b.balance_due) < 0 ? "credit" : "ok"}"><div><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
         <small>${num(b.balance_due) > 0 ? "Amount the customer still owes" : num(b.balance_due) < 0 ? `Overpaid · ₱ ${peso(-num(b.balance_due))} is ready for the customer's next invoice (it is used by itself)` : "Nothing due · fully paid"} · see Details for the full summary</small></div>
+      ${isStaff() && E.gateCard ? E.gateCard(orders, ev.data || [], aiLog.data || []) : ""}
       <div class="actionbar">
         ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">${ic("plus")} Record Invoice</a>` : ""}
         ${canPay ? `<a class="btn" href="#newpayment/${c.id}">${ic("plus")} Record Payment</a>` : ""}
@@ -1021,7 +1022,7 @@
         approved: isApprovedAccount(c) ? (() => { const a = [...(ev.data || [])].reverse().find((x) => x.action === "approve"); return { name: a?.actor_name || "", at: a?.created_at || c.reviewed_at }; })() : null })}
         ${signed.length && !att.pending.some((a) => ["signed_form", "application"].includes(a.kind)) ? "" : copyCard({ key: "appcopy", title: "Customer Application Form", tag: "Signed Paper Copy", sub: "Scan or upload the form signed by the customer", ownerType: "customer", ownerId: c.id, att, kind: "signed_form", kinds: ["signed_form", "application"], canUpload: isStaff() && c.status !== "closed" })}</div>
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed, att.length) : ""}
-      <div class="tabs" id="pfTabs">${tabs.map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}">${esc(t)}</button>`).join("")}</div>
+      <div class="tabs" id="pfTabs">${tabs.map((t, i) => `<button type="button" class="${i ? "" : "on"}" data-t="${i}"${i === 9 ? " hidden" : ""}>${esc(t)}</button>`).join("")}</div>
       <div class="tabpanes">
         <div data-p="0">${detailsTable(c, b)}</div>
         <div data-p="1" hidden id="pfSoa">${busy("Loading statements")}</div>
@@ -1112,6 +1113,7 @@
     if ($("#pfRequest")) $("#pfRequest").onclick = () => E.customerRequest(c, gctx);
     E.bindRequests(c, orders, gctx);
     E.standingBadge($("#pfStanding"), c, gctx);
+    E.bindGateCard?.(orders, ev.data || [], aiLog.data || []);
     // 3.12: the Director deletes a history line
     $$("[data-hdel]").forEach((b) => (b.onclick = async () => {
       const [src, hid] = b.dataset.hdel.split(":");

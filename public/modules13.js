@@ -17,7 +17,9 @@
     ["SUMMARY", `<div class="lg-warn"><b>IMPORTANT.</b> Everything in this portal is <b>CONFIDENTIAL</b> property of ${esc(co())}. You must <b>NOT</b> leak, share, copy, photograph,
       screenshot, forward or sell any data from it. Doing so is a <b>crime punishable by law</b> in the Philippines (Data Privacy Act of 2012, Cybercrime Prevention Act of 2012,
       Revised Penal Code) and in other countries, with imprisonment and fines, besides dismissal and damages. Your approved signatures are your <b>electronic signature</b>
-      and are as valid as your handwritten signature on every document made in this portal.</div>`],
+      and are as valid as your handwritten signature on every document made in this portal.
+      Every record made in the portal — invoices, payments, charges and all other data — is <b>valid as an original</b>; if you see any mistake, <b>contact the office
+      immediately</b>; failure to pay allows legal action.</div>`],
     ["1. ABOUT THE PORTAL AND THESE TERMS", `<p>The EMON OVERRUNS E-PORTAL (the "Portal"), its website, Windows and Android apps are owned and run by <b>${esc(co())}</b>, ${esc(addr())}, Philippines,
       managed by <b>EMON HASAN</b>, Managing Director, who is the Personal Information Controller and Data Protection Officer (${esc(C.company.email)}).</p>
       <p>These terms bind every person who signs in: the Managing Director, employees, staff, applicants, customers, billing companies and any other user ("you").
@@ -70,10 +72,26 @@
       <li>This consent is also given under the laws of other countries where they apply, including the US ESIGN Act and UETA, the EU eIDAS Regulation (EU) No 910/2014,
         the Singapore Electronic Transactions Act and the Bangladesh Information and Communication Technology Act 2006.</li>
       <li>You may withdraw this consent in writing to EMON HASAN; you then stop using the Portal. Documents signed before stay valid.</li></ol>`],
-    ["6. RECORD OF YOUR ACCEPTANCE", `<p>When you press Submit, the server keeps for good: your name, email, role, the date and time, your device and browser, your IP address, the version of these
+    ["6. RECORDS MADE IN THE PORTAL, CHARGES AND PAYMENT", `<ol>
+      <li>Every record that ${esc(co())} or EMON HASAN makes, adds or approves in the Portal — customer accounts, orders, delivery records, invoices, payments received,
+        receipts, credit memos and returns, additional charges, settlement adjustments, statements of account, balance certificates, gate passes, e-bills, vouchers,
+        payroll and every other record or system data — is an <b>official business record</b> of ${esc(co())}, made in the regular course of business, and is
+        <b>valid and binding as an original document</b> (Republic Act No. 8792 and the Rules on Electronic Evidence), also when it is printed, downloaded, sent by
+        email or checked by its QR code or barcode.</li>
+      <li>You agree that the amounts, charges, quantities, dates and balances in these records are <b>true and correct</b>, and that the balance shown on your account
+        and statement of account is the amount you owe.</li>
+      <li><b>If there is any mistake or issue</b> in a record, you must <b>contact the office of ${esc(co())} IMMEDIATELY</b> (${esc(addr())} · ${esc(C.company.email)}) so it can be
+        checked and fixed. A record not questioned in writing within seven (7) days from the day you receive or can see it is taken as correct and accepted by you.</li>
+      <li>Every invoice and charge must be paid in full on or before its due date. <b>If you fail to pay</b>, ${esc(co())} may, without further notice: hold or stop
+        deliveries (gate pass FREEZE ACCOUNT), suspend or close the account, add the charges and adjustments allowed by the agreement, send collection letters, refer
+        the account to collection, and <b>take legal action against you</b> — including a civil case or small claims case for the amount due, with interest, damages,
+        costs of collection and attorney's fees — and file a criminal complaint where the law allows (for example under Batas Pambansa Blg. 22 for a bounced check,
+        or for estafa under the Revised Penal Code).</li>
+      <li>These records may be used as evidence before any barangay, office, agency or court in the Philippines or in another country.</li></ol>`],
+    ["7. RECORD OF YOUR ACCEPTANCE", `<p>When you press Submit, the server keeps for good: your name, email, role, the date and time, your device and browser, your IP address, the version of these
       terms and the fingerprint (SHA-256) of their exact text, with an acceptance number (LT-…). Nobody can change or delete it. It is proof of your consent and
       may be used by ${esc(co())} before any office or court. You can see and print your acceptance any time in the menu <b>Legal Terms</b>.</p>`],
-    ["7. CHANGES AND GOVERNING LAW", `<p>When these terms change, a new version is shown and must be accepted again. These terms are governed by the laws of the Republic of the Philippines;
+    ["8. CHANGES AND GOVERNING LAW", `<p>When these terms change, a new version is shown and must be accepted again. These terms are governed by the laws of the Republic of the Philippines;
       the courts of Pasay City, Metro Manila, have jurisdiction. If one part is held invalid, the rest stays in force.</p>`]
   ];
   const termsHtml = () => SECTIONS().map(([h, b]) => `<section class="lg-sec"><h4>${esc(h)}</h4>${b}</section>`).join("");
@@ -106,7 +124,7 @@
           ["Terms Version", acc.terms_version], ["Accepted On", E.dateTime(acc.accepted_at)], ["Agreed", "YES — \"I have read all and I agree\" ticked and submitted"],
           ["Device", acc.device], ["IP Address", acc.ip_address || "—"], ["Text Fingerprint (SHA-256)", acc.terms_hash]].map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v || "")}</td></tr>`).join("")}
       </tbody></table><p class="pdecl">This record was made by the EMON OVERRUNS E-PORTAL server when the person above pressed Submit. It cannot be changed or deleted.</p></section></div>` : "";
-    return [one(secs.slice(0, 3), true), one(secs.slice(3, 5), false), one(secs.slice(5), false) + accBox];
+    return [one(secs.slice(0, 3), true), one(secs.slice(3, 5), false), one(secs.slice(5, 7), false), one(secs.slice(7), false) + accBox];
   }
   const printTerms = (acc) => E.openPreview(acc ? `Legal Terms ${acc.ref_no} ${acc.full_name || ""}` : `Legal Terms ${VERSION}`, pages(acc));
 
@@ -119,6 +137,12 @@
       const { data, error } = await sb.from("legal_acceptances").select("id").eq("user_id", S.profile.id).eq("terms_version", VERSION).limit(1);
       if (error) { if (/legal_acceptances|does not exist|schema cache|42P01|PGRST20/.test(error.message + (error.code || ""))) S.legalOk = S.profile.id; return; } // the server has not 073 yet
       if (data?.length) { S.legalOk = S.profile.id; return; }
+      // agreed on the Create Account form (kept with the account): the record is made now, without asking again
+      const meta = S.session.user?.user_metadata || {};
+      if (meta.legal_agreed === VERSION) {
+        const r = await sb.rpc("accept_legal_terms", { p_version: VERSION, p_hash: await sha256(plain()), p_device: `${device()} · agreed on the Create Account form ${meta.legal_agreed_at || ""}`.slice(0, 400) });
+        if (!r.error) { S.legalOk = S.profile.id; return; }
+      }
       show();
     })().finally(() => { checking = null; });
     return checking;
@@ -130,7 +154,7 @@
       <div class="legal-head">${E.logoHtml("lg-logo")}<div><b id="lgTitle">Legal Terms, Data Privacy &amp; E-Signature Consent</b><small>${esc(co())} E-PORTAL · Version ${esc(VERSION)}</small></div></div>
       <div class="legal-body" id="lgBody" tabindex="0">${termsHtml()}<p class="lg-end">— END OF TERMS —</p></div>
       <div class="legal-foot">
-        <label class="lg-agree"><input type="checkbox" id="lgAgree"> <span><b>I have read all and I agree</b> to the Terms of Use, the Data Privacy Notice and Consent, the Confidentiality and Non-Disclosure terms and the Electronic Signature Consent above.</span></label>
+        <label class="lg-agree"><input type="checkbox" id="lgAgree"> <span><b>I have read all and I agree</b> to the Terms of Use, the Data Privacy Notice and Consent, the Confidentiality and Non-Disclosure terms, the Electronic Signature Consent and the terms on records, charges and payment above.</span></label>
         <div class="btnrow"><button type="button" class="btn" id="lgPrint">${ic("print")} Print / Download</button><button type="button" class="btn" id="lgOut">Sign Out</button>
           <button type="button" class="btn primary" id="lgSubmit" disabled>${ic("check")} Submit</button></div>
         <small class="muted">Signed in as ${esc(S.profile.full_name || S.profile.email || "")}. The portal opens after you submit.</small></div></div>`;
@@ -195,5 +219,10 @@
     draw();
   };
 
-  Object.assign(E, { legalGate, LEGAL_VERSION: VERSION });
+  // the terms in a window (the Create Account form, before signing in)
+  const showTerms = () => {
+    const m = E.modal("Legal Terms, Data Privacy & E-Signature Consent", `<div class="legal-body page-like">${termsHtml()}</div>`, `<button type="button" class="btn primary" data-x>Close</button>`, { wide: true });
+    $("[data-x]", m.el).onclick = m.close;
+  };
+  Object.assign(E, { legalGate, showTerms, LEGAL_VERSION: VERSION });
 })();

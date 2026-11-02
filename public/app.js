@@ -710,12 +710,14 @@
       <label class="fl" for="suEmail">Email</label><input type="email" id="suEmail" autocomplete="email" required>
       ${pwField("suPass", "Password", "new-password")}
       ${pwField("suPass2", "Confirm Password", "new-password")}
+      <label class="lg-agree su-agree"><input type="checkbox" id="suAgree"> <span><b>I have read all and I agree</b> to the <button type="button" class="linkbtn" id="suTerms">Legal Terms, Data Privacy Notice and Electronic Signature Consent</button> of the EMON OVERRUNS E-PORTAL.</span></label>
       <button class="btn primary big" type="submit">Create Account</button>
       <div class="hint small">We will email you a confirmation code. After confirming, sign in with your email or username and apply for a job with us.</div>
     </form>`);
     bindEyes();
     $("#suName").focus();
     $("#toSignin").onclick = () => renderLogin("signin");
+    $("#suTerms").onclick = () => window.EO.showTerms?.(); // 3.69
     let unameOk = false, timer = null, seq = 0;
     const check = async () => {
       const u = $("#suUser").value.trim().toLowerCase(), m = $("#suUserMsg"), my = ++seq;
@@ -740,11 +742,12 @@
       if (!/^\S+@\S+\.\S+$/.test(email)) return toast("Enter a valid email address.", true);
       if (p1.length < 6) return toast("Use a password of at least 6 characters.", true);
       if (p1 !== p2) return toast("The two passwords do not match.", true);
+      if (!$("#suAgree").checked) { $("#suAgree").focus(); return toast("Read the Legal Terms and tick \"I have read all and I agree\" first.", true); }
       clearTimeout(timer);
       setBusy(e.target, true, "Creating account"); // 3.35: at once, so a second press cannot send the form twice
       await check();
       if (!unameOk) { setBusy(e.target, false); return toast(`The username “${username}” is not available. Choose another.`, true); }
-      const { data, error } = await sb.auth.signUp({ email, password: p1, options: { data: { full_name, username }, emailRedirectTo: authRedirect() } });
+      const { data, error } = await sb.auth.signUp({ email, password: p1, options: { data: { full_name, username, legal_agreed: window.EO.LEGAL_VERSION || "", legal_agreed_at: new Date().toISOString() }, emailRedirectTo: authRedirect() } });
       setBusy(e.target, false);
       if (error && timedOut(error)) {
         // 3.29.1: the email server was slow. The account may still have been made (then its username is taken now):
