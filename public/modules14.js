@@ -143,7 +143,8 @@
     $(".band h1") && ($(".band h1").textContent = `Insurance — ${i.ins_no}`);
     const payBox = ["unpaid", "rejected"].includes(i.status) && canW() ? `<fieldset class="opt ins-pay"><legend>Payment</legend>
         ${i.status === "rejected" ? `<div class="banner warn"><b>Payment not accepted</b>${i.review_note ? `: ${esc(i.review_note)}` : ""}. Submit the right proof again.</div>` : ""}
-        <div class="ins-paygrid"><div class="ins-qr">${q ? `<img src="${esc(q)}" alt="EMON OVERRUNS payment QR code">` : `<div class="empty small">EMON HASAN has not added the payment QR code yet.</div>`}
+        <div class="ins-paygrid"><div class="ins-qr"><button type="button" class="ins-qr-btn" id="ipQrBig" aria-label="Show the QR code big"><img src="${esc(q)}" alt="EMON OVERRUNS payment QR code"></button>
+          <div class="btnrow center"><button type="button" class="btn small" id="ipQrZoom">${ic("eye")} Big QR</button><a class="btn small" href="${esc(q)}" download="EMON-OVERRUNS-InstaPay-QR.png">${ic("download")} Save QR</a></div>
           <div class="ins-amt"><small>SCAN WITH ANY BANK OR E-WALLET APP (INSTAPAY) · AMOUNT TO PAY</small><b>₱ ${peso(i.amount)}</b>${s.pay_qr_note ? `<span>${esc(s.pay_qr_note)}</span>` : ""}<span class="mono">Ref: ${esc(i.ins_no)}</span></div></div>
           <div><ol class="ins-steps"><li>Scan the QR code and pay <b>₱ ${peso(i.amount)}</b>.</li><li>Take a screenshot or photo of the payment receipt.</li><li>Upload it below with the reference no and press <b>Submit for Review</b>.</li><li>EMON HASAN checks the payment: the coverage is issued by itself.</li></ol>
             <div class="fields wide"><label for="ipFile">Proof of Payment *</label><input type="file" id="ipFile" accept="image/*,application/pdf">
@@ -166,6 +167,8 @@
       ${payBox}${proofBox}
       <fieldset class="opt"><legend>Benefits and Terms</legend>${benefitsHtml(i)}</fieldset>
       <div class="btnrow">${isAdmin() && i.status !== "active" && i.status !== "cancelled" ? `<button type="button" class="btn danger" id="ipCancel">${ic("trash")} Cancel</button>` : ""}<a class="btn" href="#insurance">Back</a></div>`;
+    const bigQr = () => { const m = E.modal("Scan to Pay — InstaPay", `<div class="ins-qr-full"><img src="${esc(q)}" alt="Payment QR code"><b>₱ ${peso(i.amount)}</b><span>${esc(s.pay_qr_note || "")}</span><span class="mono">Ref: ${esc(i.ins_no)}</span></div>`, `<button type="button" class="btn primary" data-x>Close</button>`, { wide: true }); $("[data-x]", m.el).onclick = m.close; };
+    if ($("#ipQrBig")) { $("#ipQrBig").onclick = bigQr; $("#ipQrZoom").onclick = bigQr; }
     if ($("#ipOpen")) $("#ipOpen").onclick = () => E.viewFile({ storage_path: i.proof_path, mime: isPdf ? "application/pdf" : "image/jpeg", file_name: `${i.ins_no} Proof of Payment` });
     if ($("#ipCert")) $("#ipCert").onclick = () => printCert(i, o, invoice, cv);
     if ($("#ipSend")) $("#ipSend").onclick = async (e) => {
@@ -270,5 +273,25 @@
       <small>Checked ${esc(E.dateTime(new Date().toISOString()))} · ${esc(E.APP)}</small></div>`;
   }
 
-  Object.assign(E, { insOrderStrip, insVerify });
+  // ---------- 3.72: ADD COVERAGE on the new order form (below all the items) ----------
+  async function insOffer(el, readLines, onToggle) {
+    if (!el || !canW()) return;
+    const { data: s, error } = await sb.from("company_settings").select("ins_box_price, ins_rate_pct").eq("id", 1).maybeSingle();
+    if (error || !s || !el.isConnected) return; // the server has not 077 yet
+    el.innerHTML = `<label class="ins-offer" for="coInsOn"><input type="checkbox" id="coInsOn"><span class="ins-seal">${ic("shield")}</span>
+      <span class="ins-offer-txt"><b>ADD COVERAGE <i>recommended</i></b><small>Free exchange of mistaken items · free return of a mistaken delivery (shipping fee covered) · exchange of unsold sealed boxes · valid until 15 days after delivery</small>
+        <small class="ins-offer-calc" id="coInsCalc"></small></span><span class="ins-offer-amt" id="coInsAmt">₱ 0.00</span></label>`;
+    const update = () => {
+      const ls = readLines() || [];
+      const boxes = ls.reduce((t, l) => t + num(l.boxes), 0), value = ls.reduce((t, l) => t + (num(l.amount) || num(l.qty) * num(l.price)), 0);
+      const c = calc(boxes, value, s.ins_box_price, s.ins_rate_pct);
+      $("#coInsAmt").textContent = `₱ ${peso(c.total)}`;
+      $("#coInsCalc").textContent = `${E.qtyText(boxes)} box(es) × ₱ ${peso(s.ins_box_price)} + ${num(s.ins_rate_pct)}% of ₱ ${peso(value)}`;
+    };
+    update();
+    const form = el.closest("form"); ["input", "change", "click"].forEach((ev) => form?.addEventListener(ev, () => setTimeout(update, 0)));
+    $("#coInsOn").onchange = (e) => { el.querySelector(".ins-offer").classList.toggle("on", e.target.checked); onToggle(e.target.checked); };
+  }
+
+  Object.assign(E, { insOrderStrip, insVerify, insOffer });
 })();

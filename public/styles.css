@@ -2858,3 +2858,18 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .ins-cert-terms .ins-terms li { font-size: 8.6pt; margin: 1px 0; line-height: 1.32; } .ins-cert-terms .ins-terms h4 { font-size: 9pt; margin: 5px 0 2px; }
 .vf-ins { max-width: 460px; margin: 10px auto; } .vf-ins th { text-align: left; }
 @media (max-width: 760px) { .ins-paygrid, .ins-set { grid-template-columns: 1fr; } .ins-ord { grid-template-columns: 1fr 1fr; } }
+/* 3.72: ADD COVERAGE on the order form, big scannable QR */
+.ins-offer { display: flex; align-items: center; gap: 12px; border: 2px dashed #f0b429; border-radius: 16px; padding: 12px 14px; margin: 4px 0 6px; background: linear-gradient(135deg, #fffaf0, #fff3d6); cursor: pointer; transition: all .2s; }
+.ins-offer input { width: 22px; height: 22px; flex: none; }
+.ins-offer .ins-seal { background: linear-gradient(135deg, #f0b429, #c98a00); }
+.ins-offer.on { border-style: solid; border-color: #1fa463; background: linear-gradient(135deg, #eafaf0, #d6f3e1); } .ins-offer.on .ins-seal { background: linear-gradient(135deg, #1fa463, #0f7a43); }
+.ins-offer-txt { flex: 1; } .ins-offer-txt b { font-size: 15px; letter-spacing: .03em; } .ins-offer-txt b i { font-style: normal; font-size: 10px; background: #f0b429; color: #3a2700; border-radius: 999px; padding: 1px 7px; margin-left: 6px; vertical-align: middle; }
+.ins-offer-txt small { display: block; font-size: 12px; color: #5b4a1e; margin-top: 2px; } .ins-offer.on .ins-offer-txt small { color: #1b5e33; }
+.ins-offer-amt { font-size: 20px; font-weight: 800; color: #0a3d91; white-space: nowrap; }
+.ins-paygrid { grid-template-columns: minmax(280px, 380px) 1fr; }
+.ins-qr-btn { border: 0; padding: 0; background: #fff; cursor: zoom-in; width: 100%; display: block; }
+.ins-qr img, .ins-qr-btn img { width: 100%; max-width: 360px; aspect-ratio: 1; object-fit: contain; image-rendering: pixelated; }
+.ins-qr-full { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.ins-qr-full img { width: min(86vw, 70vh, 560px); aspect-ratio: 1; object-fit: contain; image-rendering: pixelated; background: #fff; }
+.ins-qr-full b { font-size: 28px; color: #0a3d91; }
+@media (max-width: 760px) { .ins-offer { flex-wrap: wrap; } .ins-offer-amt { width: 100%; text-align: right; } }
