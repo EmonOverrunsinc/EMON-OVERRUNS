@@ -97,7 +97,7 @@
   // ======================================================================
   V.insurance = async (id) => {
     if (id) return insPage(id);
-    E.shell("insurance", "Insurance", `${E.eoTabs("insurance")}<div id="insBody">${busy()}</div>`, "Order coverage, added before delivery: boxes × ₱ 50 + 0.5% of the order value. Free exchange of mistaken items, free return of a mistaken delivery (shipping fee covered) and exchange of unsold sealed boxes, until 15 days after delivery.");
+    E.shell("insurance", "Insurance", `${E.eoTabs("insurance")}<div id="insBody" class="insx">${busy()}</div>`, "Order coverage, added before delivery: boxes × ₱ 50 + 0.5% of the order value. Free exchange of mistaken items, free return of a mistaken delivery (shipping fee covered) and exchange of unsold sealed boxes, until 15 days after delivery.");
     const here = E.stillHere();
     await expireUnpaid();
     const [rs, s] = await Promise.all([sb.from("order_insurance").select("*").order("created_at", { ascending: false }).limit(1000), settings()]);
@@ -229,7 +229,7 @@
         ${proof ? (isPdf ? `<button type="button" class="btn" id="ipOpen">${ic("eye")} Open the Proof (PDF)</button>` : `<button type="button" class="cv-receipt" id="ipOpen" aria-label="Open the proof"><img src="${esc(proof)}" alt="Proof of payment"></button>`) : ""}
         ${i.status === "review" && isAdmin() ? `<div class="fields wide" style="margin-top:10px"><label for="ipNote">EMON HASAN's note</label><input type="text" id="ipNote" maxlength="300" placeholder="needed to reject"></div>
           <div class="btnrow"><button type="button" class="btn danger" id="ipNo">${ic("x")} Reject</button><button type="button" class="btn ok" id="ipOk">${ic("check")} Payment Received · Issue Coverage</button></div>` : i.status === "review" ? `<div class="banner info">Waiting for EMON HASAN to check the payment.</div>` : ""}</fieldset>` : "";
-    $("#main").innerHTML = `${E.eoTabs("insurance")}
+    $("#main").innerHTML = `${E.eoTabs("insurance")}<div class="insx">
       <div class="ins-head ${st.k}"><div class="ins-seal">${ic("shield")}</div><div><small>${esc(i.ins_no)} · ORDER ${esc(i.order_no || "")}</small><b>${esc(st.label)}</b>
         <span>${esc(i.customer_name || "")} · ${E.qtyText(i.boxes)} box(es) · premium ₱ ${peso(i.amount)}</span></div>${i.status === "active" ? `<span class="ins-paidchip">${ic("check")} STATUS: PAID</span>` : ""}</div>
       ${i.status === "active" ? `<div class="btnrow"><button type="button" class="btn primary" id="ipCert">${ic("download")} Insurance Certificate (PDF)</button>${cv ? `<a class="btn" href="#collection/${cv.id}">${ic("doc")} Collection Voucher ${esc(cv.cv_no)}</a>` : ""}${prem ? `<a class="btn" href="#invoice/${prem.id}">${ic("doc")} Premium Invoice ${esc(prem.invoice_no)} (billed to the account)</a>` : ""}</div>` : ""}
@@ -239,10 +239,11 @@
         ${E.cell("Delivered", o?.delivered_at ? E.dateTime(o.delivered_at) : "NOT YET")}${E.cell("Invoice No", invoice?.invoice_no || "")}${o?.status === "completed" ? E.cell("Covered Value (₱, as delivered)", peso(o.total_amount), "hl") : ""}
         ${o ? E.cell("Boxes (order now)", E.qtyText(o.total_boxes)) + E.cell("Order Amount now (₱)", peso(o.total_amount)) : ""}</div></fieldset>
       <fieldset class="opt"><legend>Coverage Charge (fixed)</legend>${calcHtml(i.boxes, i.order_amount, i.box_price, i.rate_pct)}<p class="muted">${esc(E.words(i.amount, "PESOS"))}</p>
+        <div class="ins-due"><small>PAYMENT DUE WITH THIS COVERAGE</small><b>${esc(dueSum(o?.payment_terms))}</b><span>counted from the invoice date · benefits expire 15 days after the delivery</span></div>
         ${o && (num(o.total_amount) !== num(i.order_amount) || num(o.total_boxes) !== num(i.boxes)) ? `<div class="banner info">The order was changed after the coverage was added: now ${E.qtyText(o.total_boxes)} box(es) · ₱ ${peso(o.total_amount)}. The coverage charge stays the same (₱ ${peso(i.amount)}), fixed when it was added.</div>` : `<p class="muted">The coverage charge is fixed when it is added: it stays the same if the order changes later.</p>`}</fieldset>
       ${payBox}${proofBox}
       <fieldset class="opt"><legend>Benefits and Terms</legend>${benefitsHtml(i)}</fieldset>
-      <div class="btnrow">${isAdmin() && i.status !== "active" && i.status !== "cancelled" ? `<button type="button" class="btn danger" id="ipCancel">${ic("trash")} Cancel</button>` : ""}<a class="btn" href="#insurance">Back</a></div>`;
+      <div class="btnrow">${isAdmin() && i.status !== "active" && i.status !== "cancelled" ? `<button type="button" class="btn danger" id="ipCancel">${ic("trash")} Cancel</button>` : ""}<a class="btn" href="#insurance">Back</a></div></div>`;
     const bigQr = () => { const m = E.modal("Scan to Pay — InstaPay", `<div class="ins-qr-full"><img src="${esc(q)}" alt="Payment QR code"><b>₱ ${peso(i.amount)}</b><span>${esc(s.pay_qr_note || "")}</span><span class="mono">Ref: ${esc(i.ins_no)}</span></div>`, `<button type="button" class="btn primary" data-x>Close</button>`, { wide: true }); $("[data-x]", m.el).onclick = m.close; };
     if ($("#ipQrBig")) { $("#ipQrBig").onclick = bigQr; $("#ipQrZoom").onclick = bigQr; }
     if ($("#ipOpen")) $("#ipOpen").onclick = () => E.viewFile({ storage_path: i.proof_path, mime: isPdf ? "application/pdf" : "image/jpeg", file_name: `${i.ins_no} Proof of Payment` });
@@ -358,43 +359,97 @@
     const ext = b.data?.due_date, days = Number(c.data?.due_extension_days || 0);
     return ext && days ? { base: plusDays(ext, -days), ext, days } : null;
   }
+  // 3.78: the payment terms in days (7 DAYS -> 7; CASH ON DELIVERY -> 0; other words -> null)
+  const termsDays = (t) => { const m = String(t || "").toUpperCase().match(/^(\d{1,3}) DAYS$/); return m ? Number(m[1]) : /CASH/i.test(t || "") ? 0 : null; };
+  // the due days of an insured order, in words: 7 DAYS TERMS + 15 DAYS INSURANCE = 22 DAYS
+  const dueSum = (terms) => { const d = termsDays(terms); return d == null ? `TERMS + ${DUE} DAYS INSURANCE` : `${d} DAYS TERMS + ${DUE} DAYS INSURANCE = ${d + DUE} DAYS`; };
+
+  // ---------- 3.78 the certificate: EMON OVERRUNS document design (navy band, gold lines, field boxes), A4 landscape,
+  // A4 portrait, 2 pages like an original certificate of insurance: FRONT = the schedule; BACK = the policy wording ----------
   async function printCert(i, o, invoice, cv) {
     await E.loadSignatures?.().catch(() => {});
+    await settings().catch(() => {});
     const st = stateOf(i), c = o?.customers || {}, ok = st.k === "valid";
     const who = certSigners(i);
     const sign = E.approvedBy(i.issued_by_eva ? null : i.approved_by, who.approver, i.approved_at) || { name: who.approver, at: i.approved_at, pic: "" };
-    const until = i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY";
-    await settings().catch(() => {}); // the due extension days
     i = { ...i, _due: await dueOf(invoice) };
+    const until = i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY";
     const name = i.customer_name || fullName(c), boxes = `${E.qtyText(i.boxes)} ${Number(i.boxes) === 1 ? "BOX" : "BOXES"}`;
-    const ordBar = i.order_no ? `<div class="ic-ord"><img src="${E.pdf417DataUrl("EMONCO|" + i.order_no)}" alt="" class="ph-bar"><small>ORDER NO</small><b class="mono">${esc(i.order_no)}</b></div>` : "";
-    const codes = `<img src="${E.pdf417DataUrl("EMONINS|" + i.ins_no)}" alt="" class="ph-bar"><div class="mono">${esc(i.ins_no)}</div>`;
-    const kv = (rows) => `<table class="ic-kv">${rows.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v === "" || v == null ? "&nbsp;" : esc(v)}</td></tr>`).join("")}</table>`;
-    const tile = (k, v, cls = "") => `<div class="ic-tile ${cls}"><small>${esc(k)}</small><b>${esc(v)}</b></div>`;
-    const party = (role, p, icon) => `<div class="ic-party"><div class="ic-pi">${ic(icon)}</div><div><small>${esc(role)}</small><b>${esc(p.name)}</b>${p.note ? `<span>${esc(p.note)}</span>` : ""}</div></div>`;
-    const page = `${E.printHead("INSURANCE COVERAGE CERTIFICATE", `<div class="ph-codes co-codes"><div>${codes}</div><div class="co-qr"><img src="${E.qrDataUrl(E.verifyUrl(i.ins_no))}" alt="QR code: verify" class="ph-qr"><small class="co-verify">VERIFY</small></div></div>`)}
-      <div class="ins-cert ${st.k}">
-        <div class="ic-hero">
-          <div class="ic-seal"><div class="ins-seal big">${ic("shield")}</div><b>${ok ? "COVERED" : esc(st.label)}</b><span>EO-OFFICE INSURANCE</span></div>
-          <div class="ic-say"><small>THIS CERTIFIES THAT</small><b class="ic-name">${esc(name)}</b>
-            <p>${c.account_no ? `(Account No <b>${esc(c.account_no)}</b>) ` : ""}is covered by EO-Office Insurance for <b>${esc(boxes)} (SEALED)</b> of order <b>${esc(i.order_no || "")}</b>,
-            from <b>${esc(mdy(i.issued_at))}</b> until <b>${esc(until)}</b>, under the coverage and terms below.</p></div>${ordBar}
-        </div>
-        <div class="ic-tiles">${tile("Certificate No", i.ins_no)}${tile("Boxes Covered", boxes)}${tile("Premium Paid", "PHP " + peso(i.amount))}${tile(ok || st.k === "expired" ? "Payment Due (extended)" : "Status", ok || st.k === "expired" ? (i._due ? mdy(i._due.ext) : `DUE DATE + ${DUE} DAYS`) : st.label, "hl")}</div>
-        <div class="ic-dates"><div><small>1 · BENEFITS EXPIRE</small><b>${esc(until)}</b><span>exchange / return benefits end</span></div>
-          <div><small>2 · PAYMENT DUE EXTENSION</small><b>${i._due ? `${esc(mdy(i._due.base))} → ${esc(mdy(i._due.ext))}` : `INVOICE DUE DATE + ${DUE} DAYS`}</b><span>+${DUE} days to pay after the invoice due date</span></div></div>
-        <div class="ic-cols">
-          <div><div class="ic-h">INSURED ORDER</div>${kv([["Customer", name], ["Account No", c.account_no || ""], ["Order No", i.order_no || ""], ["Invoice No", invoice?.invoice_no || (o?.status === "completed" ? "" : "AFTER DELIVERY")],
-            ["Covered Value", `PHP ${peso(o?.status === "completed" ? o.total_amount : i.order_amount)}${o?.status === "completed" ? " (AS DELIVERED)" : ""}`], ["Delivery", o?.delivered_at ? E.dateTime(o.delivered_at) : "NOT YET DELIVERED"]])}</div>
-          <div><div class="ic-h">PREMIUM PAID</div>${kv([["Calculation", `${boxes} × PHP ${peso(i.box_price)} + ${num(i.rate_pct)}% of PHP ${peso(i.order_amount)}`], ["Premium", `PHP ${peso(i.amount)}`],
-            ["In Words", E.words(i.amount, "PESOS")], ["Paid By", PAID_BY[i.pay_method] || i.pay_method || ""], ...(i.pay_method === "account" ? [["Premium Invoice No", i.pay_ref || ""]] : [["Reference No", i.pay_ref || ""], ["Collection Voucher", cv?.cv_no || ""]])])}</div>
-        </div>
-        <div class="ic-who">${party("VERIFIED BY", who.verified, i.issued_by_eva ? "ai" : "check")}${party("ISSUED BY", who.issued, "stamp")}</div>
-        <div class="ins-cert-terms">${benefitsHtml(i)}</div>
+    const covered = o?.status === "completed" ? o.total_amount : i.order_amount;
+    const terms = o?.payment_terms || "", td = termsDays(terms);
+    const dueDate = i._due ? mdy(i._due.ext) : "COUNTED FROM THE INVOICE DATE";
+    const v = (x) => (x === "" || x == null ? "&nbsp;" : esc(x));
+    const fld = (label, value, cls = "") => `<div class="c2-fld ${cls}"><small>${esc(label)}</small><b>${v(value)}</b></div>`;
+    const sec = (t, right = "") => `<div class="c2-sec"><span>${esc(t)}</span>${right ? `<em>${esc(right)}</em>` : ""}</div>`;
+    const kv = (rows) => `<table class="c2-kv">${rows.map(([k, x, cls = ""]) => `<tr class="${cls}"><th>${esc(k)}</th><td>${v(x)}</td></tr>`).join("")}</table>`;
+    const band = (title, right) => `<div class="c2-band"><div class="c2-logo">${E.logoHtml("c2-logo-img")}</div>
+      <div class="c2-co"><b>${esc(C.company.name)}</b><span class="c2-tag">Factory Branded Overruns &nbsp;|&nbsp; Est. 2023</span><span>Ignacio Street, Pasay City, Metro Manila 1300 &nbsp;·&nbsp; Email: ${esc(C.company.email)}</span></div>
+      <div class="c2-title"><b>${title}</b><i></i>${right}</div></div><div class="c2-gold"></div>`;
+    const sig = (label, p, pic) => `<div class="c2-sig"><div class="c2-sec"><span>${esc(label)}</span></div><div class="c2-sigbox">
+      ${pic ? `<img class="c2-esig" src="${esc(pic)}" alt="Signature">` : ""}<div class="c2-line"></div><b>${v(p.name)}</b><small>${esc(p.note || "Signature over Printed Name / Date")}</small></div></div>`;
+    const rows = [
+      ["WRONG ITEM", "An item not in the order (style, size, colour or quality)", "Free exchange"],
+      ["WRONG BUNDLE", "A bundle with the wrong items or the wrong number of pieces", "Exchanged or completed free"],
+      ["WRONG BOX", "A box delivered by mistake or meant for another customer", "Collected and replaced · shipping both ways paid"],
+      ["WRONG QUANTITY", "Boxes or pieces missing against the order and the delivery list", "Delivered free or credited"],
+      ["UNSOLD BOXES", "Sealed boxes not sold", "Exchanged for new items of the same value"],
+      ["PAYMENT DUE EXTENSION", "Extra days to pay the invoice of this order", `+${DUE} days after the terms`]];
+    const front = `<div class="c2 ${st.k}"><div class="c2-wm">${ic("shield")}</div>
+      ${band("INSURANCE CERTIFICATE", `<div class="c2-no"><small>CERT. NO.</small><span>${esc(i.ins_no)}</span></div><div class="c2-orig">ORIGINAL</div>`)}
+      <div class="c2-fields">
+        ${fld("INSURED", name, "w2")}${fld("ACCOUNT NO.", c.account_no || "")}${fld("DATE ISSUED", i.issued_at ? mdy(i.issued_at) : "")}
+        ${fld("ORDER NO.", i.order_no || "")}${fld("INVOICE NO.", invoice?.invoice_no || (o?.status === "completed" ? "" : "AFTER DELIVERY"))}${fld("BOXES COVERED", boxes)}${fld("COVERED VALUE", `PHP ${peso(covered)}${o?.status === "completed" ? " · AS DELIVERED" : ""}`)}
       </div>
-      ${E.sigs("Customer / Insured", "Issued by", sign)}
-      <div class="rp-foot"><span>Scan the QR code to verify this coverage online.</span><span>${esc(i.ins_no)}</span></div>`;
-    E.openPreview(`Insurance Certificate ${i.ins_no}`, [page], { onePage: true });
+      <div class="c2-main">
+        <div class="c2-left">
+          ${sec("SCHEDULE OF COVERAGE", ok ? "STATUS: COVERED" : `STATUS: ${st.label}`)}
+          <table class="c2-tbl"><thead><tr><th>#</th><th>COVERAGE</th><th>WHAT IS COVERED</th><th>BENEFIT</th></tr></thead>
+            <tbody>${rows.map((r, k) => `<tr><td>${k + 1}</td><td><b>${esc(r[0])}</b></td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("")}</tbody></table>
+          <div class="c2-dates">
+            <div class="c2-date"><small>BENEFITS EXPIRE</small><b>${esc(until)}</b><span>15 days after the delivery · no claim after this date</span></div>
+            <div class="c2-date due"><small>PAYMENT DUE (EXTENDED)</small><b>${esc(dueDate)}</b><span>${esc(dueSum(terms))}</span></div>
+          </div>
+        </div>
+        <div class="c2-right"><div>
+          ${sec("PREMIUM")}
+          ${kv([["CALCULATION", `${boxes} × PHP ${peso(i.box_price)} + ${num(i.rate_pct)}%`], ["PREMIUM", `PHP ${peso(i.amount)}`, "tot"], ["IN WORDS", E.words(i.amount, "PESOS")],
+            ["PAID BY", PAID_BY[i.pay_method] || i.pay_method || ""], ...(i.pay_method === "account" ? [["PREMIUM INVOICE", i.pay_ref || ""]] : [["REFERENCE NO.", i.pay_ref || ""], ["COLLECTION VOUCHER", cv?.cv_no || ""]])])}
+          </div><div>${sec("PAYMENT DUE")}
+          ${kv([["TERMS OF PAYMENT", terms || "—"], ["INSURANCE EXTENSION", `+${DUE} DAYS`], ["TOTAL DAYS TO PAY", td == null ? "—" : `${td + DUE} DAYS`, "tot"]])}
+          <div class="c2-ver"><img src="${E.qrDataUrl(E.verifyUrl(i.ins_no))}" alt="QR code: verify" class="c2-qr"><div><b>VERIFY THIS CERTIFICATE</b><span>Scan the QR code or enter ${esc(i.ins_no)} at ${esc(E.siteName?.() || "emonoverruns.online")}</span>
+            <img src="${E.pdf417DataUrl("EMONINS|" + i.ins_no)}" alt="" class="c2-bar"></div></div>
+        </div></div>
+      </div>
+      <div class="c2-decl">${sec("CERTIFICATION")}
+        <p><b>THIS IS TO CERTIFY</b> that the Insured named above is covered by the EO-OFFICE INSURANCE of ${esc(C.company.name)} for the <b>${esc(boxes)}</b> of order <b>${esc(i.order_no || "")}</b>, with a covered value of <b>PHP ${peso(covered)}</b>, for the benefits in the Schedule of Coverage, from <b>${esc(i.issued_at ? mdy(i.issued_at) : "")}</b> until the benefits expire on <b>${esc(until)}</b>, and that the invoice of this order is payable within <b>${esc(td == null ? `its terms + ${DUE} days` : `${td + DUE} days (${td} days terms + ${DUE} days insurance)`)}</b>, subject to the terms and conditions on the back of this certificate.</p>
+        <p><b>IN WITNESS WHEREOF</b>, ${esc(C.company.name)} has caused this certificate to be signed by its authorized signatory at Pasay City, Metro Manila, Philippines, on <b>${esc(i.approved_at ? mdy(i.approved_at) : mdy(E.isoToday()))}</b>.</p></div>
+      <div class="c2-sigs">
+        ${sig("VERIFIED BY", { name: who.verified.name, note: i.issued_by_eva ? "Payment verified" : "Payment checked" }, "")}
+        ${sig("ISSUED BY", { name: who.approver, note: `Authorized Signatory · ${i.approved_at ? mdy(i.approved_at) : ""}` }, sign.pic)}
+        ${sig("INSURED / CUSTOMER", { name, note: "Signature over Printed Name / Date" }, "")}
+      </div>
+      <div class="c2-foot"><span>This certificate is valid only when its number is verified by the QR code. Terms and conditions on the back form part of this certificate.</span><span>${esc(C.company.name)} &nbsp;|&nbsp; Pasay City, Metro Manila</span></div></div>`;
+    const cl = (n, t, body) => `<div class="c2-cl"><h4>${n}. ${esc(t)}</h4>${body}</div>`;
+    const co = esc(C.company.name);
+    const back = `<div class="c2 back">${band("POLICY WORDING", `<div class="c2-no"><small>CERT. NO.</small><span>${esc(i.ins_no)}</span></div><div class="c2-orig">BACK</div>`)}
+      ${sec("TERMS AND CONDITIONS OF THE EO-OFFICE INSURANCE COVERAGE", `${co} · INSURANCE CERTIFICATE · BACK`)}
+      <div class="c2-cols">
+        ${cl(1, "Definitions", `<p><b>"Company"</b> means ${co}, Pasay City, Metro Manila. <b>"Insured"</b> means the customer named on the front. <b>"Covered Boxes"</b> means the sealed boxes of the order named on the front, as listed on its delivery list. <b>"Premium"</b> means the amount shown on the front.</p>`)}
+        ${cl(2, "Insuring Agreement", `<p>In return for the Premium, the Company agrees to give the Insured the benefits in the Schedule of Coverage on the front, for the Covered Boxes only, subject to these terms.</p>`)}
+        ${cl(3, "Period of Coverage", `<p>The benefits start on the date issued and <b>end 15 days after the delivery</b> (Benefits Expire, on the front). No claim is accepted after that date.</p>`)}
+        ${cl(4, "Payment Due Extension", `<p>The invoice of the insured order is due after its terms of payment <b>plus ${DUE} days</b>: for example 7 days terms + ${DUE} = ${7 + DUE} days; 15 days + ${DUE} = ${15 + DUE} days; 30 days + ${DUE} = ${30 + DUE} days, counted from the invoice date. If the coverage is cancelled, the extension ends.</p>`)}
+        ${cl(5, "Conditions", `<p>(a) The box must be kept <b>SEALED</b> as delivered; an opened box cannot be claimed. (b) The seal and the box serial no are checked against the delivery list. (c) Every exchange is for items of the same value; there is no cash refund.</p>`)}
+        ${cl(6, "Exclusions", `<p>Not covered: damage, loss or theft after delivery; opened boxes; items already sold; change of mind; boxes not on the delivery list; any claim after the coverage ends.</p>`)}
+        ${cl(7, "Claims Procedure", `<p>Report the claim to the office of the Company with the certificate no and the box serial nos before the coverage ends. The Company checks the claim and gives its decision in writing.</p>`)}
+        ${cl(8, "Premium and Payment", `<p>The Premium is paid now (a collection voucher is issued) or billed to the Insured's account (an invoice is issued). <b>A coverage not paid within 3 days is cancelled automatically.</b> The Premium is not refundable once the coverage is issued.</p>`)}
+        ${cl(9, "Misrepresentation and Fraud", `<p>A claim with false information, or boxes not delivered under the insured order, voids the claim and may void the coverage, without refund.</p>`)}
+        ${cl(10, "Nature of this Coverage", `<p>This coverage is a service warranty given by the Company on its own goods and deliveries. It is not an insurance policy issued by an insurance company, and it adds to the Customer Agreement accepted in the E-Portal.</p>`)}
+        ${cl(11, "Governing Law and Venue", `<p>This certificate is governed by the laws of the Republic of the Philippines. The courts of Pasay City, Metro Manila have jurisdiction over any dispute.</p>`)}
+        ${cl(12, "Electronic Document", `<p>This certificate is an electronic document and its signatures are electronic signatures under Republic Act No. 8792 (Electronic Commerce Act). Its validity is checked by the QR code on the front.</p>`)}
+      </div>
+      <div class="c2-ack">${sec("ACKNOWLEDGMENT")}<p>I have read and I agree to these terms. &nbsp; <span class="c2-ackline"></span> Signature of the Insured over Printed Name &nbsp; <span class="c2-ackline s"></span> Date</p></div>
+      <div class="c2-foot"><span>This certificate is valid only when its number is verified by the QR code.</span><span>${co} &nbsp;|&nbsp; Pasay City, Metro Manila</span></div></div>`;
+    E.openPreview(`Insurance Certificate ${i.ins_no}`, [front, back], { bare: true }); // 3.78: A4 portrait
   }
 
   // ======================================================================
@@ -471,5 +526,5 @@
   const insPrintBox = (i) => !i ? "" : E.box("Insurance Coverage", `<div class="prow3">${E.cell("Certificate No", i.ins_no)}${E.cell("Coverage Amount (₱)", peso(i.amount))}${E.cell("Benefits Expire", i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY")}</div><div class="prow3">${E.cell("Payment Due Extension", `+${DUE} DAYS AFTER THE DUE DATE`)}</div>
       <div class="pcell"><div class="pl">Note</div><div class="pv">STATUS: PAID · ${esc(insNote.toUpperCase())}</div></div>`);
 
-  Object.assign(E, { insDueOf: dueOf, insOrderStrip, insVerify, insOffer, insForOrder, insForInvoice, insBox, insPrintBox });
+  Object.assign(E, { insCert: printCert, insDueOf: dueOf, insOrderStrip, insVerify, insOffer, insForOrder, insForInvoice, insBox, insPrintBox });
 })();
