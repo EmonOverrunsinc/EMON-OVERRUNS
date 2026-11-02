@@ -712,7 +712,7 @@
       <label class="fl" for="suEmail">Email</label><input type="email" id="suEmail" autocomplete="email" required>
       ${pwField("suPass", "Password", "new-password")}
       ${pwField("suPass2", "Confirm Password", "new-password")}
-      <label class="lg-agree su-agree"><input type="checkbox" id="suAgree"> <span><b>I have read all and I agree</b> to the <button type="button" class="linkbtn" id="suTerms">Legal Terms, Data Privacy Notice and Electronic Signature Consent</button> of the EMON OVERRUNS E-PORTAL.</span></label>
+      <label class="lg-agree su-agree"><input type="checkbox" id="suAgree"> <span><b>I have read all and I agree</b> to the <button type="button" class="linkbtn" id="suTerms">Portal Terms of Use</button> of the EMON OVERRUNS E-PORTAL (data privacy, confidentiality, e-signature and records).</span></label>
       <button class="btn primary big" type="submit">Create Account</button>
       <div class="hint small">We will email you a confirmation code. After confirming, sign in with your email or username and apply for a job with us.</div>
     </form>`);
