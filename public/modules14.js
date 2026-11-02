@@ -94,7 +94,7 @@
       <h3 class="sec">Coverages <small class="muted">valid first</small></h3>
       <div id="insList">${E.grid({ cols: [
         { label: "Insurance No", get: (r) => r.ins_no || "" }, { label: "Order No", get: (r) => r.order_no || "" }, { label: "Customer", get: (r) => r.customer_name || "" },
-        { label: "Boxes", num: true, get: (r) => E.qtyText(r.boxes) }, { label: "Premium (₱)", num: true, get: (r) => peso(r.amount) },
+        { label: "Boxes", num: true, get: (r) => E.qtyText(r.boxes) }, { label: "Premium (₱)", num: true, get: (r) => peso(r.amount) }, { label: "Payment", html: (r) => (r.status === "active" ? `<span class="ins-badge valid">PAID</span>` : r.status === "review" ? `<span class="ins-badge pending">TO CHECK</span>` : `<span class="ins-badge pending">NOT PAID</span>`) },
         { label: "Status", html: (r) => badge(r) }, { label: "Created", get: (r) => E.dateTime(r.created_at) }], rows, onRow: true, empty: "No insurance yet." })}</div>`;
     E.bindGrid($("#insList"), rows, (r) => (location.hash = "insurance/" + r.id));
     if (isAdmin()) bindSettings(s);
@@ -187,13 +187,13 @@
               <label for="ipRef">Reference No</label><input type="text" id="ipRef" maxlength="60" value="${esc(i.pay_ref || "")}" placeholder="e.g. GCash ref no"></div>
             <div class="btnrow"><button type="button" class="btn primary" id="ipSend">${ic("send")} Submit for Review</button></div></div></div></fieldset>` : "";
     const proofBox = i.proof_path ? `<fieldset class="opt"><legend>Proof of Payment</legend><div class="pgrid2 qc-head">${E.cell("Paid By", METHODS[i.pay_method] || i.pay_method || "")}${E.cell("Reference No", i.pay_ref || "")}${E.cell("Submitted", i.proof_at ? `${E.dateTime(i.proof_at)} · ${i.proof_by_name || ""}` : "")}${E.cell("Amount (₱)", peso(i.amount), "hl")}</div>
-        ${i.eva_amount != null || i.issued_by_eva ? `<div class="banner ${i.issued_by_eva ? "ok" : "warn"}">${ic("ai")} <b>EVA AI</b> read <b>₱ ${peso(i.eva_amount)}</b> on the payment slip${i.issued_by_eva ? `${num(i.eva_amount) > num(i.amount) ? ` (₱ ${peso(i.amount)} + ₱ ${peso(num(i.eva_amount) - num(i.amount))} transfer fee, not counted)` : ""} — it matches: the coverage was issued by itself.` : ` — the premium is ₱ ${peso(i.amount)}: EMON HASAN checks it.`}</div>` : i.status === "review" && i.proof_path ? `<div class="banner warn">${ic("ai")} EVA AI could not read the amount on this proof: EMON HASAN checks it.</div>` : ""}
+        ${i.eva_amount != null || i.issued_by_eva ? `<div class="banner ${i.issued_by_eva ? "ok" : "warn"}">${ic("ai")} <b>EVA AI</b> read <b>₱ ${peso(i.eva_amount)}</b> on the payment slip${i.issued_by_eva ? `${num(i.eva_amount) > num(i.amount) ? ` (₱ ${peso(i.amount)} + ₱ ${peso(num(i.eva_amount) - num(i.amount))} transfer fee, not counted)` : ""} — <b>STATUS: PAID</b>. The coverage was issued by itself.` : ` — STATUS: NOT PAID (premium ₱ ${peso(i.amount)}): EMON HASAN checks it.`}</div>` : i.status === "review" && i.proof_path ? `<div class="banner warn">${ic("ai")} EVA AI could not read the amount on this proof: EMON HASAN checks it.</div>` : ""}
         ${proof ? (isPdf ? `<button type="button" class="btn" id="ipOpen">${ic("eye")} Open the Proof (PDF)</button>` : `<button type="button" class="cv-receipt" id="ipOpen" aria-label="Open the proof"><img src="${esc(proof)}" alt="Proof of payment"></button>`) : ""}
         ${i.status === "review" && isAdmin() ? `<div class="fields wide" style="margin-top:10px"><label for="ipNote">EMON HASAN's note</label><input type="text" id="ipNote" maxlength="300" placeholder="needed to reject"></div>
           <div class="btnrow"><button type="button" class="btn danger" id="ipNo">${ic("x")} Reject</button><button type="button" class="btn ok" id="ipOk">${ic("check")} Payment Received · Issue Coverage</button></div>` : i.status === "review" ? `<div class="banner info">Waiting for EMON HASAN to check the payment.</div>` : ""}</fieldset>` : "";
     $("#main").innerHTML = `${E.eoTabs("insurance")}
       <div class="ins-head ${st.k}"><div class="ins-seal">${ic("shield")}</div><div><small>${esc(i.ins_no)} · ORDER ${esc(i.order_no || "")}</small><b>${esc(st.label)}</b>
-        <span>${esc(i.customer_name || "")} · ${E.qtyText(i.boxes)} box(es) · premium ₱ ${peso(i.amount)}</span></div></div>
+        <span>${esc(i.customer_name || "")} · ${E.qtyText(i.boxes)} box(es) · premium ₱ ${peso(i.amount)}</span></div>${i.status === "active" ? `<span class="ins-paidchip">${ic("check")} STATUS: PAID</span>` : ""}</div>
       ${i.status === "active" ? `<div class="btnrow"><button type="button" class="btn primary" id="ipCert">${ic("download")} Insurance Certificate (PDF)</button>${cv ? `<a class="btn" href="#collection/${cv.id}">${ic("doc")} Collection Voucher ${esc(cv.cv_no)}</a>` : ""}</div>` : ""}
       <fieldset class="opt"><legend>Order</legend><div class="pgrid2 qc-head">
         <div class="pcell"><div class="pl">Order No</div><div class="pv">${o ? `<a href="#custorder/${o.id}"><b>${esc(o.order_no)}</b></a>` : esc(i.order_no || "")}</div></div>
@@ -223,8 +223,8 @@
         eva = { ...r, matched: hit != null, amount: hit ?? (r.amounts.length ? Math.max(...r.amounts) : null), fee: hit != null ? fee(hit) : 0 };
         if (r.ref && !$("#ipRef").value.trim()) $("#ipRef").value = r.ref.slice(0, 60);
         $("#ipEva").innerHTML = `<div class="eva-read ${eva.matched ? "ok" : "no"}"><img src="${esc(url)}" alt="Payment slip"><div>
-          <b>${ic(eva.matched ? "check" : "x")} ${eva.matched ? `EVA READ ₱ ${peso(hit)}${eva.fee ? ` (₱ ${peso(i.amount)} + ₱ ${peso(eva.fee)} transfer fee)` : ""} — AMOUNT MATCHES` : r.amounts.length ? `EVA READ ₱ ${r.amounts.map(peso).join(", ₱ ")} — NOT ₱ ${peso(i.amount)}` : "EVA COULD NOT READ AN AMOUNT"}</b>
-          <small>${eva.matched ? "Press Submit: the payment is received and the coverage is issued at once." : "You can still submit: EMON HASAN checks the payment."}${r.ref ? ` · Reference ${esc(r.ref)}` : ""}</small></div></div>`;
+          <b>${ic(eva.matched ? "check" : "x")} ${eva.matched ? `EVA READ ₱ ${peso(hit)}${eva.fee ? ` (₱ ${peso(i.amount)} + ₱ ${peso(eva.fee)} transfer fee)` : ""} — STATUS: PAID` : r.amounts.length ? `EVA READ ₱ ${r.amounts.map(peso).join(", ₱ ")} — STATUS: NOT PAID (premium ₱ ${peso(i.amount)})` : "EVA COULD NOT READ AN AMOUNT — STATUS: TO CHECK"}</b>
+          <small>${eva.matched ? "Press Submit: the coverage is issued at once." : "You can still submit: EMON HASAN checks the payment."}${r.ref ? ` · Reference ${esc(r.ref)}` : ""}</small></div></div>`;
       } catch (err) { if ($("#ipEva")) $("#ipEva").innerHTML = `<div class="banner warn">${ic("ai")} EVA could not read it (${esc(err.message)}). Submit it: EMON HASAN checks the payment.</div>`; }
     };
     if ($("#ipCam")) $("#ipCam").onchange = (e) => { const f = e.target.files[0]; if (!f) return; const dt = new DataTransfer(); dt.items.add(f); $("#ipFile").files = dt.files; readSlip(f); };
