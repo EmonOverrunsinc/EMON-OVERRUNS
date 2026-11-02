@@ -10,7 +10,7 @@
 
   // 3 agreements: PORTAL TERMS OF USE (every login), EMPLOYEE AGREEMENT (employees and staff, besides the portal terms) and
   // CUSTOMER AGREEMENT (customers, by Public ID + Private PIN). Each has its own version and record.
-  const REL = "3.69 · NOVEMBER 02 2026";
+  const REL = "3.72 · NOVEMBER 02 2026"; // a new version = everyone agrees again
   const TYPES = { portal: "PORTAL TERMS OF USE", employee: "EMPLOYEE AGREEMENT", customer: "CUSTOMER AGREEMENT" };
   const VER = (t) => `${t.toUpperCase()} ${REL}`;
   const typeOf = (v) => (/^EMPLOYEE /.test(v || "") ? "employee" : /^CUSTOMER /.test(v || "") ? "customer" : "portal");
