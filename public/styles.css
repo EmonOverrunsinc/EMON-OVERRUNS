@@ -2962,3 +2962,68 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .ins-choice > div { border: 1px solid #dbe3ef; border-radius: 12px; padding: 10px 12px; background: #f8fafc; display: flex; flex-direction: column; gap: 4px; }
 .ins-choice b { font-size: 13.5px; letter-spacing: .05em; color: #0a3d91; } .ins-choice small { font-size: 12px; color: #475569; } .ins-choice .btn { align-self: flex-start; margin-top: 4px; }
 @media (max-width: 640px) { .ins-choice { grid-template-columns: 1fr; } }
+/* ===== 3.78 EMON OVERRUNS document design (navy band, gold lines, field boxes): A4 landscape pages ("a4l") ===== */
+.page.a4l { width: 297mm; min-height: 210mm; padding: 8mm 9mm 6mm; page: a4l; }
+@page a4l { size: A4 landscape; margin: 0; }
+@media print { .page.a4l { min-height: 209mm; height: 209mm; overflow: hidden; } }
+.c2 { --nv: #0f3a8c; --nv2: #1d4fb0; --gd: #f2b705; --ln: #7f9ed8; --lt: #eef3fc; position: relative; display: flex; flex-direction: column; gap: 2.6mm; min-height: 195mm; font: 9pt/1.3 Arial, Helvetica, sans-serif; color: #10203f; }
+.c2-wm { position: absolute; inset: 40mm 0 0 0; display: grid; place-items: center; pointer-events: none; z-index: 0; } .c2-wm .ic { width: 120mm; height: 120mm; stroke: rgba(15,58,140,.05); stroke-width: 1.2; }
+.c2 > *:not(.c2-wm) { position: relative; z-index: 1; }
+.c2-band { display: flex; align-items: center; gap: 4mm; background: var(--nv); color: #fff; border-radius: 3mm; padding: 3mm 5mm; }
+.c2-logo { width: 15mm; height: 15mm; border-radius: 50%; background: #fff; display: grid; place-items: center; flex: none; overflow: hidden; } .c2-logo-img { width: 13mm; height: 13mm; object-fit: contain; }
+.c2-co { display: flex; flex-direction: column; gap: .6mm; flex: 1; min-width: 0; } .c2-co b { font-size: 17pt; letter-spacing: .02em; } .c2-co .c2-tag { color: var(--gd); font-size: 8pt; } .c2-co span { font-size: 7.5pt; }
+.c2-title { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 1.2mm; } .c2-title b { font-size: 17pt; letter-spacing: .03em; } .c2-title i { display: block; width: 100%; min-width: 60mm; height: 1mm; background: var(--gd); }
+.c2-no { display: flex; align-items: center; gap: 2mm; background: #fff; color: var(--nv); border-radius: 1.5mm; padding: 1mm 3mm; min-width: 55mm; } .c2-no small { font-size: 6.5pt; font-weight: 800; border-right: 1px solid var(--nv); padding-right: 2mm; } .c2-no span { font-weight: 800; font-size: 9.5pt; font-family: "Courier New", monospace; }
+.c2-orig { font-size: 6.5pt; font-weight: 900; letter-spacing: .3em; color: var(--gd); }
+.c2-gold { height: .9mm; background: var(--gd); margin: -1.6mm 2mm 0; border-radius: 0 0 1mm 1mm; }
+.c2-fields { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2mm; } .c2-fields .w2 { grid-column: span 2; }
+.c2-fld { border: 1px solid var(--nv2); border-radius: 1.6mm; padding: 1mm 2.2mm 1.2mm; min-height: 10mm; background: #fff; } .c2-fld small { display: block; font-size: 6.2pt; font-weight: 800; color: var(--nv); letter-spacing: .04em; } .c2-fld b { display: block; font-size: 9.5pt; margin-top: .6mm; word-break: break-word; }
+.c2-sec { display: flex; align-items: center; justify-content: space-between; background: var(--nv); color: #fff; border-left: 1.4mm solid var(--gd); padding: 1mm 3mm; font-weight: 800; font-size: 8pt; letter-spacing: .03em; margin-bottom: 1.4mm; } .c2-sec em { font-style: normal; font-size: 6.5pt; letter-spacing: .06em; }
+.c2-main { display: grid; grid-template-columns: 2fr 1fr; gap: 3mm; flex: 1; }
+.c2-tbl { width: 100%; border-collapse: collapse; font-size: 8pt; } .c2-tbl th { background: var(--lt); color: var(--nv); font-size: 6.8pt; font-weight: 800; border: 1px solid var(--ln); padding: 1.2mm; text-align: center; }
+.c2-tbl td { border: 1px solid var(--ln); padding: 1.3mm 1.8mm; } .c2-tbl tbody tr:nth-child(even) td { background: #f5f8fe; } .c2-tbl td:first-child { text-align: center; width: 7mm; color: var(--nv); font-weight: 800; } .c2-tbl b { color: var(--nv); }
+.c2-tbl tbody tr:last-child td { background: #fff6d6; }
+.c2-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 2mm; margin-top: 2.4mm; }
+.c2-date { border: 1.4px solid var(--nv2); border-radius: 1.6mm; padding: 1.4mm 3mm; } .c2-date small { display: block; font-size: 6.5pt; font-weight: 800; color: var(--nv); letter-spacing: .06em; } .c2-date b { display: block; font-size: 12pt; color: var(--nv); } .c2-date span { display: block; font-size: 7pt; color: #33415c; }
+.c2-date.due { border-color: var(--gd); background: #fffaea; }
+.c2-kv { width: 100%; border-collapse: collapse; font-size: 7.8pt; margin-bottom: 1.6mm; } .c2-kv th { text-align: left; background: var(--lt); color: var(--nv); font-size: 6.6pt; font-weight: 800; width: 42%; border: 1px solid var(--ln); padding: 1mm 1.6mm; } .c2-kv td { border: 1px solid var(--ln); padding: 1mm 1.6mm; font-weight: 700; }
+.c2-kv tr.tot td { background: #fff6d6; color: var(--nv); font-size: 9pt; }
+.c2-ver { display: flex; gap: 2.4mm; align-items: center; border: 1px dashed var(--ln); border-radius: 1.6mm; padding: 1.6mm; } .c2-qr { width: 19mm; height: 19mm; } .c2-ver b { display: block; font-size: 7pt; color: var(--nv); } .c2-ver span { display: block; font-size: 6.4pt; color: #33415c; } .c2-bar { display: block; width: 45mm; height: 8mm; object-fit: fill; margin-top: 1mm; }
+.c2-sigs { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 3mm; }
+.c2-sigbox { position: relative; border: 1px solid var(--nv2); border-radius: 1.6mm; height: 20mm; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 0 3mm 1.4mm; }
+.c2-sigbox .c2-line { width: 80%; border-top: 1px solid #10203f; margin-bottom: .6mm; } .c2-sigbox b { font-size: 8.5pt; color: var(--nv); } .c2-sigbox small { font-size: 6.4pt; font-style: italic; color: #4b5872; }
+.c2-esig { position: absolute; bottom: 8.5mm; left: 50%; transform: translateX(-50%); height: 11mm; max-width: 70%; object-fit: contain; }
+.c2-foot { display: flex; justify-content: space-between; gap: 6mm; border-top: 1px solid var(--ln); padding-top: 1mm; font-size: 6.4pt; color: #6b7894; font-style: italic; } .c2-foot span:last-child { font-style: normal; white-space: nowrap; }
+.c2.expired .c2-band, .c2.cancelled .c2-band { background: #4b5563; }
+.c2.back .c2-cols { column-count: 3; column-gap: 5mm; flex: 1; } .c2-cl { break-inside: avoid; margin-bottom: 2.2mm; } .c2-cl h4 { margin: 0 0 .8mm; font-size: 8pt; color: var(--nv); border-bottom: 1px solid var(--gd); padding-bottom: .4mm; } .c2-cl p { margin: 0; font-size: 8.6pt; line-height: 1.45; text-align: justify; } .c2.back .c2-cl { margin-bottom: 3.2mm; } .c2.back .c2-cl h4 { font-size: 9pt; }
+.c2-ack p { margin: 1mm 0 0; font-size: 8pt; } .c2-ackline { display: inline-block; width: 55mm; border-bottom: 1px solid #10203f; margin: 0 1mm; } .c2-ackline.s { width: 24mm; }
+/* 3.78: the certificate on A4 portrait */
+.page.bare .c2 { min-height: 281mm; } .page.bare:has(.c2) { padding: 8mm 9mm 6mm; }
+.c2-main { grid-template-columns: 1fr; } .c2-right { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; align-items: start; }
+.c2-band { padding: 3mm 4mm; } .c2-co b, .c2-title b { font-size: 15pt; } .c2-title i { min-width: 50mm; } .c2-no { min-width: 48mm; }
+.c2.back .c2-cols { column-count: 2; }
+.c2-date b { font-size: 11pt; }
+.c2-main { align-content: start; flex: 0 0 auto; gap: 4mm; } .c2-sigs { margin-top: auto; } .c2-tbl td { padding: 1.8mm 2mm; } .c2-fld b { font-size: 10pt; }
+.c2-decl p { margin: 0 0 2mm; font-size: 9.2pt; line-height: 1.55; text-align: justify; } .c2-decl { margin-top: 1mm; }
+/* ===== 3.78 insurance screens in the EMON OVERRUNS document design (navy, gold, field boxes) ===== */
+.insx { --nv: #0f3a8c; --nv2: #1d4fb0; --gd: #f2b705; --lt: #eef3fc; }
+.insx fieldset.opt { border: 1.5px solid var(--nv2); border-radius: 12px; padding: 0 14px 14px; background: #fff; margin: 0 0 14px; }
+.insx fieldset.opt > legend { float: left; width: calc(100% + 28px); margin: 0 -14px 12px; box-sizing: border-box; background: var(--nv); color: #fff; border-left: 6px solid var(--gd); border-radius: 10px 10px 0 0; padding: 7px 14px; font-weight: 800; font-size: 13px; letter-spacing: .05em; text-transform: uppercase; }
+.insx fieldset.opt > legend + * { clear: both; }
+.insx .ins-head { background: var(--nv); color: #fff; border: 0; border-bottom: 4px solid var(--gd); border-radius: 14px; padding: 14px 18px; }
+.insx .ins-head small, .insx .ins-head span { color: #dbe6ff; } .insx .ins-head b { color: #fff; } .insx .ins-head .ins-seal { background: var(--gd); } .insx .ins-head .ins-seal .ic { stroke: var(--nv); }
+.insx .ins-head.expired { background: #4b5563; } .insx .ins-head.pending { background: #7a5300; } .insx .ins-head.rejected { background: #8a1c13; }
+.insx .ins-paidchip { background: var(--gd); color: var(--nv); }
+.insx .pcell { border: 1px solid var(--nv2); border-radius: 8px; } .insx .pcell .pl { color: var(--nv); font-weight: 800; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+.insx .tile { border-top: 4px solid var(--gd); } .insx .tile .v { color: var(--nv); }
+.insx .grid thead th { background: var(--lt); color: var(--nv); }
+.insx .ins-calc tr.tot td { border-top: 2px solid var(--nv); background: #fff6d6; color: var(--nv); }
+.ins-due { margin-top: 10px; border: 1.5px solid var(--gd); background: #fffaea; border-radius: 10px; padding: 10px 14px; }
+.ins-due small { display: block; font-size: 11px; font-weight: 800; letter-spacing: .08em; color: #0f3a8c; } .ins-due b { display: block; font-size: 17px; color: #0f3a8c; } .ins-due span { display: block; font-size: 12px; color: #475569; }
+/* the payment portal: NATURE OF PAYMENT (2 choices), the QR card, the amount */
+.insx .ins-choice > div { border: 1.5px solid var(--nv2); background: #fff; border-radius: 10px; }
+.insx .ins-choice > div:first-child { border-color: var(--gd); background: #fffaea; }
+.insx .ins-choice b { color: var(--nv); }
+.insx .ins-qr { border: 2px solid var(--nv); border-radius: 14px; } .insx .ins-amt b { color: var(--nv); } .insx .ins-amt { border-top: 3px solid var(--gd); padding-top: 8px; margin-top: 8px; }
+.insx .ins-payby { border-left: 6px solid var(--gd); }
+.insx .btn.primary { background: var(--nv); border-color: var(--nv); }
