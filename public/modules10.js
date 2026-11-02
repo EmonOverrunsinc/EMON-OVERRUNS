@@ -977,6 +977,8 @@
         <div class="co-done"><button type="button" class="btn ok big" id="pdDone">${ic("check")} ${submitOnly ? "Submit Delivery for Approval" : "Complete Delivery"}</button><small>${submitOnly
           ? "You are not signed in with EO-Office: the delivery is SUBMITTED and EMON HASAN approves it. Approved, the order is COMPLETED and the invoice is made."
           : "The order becomes COMPLETED and the customer's invoice is made and billed by itself."}</small></div>
+        ${submitOnly && !S.session ? `<div class="banner warn pd-signin">${ic("key")} <b>To make the invoice at once:</b> sign in with your EO-Office account first, then open this page again (scan the order paper). Without signing in, the invoice is made only when EMON HASAN approves the delivery.
+          <div class="btnrow"><button type="button" class="btn primary" id="pdSignIn">${ic("user")} Sign In to Complete Now</button></div></div>` : ""}
       </section>
       <div class="btnrow">${orderLink}</div>`;
     // step 1: the boxes (what a label does not say comes from the order's line of that code, or the box before)
@@ -1070,6 +1072,8 @@
       if (inside && E.canOpen("custorder")) location.hash = "custorder/" + d.id; else reload();
     };
     $$("[data-ph]").forEach((b) => (b.onclick = () => E.lightbox(b.dataset.ph)));
+    // 3.74.1: sign in and come back to this page (the hash stays): signed in with EO-Office, COMPLETE makes the invoice at once
+    if ($("#pdSignIn")) $("#pdSignIn").onclick = () => (E.renderLogin ? E.renderLogin() : (location.hash = "dashboard"));
   }
 
   // A customer's orders (on the customer's profile)
