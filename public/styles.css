@@ -2957,3 +2957,8 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .ic-dates > div { border: 1.5px solid #0f7a43; border-radius: 6px; padding: 1.4mm 2.5mm; background: #fff; }
 .ic-dates small { display: block; font-size: 6.6pt; font-weight: 800; letter-spacing: .12em; color: #0f7a43; } .ic-dates b { display: block; font-size: 10.5pt; color: #0a2f1b; } .ic-dates span { display: block; font-size: 6.8pt; color: #4b5f53; }
 .ins-exp small + b + small { margin-top: 2px; }
+/* 3.77: insurance: PAY NOW or ADD TO ACCOUNT */
+.ins-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 12px; }
+.ins-choice > div { border: 1px solid #dbe3ef; border-radius: 12px; padding: 10px 12px; background: #f8fafc; display: flex; flex-direction: column; gap: 4px; }
+.ins-choice b { font-size: 13.5px; letter-spacing: .05em; color: #0a3d91; } .ins-choice small { font-size: 12px; color: #475569; } .ins-choice .btn { align-self: flex-start; margin-top: 4px; }
+@media (max-width: 640px) { .ins-choice { grid-template-columns: 1fr; } }
