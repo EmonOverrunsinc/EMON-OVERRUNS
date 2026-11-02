@@ -10,6 +10,8 @@
   // 3.76: the payment due extension of an insured order's invoice (days after its due date; insurance settings)
   let DUE = 15;
   const METHODS = { gcash: "GCash / Online", bank: "Bank Transfer / Deposit", cash: "Cash", check: "Check", other: "Other" };
+  const PAID_BY = { ...METHODS, account: "ADDED TO THE CUSTOMER'S ACCOUNT" }; // 3.77
+  const expireUnpaid = () => sb.rpc("ins_expire_unpaid").then(() => {}, () => {}); // 3.77: not paid in 3 days = cancelled
   const ST = { unpaid: ["pending", "WAITING FOR PAYMENT"], review: ["pending", "PAYMENT IN REVIEW"], rejected: ["rejected", "PAYMENT NOT ACCEPTED"], cancelled: ["rejected", "CANCELLED"] };
   const canW = () => isAdmin() || E.canWrite("eooffice");
   const notSet = (e) => /order_insurance|ins_box_price|does not exist|schema cache|PGRST20|42P01|42703/.test(String(e?.message || "") + (e?.code || ""));
@@ -97,7 +99,18 @@
     if (id) return insPage(id);
     E.shell("insurance", "Insurance", `${E.eoTabs("insurance")}<div id="insBody">${busy()}</div>`, "Order coverage, added before delivery: boxes × ₱ 50 + 0.5% of the order value. Free exchange of mistaken items, free return of a mistaken delivery (shipping fee covered) and exchange of unsold sealed boxes, until 15 days after delivery.");
     const here = E.stillHere();
+    await expireUnpaid();
     const [rs, s] = await Promise.all([sb.from("order_insurance").select("*").order("created_at", { ascending: false }).limit(1000), settings()]);
+    // 3.77: the invoice no of each insured order (and of a premium billed to the account)
+    const invNo = new Map();
+    if (!rs.error && (rs.data || []).length) {
+      const ords = await sb.from("customer_orders").select("id, invoice_id").in("id", [...new Set(rs.data.map((r) => r.order_id))]).then((r) => r.data || [], () => []);
+      const ids = [...new Set([...ords.map((x) => x.invoice_id), ...rs.data.map((r) => r.invoice_id)].filter(Boolean))];
+      const invs = ids.length ? await sb.from("customer_invoices").select("id, invoice_no").in("id", ids).then((r) => r.data || [], () => []) : [];
+      const no = new Map(invs.map((x) => [x.id, x.invoice_no]));
+      ords.forEach((x) => x.invoice_id && invNo.set(x.id, no.get(x.invoice_id)));
+      rs.data.forEach((r) => { r._inv = invNo.get(r.order_id) || ""; r._prem = r.invoice_id ? no.get(r.invoice_id) || "" : ""; });
+    }
     if (!here() || !$("#insBody")) return;
     if (rs.error) { $("#insBody").innerHTML = notSet(rs.error) ? needUpdate : `<div class="empty">${esc(rs.error.message)}</div>`; return; }
     const rows = (rs.data || []).map((i) => ({ ...i, _s: stateOf(i) })).sort((x, y) => x._s.rank - y._s.rank || String(x._s.rank === 0 ? x.valid_until || "9999" : "").localeCompare(String(y._s.rank === 0 ? y.valid_until || "9999" : "")) || String(y.created_at).localeCompare(String(x.created_at)));
@@ -113,7 +126,7 @@
       ${isAdmin() ? settingsHtml(s) : ""}
       <h3 class="sec">Coverages <small class="muted">valid first</small></h3>
       <div id="insList">${E.grid({ cols: [
-        { label: "Insurance No", get: (r) => r.ins_no || "" }, { label: "Order No", get: (r) => r.order_no || "" }, { label: "Customer", get: (r) => r.customer_name || "" },
+        { label: "Insurance No", get: (r) => r.ins_no || "" }, { label: "Order No", get: (r) => r.order_no || "" }, { label: "Invoice No", get: (r) => r._inv || "" }, { label: "Customer", get: (r) => r.customer_name || "" },
         { label: "Boxes", num: true, get: (r) => E.qtyText(r.boxes) }, { label: "Premium (₱)", num: true, get: (r) => peso(r.amount) }, { label: "Payment", html: (r) => (r.status === "active" ? `<span class="ins-badge valid">PAID</span>` : r.status === "review" ? `<span class="ins-badge pending">TO CHECK</span>` : `<span class="ins-badge pending">NOT PAID</span>`) },
         { label: "Status", html: (r) => badge(r) }, { label: "Created", get: (r) => E.dateTime(r.created_at) }], rows, onRow: true, empty: "No insurance yet." })}</div>`;
     E.bindGrid($("#insList"), rows, (r) => (location.hash = "insurance/" + r.id));
@@ -181,6 +194,7 @@
   async function insPage(id) {
     E.shell("insurance", "Insurance", busy());
     const here = E.stillHere();
+    await expireUnpaid();
     const { data: i, error } = await sb.from("order_insurance").select("*").eq("id", id).maybeSingle();
     if (!here()) return;
     if (error) { $("#main").innerHTML = notSet(error) ? needUpdate : `<div class="empty">${esc(error.message)}</div>`; return; }
@@ -191,11 +205,16 @@
       i.cv_id ? sb.from("collection_vouchers").select("id, cv_no").eq("id", i.cv_id).maybeSingle().then((r) => r.data, () => null) : null,
       null, i.proof_path ? E.signedMap([i.proof_path]).then((m) => m.get(i.proof_path) || "") : ""]);
     const invoice = o?.invoice_id ? (await sb.from("customer_invoices").select("id, invoice_no").eq("id", o.invoice_id).maybeSingle()).data : inv;
+    const prem = i.invoice_id ? (await sb.from("customer_invoices").select("id, invoice_no").eq("id", i.invoice_id).maybeSingle()).data : null; // 3.77: billed to the account
     if (!here()) return;
     const st = stateOf(i), q = qrUrl(s), isPdf = /\.pdf$/i.test(i.proof_path || "");
     $(".band h1") && ($(".band h1").textContent = `Insurance — ${i.ins_no}`);
     const payBox = ["unpaid", "rejected"].includes(i.status) && canW() ? `<fieldset class="opt ins-pay"><legend>Payment</legend>
         ${i.status === "rejected" ? `<div class="banner warn"><b>Payment not accepted</b>${i.review_note ? `: ${esc(i.review_note)}` : ""}. Submit the right proof again.</div>` : ""}
+        ${i.pay_by && i.status === "unpaid" ? `<div class="banner warn ins-payby">${ic("clock")} <b>PAY BY ${esc(mdy(i.pay_by))}</b> — not paid within 3 days, this coverage is <b>CANCELLED automatically</b>.</div>` : ""}
+        <div class="ins-choice"><div><b>1 · PAY NOW</b><small>QR code + payment slip below → a collection voucher is issued</small></div>
+          <div><b>2 · ADD TO ACCOUNT</b><small>bill ₱ ${peso(i.amount)} to the customer's account as an invoice (paid later); the coverage is issued now</small>
+          <button type="button" class="btn" id="ipAcct">${ic("doc")} Add to Customer Account</button></div></div>
         <div class="ins-paygrid"><div class="ins-qr"><button type="button" class="ins-qr-btn" id="ipQrBig" aria-label="Show the QR code big"><img src="${esc(q)}" alt="EMON OVERRUNS payment QR code"></button>
           <div class="btnrow center"><button type="button" class="btn small" id="ipQrZoom">${ic("eye")} Big QR</button><a class="btn small" href="${esc(q)}" download="EMON-OVERRUNS-InstaPay-QR.png">${ic("download")} Save QR</a></div>
           <div class="ins-amt"><small>SCAN WITH ANY BANK OR E-WALLET APP (INSTAPAY) · AMOUNT TO PAY</small><b>₱ ${peso(i.amount)}</b>${s.pay_qr_note ? `<span>${esc(s.pay_qr_note)}</span>` : ""}<span class="mono">Ref: ${esc(i.ins_no)}</span></div></div>
@@ -213,11 +232,11 @@
     $("#main").innerHTML = `${E.eoTabs("insurance")}
       <div class="ins-head ${st.k}"><div class="ins-seal">${ic("shield")}</div><div><small>${esc(i.ins_no)} · ORDER ${esc(i.order_no || "")}</small><b>${esc(st.label)}</b>
         <span>${esc(i.customer_name || "")} · ${E.qtyText(i.boxes)} box(es) · premium ₱ ${peso(i.amount)}</span></div>${i.status === "active" ? `<span class="ins-paidchip">${ic("check")} STATUS: PAID</span>` : ""}</div>
-      ${i.status === "active" ? `<div class="btnrow"><button type="button" class="btn primary" id="ipCert">${ic("download")} Insurance Certificate (PDF)</button>${cv ? `<a class="btn" href="#collection/${cv.id}">${ic("doc")} Collection Voucher ${esc(cv.cv_no)}</a>` : ""}</div>` : ""}
+      ${i.status === "active" ? `<div class="btnrow"><button type="button" class="btn primary" id="ipCert">${ic("download")} Insurance Certificate (PDF)</button>${cv ? `<a class="btn" href="#collection/${cv.id}">${ic("doc")} Collection Voucher ${esc(cv.cv_no)}</a>` : ""}${prem ? `<a class="btn" href="#invoice/${prem.id}">${ic("doc")} Premium Invoice ${esc(prem.invoice_no)} (billed to the account)</a>` : ""}</div>` : ""}
       <fieldset class="opt"><legend>Order</legend><div class="pgrid2 qc-head">
         <div class="pcell"><div class="pl">Order No</div><div class="pv">${o ? `<a href="#custorder/${o.id}"><b>${esc(o.order_no)}</b></a>` : esc(i.order_no || "")}</div></div>
         ${E.cell("Customer", i.customer_name || "")}${E.cell("Account No", o?.customers?.account_no || "")}${E.cell("Order Status", o ? String(o.status).toUpperCase() : "")}
-        ${E.cell("Delivered", o?.delivered_at ? E.dateTime(o.delivered_at) : "NOT YET")}${E.cell("Invoice No", invoice?.invoice_no || "")}
+        ${E.cell("Delivered", o?.delivered_at ? E.dateTime(o.delivered_at) : "NOT YET")}${E.cell("Invoice No", invoice?.invoice_no || "")}${o?.status === "completed" ? E.cell("Covered Value (₱, as delivered)", peso(o.total_amount), "hl") : ""}
         ${o ? E.cell("Boxes (order now)", E.qtyText(o.total_boxes)) + E.cell("Order Amount now (₱)", peso(o.total_amount)) : ""}</div></fieldset>
       <fieldset class="opt"><legend>Coverage Charge (fixed)</legend>${calcHtml(i.boxes, i.order_amount, i.box_price, i.rate_pct)}<p class="muted">${esc(E.words(i.amount, "PESOS"))}</p>
         ${o && (num(o.total_amount) !== num(i.order_amount) || num(o.total_boxes) !== num(i.boxes)) ? `<div class="banner info">The order was changed after the coverage was added: now ${E.qtyText(o.total_boxes)} box(es) · ₱ ${peso(o.total_amount)}. The coverage charge stays the same (₱ ${peso(i.amount)}), fixed when it was added.</div>` : `<p class="muted">The coverage charge is fixed when it is added: it stays the same if the order changes later.</p>`}</fieldset>
@@ -228,6 +247,14 @@
     if ($("#ipQrBig")) { $("#ipQrBig").onclick = bigQr; $("#ipQrZoom").onclick = bigQr; }
     if ($("#ipOpen")) $("#ipOpen").onclick = () => E.viewFile({ storage_path: i.proof_path, mime: isPdf ? "application/pdf" : "image/jpeg", file_name: `${i.ins_no} Proof of Payment` });
     if ($("#ipCert")) $("#ipCert").onclick = () => printCert(i, o, invoice, cv);
+    if ($("#ipAcct")) $("#ipAcct").onclick = async (e) => { // 3.77: ADD TO ACCOUNT: an invoice of the premium; issued now
+      const btn = e.currentTarget;
+      if (!(await E.confirmBox(`Bill the premium <b>₱ ${esc(peso(i.amount))}</b> of <b>${esc(i.ins_no)}</b> to <b>${esc(i.customer_name || "the customer")}</b>'s account?<br><br>An invoice is made (on the SOA and the balance) and the coverage is issued now.`, { title: "Add to Customer Account", ok: "Add to Account" }))) return;
+      btn.disabled = true;
+      const { data: r, error } = await sb.rpc("ins_bill_account", { p_id: i.id });
+      if (error) { btn.disabled = false; return fail(error, /ins_bill_account|schema cache|PGRST202/.test(error.message || "") ? "Run the database update 084_insurance_account.sql first" : "Could not bill it to the account"); }
+      toast(`Coverage ${r.ins_no} issued · billed to the account: invoice ${r.pay_ref}.`); insPage(i.id);
+    };
     // the slip: scanned with the camera or uploaded; EVA reads it at once
     let eva = null, evaFile = null;
     const readSlip = async (raw) => {
@@ -358,9 +385,9 @@
           <div><small>2 · PAYMENT DUE EXTENSION</small><b>${i._due ? `${esc(mdy(i._due.base))} → ${esc(mdy(i._due.ext))}` : `INVOICE DUE DATE + ${DUE} DAYS`}</b><span>+${DUE} days to pay after the invoice due date</span></div></div>
         <div class="ic-cols">
           <div><div class="ic-h">INSURED ORDER</div>${kv([["Customer", name], ["Account No", c.account_no || ""], ["Order No", i.order_no || ""], ["Invoice No", invoice?.invoice_no || (o?.status === "completed" ? "" : "AFTER DELIVERY")],
-            ["Order Value", `PHP ${peso(i.order_amount)}`], ["Delivery", o?.delivered_at ? E.dateTime(o.delivered_at) : "NOT YET DELIVERED"]])}</div>
+            ["Covered Value", `PHP ${peso(o?.status === "completed" ? o.total_amount : i.order_amount)}${o?.status === "completed" ? " (AS DELIVERED)" : ""}`], ["Delivery", o?.delivered_at ? E.dateTime(o.delivered_at) : "NOT YET DELIVERED"]])}</div>
           <div><div class="ic-h">PREMIUM PAID</div>${kv([["Calculation", `${boxes} × PHP ${peso(i.box_price)} + ${num(i.rate_pct)}% of PHP ${peso(i.order_amount)}`], ["Premium", `PHP ${peso(i.amount)}`],
-            ["In Words", E.words(i.amount, "PESOS")], ["Paid By", METHODS[i.pay_method] || i.pay_method || ""], ["Reference No", i.pay_ref || ""], ["Collection Voucher", cv?.cv_no || ""]])}</div>
+            ["In Words", E.words(i.amount, "PESOS")], ["Paid By", PAID_BY[i.pay_method] || i.pay_method || ""], ...(i.pay_method === "account" ? [["Premium Invoice No", i.pay_ref || ""]] : [["Reference No", i.pay_ref || ""], ["Collection Voucher", cv?.cv_no || ""]])])}</div>
         </div>
         <div class="ic-who">${party("VERIFIED BY", who.verified, i.issued_by_eva ? "ai" : "check")}${party("ISSUED BY", who.issued, "stamp")}</div>
         <div class="ins-cert-terms">${benefitsHtml(i)}</div>
