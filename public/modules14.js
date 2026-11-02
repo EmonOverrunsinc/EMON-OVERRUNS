@@ -66,7 +66,9 @@
     return i.valid_until >= E.isoToday() ? { k: "valid", label: `COVERED · EXPIRES ${mdy(i.valid_until)}`, short: mdy(i.valid_until), rank: 0 } : { k: "expired", label: `EXPIRED ${mdy(i.valid_until)}`, short: `EXPIRED ${mdy(i.valid_until)}`, rank: 3 };
   }
   const badge = (i) => { const s = stateOf(i); return `<span class="ins-badge ${s.k}">${ic(s.k === "valid" ? "shield" : s.k === "expired" ? "clock" : s.k === "rejected" ? "x" : "clock")} ${esc(s.label)}</span>`; };
-  const eligible = (o) => ["pending", "approved"].includes(o.status) && !o.delivered_at && !o.delivery_request_at;
+  // 3.72.1: only a PREPARED order (approved by EMON HASAN), before delivery
+  const eligible = (o) => o.status === "approved" && !o.delivered_at && !o.delivery_request_at;
+  const FEES = [0, 10, 15]; // the bank's transfer fee on a slip is not counted
 
   // ======================================================================
   // The Insurance page (EO-Office): new by order no, the list (valid on top), EMON HASAN's settings
@@ -109,6 +111,7 @@
           ${E.cell("Order Status", String(o.status).toUpperCase())}${E.cell("Boxes", E.qtyText(o.total_boxes))}${E.cell("Order Value (₱)", peso(o.total_amount))}</div>
         ${calcHtml(o.total_boxes, o.total_amount, s.ins_box_price, s.ins_rate_pct)}
         ${open?.length ? `<div class="banner warn">Order ${esc(o.order_no)} already has insurance <a href="#insurance/${open[0].id}">${esc(open[0].ins_no)}</a>.</div>`
+          : o.status === "pending" ? `<div class="banner warn">Order ${esc(o.order_no)} waits for EMON HASAN's approval: the coverage is added when it is PREPARED.</div>`
           : !eligible(o) ? `<div class="banner warn">Order ${esc(o.order_no)} is already delivered or ${esc(String(o.status).toUpperCase())}: insurance is added only before delivery.</div>`
           : `<div class="btnrow"><button type="button" class="btn primary" id="insAdd">${ic("shield")} Add Insurance · ₱ ${peso(c.total)}</button></div>`}`;
       if ($("#insAdd")) $("#insAdd").onclick = async (e) => { e.currentTarget.disabled = true; addFor(o.id); };
@@ -184,7 +187,7 @@
               <label for="ipRef">Reference No</label><input type="text" id="ipRef" maxlength="60" value="${esc(i.pay_ref || "")}" placeholder="e.g. GCash ref no"></div>
             <div class="btnrow"><button type="button" class="btn primary" id="ipSend">${ic("send")} Submit for Review</button></div></div></div></fieldset>` : "";
     const proofBox = i.proof_path ? `<fieldset class="opt"><legend>Proof of Payment</legend><div class="pgrid2 qc-head">${E.cell("Paid By", METHODS[i.pay_method] || i.pay_method || "")}${E.cell("Reference No", i.pay_ref || "")}${E.cell("Submitted", i.proof_at ? `${E.dateTime(i.proof_at)} · ${i.proof_by_name || ""}` : "")}${E.cell("Amount (₱)", peso(i.amount), "hl")}</div>
-        ${i.eva_amount != null || i.issued_by_eva ? `<div class="banner ${i.issued_by_eva ? "ok" : "warn"}">${ic("ai")} <b>EVA AI</b> read <b>₱ ${peso(i.eva_amount)}</b> on the payment slip${i.issued_by_eva ? " — it matches: the coverage was issued by itself." : ` — the premium is ₱ ${peso(i.amount)}: EMON HASAN checks it.`}</div>` : i.status === "review" && i.proof_path ? `<div class="banner warn">${ic("ai")} EVA AI could not read the amount on this proof: EMON HASAN checks it.</div>` : ""}
+        ${i.eva_amount != null || i.issued_by_eva ? `<div class="banner ${i.issued_by_eva ? "ok" : "warn"}">${ic("ai")} <b>EVA AI</b> read <b>₱ ${peso(i.eva_amount)}</b> on the payment slip${i.issued_by_eva ? `${num(i.eva_amount) > num(i.amount) ? ` (₱ ${peso(i.amount)} + ₱ ${peso(num(i.eva_amount) - num(i.amount))} transfer fee, not counted)` : ""} — it matches: the coverage was issued by itself.` : ` — the premium is ₱ ${peso(i.amount)}: EMON HASAN checks it.`}</div>` : i.status === "review" && i.proof_path ? `<div class="banner warn">${ic("ai")} EVA AI could not read the amount on this proof: EMON HASAN checks it.</div>` : ""}
         ${proof ? (isPdf ? `<button type="button" class="btn" id="ipOpen">${ic("eye")} Open the Proof (PDF)</button>` : `<button type="button" class="cv-receipt" id="ipOpen" aria-label="Open the proof"><img src="${esc(proof)}" alt="Proof of payment"></button>`) : ""}
         ${i.status === "review" && isAdmin() ? `<div class="fields wide" style="margin-top:10px"><label for="ipNote">EMON HASAN's note</label><input type="text" id="ipNote" maxlength="300" placeholder="needed to reject"></div>
           <div class="btnrow"><button type="button" class="btn danger" id="ipNo">${ic("x")} Reject</button><button type="button" class="btn ok" id="ipOk">${ic("check")} Payment Received · Issue Coverage</button></div>` : i.status === "review" ? `<div class="banner info">Waiting for EMON HASAN to check the payment.</div>` : ""}</fieldset>` : "";
@@ -215,11 +218,12 @@
       try {
         const r = await evaRead(raw, (st, pr) => { const b = $("#ipEvaBar"), t = $("#ipEvaStep"); if (b) b.style.width = `${Math.round((pr || 0) * 100)}%`; if (t) t.textContent = st || ""; });
         if (evaFile !== raw || !$("#ipEva")) return;
-        const hit = r.amounts.find((a) => Math.abs(a - num(i.amount)) < 0.009);
-        eva = { ...r, matched: hit != null, amount: hit ?? (r.amounts.length ? Math.max(...r.amounts) : null) };
+        const fee = (a) => FEES.find((f) => Math.abs(a - num(i.amount) - f) < 0.009);
+        const hit = [...r.amounts].sort((a, b) => fee(a) - fee(b)).find((a) => fee(a) != null);
+        eva = { ...r, matched: hit != null, amount: hit ?? (r.amounts.length ? Math.max(...r.amounts) : null), fee: hit != null ? fee(hit) : 0 };
         if (r.ref && !$("#ipRef").value.trim()) $("#ipRef").value = r.ref.slice(0, 60);
         $("#ipEva").innerHTML = `<div class="eva-read ${eva.matched ? "ok" : "no"}"><img src="${esc(url)}" alt="Payment slip"><div>
-          <b>${ic(eva.matched ? "check" : "x")} ${eva.matched ? `EVA READ ₱ ${peso(hit)} — AMOUNT MATCHES` : r.amounts.length ? `EVA READ ₱ ${r.amounts.map(peso).join(", ₱ ")} — NOT ₱ ${peso(i.amount)}` : "EVA COULD NOT READ AN AMOUNT"}</b>
+          <b>${ic(eva.matched ? "check" : "x")} ${eva.matched ? `EVA READ ₱ ${peso(hit)}${eva.fee ? ` (₱ ${peso(i.amount)} + ₱ ${peso(eva.fee)} transfer fee)` : ""} — AMOUNT MATCHES` : r.amounts.length ? `EVA READ ₱ ${r.amounts.map(peso).join(", ₱ ")} — NOT ₱ ${peso(i.amount)}` : "EVA COULD NOT READ AN AMOUNT"}</b>
           <small>${eva.matched ? "Press Submit: the payment is received and the coverage is issued at once." : "You can still submit: EMON HASAN checks the payment."}${r.ref ? ` · Reference ${esc(r.ref)}` : ""}</small></div></div>`;
       } catch (err) { if ($("#ipEva")) $("#ipEva").innerHTML = `<div class="banner warn">${ic("ai")} EVA could not read it (${esc(err.message)}). Submit it: EMON HASAN checks the payment.</div>`; }
     };
@@ -245,7 +249,7 @@
     const paidCard = (r) => {
       const st2 = stateOf(r);
       const m = E.modal("Payment Received", `<div class="ins-paid"><div class="ins-seal big">${ic("check")}</div><b>PAYMENT RECEIVED</b>
-        <span>₱ ${peso(r.amount)} · read and verified by EVA AI</span><div class="ins-paid-cov">${ic("shield")} YOUR COVERAGE IS ISSUED<small>${esc(r.ins_no)} · ORDER ${esc(r.order_no || "")}</small><em>${r.valid_until ? `EXPIRES ${esc(mdy(r.valid_until))}` : "VALID UNTIL 15 DAYS AFTER DELIVERY"}</em></div>
+        <span>₱ ${peso(r.amount)}${num(r.eva_amount) > num(r.amount) ? ` (slip ₱ ${peso(r.eva_amount)} with ₱ ${peso(num(r.eva_amount) - num(r.amount))} transfer fee)` : ""} · read and verified by EVA AI</span><div class="ins-paid-cov">${ic("shield")} YOUR COVERAGE IS ISSUED<small>${esc(r.ins_no)} · ORDER ${esc(r.order_no || "")}</small><em>${r.valid_until ? `EXPIRES ${esc(mdy(r.valid_until))}` : "VALID UNTIL 15 DAYS AFTER DELIVERY"}</em></div>
         <small class="muted">A collection voucher was made by itself. EMON HASAN can see what EVA read.</small></div>`,
         `<button type="button" class="btn primary" data-x>${ic("download")} Open the Coverage</button>`);
       $("[data-x]", m.el).onclick = () => { m.close(); insPage(r.id); };
@@ -344,6 +348,7 @@
   // ---------- 3.72: ADD COVERAGE on the new order form (below all the items) ----------
   async function insOffer(el, readLines, onToggle) {
     if (!el || !canW()) return;
+    if (!isAdmin()) { el.innerHTML = `<div class="ins-strip none"><span class="ins-seal">${ic("shield")}</span><span><small>COVERAGE</small><b>Add coverage when EMON HASAN approves this order (PREPARED), before delivery</b></span></div>`; return; }
     const { data: s, error } = await sb.from("company_settings").select("ins_box_price, ins_rate_pct").eq("id", 1).maybeSingle();
     if (error || !s || !el.isConnected) return; // the server has not 077 yet
     el.innerHTML = `<label class="ins-offer" for="coInsOn"><input type="checkbox" id="coInsOn"><span class="ins-seal">${ic("shield")}</span>

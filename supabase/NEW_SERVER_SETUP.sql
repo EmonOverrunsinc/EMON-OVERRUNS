@@ -13707,7 +13707,7 @@ select case when to_regprocedure('public.accept_legal_terms(text,text,text,jsonb
 -- ======== 077_insurance.sql ========
 -- =====================================================================
 -- EMON OVERRUNS E-PORTAL - Update 3.72: EO-OFFICE INSURANCE (ORDER COVERAGE)
--- An insurance coverage for a customer order, bought BEFORE delivery:
+-- An insurance coverage for a PREPARED customer order (approved by EMON HASAN), bought BEFORE delivery:
 --   premium = boxes x PHP 50 + 0.5% of the order value (EMON HASAN can change both in Insurance settings).
 -- 1. Staff (EO-Office) or EMON HASAN adds it by the order number: the order details and the premium show.
 -- 2. Payment: EMON HASAN's payment QR code and the amount show; after paying, the proof of payment is uploaded and
@@ -13796,7 +13796,8 @@ begin
   if not (public.qc_can_write() or public.is_admin()) then raise exception 'Not allowed'; end if;
   select * into o from public.customer_orders where id = p_order for update;
   if not found then raise exception 'Order not found'; end if;
-  if o.status not in ('pending', 'approved') or o.delivered_at is not null or o.delivery_request_at is not null then
+  if o.status = 'pending' then raise exception 'Order % waits for EMON HASAN''s approval: the coverage is added when it is PREPARED', o.order_no; end if;
+  if o.status <> 'approved' or o.delivered_at is not null or o.delivery_request_at is not null then
     raise exception 'Order % is already delivered or %: insurance is added only before the delivery', o.order_no, upper(o.status);
   end if;
   if exists (select 1 from public.order_insurance where order_id = o.id and status in ('unpaid','review','active')) then
@@ -13895,11 +13896,14 @@ begin
   select * into r from public.order_insurance where id = p_id for update;
   if not found then raise exception 'Insurance not found'; end if;
   update public.order_insurance set eva_amount = round(p_amount, 2), eva_text = left(p_text, 2000), updated_at = now() where id = p_id returning * into r;
-  if r.status <> 'review' or p_amount is null or abs(round(p_amount, 2) - r.amount) > 0.009 or position(to_char(r.amount, 'FM999999990.00') in replace(coalesce(p_text, ''), ',', '')) = 0 then
+  -- the slip shows the premium, or the premium with the bank's transfer fee (PHP 10 or PHP 15, not counted)
+  if r.status <> 'review' or p_amount is null or round(p_amount, 2) - r.amount not in (0, 10, 15)
+     or position(to_char(round(p_amount, 2), 'FM999999990.00') in replace(coalesce(p_text, ''), ',', '')) = 0 then
     return r; -- not matched: EMON HASAN decides
   end if;
-  r := public.ins_issue(p_id, 'EVA AI (payment slip read: PHP ' || to_char(r.amount, 'FM999,999,990.00') || ') [[U+00B7]] ' || coalesce(me, ''), 'Payment verified by EVA AI', true);
-  perform public.notify_user(p.id, 'Insurance ' || r.ins_no || ' issued by EVA AI', 'Payment slip read: PHP ' || to_char(r.amount, 'FM999,999,990.00') || ' [[U+00B7]] order ' || r.order_no, 'insurance/' || r.id)
+  r := public.ins_issue(p_id, 'EVA AI (payment slip read: PHP ' || to_char(p_amount, 'FM999,999,990.00') ||
+    case when round(p_amount, 2) > r.amount then ' with transfer fee PHP ' || to_char(round(p_amount, 2) - r.amount, 'FM990.00') else '' end || ') [[U+00B7]] ' || coalesce(me, ''), 'Payment verified by EVA AI', true);
+  perform public.notify_user(p.id, 'Insurance ' || r.ins_no || ' issued by EVA AI', 'Payment slip read: PHP ' || to_char(p_amount, 'FM999,999,990.00') || ' [[U+00B7]] order ' || r.order_no, 'insurance/' || r.id)
   from public.profiles p where p.role = 'admin' and p.status = 'active' and p.id is distinct from auth.uid();
   return r;
 end;
