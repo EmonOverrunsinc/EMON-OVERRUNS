@@ -1366,6 +1366,17 @@
     E.openPreview(`SOA ${p.no || monthText(p.start)}`, soaPages(c, { ...p, from }, txns, images));
   }
 
+  // 3.74: the customer's own SOA on the customer page (Public ID + Private PIN, no login), from the history the server
+  // gives (customer_history, 080): the same months, numbers and layout as the office's SOA (no attached copies).
+  function custSoa(h) {
+    const c = h.customer || {}, txns = txnsOf(h.invoices || [], h.payments || [], h.memos || [], h.adjustments || [], c);
+    const open = openMonth(c), cm = monthStart(isoToday()), months = [];
+    for (let m = open; m <= cm; m = nextMonth(m)) months.push(m);
+    const period = (m) => ({ start: m, from: coveredFrom(c, m, txns), end: m === cm ? isoToday() : dayBefore(nextMonth(m)), opening: m === open ? 0 : before(txns, m), no: soaNo(m, c), live: m === cm });
+    const print = (m) => { const p = period(m); E.openPreview(`SOA ${p.no}`, soaPages(c, p, within(txns, p.from, p.end), [])); };
+    return { months: months.reverse(), period, print, monthText };
+  }
+
   // One SOA a month, from the month the account was opened to this month (the first one also has the entries dated
   // before it). A month's saved statement is used when there is one; this month runs to date.
   async function renderSoaTab(c, invs, pays, memos, orders) {
@@ -2370,6 +2381,6 @@
   Object.assign(E, {
     extOf, viewFile, latestSigned, uploadRecords, signedUrl, attachmentsOf, filesHtml, bindFiles, fileField, filesOf, isImage,
     docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, cxTop, cxSec, cxKv, uuid, cleanQ, idBox, METHOD,
-    loadSignatures, approvedBy, signaturePic, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm, editCustomer
+    loadSignatures, approvedBy, signaturePic, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm, editCustomer, custSoa
   });
 })();

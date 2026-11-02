@@ -537,7 +537,16 @@
     return `<table class="co-match"><thead><tr><th></th><th>ORDER</th><th>${got}</th><th></th></tr></thead><tbody>
       <tr><th>BOX</th><td>${qtyText(o.total_boxes)}</td><td>${nBoxes(boxes)}</td><td>${matchMark(o.total_boxes, nBoxes(boxes))}</td></tr>
       <tr><th>PCS</th><td>${qtyText(o.total_pcs)}</td><td>${qtyText(pcs)}</td><td>${matchMark(o.total_pcs, pcs)}</td></tr>
-      ${dl?.has_pcs ? `<tr class="cm-amt"><th>AMOUNT</th><td>₱ ${peso(o.total_amount)}</td><td>₱ ${peso(dl.amount)}</td><td>${amtMark(o.total_amount, dl.amount)}</td></tr>` : ""}</tbody></table>${chargeTable(o)}`;
+      ${dl?.has_pcs ? `<tr class="cm-amt"><th>AMOUNT</th><td>₱ ${peso(o.total_amount)}</td><td>₱ ${peso(dl.amount)}</td><td>${amtMark(o.total_amount, dl.amount)}</td></tr>` : ""}</tbody></table>${modifiedNote(o)}${chargeTable(o)}`;
+  };
+  // 3.74: a completed order is modified as delivered (081): what was first ordered, and the change
+  const modifiedNote = (o) => {
+    if (o.status !== "completed" || o.ordered_total_amount == null) return "";
+    const da = num(o.total_amount) - num(o.ordered_total_amount), dp = num(o.total_pcs) - num(o.ordered_total_pcs ?? o.total_pcs);
+    if (Math.abs(da) < 0.005 && !dp) return "";
+    const sg = (n) => (n > 0 ? "+" : n < 0 ? "−" : "");
+    return `<div class="banner ok co-mod">✏️ <b>ORDER MODIFIED AS DELIVERED</b> — first ordered ${qtyText(o.ordered_total_pcs ?? 0)} pcs · ₱ ${peso(o.ordered_total_amount)} → delivered <b>${qtyText(o.total_pcs)} pcs · ₱ ${peso(o.total_amount)}</b>
+      (${dp ? `${sg(dp)}${qtyText(Math.abs(dp))} pcs · ` : ""}${sg(da)}₱ ${peso(Math.abs(da))}). The invoice is charged the same.</div>`;
   };
   const chargeTable = (o) => {
     const dl = o._dl;
