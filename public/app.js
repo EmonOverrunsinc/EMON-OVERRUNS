@@ -2186,6 +2186,7 @@
   window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words, need };
   // shared with modules.js to modules4.js
   Object.assign(window.EO, {
+    renderLogin, // 3.74.1: the order paper's page opens the sign in and comes back to the same page
     APP, VERSION, sb, S, C, esc, peso, pad, num, fullName, qtyText, bdt, verifyUrl, isoToday, isoDay, mdy, monthOf, monthText, stamp, dateTime, fixDates, timeAgo, online, $, $$,
     isAdmin, isStaff, canAI, meId, kvTable, pill, ebillStep, ebillPill, toast, fail, words, busy, ic, modal, confirmBox, setBusy,
     shell, miniShell, grid, bindGrid, hasModule, canOpen, canWrite, setRecords, openPreview, closePreview, listingPages, siteName, siteText, 

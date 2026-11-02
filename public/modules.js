@@ -637,7 +637,7 @@
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
     // 3.60: no payslip reminder here (the Payroll page shows the employees without the month's payslip)
-    const [apps, jobs, changes, memos, contacts, copies, pos, cords, prints] = await Promise.all([
+    const [apps, jobs, changes, memos, contacts, copies, pos, cords, prints, dlv, insr] = await Promise.all([
       cnt(sb.from("customers").select("id", head).in("status", ["pending", "verified"])),
       cnt(sb.from("job_applications").select("id", head).eq("status", "submitted")),
       cnt(sb.from("change_requests").select("id", head).eq("status", "pending")),
@@ -646,10 +646,14 @@
       sb.from("attachments").select("owner_type, owner_id").eq("pending", true).order("created_at").limit(50).then((r) => r.data || [], () => []),
       cnt(sb.from("purchase_orders").select("id", head).eq("status", "pending")),
       cnt(sb.from("customer_orders").select("id", head).eq("status", "pending")),
-      cnt(sb.from("print_requests").select("id", head).eq("status", "pending"))
+      cnt(sb.from("print_requests").select("id", head).eq("status", "pending")),
+      // 3.74.1: deliveries submitted by the order paper wait for EMON HASAN (approved: COMPLETED and the invoice is made)
+      sb.from("customer_orders").select("id", { count: "exact" }).eq("status", "approved").not("delivery_request_at", "is", null).order("delivery_request_at").limit(1).then((r) => (r.error ? { n: 0 } : { n: r.count || 0, id: r.data?.[0]?.id }), () => ({ n: 0 })),
+      cnt(sb.from("order_insurance").select("id", head).eq("status", "review"))
     ]);
     return [[apps, "Customer application", "#customers"], [jobs, "Job application", "#jobapps"], [changes, "Correction", "#changes"], [memos, "Credit memo", "#creditmemos"],
-      [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [cords, "Customer order", "#custorders"], [prints, "Print request", "#printreqs"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
+      [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [cords, "Customer order", "#custorders"], [prints, "Print request", "#printreqs"],
+      [dlv.n, "Delivery approval", dlv.id ? `#custorder/${dlv.id}` : "#custorders"], [insr, "Insurance payment", "#insurance"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
   }
   E.todoItems = todoItems;
 
