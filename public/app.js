@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.69";
+  const VERSION = "3.70";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.69.0"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.70.0"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -2111,7 +2111,8 @@
       return;
     }
     if (S.profile.status === "disabled") return renderDisabled();
-    window.EO.legalGate?.(); // 3.69: the legal terms popup until this login accepts them
+    // 3.70: nothing of the portal opens until this login has agreed (Reject signs them out)
+    if (window.EO.legalGate && !(await window.EO.legalGate())) { closePreview(); stopTimers(); $$(".chat-panel, .eva-panel, #drawer").forEach((x) => x.remove()); app.innerHTML = `<div class="legal-bg"></div>`; return; }
     if (S.profile.status !== "active") {
       if (key === "verify" && V.verify) return V.verify(arg);
       if (key === "delivery" && V.delivery) return V.delivery(arg, extra);

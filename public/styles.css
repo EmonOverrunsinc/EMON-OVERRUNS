@@ -2811,3 +2811,4 @@ input, select, textarea { transition: border-color .2s, box-shadow .2s, backgrou
 .vip-badge.big { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 6px 0 8px; padding: 10px; border-radius: 14px; font-size: 16px; }
 .vip-badge.big small { font-size: 11px; letter-spacing: .04em; font-weight: 700; }
 .lg-step { font-size: 11px; background: rgba(255,255,255,.22); border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: middle; }
+.legal-bg { position: fixed; inset: 0; background: linear-gradient(135deg, #0b3d91, #0a1a3a); }

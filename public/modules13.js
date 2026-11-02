@@ -193,13 +193,17 @@
 
   // ---------- the popup after signing in ----------
   let checking = null;
+  // 3.70: true when this login has agreed to everything it needs; false while an agreement is waiting (the portal is not
+  // drawn behind it: nothing can be used until they agree; Reject signs them out)
   async function legalGate() {
-    if (!S.session || !S.profile || S.legalOk === S.profile.id || $(".legal-ov")) return;
+    if (!S.session || !S.profile) return false;
+    if (S.legalOk === S.profile.id) return true;
+    if ($(".legal-ov")) return false;
     if (checking) return checking;
     checking = (async () => {
       const needs = needsOf(S.profile);
       const { data, error } = await sb.from("legal_acceptances").select("terms_version").eq("user_id", S.profile.id).in("terms_version", needs.map(VER));
-      if (error) { if (/legal_acceptances|does not exist|schema cache|42P01|PGRST20/.test(error.message + (error.code || ""))) S.legalOk = S.profile.id; return; } // the server has not 073 yet
+      if (error) { if (/legal_acceptances|does not exist|schema cache|42P01|PGRST20/.test(error.message + (error.code || ""))) { S.legalOk = S.profile.id; return true; } return false; } // the server has not 073 yet
       const have = new Set((data || []).map((r) => r.terms_version));
       let missing = needs.filter((t) => !have.has(VER(t)));
       // the portal terms agreed on the Create Account form (kept with the account): the record is made now, without asking again
@@ -208,8 +212,9 @@
         const r = await sb.rpc("accept_legal_terms", { p_version: VER("portal"), p_hash: await sha256(plain("portal")), p_device: `${device()} · agreed on the Create Account form ${meta.legal_agreed_at || ""}`.slice(0, 400) });
         if (!r.error) missing = missing.filter((t) => t !== "portal");
       }
-      if (!missing.length) { S.legalOk = S.profile.id; return; }
+      if (!missing.length) { S.legalOk = S.profile.id; return true; }
       show({ type: missing[0], step: needs.length > 1 ? `${needs.indexOf(missing[0]) + 1} of ${needs.length}` : "" });
+      return false;
     })().finally(() => { checking = null; });
     return checking;
   }
@@ -223,15 +228,23 @@
       <div class="legal-body" id="lgBody" tabindex="0">${termsHtml(t)}<p class="lg-end">— END OF THE ${esc(TYPES[t])} —</p></div>
       <div class="legal-foot">
         <label class="lg-agree"><input type="checkbox" id="lgAgree"> <span><b>I have read all and I agree</b> to all of this ${esc(TYPES[t])}.</span></label>
-        <div class="btnrow"><button type="button" class="btn" id="lgPrint">${ic("print")} Print / Download</button><button type="button" class="btn" id="lgOut">Sign Out</button>
+        <div class="btnrow"><button type="button" class="btn" id="lgPrint">${ic("print")} Print / Download</button><button type="button" class="btn danger" id="lgOut">${ic("x")} Reject</button>
           <button type="button" class="btn primary" id="lgSubmit" disabled>${ic("check")} Submit</button></div>
-        <small class="muted">Signed in as ${esc(who)}. ${opts.onSubmit ? "Your account opens after you submit." : "The portal opens after you submit."}</small></div></div>`;
+        <small class="muted">Signed in as ${esc(who)}. ${opts.onSubmit ? "Your account opens only after you agree." : "The portal opens only after you agree."} <b>Reject</b> signs you out; the agreement shows again at your next sign in.</small></div></div>`;
     document.body.appendChild(ov);
     $("#lgAgree", ov).onchange = (e) => { $("#lgSubmit", ov).disabled = !e.target.checked; };
-    $("#lgOut", ov).onclick = () => { ov.remove(); if (opts.onOut) opts.onOut(); else sb.auth.signOut({ scope: "local" }); };
+    $("#lgOut", ov).onclick = async () => {
+      if (!(await E.confirmBox(`<b>Reject the ${esc(TYPES[t])}?</b><br><br>You will be signed out now. You cannot use the portal until you agree. The rejection is recorded.`, { title: "Reject", ok: "Reject and Sign Out", danger: true }))) return;
+      ov.remove();
+      if (opts.onReject) { await Promise.resolve(opts.onReject(device())).catch(() => {}); toast("Rejected. You are signed out."); return opts.onOut?.(); }
+      await sb.rpc("reject_legal_terms", { p_version: VER(t), p_device: device() }).then(() => {}, () => {});
+      S.legalOk = null;
+      await sb.auth.signOut({ scope: "local" });
+      toast("Rejected. You are signed out. You can use the portal only after you agree.");
+    };
     $("#lgPrint", ov).onclick = () => {
       ov.hidden = true; printTerms(null, t);
-      const t = setInterval(() => { if (!$(".preview")) { clearInterval(t); ov.hidden = false; } }, 400);
+      const timer = setInterval(() => { if (!$(".preview")) { clearInterval(timer); ov.hidden = false; } }, 400);
     };
     $("#lgSubmit", ov).onclick = async (e) => {
       if (!$("#lgAgree", ov).checked) return;
@@ -245,7 +258,7 @@
       }
       const { data, error } = await sb.rpc("accept_legal_terms", { p_version: VER(t), p_hash: await sha256(plain(t)), p_device: device() });
       if (error) { btn.disabled = false; return fail(error, "Could not record your agreement"); }
-      ov.classList.add("out"); setTimeout(() => { ov.remove(); legalGate(); }, 220); // the next agreement, if there is one
+      ov.classList.add("out"); setTimeout(() => { ov.remove(); E.route(); }, 220); // the next agreement, if there is one; else the portal opens
       toast(`Thank you. Your ${TYPES[t]} ${data?.ref_no || ""} is recorded.`);
     };
   }
@@ -256,9 +269,11 @@
       ? "Every login accepts these terms once after signing in. Each acceptance is kept on the server for good: who, when, device, IP address and the fingerprint of the exact text. Find anyone here and print their record."
       : "The terms you accepted, and your acceptance record. Print or download it any time.");
     const here = E.stillHere();
-    const [acc, profs] = await Promise.all([
+    const [acc, profs, rej] = await Promise.all([
       sb.from("legal_acceptances").select("*").order("accepted_at", { ascending: false }).limit(2000),
-      isAdmin() ? sb.from("profiles").select("id, full_name, email, role, status").order("full_name") : Promise.resolve({ data: [] })]);
+      isAdmin() ? sb.from("profiles").select("id, full_name, email, role, status").order("full_name") : Promise.resolve({ data: [] }),
+      isAdmin() ? sb.from("legal_rejections").select("*").order("rejected_at", { ascending: false }).limit(500).then((r) => r, () => ({ data: [] })) : Promise.resolve({ data: [] })]);
+    const rejected = rej.data || [];
     if (!here() || !$("#lgRes")) return;
     if (acc.error) { $("#lgRes").innerHTML = `<div class="empty">The server needs update 3.69 first (073_legal_terms.sql).</div>`; return; }
     const rows = acc.data || [];
@@ -297,6 +312,8 @@
       <div id="lgList"></div>
       ${waiting.length ? `<h3 class="sec">Not Yet Accepted</h3><p class="muted">They see the agreements the next time they sign in; the portal opens for them only after they submit.</p>
         <table class="grid"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Still to Accept</th></tr></thead><tbody>${waiting.map((p) => `<tr><td>${esc(p.full_name || "")}</td><td>${esc(p.email || "")}</td><td>${esc(p.role === "admin" ? "Full Access" : p.role || "")}</td><td>${esc(missingOf(p).map((t) => TYPES[t]).join(", "))}</td></tr>`).join("")}</tbody></table>` : ""}`;
+    if (rejected.length) $("#lgRes").insertAdjacentHTML("beforeend", `<h3 class="sec">Rejected (${rejected.length})</h3><p class="muted">They were signed out at once and cannot use the portal until they agree.</p>
+      <table class="grid"><thead><tr><th>Date / Time</th><th>Name</th><th>Email</th><th>Role</th><th>Agreement</th><th>IP Address</th><th>Device</th></tr></thead><tbody>${rejected.map((r) => `<tr><td>${esc(E.dateTime(r.rejected_at))}</td><td>${esc(r.full_name || "")}</td><td>${esc(r.email || "")}</td><td>${esc(r.role === "admin" ? "Full Access" : r.role || "")}</td><td>${esc(TYPES[typeOf(r.terms_version)])}</td><td>${esc(r.ip_address || "")}</td><td>${esc(String(r.device || "").split(" · ").slice(0, 3).join(" · "))}</td></tr>`).join("")}</tbody></table>`);
     $$("#lgRes [data-pt]").forEach((b) => (b.onclick = () => printTerms(null, b.dataset.pt)));
     $("#lgQ").oninput = draw;
     draw();
@@ -338,6 +355,7 @@
       const open = (d) => custHome(d, () => E.route());
       if (data.agreed) return open(data);
       show({ type: "customer", who: `${data.name} (${data.account_no || ""})`, onOut: () => renderCustLogin(),
+        onReject: (dev) => sb.rpc("customer_reject_terms", { p_public: pub, p_pin: pin, p_version: VER("customer"), p_device: dev }),
         onSubmit: async (hash, dev) => { const r = await sb.rpc("customer_accept_terms", { p_public: pub, p_pin: pin, p_version: VER("customer"), p_hash: hash, p_device: dev }); return r.error ? { ok: false, error: r.error.message } : r.data; },
         after: (r) => open({ ...data, agreed: r }) });
     };
