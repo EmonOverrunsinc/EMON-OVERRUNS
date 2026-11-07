@@ -739,9 +739,9 @@
       // 2.9: names that start with what was typed come first (first name, then last name)
       if (ws.length) { const st0 = (v) => String(v || "").toLowerCase().startsWith(ws[0]); const rk = (c) => (st0(c.first_name) ? 0 : st0(c.last_name) ? 1 : 2); rows.sort((a, b) => rk(a) - rk(b)); }
       $("#cuRes").innerHTML = E.grid({ cols: [
-        { label: "Account No", get: (r) => r.account_no }, { label: "Name", html: (r) => `${esc(fullName(r))}${r.status === "closed" ? ' <span class="closed-mark">CLOSED</span>' : ""}` },
-        { label: "Phone", get: (r) => r.phone || "" },
-        { label: "Opened", get: (r) => mdy(r.application_date) }, { label: "Status", html: (r) => pill(r.status) },
+        { label: "Account No", get: (r) => r.account_no }, { label: "Name", wrap: true, html: (r) => `${esc(fullName(r))}${r.status === "closed" ? ' <span class="closed-mark">CLOSED</span>' : ""}` },
+        { label: "Phone", phone: false, get: (r) => r.phone || "" }, // 3.83: a phone shows Account No, Name, Status and Balance Due
+        { label: "Opened", phone: false, get: (r) => mdy(r.application_date) }, { label: "Status", html: (r) => pill(r.status) },
         { label: "Balance Due (₱)", key: "due", num: true, get: (r) => peso(r.due) }],
         rows, onRow: true, foot: { due: peso(rows.reduce((s, r) => s + r.due, 0)) }, empty: "No customers found." });
       E.bindGrid($("#cuRes"), rows, (r) => (location.hash = "customer/" + r.id));

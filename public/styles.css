@@ -3218,3 +3218,13 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .c2-kv tr.tot td { font-weight: 800; }
 .c2-eqb.tot { background: #fff; border: .6mm solid var(--nv); border-bottom: 1mm solid var(--gd); }
 .c2-eqb.tot b { color: var(--nv); } .c2-eqb.tot small { color: #9a6f00; }
+
+/* 3.83: on a phone a list shows its main columns only (phone: false leaves a column out), long names go on 2 lines,
+   the heads may wrap and the cells are tighter, so the list fits the screen with bigger text */
+@media (max-width: 700px) {
+  table.grid .no-phone { display: none; }
+  table.grid th { white-space: normal; line-height: 1.2; }
+  table.grid td.wrap { white-space: normal; min-width: 7.5em; overflow-wrap: anywhere; }
+  table.grid th, table.grid td { padding: 8px 6px; }
+  table.grid td .pill { font-size: 10.5px; padding: 2px 7px; }
+}
