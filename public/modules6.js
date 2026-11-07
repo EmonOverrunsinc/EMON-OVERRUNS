@@ -20,6 +20,11 @@
   const short = (n) => { n = num(n); return n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1e3 ? (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K" : String(Math.round(n)); };
   const rand = () => Math.random().toString(36).slice(2, 8);
   const METHODS = { cash: "Cash", bank: "Bank Transfer / Deposit", gcash: "GCash / Online", check: "Check", other: "Other" };
+  // 3.91: an UNPAID voucher (a coverage added to the account) is not counted until the payment is received
+  const unpaid = (v) => v.status === "unpaid";
+  const overdue = (v) => unpaid(v) && v.pay_by && v.pay_by < E.isoToday();
+  const cvState = (v) => (!unpaid(v) ? pill("approved", "PAID") : overdue(v) ? pill("rejected", `EXPIRED · ${mdy(v.pay_by)}`) : pill("pending", `UNPAID · PAY BEFORE ${mdy(v.pay_by)}`));
+  const methodText = (v) => (unpaid(v) ? "TO COLLECT" : METHODS[v.method] || v.method);
 
   // The 10 checks, each one Pass or Fail. A Fail takes 10 points off 100 (the person may write another total).
   const CHECKS = [
@@ -48,7 +53,7 @@
     if (!here() || !$("#eoBody")) return;
     const bad = qc.error || cv.error;
     if (bad) { $("#eoBody").innerHTML = notSet(bad) ? needUpdate : `<div class="empty">${esc(bad.message)}</div>`; return; }
-    const tests = qc.data || [], vouchers = cv.data || [];
+    const tests = qc.data || [], allCv = cv.data || [], vouchers = allCv.filter((v) => !unpaid(v)), toCollect = allCv.filter(unpaid);
     const now = thisMonth(), last = prevMonth(now);
     const sum = (rows) => rows.reduce((s, v) => s + num(v.amount), 0);
     const byMonth = new Map();
@@ -66,6 +71,7 @@
           <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">QC Tests This Month</div><div class="v">${qNow.length}</div><small>${avgScore == null ? "No result yet" : `${passNow} pass · ${scored.length - passNow} fail · average ${avgScore} / 100`}</small></div>
           <div class="tile"><span class="tile-ic">${ic("wallet")}</span><div class="k">Collection This Month (₱)</div><div class="v">${peso(sum(byMonth.get(now) || []))}</div><small>${(byMonth.get(now) || []).length} voucher(s)</small></div>
           <div class="tile"><span class="tile-ic">${ic("wallet")}</span><div class="k">Collection Last Month (₱)</div><div class="v">${peso(sum(byMonth.get(last) || []))}</div><small>${monthText(last)}</small></div>
+          ${toCollect.length ? `<div class="tile warn"><span class="tile-ic">${ic("clock")}</span><div class="k">Unpaid Vouchers · To Collect (₱)</div><div class="v">${peso(sum(toCollect))}</div><small>${toCollect.length} voucher(s)${toCollect.filter(overdue).length ? ` · ${toCollect.filter(overdue).length} expired` : ""} · not counted until paid</small></div>` : ""}
         </div>
         <div class="eo-bars" aria-label="Collection by month">${six.map((x) => `<button type="button" class="eo-bar${x.m === now ? " now" : ""}" data-m="${x.m}" title="${esc(monthText(x.m))}: ₱ ${peso(x.total)}">
           <span class="eo-fill" style="height:${Math.max(3, Math.round((x.total / top) * 100))}%"></span><small>₱ ${short(x.total)}</small><b>${monthShort(x.m)}</b></button>`).join("")}</div>
@@ -78,7 +84,7 @@
       { label: "Score", num: true, get: (r) => (r.score == null ? "—" : `${r.score} / 100`) },
       { label: "Result", html: (r) => { const v = verdict(r.score); return v ? pill(v === "PASS" ? "approved" : "rejected", v) : ""; } }, { label: "Status", html: (r) => pill(r.status === "done" ? "approved" : "pending", r.status === "done" ? "TESTED" : "NOT TESTED YET") }];
     const cvCols = [{ label: "Voucher No", get: (r) => r.cv_no }, { label: "Date", get: (r) => mdy(r.cv_date) }, { label: "Received From", get: (r) => r.received_from },
-      { label: "Method", get: (r) => METHODS[r.method] || r.method }, { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) },
+      { label: "Method", get: methodText }, { label: "Amount (₱)", num: true, get: (r) => peso(r.amount) }, { label: "Status", html: cvState },
       { label: "Receipt", html: (r) => (r.receipt_path ? pill("approved", "ON FILE") : pill("pending", "NO RECEIPT")) }, { label: "Made By", get: (r) => r.created_by_name || "" }];
     const show = (k, m) => {
       $$("#eoTabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === k));
@@ -127,14 +133,16 @@
         return;
       }
       box.innerHTML = `${canW() ? `<div class="btnrow"><a class="btn primary" href="#newcollection">${ic("plus")} New Collection Voucher</a></div>` : ""}
-        ${E.grid({ cols: [{ label: "Month", get: (r) => monthText(r.m) }, { label: "Vouchers", num: true, get: (r) => r.n }, { label: "Total Collected (₱)", num: true, get: (r) => peso(r.total) }],
-          rows: monthRows, onRow: true, empty: "No collection recorded yet." })}`;
-      E.bindGrid(box, monthRows, (r) => show("cv", r.m));
+        ${toCollect.length ? `<h3 class="sec">${ic("clock")} Unpaid — To Collect (${toCollect.length}) · ₱ ${peso(sum(toCollect))}</h3><div id="cvUnpaid">${E.grid({ cols: cvCols, rows: toCollect, onRow: true })}</div><h3 class="sec">Collected — by month</h3>` : ""}
+        <div id="cvMonths">${E.grid({ cols: [{ label: "Month", get: (r) => monthText(r.m) }, { label: "Vouchers", num: true, get: (r) => r.n }, { label: "Total Collected (₱)", num: true, get: (r) => peso(r.total) }],
+          rows: monthRows, onRow: true, empty: "No collection recorded yet." })}</div>`;
+      if ($("#cvUnpaid")) E.bindGrid($("#cvUnpaid"), toCollect, (r) => (location.hash = "collection/" + r.id));
+      E.bindGrid($("#cvMonths"), monthRows, (r) => show("cv", r.m));
     };
     $$("#eoTabs button").forEach((b) => (b.onclick = () => show(b.dataset.t)));
     $$(".eo-bar").forEach((b) => (b.onclick = () => show("cv", b.dataset.m)));
     show(t, month);
-    E.setRecords(`QC tests: ${tests.length} · vouchers: ${vouchers.length}`);
+    E.setRecords(`QC tests: ${tests.length} · vouchers: ${vouchers.length}${toCollect.length ? ` · unpaid: ${toCollect.length}` : ""}`);
   };
 
   // ======================================================================
@@ -547,17 +555,20 @@
     if (!here()) return;
     const isPdf = /\.pdf$/i.test(v.receipt_path || "");
     $(".band h1") && ($(".band h1").textContent = `Collection Voucher — ${v.cv_no}`);
-    $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(v.cv_no)} · ₱ ${peso(v.amount)}</div><div class="wbody">
-      <div class="pgrid2 qc-head">${E.cell("Voucher No", v.cv_no)}${E.cell("Date", mdy(v.cv_date))}${E.cell("Received From", v.received_from)}${E.cell("Amount (₱)", peso(v.amount), "hl")}
-        ${E.cell("Method", METHODS[v.method] || v.method)}${E.cell("Reference No", v.reference_no || "")}${E.cell("Note", v.note || "")}${E.cell("Recorded By", v.created_by_name || "")}</div>
+    $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(v.cv_no)} · ₱ ${peso(v.amount)} ${cvState(v)}</div><div class="wbody">
+      ${unpaid(v) ? `<div class="banner ${overdue(v) ? "closed" : "warn"}">${ic("clock")} <b>UNPAID${overdue(v) ? " — EXPIRED" : ""}</b> · issued ${esc(mdy(v.issued_on || v.cv_date))} · <b>pay before ${esc(mdy(v.pay_by))}</b>. Not counted in the collection until the payment is received: press <b>Receive Payment</b> (cash, transfer …).</div>`
+        : v.paid_at ? `<div class="banner ok">${ic("check")} <b>PAID</b> on ${esc(mdy(v.cv_date))}${v.received_by ? ` · received by ${esc(v.received_by)}` : ""} · recorded by ${esc(v.paid_by_name || "")} · issued ${esc(mdy(v.issued_on))}</div>` : ""}
+      <div class="pgrid2 qc-head">${E.cell("Voucher No", v.cv_no)}${E.cell(unpaid(v) ? "Issued" : "Date", mdy(unpaid(v) ? v.issued_on || v.cv_date : v.cv_date))}${E.cell("Received From", v.received_from)}${E.cell(unpaid(v) ? "Amount to Collect (₱)" : "Amount (₱)", peso(v.amount), "hl")}
+        ${E.cell("Method", methodText(v))}${E.cell("Reference No", v.reference_no || "")}${E.cell("Note", v.note || "")}${E.cell("Recorded By", v.created_by_name || "")}</div>
       <p class="muted">${esc(E.words(v.amount, "PESOS"))}</p>
       <fieldset class="opt"><legend>Receipt</legend>${url ? (isPdf ? `<button type="button" class="btn" id="cvOpen">${ic("eye")} Open the Receipt (PDF)</button>`
         : `<button type="button" class="cv-receipt" id="cvOpen" aria-label="Open the receipt"><img src="${esc(url)}" alt="Receipt"></button>`) : `<div class="empty small">No receipt picture.</div>`}</fieldset>
-    </div><div class="wfoot"><button type="button" class="btn primary" id="cvPdf">${ic("print")} PDF</button>
+    </div><div class="wfoot">${unpaid(v) && canW() ? `<button type="button" class="btn ok" id="cvRecv">${ic("wallet")} Receive Payment</button>` : ""}<button type="button" class="btn primary" id="cvPdf">${ic("print")} PDF</button>
       ${canW() && canChange(v) ? `<a class="btn" href="#editcollection/${v.id}">${ic("edit")} Edit</a>` : ""}${isAdmin() ? `<button type="button" class="btn danger" id="cvDel">${ic("trash")} Delete</button>` : ""}
       <a class="btn" href="#eooffice/cv">Close</a></div></div>`;
     if ($("#cvOpen")) $("#cvOpen").onclick = () => E.viewFile({ storage_path: v.receipt_path, mime: isPdf ? "application/pdf" : "image/jpeg", file_name: `${v.cv_no} Receipt` });
     $("#cvPdf").onclick = () => E.openPreview(`Collection Voucher ${v.cv_no}`, [cvPage(v, isPdf ? "" : url)]);
+    if ($("#cvRecv")) $("#cvRecv").onclick = () => receivePayment(v); // 3.91
     if ($("#cvDel")) $("#cvDel").onclick = async () => {
       if (!(await E.confirmBox(`Delete collection voucher <b>${esc(v.cv_no)}</b> (₱ ${peso(v.amount)} from ${esc(v.received_from)})? This cannot be undone.`, { ok: "Delete", danger: true }))) return;
       const { data: gone, error: e2 } = await sb.rpc("delete_collection", { p_id: v.id });
@@ -568,10 +579,41 @@
     E.setRecords(`Collection voucher: ${v.cv_no}`);
   };
 
+  // 3.91: RECEIVE PAYMENT on an unpaid voucher: PAID on that date with the amount received (then it is counted)
+  function receivePayment(v) {
+    const m = E.modal(`Receive Payment — ${v.cv_no}`, `<p class="muted" style="margin-top:0">${esc(v.received_from)} · ${esc(v.note || "")}</p><div class="fields wide">
+        <label for="rpAmt">Amount Received (₱) *</label><input type="number" id="rpAmt" min="0" step="0.01" inputmode="decimal" value="${num(v.amount)}">
+        <label for="rpMethod">Paid By *</label><select id="rpMethod">${Object.entries(METHODS).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join("")}</select>
+        <label for="rpRef">Reference No</label><input type="text" id="rpRef" maxlength="60" placeholder="e.g. bank or GCash ref no (optional)">
+        <label for="rpBy">Received By</label><input type="text" id="rpBy" maxlength="120" value="${esc(S.profile?.full_name || "")}" placeholder="the employee who received the money">
+        <label for="rpDate">Payment Date *</label><input type="date" id="rpDate" value="${E.isoToday()}" max="${E.isoToday()}">
+        <label for="rpFile">Receipt (optional)</label><input type="file" id="rpFile" accept="image/*,application/pdf"></div>`,
+      `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn ok" data-ok>${ic("check")} Payment Received</button>`);
+    $("[data-x]", m.el).onclick = m.close;
+    $("[data-ok]", m.el).onclick = async (e) => {
+      const btn = e.currentTarget, amt = num($("#rpAmt", m.el).value);
+      if (!(amt > 0)) return toast("Write the amount received.", true);
+      btn.disabled = true;
+      const { data: row, error } = await sb.rpc("cv_receive", { p_id: v.id, p_amount: amt, p_method: $("#rpMethod", m.el).value, p_ref: $("#rpRef", m.el).value,
+        p_received_by: $("#rpBy", m.el).value, p_date: $("#rpDate", m.el).value || null });
+      if (error) { btn.disabled = false; return fail(error, /cv_receive|schema cache|PGRST202/.test(error.message || "") ? "Run the database update 091_coverage_voucher.sql first" : "Could not record the payment"); }
+      const f = $("#rpFile", m.el).files[0];
+      if (f) {
+        const file = (await E.slimFile(f, "receipt").catch(() => f)) || f;
+        const path = `collection/${v.id}/receipt_${Date.now()}_${rand()}.${E.extOf(file)}`;
+        const up = await sb.storage.from("records").upload(path, file, { contentType: file.type || "image/jpeg" });
+        if (!up.error) { const r = await sb.rpc("set_collection_receipt", { p_id: v.id, p_path: path }); if (r.data) sb.storage.from("records").remove([r.data]).then(() => {}, () => {}); }
+        else toast("The receipt could not be uploaded: " + up.error.message, true);
+      }
+      m.close(); toast(`${row.cv_no} PAID · ₱ ${peso(row.amount)} · counted in ${monthText(monthOf(row.cv_date))}.`); V.collection(v.id);
+    };
+  }
+
   function cvPage(v, pic) {
     return `${E.printHead("COLLECTION VOUCHER", `<img src="${E.pdf417DataUrl("EMONCV|" + v.cv_no)}" alt="" class="ph-bar"><div class="mono">${esc(v.cv_no)}</div>`)}
-      ${E.box("Collection", `<div class="pgrid2">${E.cell("Voucher No", v.cv_no)}${E.cell("Date", mdy(v.cv_date))}${E.cell("Received From", v.received_from)}${E.cell("Amount Collected (₱)", peso(v.amount), "hl")}
-        ${E.cell("Method", METHODS[v.method] || v.method)}${E.cell("Reference No", v.reference_no || "")}${E.cell("Recorded By", v.created_by_name || "")}${E.cell("Note", v.note || "")}</div>
+      ${unpaid(v) ? `<p class="co-stline">STATUS: <b>UNPAID · PAY BEFORE ${esc(mdy(v.pay_by))}</b></p>` : ""}
+      ${E.box("Collection", `<div class="pgrid2">${E.cell("Voucher No", v.cv_no)}${E.cell(unpaid(v) ? "Issued" : "Date", mdy(unpaid(v) ? v.issued_on || v.cv_date : v.cv_date))}${E.cell("Received From", v.received_from)}${E.cell(unpaid(v) ? "Amount to Collect (₱)" : "Amount Collected (₱)", peso(v.amount), "hl")}
+        ${E.cell("Method", methodText(v))}${v.received_by ? E.cell("Received By", v.received_by) : ""}${E.cell("Reference No", v.reference_no || "")}${E.cell("Recorded By", v.created_by_name || "")}${E.cell("Note", v.note || "")}</div>
         <div class="pcell"><div class="pl">Amount in Words</div><div class="pv">${esc(E.words(v.amount, "PESOS"))}</div></div>`)}
       ${pic ? E.box("Receipt", `<div class="cv-print"><img src="${esc(pic)}" alt="Receipt"></div>`) : ""}
       ${E.sigs("Collected by", "Received by")}`;

@@ -3301,3 +3301,14 @@ body:has(.modal) .band-back, body:has(.legal-ov) .band-back, body:has(.dev-ov) .
 /* 3.90.5: the VIP badge small, clean and clear, in gold (like the coverage logo) */
 .vip-chip { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 8px 0 6px; margin-left: 6px; border-radius: 999px; vertical-align: middle; background: linear-gradient(180deg, #f9d55b, #d9a514); color: #3d2a00; font: 800 11px/1 Arial, sans-serif; letter-spacing: .1em; border: 1px solid #c4930d; }
 .vip-chip .ic { width: 13px; height: 13px; stroke: #3d2a00; stroke-width: 2.2; fill: #ffe9a3; }
+
+/* 3.91: the gate pass card and the coverage box on the invoice: standard size (they were very big) */
+.gp-card { padding: 8px 12px; gap: 6px 16px; }
+.gp-card .gp-ic { width: 30px; height: 30px; } .gp-card .gp-ic .ic { width: 16px; height: 16px; }
+.gp-cell b { font-size: 13px; } .gp-cell small { font-size: 10px; } .gp-cell span { font-size: 11px; }
+.gp-card #gpHist { padding: 4px 10px; font-size: 12.5px; }
+@media (max-width: 1024px) { .gp-card { display: flex; flex-wrap: wrap; align-items: center; } .gp-card .gp-cell { flex: 1 1 150px; min-width: 0; } .gp-card #gpHist { flex: none; margin-left: auto; } }
+.ins-strip.ins-inv { padding: 8px 12px; gap: 10px; }
+.ins-strip.ins-inv b { font-size: 13.5px; } .ins-strip.ins-inv small { font-size: 9.5px; } .ins-strip.ins-inv .ins-note { font-size: 11px; display: block; }
+.ins-strip.ins-inv .ins-seal { width: 30px; height: 30px; flex: none; } .ins-strip.ins-inv .ins-seal .ic { width: 16px; height: 16px; }
+.ins-paidchip.unpaid { background: #fff7e0; color: #8a5a00; border-color: #f2b705; }
