@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.82"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.83"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.82"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.83"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -1454,8 +1454,10 @@
   // ---------- grid ----------
   function grid({ cols, rows, onRow, foot, group, empty = "No records match these options." }) {
     if (!rows.length) return `<div class="grid-wrap"><div class="empty">${esc(empty)}</div></div>`;
-    const head = cols.map((c) => `<th class="${c.num ? "num" : ""}" scope="col">${esc(c.label)}</th>`).join("");
-    const rowHtml = (r, i) => `<tr class="${onRow ? "click" : ""}" data-i="${i}">${cols.map((c) => `<td class="${c.num ? "num" : ""}">${c.html ? c.html(r) : esc(c.get(r))}</td>`).join("")}</tr>`;
+    // 3.83: a column can be left out on a phone (phone: false) or let its words go on 2 lines there (wrap: true)
+    const cls = (c) => [c.num ? "num" : "", c.phone === false ? "no-phone" : "", c.wrap ? "wrap" : ""].filter(Boolean).join(" ");
+    const head = cols.map((c) => `<th class="${cls(c)}" scope="col">${esc(c.label)}</th>`).join("");
+    const rowHtml = (r, i) => `<tr class="${onRow ? "click" : ""}" data-i="${i}">${cols.map((c) => `<td class="${cls(c)}">${c.html ? c.html(r) : esc(c.get(r))}</td>`).join("")}</tr>`;
     let bodyHtml = "";
     if (group) {
       const groups = new Map();
@@ -1465,7 +1467,7 @@
         bodyHtml += list.map(([r, i]) => rowHtml(r, i)).join("");
       }
     } else bodyHtml = rows.map(rowHtml).join("");
-    const footHtml = foot ? `<tfoot><tr>${cols.map((c) => `<td class="${c.num ? "num" : ""}">${foot[c.key] ?? ""}</td>`).join("")}</tr></tfoot>` : "";
+    const footHtml = foot ? `<tfoot><tr>${cols.map((c) => `<td class="${cls(c)}">${foot[c.key] ?? ""}</td>`).join("")}</tr></tfoot>` : "";
     return `<div class="grid-wrap">${onRow ? `<div class="grid-group">Click a row to open it</div>` : ""}
       <div class="grid-scroll"><table class="grid"><thead><tr>${head}</tr></thead><tbody>${bodyHtml}</tbody>${footHtml}</table></div>
       <div class="grid-foot"><span>Record 1 of ${rows.length}</span><span>${rows.length} record(s)</span></div></div>`;
