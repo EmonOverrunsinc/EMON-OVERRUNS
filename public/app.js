@@ -9,7 +9,7 @@
   const VERSION = "3.73";
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.78.2"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.78.3"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -282,7 +282,7 @@
   // The barcode maker (bwip-js, 1.1 MB) loads once the first page is up and the browser is idle (3.35: no longer with
   // the page, so the first page comes sooner); a print or a barcode wanted before then waits for it. The code reader
   // (ZXing) loads the first time something is scanned or read from a photo without the phone's own barcode reader.
-  const LIBS = { bwip: ["vendor/bwip-js-min.js", "bwipjs"], zxing: ["vendor/zxing.min.js", "ZXing"] };
+  const LIBS = { bwip: ["vendor/bwip-js-min.js", "bwipjs"], zxing: ["vendor/zxing.min.js", "ZXing"], jsqr: ["vendor/jsqr.js", "jsQR"] }; // 3.78.3: jsQR reads QR codes well on iPhone
   const libs = {};
   function need(name) {
     const [src, global] = LIBS[name];
@@ -376,7 +376,7 @@
         try { const [code] = await det.detect(bmp); if (code?.rawValue) return code.rawValue; } finally { bmp.close?.(); }
       } catch (_) { /* ZXing tries next */ }
     }
-    await need("zxing");
+    const [jq] = await Promise.all([need("jsqr").catch(() => null), need("zxing")]);
     const url = URL.createObjectURL(file);
     try {
       const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("That file is not an image the browser can read.")); i.src = url; });
@@ -391,6 +391,7 @@
         g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
         g.translate(c.width / 2, c.height / 2); g.rotate((rot * Math.PI) / 180);
         g.drawImage(img, -w / 2, -h / 2, w, h);
+        if (jq) { try { const r = jq(g.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: "attemptBoth" }); if (r?.data) return r.data; } catch (_) { /* ZXing next */ } }
         try { return decodeCanvas(c); } catch (_) { /* try next orientation */ }
       }
       throw new Error("No QR code or barcode found in that image. Try a sharper photo, taken from the front.");
@@ -1302,7 +1303,7 @@
       stream?.getTracks().forEach((t) => t.stop());
       stream = null;
     };
-    const m = modal(title, `<div class="scan-view"><video id="scVideo" playsinline muted></video><div class="scan-frame"><i></i></div></div>
+    const m = modal(title, `<div class="scan-view"><video id="scVideo" playsinline muted autoplay></video><div class="scan-frame"><i></i></div></div>
       <div id="scMsg" class="scan-msg">${esc(hint)}</div>`,
       `${photo ? `<label class="btn" for="scImg">${ic("image")} Use a Photo</label>` : ""}<input type="file" id="scImg" accept="image/*" hidden>
       <button type="button" class="btn" id="scSwitch" hidden>Switch Camera</button><button type="button" class="btn" id="scRetry" hidden>Try Again</button><label class="btn primary" for="scCap" id="scCapL" hidden>${ic("camera")} Open Camera</label><input type="file" id="scCap" accept="image/*" capture="environment" hidden>
@@ -1340,6 +1341,7 @@
       const det = await nativeReader();
       const lib = det ? null : need("zxing"); // ZXing loads while the camera starts
       lib?.catch(() => {});
+      const jql = det ? null : need("jsqr").catch(() => null); // 3.78.3: and jsQR (QR codes on iPhone)
       let s;
       try { s = await openCamera(deviceId, det ? CAM_SIZE.hd : CAM_SIZE.sd); }
       catch (e) { if (live()) noCamera(e); return; }
@@ -1369,6 +1371,25 @@
       if (!live()) return;
       reader = new Z.BrowserMultiFormatReader(new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, zxFormats(Z)], [Z.DecodeHintType.TRY_HARDER, true]]));
       reader.decodeFromStream(s, video, (res) => { if (res && live()) finish(res.getText()); }).catch((e) => { if (live()) noCamera(e); });
+      // 3.78.3: jsQR looks at the same picture several times a second (ZXing alone often misses a QR code on iPhone)
+      const jsQR = await jql;
+      if (!jsQR || !live()) return;
+      const cv = document.createElement("canvas"), g = cv.getContext("2d", { willReadFrequently: true });
+      const scan = () => {
+        if (!live()) return;
+        const vw = video.videoWidth, vh = video.videoHeight;
+        if (video.readyState >= 2 && vw && vh) {
+          const k = Math.min(1, 960 / Math.max(vw, vh));
+          cv.width = Math.round(vw * k); cv.height = Math.round(vh * k);
+          try {
+            g.drawImage(video, 0, 0, cv.width, cv.height);
+            const r = jsQR(g.getImageData(0, 0, cv.width, cv.height).data, cv.width, cv.height, { inversionAttempts: "attemptBoth" });
+            if (r?.data && live()) { finish(r.data); if (!keep) return; }
+          } catch (_) { /* the next picture */ }
+        }
+        setTimeout(scan, 150);
+      };
+      scan();
     };
     $("#scRetry", d).onclick = () => start();
     $("#scSwitch", d).onclick = () => { const i = cams.findIndex((c) => c.deviceId === current); start(cams[(i + 1) % cams.length]?.deviceId); };

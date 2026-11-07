@@ -365,7 +365,7 @@
   const dueSum = (terms) => { const d = termsDays(terms); return d == null ? `TERMS + ${DUE} DAYS INSURANCE` : `${d} DAYS TERMS + ${DUE} DAYS INSURANCE = ${d + DUE} DAYS`; };
 
   // ---------- 3.78 the certificate: EMON OVERRUNS document design (navy band, gold lines, field boxes), A4 landscape,
-  // A4 landscape, 2 pages like an original certificate of insurance: FRONT = the schedule; BACK = the policy wording ----------
+  // A4 portrait, 1 page like an original certificate of insurance: FRONT = the schedule; BACK = the policy wording ----------
   async function printCert(i, o, invoice, cv) {
     await E.loadSignatures?.().catch(() => {});
     await settings().catch(() => {});
@@ -432,7 +432,7 @@
         ${sig("ISSUED BY", { name: who.approver, note: `Authorized Signatory · ${i.approved_at ? mdy(i.approved_at) : ""}` }, sign.pic)}
       </div>
       <div class="c2-foot"><span>This certificate is valid only when its number is verified by the QR code. The terms of the EO-OFFICE INSURANCE in the E-Portal form part of this certificate.</span><span>${esc(C.company.name)} &nbsp;|&nbsp; Pasay City, Metro Manila</span></div></div>`;
-    E.openPreview(`Insurance Certificate ${i.ins_no}`, [front], { size: "a4l", bare: true }); // 3.78.2: 1 page, A4 landscape
+    E.openPreview(`Insurance Certificate ${i.ins_no}`, [front], { bare: true }); // 3.78.3: 1 page, A4 portrait
   }
 
   // ======================================================================
