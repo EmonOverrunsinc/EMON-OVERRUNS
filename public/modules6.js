@@ -9,7 +9,7 @@
 (() => {
   "use strict";
   const E = window.EO;
-  const { sb, S, esc, peso, isoToday, mdy, monthOf, monthText, $, $$, isAdmin, meId, pill, toast, fail, ic, busy, num } = E;
+  const { sb, S, C, esc, peso, isoToday, mdy, monthOf, monthText, $, $$, isAdmin, meId, pill, toast, fail, ic, busy, num } = E;
   const V = window.EO_VIEWS;
   const canW = () => E.canWrite("eooffice");
   const notSet = (e) => /qc_tests|collection_vouchers|create_qc|save_collection|qc_open|schema cache/i.test(e?.message || "");
@@ -567,7 +567,7 @@
       ${canW() && canChange(v) ? `<a class="btn" href="#editcollection/${v.id}">${ic("edit")} Edit</a>` : ""}${isAdmin() ? `<button type="button" class="btn danger" id="cvDel">${ic("trash")} Delete</button>` : ""}
       <a class="btn" href="#eooffice/cv">Close</a></div></div>`;
     if ($("#cvOpen")) $("#cvOpen").onclick = () => E.viewFile({ storage_path: v.receipt_path, mime: isPdf ? "application/pdf" : "image/jpeg", file_name: `${v.cv_no} Receipt` });
-    $("#cvPdf").onclick = () => E.openPreview(`Collection Voucher ${v.cv_no}`, [cvPage(v, isPdf ? "" : url)]);
+    $("#cvPdf").onclick = () => E.openPreview(`Collection Voucher ${v.cv_no}`, [cvPage(v), ...(url && !isPdf ? [cvPicPage(v, url)] : [])], { size: "a5l", bare: true }); // 3.94: A5 landscape
     if ($("#cvRecv")) $("#cvRecv").onclick = () => receivePayment(v); // 3.91
     if ($("#cvDel")) $("#cvDel").onclick = async () => {
       if (!(await E.confirmBox(`Delete collection voucher <b>${esc(v.cv_no)}</b> (₱ ${peso(v.amount)} from ${esc(v.received_from)})? This cannot be undone.`, { ok: "Delete", danger: true }))) return;
@@ -609,15 +609,36 @@
     };
   }
 
-  function cvPage(v, pic) {
-    return `${E.printHead("COLLECTION VOUCHER", `<img src="${E.pdf417DataUrl("EMONCV|" + v.cv_no)}" alt="" class="ph-bar"><div class="mono">${esc(v.cv_no)}</div>`)}
-      ${unpaid(v) ? `<p class="co-stline">STATUS: <b>UNPAID · PAY BEFORE ${esc(mdy(v.pay_by))}</b></p>` : ""}
-      ${E.box("Collection", `<div class="pgrid2">${E.cell("Voucher No", v.cv_no)}${E.cell(unpaid(v) ? "Issued" : "Date", mdy(unpaid(v) ? v.issued_on || v.cv_date : v.cv_date))}${E.cell("Received From", v.received_from)}${E.cell(unpaid(v) ? "Amount to Collect (₱)" : "Amount Collected (₱)", peso(v.amount), "hl")}
-        ${E.cell("Method", methodText(v))}${v.received_by ? E.cell("Received By", v.received_by) : ""}${E.cell("Reference No", v.reference_no || "")}${E.cell("Recorded By", v.created_by_name || "")}${E.cell("Note", v.note || "")}</div>
-        <div class="pcell"><div class="pl">Amount in Words</div><div class="pv">${esc(E.words(v.amount, "PESOS"))}</div></div>`)}
-      ${pic ? E.box("Receipt", `<div class="cv-print"><img src="${esc(pic)}" alt="Receipt"></div>`) : ""}
-      ${E.sigs("Collected by", "Received by")}`;
+  // 3.94: the voucher on A5 landscape, laid out like an official receipt: the company, the title, the details with the
+  // status and a QR code, the particulars, NOTHING FOLLOWS, the total in figures and in words, the barcode. Ink saver.
+  function cvPage(v) {
+    const st = !unpaid(v) ? ["paid", "PAID", mdy(v.cv_date)] : overdue(v) ? ["expired", "EXPIRED", `WAS DUE ${mdy(v.pay_by)}`] : ["unpaid", "UNPAID", `PAY BEFORE ${mdy(v.pay_by)}`];
+    const what = String(v.note || "").trim() || "COLLECTION";
+    const kind = /^COVERAGE INS-/i.test(what) ? "COVERAGE PAYMENT" : "COLLECTION RECEIPT";
+    const f = (k, val, cls = "") => `<span>${esc(k)}</span><b class="${cls}">${esc(val || "—")}</b>`;
+    return `<div class="cvr">
+      <div class="cvr-head"><div class="cvr-co">${E.logoHtml("cvr-logo")}<div><b>${esc(C.company.name)}</b><small class="tag">${esc(C.company.tagline || "")}</small>
+        <small>${esc(C.company.address.join(", "))} · ${esc(C.company.email)}${E.siteText()}</small></div></div>
+        <div class="cvr-stamp ${st[0]}"><b>${st[1]}</b><small>${esc(st[2])}</small></div></div>
+      <div class="cvr-title">COLLECTION VOUCHER</div><div class="cvr-sub">${esc(kind)}</div>
+      <div class="cvr-dash"></div>
+      <div class="cvr-main"><div class="cvr-f">
+          ${f("Voucher No", v.cv_no)}${f("Reference No", v.reference_no)}${f(unpaid(v) ? "Issue Date" : "Payment Date", mdy(unpaid(v) ? v.issued_on || v.cv_date : v.cv_date))}
+          ${f("Status", unpaid(v) ? `${st[1]} · ${st[2]}` : `PAID · ${mdy(v.cv_date)}${v.issued_on && v.issued_on !== v.cv_date ? ` (ISSUED ${mdy(v.issued_on)})` : ""}`, "st-" + st[0])}<i></i>
+          ${f("Received From", v.received_from)}${f("Paid By", methodText(v))}${f("Received By", v.received_by || (unpaid(v) ? "" : v.created_by_name))}${f("Recorded By", v.paid_by_name || v.created_by_name)}</div>
+        <div class="cvr-qr"><img src="${E.qrDataUrl(`EMONCV|${v.cv_no}|${num(v.amount).toFixed(2)}|${st[1]}`)}" alt="Voucher QR code"><small>${esc(v.cv_no)}</small></div></div>
+      <div class="cvr-dot"></div>
+      <table class="cvr-tbl"><thead><tr><th>PARTICULARS</th><th class="num">${unpaid(v) ? "AMOUNT TO COLLECT" : "AMOUNT"} (PHP)</th></tr></thead>
+        <tbody><tr><td>${esc(what)}</td><td class="num">${peso(v.amount)}</td></tr></tbody></table>
+      <div class="cvr-nf">************************ NOTHING FOLLOWS ************************</div>
+      <div class="cvr-bottom"><div class="cvr-words">${esc(E.words(v.amount, "PESOS"))}</div><div class="cvr-total"><span>TOTAL: PHP</span><b>${peso(v.amount)}</b></div></div>
+      <div class="cvr-foot"><div class="cvr-note">${unpaid(v) ? `Not paid yet: this voucher is counted in the collection only when the payment is received (${esc(st[2].toLowerCase())}).` : "Payment received with thanks."}
+          System generated by the ${esc(E.APP)} · no signature needed · scan the QR code to check it.<br>Printed ${esc(E.dateTime(new Date().toISOString()))}${S.profile?.full_name ? ` by ${esc(S.profile.full_name)}` : ""}</div>
+        <div class="cvr-bar"><img src="${E.pdf417DataUrl("EMONCV|" + v.cv_no)}" alt="Voucher barcode"><small>${esc(v.cv_no)}</small></div></div>
+    </div>`;
   }
+  // the receipt picture of the voucher, on its own A5 page
+  const cvPicPage = (v, pic) => `<div class="cvr cvr-picpage"><div class="cvr-title sm">RECEIPT · ${esc(v.cv_no)}</div><div class="cvr-pic"><img src="${esc(pic)}" alt="Receipt"></div></div>`;
 
   // The month's vouchers as a PDF, split over pages when the list is long.
   function monthPages(m, rs) {
@@ -634,4 +655,5 @@
   }
 
   Object.assign(E, { cutEmpty, eoTabs, qcVerdict: verdict, printBlankQc });
+  E._docs = { ...(E._docs || {}), cvPage }; // 3.94: for the print checks
 })();

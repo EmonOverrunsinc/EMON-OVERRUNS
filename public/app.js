@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.93"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.94"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.93"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.94"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -1454,6 +1454,14 @@
       const { data } = await sb.from("qc_tests").select("id").eq("qc_no", qc[1].toUpperCase()).maybeSingle();
       if (!data) { toast("No QC form found for that code.", true); return false; }
       location.hash = "qc/" + data.id;
+      return true;
+    }
+    // 3.94: the QR code or the barcode of a collection voucher opens that voucher
+    const cvm = /^EMONCV\|(CV-\d{6}-\d+)/i.exec(t);
+    if (cvm && isStaff() && canOpen("collection")) {
+      const { data } = await sb.from("collection_vouchers").select("id").eq("cv_no", cvm[1].toUpperCase()).maybeSingle();
+      if (!data) { toast("No collection voucher found for that code.", true); return false; }
+      location.hash = "collection/" + data.id;
       return true;
     }
     if (/^EMON[A-Z]*\|/.test(t)) { location.hash = "verify/" + encodeURIComponent(t); return; }
