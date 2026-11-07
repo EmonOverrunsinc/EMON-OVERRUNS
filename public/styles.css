@@ -3312,3 +3312,8 @@ body:has(.modal) .band-back, body:has(.legal-ov) .band-back, body:has(.dev-ov) .
 .ins-strip.ins-inv b { font-size: 13.5px; } .ins-strip.ins-inv small { font-size: 9.5px; } .ins-strip.ins-inv .ins-note { font-size: 11px; display: block; }
 .ins-strip.ins-inv .ins-seal { width: 30px; height: 30px; flex: none; } .ins-strip.ins-inv .ins-seal .ic { width: 16px; height: 16px; }
 .ins-paidchip.unpaid { background: #fff7e0; color: #8a5a00; border-color: #f2b705; }
+
+/* 3.91.1: the same label width in all the blocks of a page (set by the page): the values line up */
+.formgrid[style*="--lab"] > .fields { grid-template-columns: var(--lab) minmax(140px, 220px); }
+.formgrid[style*="--lab"] > .fields.wide { grid-template-columns: var(--lab) minmax(160px, 1fr); }
+@media (max-width: 900px) { .formgrid[style*="--lab"] > .fields, .formgrid[style*="--lab"] > .fields.wide { grid-template-columns: var(--lab) minmax(0, 1fr); } }
