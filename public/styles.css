@@ -3236,3 +3236,7 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
    floating Back button never covers the last buttons of a page (room under the page) */
 .grid-wrap:has(> table) { overflow-x: auto; }
 body:has(.band-back) #main { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+
+/* 3.87: the coverage badge: COVERED in gold (it was blue on navy), the coverage no in white */
+.ins-mini b { color: #f2b705 !important; } .ins-mini b em { font-style: normal; color: #fff; letter-spacing: .04em; font-size: 11px; margin-left: 4px; }
+.ins-mini small { color: #fff; }
