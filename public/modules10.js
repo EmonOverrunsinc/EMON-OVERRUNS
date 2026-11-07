@@ -358,7 +358,7 @@
     const head = `<section class="cust-hero co-hero">
       <div class="ch-pic"><div class="ch-photo co-ic">${ic("box")}</div></div>
       <div class="ch-main">
-        <div class="ch-name"><h2>${esc(o.order_no)}</h2>${stPill(o)}</div>
+        <div class="ch-name"><h2>${esc(o.order_no)}</h2>${stPill(o)}<span id="coInsMini"></span></div>
         <div class="ch-sub">${E.canOpen("customer") ? `<a href="#customer/${c.id}"><b>${esc(fullName(c))}</b></a>` : `<b>${esc(fullName(c))}</b>`}${c.account_no ? ` · <span class="mono">${esc(c.account_no)}</span>` : ""}${o.address || c.address ? ` · ${esc(o.address || c.address)}` : ""}</div>
         <div class="ch-ids">${E.idBox("Date", mdy(o.order_date))}${E.idBox("Batch No", o.reference || "")}${E.idBox("Terms of Payment", o.payment_terms || "")}${E.idBox("Due Date", mdy(dueOf(o)))}${E.idBox("Boxes · Pcs", `${qtyText(o.total_boxes)} · ${qtyText(o.total_pcs)}`)}</div>
       </div>
@@ -451,6 +451,7 @@
     bindBoxes(o, boxes, reload);
     if ((o.status === "approved" && w && !deliverNow) || canFixDelivery(o)) bindDelivery(o, boxes, urls, reload);
     E.insOrderStrip?.(o, $("#coIns")); // 3.72: insurance COVERED / EXPIRES, or Add Insurance before delivery
+    E.insMini?.($("#coInsMini"), { orderId: o.id, terms: o.payment_terms }); // 3.78.2: the small COVERED badge at the top
     if (E.insForOrder && $("#coInvIns")) E.insForOrder(o.id).then((i) => { if (i && $("#coInvIns")) $("#coInvIns").innerHTML = E.insBox(i); }); // 3.73.4: on the Invoice tab
     $$("[data-ph]").forEach((b) => (b.onclick = () => E.lightbox(b.dataset.ph)));
     E.setRecords(`Customer order: ${o.order_no}`);

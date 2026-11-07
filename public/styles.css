@@ -3027,3 +3027,13 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .insx .ins-qr { border: 2px solid var(--nv); border-radius: 14px; } .insx .ins-amt b { color: var(--nv); } .insx .ins-amt { border-top: 3px solid var(--gd); padding-top: 8px; margin-top: 8px; }
 .insx .ins-payby { border-left: 6px solid var(--gd); }
 .insx .btn.primary { background: var(--nv); border-color: var(--nv); }
+/* 3.78.2: the small COVERED badge at the top of the order and invoice pages (pressed: the insurance) */
+.ins-mini { display: inline-flex; align-items: center; gap: 8px; margin-left: 10px; padding: 5px 12px 5px 8px; border-radius: 10px; background: #0f3a8c; color: #fff; border-bottom: 3px solid #f2b705; text-decoration: none; vertical-align: middle; line-height: 1.2; }
+.ins-mini .ic { width: 22px; height: 22px; stroke: #f2b705; flex: none; } .ins-mini b { display: block; font-size: 12.5px; letter-spacing: .1em; }
+.ins-mini small { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .03em; color: #dbe6ff; white-space: nowrap; }
+.ins-mini:hover { background: #1d4fb0; } .ins-mini.expired { background: #4b5563; }
+.wtitle .ins-mini { font-weight: normal; }
+@media (max-width: 600px) { .ins-mini { margin: 6px 0 0; } }
+/* 3.78.2: the order no / invoice no barcodes on the certificate */
+.c2-code { justify-content: center; gap: 1mm; } .c2-codebar { width: 80%; height: 10mm; object-fit: fill; }
+.c2-sigs { grid-template-columns: 1fr 1fr 1.3fr; }
