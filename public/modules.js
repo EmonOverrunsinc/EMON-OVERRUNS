@@ -744,7 +744,7 @@
       $("#cuRes").innerHTML = E.grid({ cols: [
         { label: "Account No", get: (r) => r.account_no }, { label: "Name", wrap: true, html: (r) => `${esc(fullName(r))}${r.status === "closed" ? ' <span class="closed-mark">CLOSED</span>' : ""}` },
         { label: "Phone", phone: false, get: (r) => r.phone || "" }, // 3.83: a phone shows Account No, Name, Status and Balance Due
-        { label: "Opened", phone: false, get: (r) => mdy(r.application_date) }, { label: "Status", html: (r) => pill(r.status) },
+        { label: "Status", html: (r) => pill(r.status) },
         { label: "Balance Due (₱)", key: "due", num: true, get: (r) => peso(r.due) }],
         rows, onRow: true, foot: { due: peso(rows.reduce((s, r) => s + r.due, 0)) }, empty: "No customers found." });
       E.bindGrid($("#cuRes"), rows, (r) => (location.hash = "customer/" + r.id));
