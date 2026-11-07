@@ -493,7 +493,7 @@
     return `<div class="ph ph2">
       <div class="ph-left"><span class="ph-logo-ring">${E.logoHtml("ph-logo")}</span><div><div class="ph-co">${esc(C.company.name)}</div>
         ${C.company.tagline ? `<div class="ph-tag">${esc(C.company.tagline)}</div>` : ""}
-        <div class="ph-addr">${esc(C.company.letterhead || C.company.address.join(", "))} &nbsp;·&nbsp; Email: ${esc(C.company.email)}${E.siteText()}</div></div></div>
+        <div class="ph-addr">${esc(C.company.letterhead || C.company.address.join(", "))} &nbsp;·&nbsp; ${esc(C.company.email)}${E.siteText()}</div></div></div>
       <div class="ph-mid"><div class="ph-title">${esc(title)}</div><i class="ph-gl"></i></div>
       ${rightHtml ? `<div class="ph-right">${rightHtml}</div>` : ""}</div><div class="ph2-gold"></div>`;
   }

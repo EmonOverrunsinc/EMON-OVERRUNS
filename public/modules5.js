@@ -11,7 +11,7 @@
   const V = window.EO_VIEWS;
   const MAX_LINES = 20, MAX_PHOTOS = 5; // 3.32: 5 photos (needs 042_po_photos.sql; the server allowed 2 before)
   const ST = { pending: "WAITING FOR REVIEW", negotiation: "PRICE NEGOTIATION", approved: "APPROVED", cancelled: "CANCELLED" };
-  const stPill = (p) => `${pill(p.status === "negotiation" ? "pending" : p.status, ST[p.status])}${p.arrived_at ? " " + pill("active", "ARRIVED") : ""}${p.pending_update ? " " + pill("pending", "UPDATE WAITING") : ""}`;
+  const stPill = (p) => `${pill(p.status === "negotiation" ? "pending" : p.status, ST[p.status])}${p.pending_update ? " " + pill("pending", "UPDATE WAITING") : ""}`;
   const avg = (p) => (num(p.total_qty) ? num(p.total_amount) / num(p.total_qty) : 0);
   // The big total: everything included (all item lines), in BDT with the amount in words
   const netBox = (p) => `<div class="po-net"><small>TOTAL NET COST · ALL ITEMS INCLUDED</small><b>BDT ${peso(p.total_amount)}</b>
@@ -313,7 +313,7 @@
       ${(() => { const src = p.photos?.length ? p.photos.map((x) => urls.get(x) || "") : p.print_photos || [];
         return src.length ? `<div class="po-hero n${src.length}">${src.map((u) => `<button type="button" class="pp" data-img="${esc(u)}"><img src="${esc(u)}" alt="Product photo"></button>`).join("")}</div>` : p.status === "cancelled" ? `<small class="muted">The photos were deleted when the purchase order was cancelled.</small>` : ""; })()}
       ${p.status === "negotiation" ? `<div class="banner warn">${ic("bell")} EMON OVERRUNS authority does not agree with that price. Please negotiate the price, then ${mine ? "press <b>Edit</b>, change the details and submit again" : "the maker edits and submits again"}.${p.director_note ? " Note: " + esc(p.director_note) : ""}</div>` : ""}
-      ${p.status === "approved" ? `<div class="banner ok">${ic("check")} APPROVED by ${esc(p.approved_by_name || "")} · ${esc(E.dateTime(p.approved_at))}. Buy this lot at the approved price.${p.arrived_at ? ` <b>Arrived at the warehouse</b> ${esc(E.dateTime(p.arrived_at))}${p.arrived_by_name ? " · " + esc(p.arrived_by_name) : ""}.` : ""}</div>` : ""}
+      ${p.status === "approved" ? `<div class="banner ok">${ic("check")} APPROVED by ${esc(p.approved_by_name || "")} · ${esc(E.dateTime(p.approved_at))}. Buy this lot at the approved price.</div>` : ""}
       ${p.status === "cancelled" ? `<div class="banner closed">CANCELLED by ${esc(p.cancelled_by_name || "")} · ${esc(E.dateTime(p.cancelled_at))}${p.director_note ? " — " + esc(p.director_note) : ""}</div>` : ""}
       <div class="formgrid"><div class="fields wide"><span>Lot No</span><b class="mono">${esc(p.po_no)}</b><span>Lot Name</span><b>${esc(p.lot_name)}</b><span>Date</span><span>${mdy(p.po_date)}</span>
         <span>Processing Time</span><span>${esc(p.processing_time || "—")}</span></div>
@@ -333,7 +333,7 @@
         <div class="btnrow"><button type="button" class="btn ok" data-d="approve">${ic("check")} Approve</button><button type="button" class="btn" data-d="negotiate">${ic("edit")} Negotiate</button><button type="button" class="btn danger" data-d="cancel">Cancel Order</button></div></fieldset>` : ""}
       </div><div class="wfoot">
         ${open && (mine || isAdmin()) ? `<a class="btn" href="#editpo/${p.id}">${ic("edit")} Edit</a>` : ""}${isAdmin() ? `<button type="button" class="btn danger" id="poDel">${ic("trash")} Delete</button>` : ""}
-        ${p.status === "approved" ? `<button type="button" class="btn primary" id="poPdf">${ic("print")} PDF</button>${!p.arrived_at ? `<button type="button" class="btn" id="poArr">${ic("box")} Mark Arrived at Warehouse</button>` : ""}${(mine || isAdmin()) && !p.pending_update ? `<button type="button" class="btn" id="poUpd">${ic("edit")} Request Update</button>` : ""}` : ""}
+        ${p.status === "approved" ? `<button type="button" class="btn primary" id="poPdf">${ic("print")} PDF</button>${(mine || isAdmin()) && !p.pending_update ? `<button type="button" class="btn" id="poUpd">${ic("edit")} Request Update</button>` : ""}` : ""}
         <a class="btn" href="#purchase">Close</a></div></div>`;
     $$("[data-img]").forEach((b) => (b.onclick = () => b.dataset.img && E.lightbox(b.dataset.img)));
     // the Director's new prices: totals follow as they are typed

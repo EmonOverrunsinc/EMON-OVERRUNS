@@ -689,7 +689,7 @@
       const p = await one(sb.from("purchase_orders").select("id, po_no, lot_name, po_date, status, total_qty, total_amount, approved_by_name, arrived_at, pending_update").eq("id", lot.id).maybeSingle());
       if (!p) return { html: "That purchase order is not found." };
       return { ent: { kind: "lot", item: lot }, html: `Purchase order <b>${poLink(p)}</b> · lot <b>${esc(p.lot_name)}</b> · <b>${esc(PO_ST[p.status] || p.status)}</b>${p.pending_update ? " · an UPDATE waits for your review" : ""}
-        <br>${esc(mdy(p.po_date))} · ${qtyText(p.total_qty)} pcs · ${bdtM(p.total_amount)} · average ${bdtM(num(p.total_qty) ? num(p.total_amount) / num(p.total_qty) : 0)} a pc${p.arrived_at ? ` · ARRIVED ${esc(mdy(p.arrived_at))}` : ""}${p.approved_by_name ? `<br>Approved by ${esc(p.approved_by_name)}` : ""}` };
+        <br>${esc(mdy(p.po_date))} · ${qtyText(p.total_qty)} pcs · ${bdtM(p.total_amount)} · average ${bdtM(num(p.total_qty) ? num(p.total_amount) / num(p.total_qty) : 0)} a pc${p.approved_by_name ? `<br>Approved by ${esc(p.approved_by_name)}` : ""}` };
     }
     const list = await rows(() => sb.from("purchase_orders").select("id, po_no, lot_name, po_date, status, total_qty, total_amount, pending_update").order("po_date", { ascending: false }).order("id"));
     if (!list.length) return { html: `No purchase order yet. <a href="#newpurchase">New Purchase Order</a>` };
