@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.91"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.91.1"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.91"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.91.1"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -1494,7 +1494,18 @@
     if (sw > cw + 4 && cw > 0) t.style.zoom = Math.max(floor, Math.floor((cw / sw) * 1000) / 1000);
     (box.classList.contains("grid-scroll") ? box.parentElement : box)?.classList.toggle("wide", box.scrollWidth > box.clientWidth + 4);
   }
+  // 3.91.1: the blocks of details of one page (one under the other on an iPad) get the same label width, so all the
+  // values start on one straight line (each block sized its labels by its own longest one)
+  const alignFields = () => $$(".formgrid").forEach((g) => {
+    const fs = [...g.children].filter((x) => x.classList.contains("fields"));
+    if (g.style.getPropertyValue("--lab")) g.style.removeProperty("--lab");
+    if (fs.length < 2) return;
+    const tracks = fs.map((f) => getComputedStyle(f).gridTemplateColumns.split(" ")).filter((t) => t.length === 2);
+    const w = Math.max(0, ...tracks.map((t) => parseFloat(t[0]) || 0));
+    if (w > 0 && w < g.clientWidth * 0.5) g.style.setProperty("--lab", Math.ceil(w) + "px");
+  });
   const markWide = () => {
+    alignFields();
     const floor = window.innerWidth <= 1194 ? 0.72 : 0.8;
     $$(FIT).forEach((s) => fitTable(s, s.querySelector("table"), floor));
     // 3.85.2: also the tables made by hand in a list box (purchase order items, order lines, return items, gate passes …)
