@@ -359,8 +359,8 @@
     const ext = b.data?.due_date, days = Number(c.data?.due_extension_days || 0);
     return ext && days ? { base: plusDays(ext, -days), ext, days } : null;
   }
-  // 3.78: the payment terms in days (7 DAYS -> 7; CASH ON DELIVERY -> 0; other words -> null)
-  const termsDays = (t) => { const m = String(t || "").toUpperCase().match(/^(\d{1,3}) DAYS$/); return m ? Number(m[1]) : /CASH/i.test(t || "") ? 0 : null; };
+  // 3.78: the payment terms in days (7 DAYS -> 7; COD -> 0; other words -> null)
+  const termsDays = (t) => { const m = String(t || "").toUpperCase().match(/^(\d{1,3}) DAYS$/); return m ? Number(m[1]) : /^COD$|CASH/i.test(String(t || "").trim()) ? 0 : null; };
   // the due days of an insured order, in words: 7 DAYS TERMS + 15 DAYS COVERAGE = 22 DAYS
   const dueSum = (terms) => { const d = termsDays(terms); return d == null ? `TERMS + ${DUE} DAYS COVERAGE` : `${d} DAYS TERMS + ${DUE} DAYS COVERAGE = ${d + DUE} DAYS`; };
 

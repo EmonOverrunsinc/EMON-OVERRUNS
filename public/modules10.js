@@ -110,7 +110,7 @@
   const canEdit = (o) => canW() && (isAdmin() ? fixable(o) : o.status === "pending" && o.created_by === meId());
 
   function orderForm(o, preset) {
-    const terms0 = o?.payment_terms || "";
+    const terms0 = o?.payment_terms === "CASH ON DELIVERY" ? "COD" : o?.payment_terms || ""; // 3.84
     const known = !terms0 || E.TERMS.includes(terms0);
     E.shell(o ? "editcustorder" : "newcustorder", o ? `Edit ${o.order_no}` : "New Customer Order", `
       <form class="window" id="coForm" novalidate><div class="wtitle">${o ? `Customer Order ${esc(o.order_no)}` : "Customer Order"}</div><div class="wbody">
