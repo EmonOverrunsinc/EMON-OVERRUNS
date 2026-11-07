@@ -36,7 +36,7 @@
   // EO-Office page: mini dashboard, QC Test tab, Collection Voucher tab
   // ======================================================================
   // The pages of EO-Office: QC Test and Collection Voucher (this page), Employees and Payroll (3.23), Credit Memo and Project (3.24: no Job Applications / Job Positions)
-  const eoTabs = (on) => `<nav class="subnav">${[["eooffice", "EO-Office", "eooffice"], ["custorders", "Customer Order", "eooffice"], ["employees", "Employees", "employees"], ["payroll", "Payroll", "employees"], ["creditmemos", "Credit Memo", "creditmemos"], ["projects", "Project", "projects"], ["insurance", "Insurance", "eooffice"]]
+  const eoTabs = (on) => `<nav class="subnav">${[["eooffice", "EO-Office", "eooffice"], ["custorders", "Customer Order", "eooffice"], ["employees", "Employees", "employees"], ["payroll", "Payroll", "employees"], ["creditmemos", "Credit Memo", "creditmemos"], ["projects", "Project", "projects"], ["insurance", "Coverage", "eooffice"]]
     .filter((x) => E.hasModule(x[2]) && (x[2] !== "eooffice" || E.isStaff())).map(([k, l]) => `<a href="#${k}" class="${k === on ? "on" : ""}">${l}</a>`).join("")}</nav>`;
   V.eooffice = async (tab, month) => {
     E.shell("eooffice", "EO-Office", `${eoTabs("eooffice")}<div id="eoBody">${busy()}</div>`, "QC Test forms and Collection Vouchers. Employees, Payroll, Credit Memo and Project are here too.");

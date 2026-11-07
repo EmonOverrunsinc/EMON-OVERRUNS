@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.80.2"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.81"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.80.2"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.81"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -1470,20 +1470,28 @@
       <div class="grid-scroll"><table class="grid"><thead><tr>${head}</tr></thead><tbody>${bodyHtml}</tbody>${footHtml}</table></div>
       <div class="grid-foot"><span>Record 1 of ${rows.length}</span><span>${rows.length} record(s)</span></div></div>`;
   }
-  // 3.80.2: on an iPad / phone a list a little wider than the screen is zoomed out to fit (all columns seen, the same
-  // order); one still too wide (down to 72%) says so: "swipe sideways" and a shadow at the edge with more
-  const markWide = () => $$(".grid-scroll").forEach((s) => {
-    const t = s.querySelector("table");
-    if (!t) return;
+  // 3.81: EVERY table of the portal that is a little wider than its place is zoomed out to fit (all columns seen, the
+  // same order): the lists, the stock bill, the customer's own history and the tables in a window. Down to 72% on an
+  // iPad / phone (80% on a computer); one still too wide says so: "swipe sideways" and a shadow at the edge with more.
+  // A table to type in (boxes in it) keeps its size.
+  const FIT = ".grid-scroll, .sbt-wrap, .tblwrap, .co-wrap";
+  function fitTable(box, t, floor) {
+    if (!box || !t || t.querySelector("input, select, textarea")) return;
     if (t.style.zoom) t.style.zoom = "";
-    const sw = s.scrollWidth, cw = s.clientWidth;
-    if (sw > cw + 4 && cw > 0 && window.innerWidth <= 1194) t.style.zoom = Math.max(0.72, Math.floor((cw / sw) * 1000) / 1000);
-    s.parentElement?.classList.toggle("wide", s.scrollWidth > s.clientWidth + 4);
-  });
+    const sw = box.scrollWidth, cw = box.clientWidth;
+    if (sw > cw + 4 && cw > 0) t.style.zoom = Math.max(floor, Math.floor((cw / sw) * 1000) / 1000);
+    (box.classList.contains("grid-scroll") ? box.parentElement : box)?.classList.toggle("wide", box.scrollWidth > box.clientWidth + 4);
+  }
+  const markWide = () => {
+    const floor = window.innerWidth <= 1194 ? 0.72 : 0.8;
+    $$(FIT).forEach((s) => fitTable(s, s.querySelector("table"), floor));
+    $$(".modal .wbody table, .cust-hist table").forEach((t) => { if (!t.closest(FIT)) fitTable(t.parentElement, t, floor); });
+  };
   let wideT = 0;
   const wideSoon = () => { clearTimeout(wideT); wideT = setTimeout(markWide, 150); };
-  new MutationObserver(wideSoon).observe(document.body, { childList: true, subtree: true });
+  new MutationObserver(wideSoon).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden", "open"] });
   window.addEventListener("resize", wideSoon);
+  document.addEventListener("click", wideSoon, true); // a tab opened (shown by its class)
   function bindGrid(container, rows, onRow) {
     if (!onRow || !container) return; // 3.64: a part of the page this login does not get
     $$("tbody tr.click", container).forEach((tr) => {
