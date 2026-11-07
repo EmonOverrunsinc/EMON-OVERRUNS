@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.88.1"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.89"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.88.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.89"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -47,7 +47,11 @@
     }
     return answer.then((r) => r.clone());
   }
-  const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey, { global: { fetch: sendOnce } });
+  // 3.89: the sign in lasts only while the app (or the browser tab) is open: closing it signs out, so every new start asks
+  // to sign in. The sign in that was kept before (in the browser for good) is taken away.
+  try { localStorage.removeItem(`sb-${new URL(C.supabaseUrl).hostname.split(".")[0]}-auth-token`); } catch { /* no site data */ }
+  const authStore = (() => { try { sessionStorage.setItem("eo-t", "1"); sessionStorage.removeItem("eo-t"); return sessionStorage; } catch { return undefined; } })();
+  const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseKey, { global: { fetch: sendOnce }, auth: { storage: authStore, persistSession: true } });
   const app = document.getElementById("app");
   const S = { session: null, profile: null, lastResult: [] };
 
@@ -2258,6 +2262,32 @@
   // exposed for testing barcode round-trips
   window.EMON = { drawPdf417, drawQr, decodeCanvas, decodeImageFile, words, need };
   // shared with modules.js to modules4.js
+  // 3.89: NOT USED FOR 5 MINUTES = SIGNED OUT (a login, or a customer on its page). 30 seconds before, a warning shows; a tap,
+  // a key, a scroll keeps the sign in. Back to the app after 5 minutes away: signed out at once.
+  const IDLE_MIN = window.EO_IDLE_MIN || 5, IDLE_MS = IDLE_MIN * 60000, WARN_MS = Math.min(30000, IDLE_MS / 2);
+  let lastUse = Date.now(), idleWarn = null;
+  const used = () => { lastUse = Date.now(); if (idleWarn) { idleWarn.remove(); idleWarn = null; } };
+  ["pointerdown", "keydown", "wheel", "touchstart", "scroll", "input", "mousemove"].forEach((ev) => window.addEventListener(ev, used, { capture: true, passive: true }));
+  function idleTick() {
+    const cust = !S.session && $("#chOut");
+    if (!S.session && !cust) { lastUse = Date.now(); return; } // nobody signed in
+    const idle = Date.now() - lastUse;
+    if (idle >= IDLE_MS) {
+      used();
+      closePreview(); $$(".modal, .legal-ov").forEach((m) => m.remove());
+      if (cust) cust.click(); else signOut();
+      setTimeout(() => toast(`Signed out: the portal was not used for ${IDLE_MIN} minutes. Sign in again.`, true), 400);
+      return;
+    }
+    if (idle >= IDLE_MS - WARN_MS) {
+      if (!idleWarn) { idleWarn = document.createElement("div"); idleWarn.className = "idle-warn"; idleWarn.setAttribute("role", "alert"); document.body.appendChild(idleWarn); }
+      idleWarn.innerHTML = `${ic("clock")}<span>Not used for ${IDLE_MIN} minutes: you are signed out in <b>${Math.ceil((IDLE_MS - idle) / 1000)}</b> seconds. <u>Tap anywhere to stay signed in.</u></span>`;
+    }
+  }
+  setInterval(idleTick, 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) idleTick(); });
+  window.addEventListener("pageshow", idleTick);
+
   Object.assign(window.EO, {
     renderLogin, // 3.74.1: the order paper's page opens the sign in and comes back to the same page
     APP, VERSION, sb, S, C, esc, peso, pad, num, fullName, qtyText, bdt, verifyUrl, isoToday, isoDay, mdy, monthOf, monthText, stamp, dateTime, fixDates, timeAgo, online, $, $$,

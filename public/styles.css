@@ -3275,3 +3275,8 @@ body:has(.band-back) #main { padding-bottom: calc(84px + env(safe-area-inset-bot
 .page .ph2 .co-qr .ph-qr { width: 15mm; height: 15mm; }
 .page .ph2 .co-qr small.co-verify { font-size: 6px; padding: 0 3px; letter-spacing: .06em; }
 .page .ph2:has(.co-codes) .ph-left { min-width: 66mm; }
+
+/* 3.89: the warning before the sign out (5 minutes not used) */
+.idle-warn { position: fixed; z-index: 95; left: 50%; transform: translateX(-50%); bottom: calc(130px + env(safe-area-inset-bottom, 0px)); width: min(460px, calc(100vw - 32px)); display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-radius: 14px; background: #fff7e0; color: #5a4300; border: 1.5px solid #f2b705; box-shadow: 0 12px 30px rgba(0,0,0,.18); font-size: 14px; line-height: 1.4; animation: fadeIn .2s ease; }
+.idle-warn .ic { width: 22px; height: 22px; flex: none; color: #b7791f; }
+.idle-warn b { font-size: 16px; color: #c62828; }
