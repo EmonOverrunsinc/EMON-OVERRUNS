@@ -740,8 +740,9 @@
       if (ws.length) { const st0 = (v) => String(v || "").toLowerCase().startsWith(ws[0]); const rk = (c) => (st0(c.first_name) ? 0 : st0(c.last_name) ? 1 : 2); rows.sort((a, b) => rk(a) - rk(b)); }
       $("#cuRes").innerHTML = E.grid({ cols: [
         { label: "Account No", get: (r) => r.account_no }, { label: "Name", html: (r) => `${esc(fullName(r))}${r.status === "closed" ? ' <span class="closed-mark">CLOSED</span>' : ""}` },
-        { label: "Status", html: (r) => pill(r.status) }, { label: "Balance Due (₱)", key: "due", num: true, get: (r) => peso(r.due) }, // 3.80.1: seen first on a tablet
-        { label: "Phone", get: (r) => r.phone || "" }, { label: "Opened", get: (r) => mdy(r.application_date) }],
+        { label: "Phone", get: (r) => r.phone || "" },
+        { label: "Opened", get: (r) => mdy(r.application_date) }, { label: "Status", html: (r) => pill(r.status) },
+        { label: "Balance Due (₱)", key: "due", num: true, get: (r) => peso(r.due) }],
         rows, onRow: true, foot: { due: peso(rows.reduce((s, r) => s + r.due, 0)) }, empty: "No customers found." });
       E.bindGrid($("#cuRes"), rows, (r) => (location.hash = "customer/" + r.id));
       E.setRecords(`Customers: ${rows.length}`);
