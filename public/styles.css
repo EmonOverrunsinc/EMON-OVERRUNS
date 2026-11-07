@@ -3231,3 +3231,8 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 
 /* 3.85: the middle name box goes away when the no-middle-name box is ticked */
 .fields .mid-row[hidden] { display: none !important; }
+
+/* 3.85.2: a table made by hand in a list box can slide sideways when it is still too wide (it was cut off), and the
+   floating Back button never covers the last buttons of a page (room under the page) */
+.grid-wrap:has(> table) { overflow-x: auto; }
+body:has(.band-back) #main { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
