@@ -3240,3 +3240,27 @@ body:has(.band-back) #main { padding-bottom: calc(84px + env(safe-area-inset-bot
 /* 3.87: the coverage badge: COVERED in gold (it was blue on navy), the coverage no in white */
 .ins-mini b { color: #f2b705 !important; } .ins-mini b em { font-style: normal; color: #fff; letter-spacing: .04em; font-size: 11px; margin-left: 4px; }
 .ins-mini small { color: #fff; }
+
+/* 3.88: ORDER TRACKING (like a courier): numbered steps with the date, time and who; done = green, now = blue */
+.trk { background: #fff; border-radius: 14px; box-shadow: var(--shadow-1, 0 1px 3px rgba(0,0,0,.08)); padding: 12px 14px; margin: 12px 0; }
+.trk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.trk-head > b { display: inline-flex; align-items: center; gap: 6px; color: #0f3a8c; letter-spacing: .1em; font-size: 13px; }
+.trk-head > b .ic { width: 18px; height: 18px; }
+.trk-head .grow { flex: 1; }
+.trk-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px 12px; }
+.trk-list li { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 10px; min-width: 0; }
+.trk-list li > div { min-width: 0; display: grid; gap: 1px; }
+.trk-list li b { font-size: 12.5px; letter-spacing: .06em; color: #5a6478; }
+.trk-list li small { font-size: 11.5px; color: #6b7280; overflow-wrap: anywhere; }
+.trk-dot { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font: 700 12px/1 Arial, sans-serif; color: #8a94a6; border: 2px solid #d5dbe6; background: #fff; }
+.trk-list li.done .trk-dot { background: #1b8a3c; border-color: #1b8a3c; color: #fff; }
+.trk-list li.done b { color: #1b6b33; }
+.trk-list li.done small { color: #3c4a66; }
+.trk-list li.now { background: #eef3fc; }
+.trk-list li.now .trk-dot { border-color: #0a66c2; color: #0a66c2; box-shadow: 0 0 0 4px rgba(10,102,194,.15); }
+.trk-list li.now b { color: #0a66c2; }
+.trk-list li.skip { opacity: .55; }
+.trk-list li.opt .trk-dot { border-style: dashed; }
+.trk-list li.cancel .trk-dot { background: #c62828; border-color: #c62828; color: #fff; } .trk-list li.cancel b { color: #c62828; }
+.trk.off li:not(.done):not(.cancel) { opacity: .45; }
+@media (max-width: 600px) { .trk-list { grid-template-columns: 1fr; gap: 2px; } .trk-head .btn { flex: 1; } }

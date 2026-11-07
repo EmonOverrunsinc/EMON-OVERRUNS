@@ -469,6 +469,29 @@
     if (key.pub && key.pin && d.agreed) custHistory(key);
     else if ($("#chHist")) $("#chHist").innerHTML = "";
   }
+  // 3.88: the tracking of a customer's order: where it is now, and every step with its date and time
+  const C_TRACK = { sorting: "SORTING", preparing: "PREPARING", assigned: "ASSIGNED FOR DELIVERY", out_for_delivery: "OUT FOR DELIVERY" };
+  function custSteps(o) {
+    const t = o.tracking || [], last = (k) => [...t].reverse().find((x) => x.step === k);
+    return [["ORDER CREATED", o.order_date], ["CONFIRMED", o.approved_at], ...Object.keys(C_TRACK).map((k) => [C_TRACK[k], last(k)?.at, k === "assigned" ? last(k)?.employee : ""]),
+      ["DELIVERED", o.delivered_at], ["COMPLETED", o.completed_at], ...(o.proof_photos ? [["PROOF OF DELIVERY", null, `${o.proof_photos} photo(s)`, true]] : [])];
+  }
+  function custTrack(o) {
+    if (o.status === "cancelled") return { pill: ["rejected", "CANCELLED"], at: null };
+    const done = custSteps(o).filter((x) => x[1]);
+    const lastDone = done.reduce((m, x) => (!m || String(x[1]) >= String(m[1]) ? x : m), null);
+    return { pill: [o.status === "completed" ? "applied" : o.status === "pending" ? "pending" : "approved", lastDone ? lastDone[0] : "ORDER CREATED"], at: lastDone?.[1] || null };
+  }
+  function custTrackShow(o) {
+    if (!o) return;
+    const steps = custSteps(o), lastI = steps.reduce((m, x, i) => (x[1] ? i : m), -1);
+    const m = E.modal(`Tracking — ${o.order_no}`, `<section class="trk${o.status === "cancelled" ? " off" : ""}"><ol class="trk-list">${steps.map(([t, at, sub, done], i) => {
+        const ok = !!at || done, cls = ok ? "done" : o.status !== "cancelled" && i === lastI + 1 ? "now" : "";
+        return `<li class="${cls}"><span class="trk-dot">${ok ? "✓" : i + 1}</span><div><b>${esc(t)}</b><small>${esc(at ? E.dateTime(at) : "")}${at && sub ? " · " : ""}${esc(sub || "")}</small></div></li>`;
+      }).join("")}${o.status === "cancelled" ? `<li class="cancel"><span class="trk-dot">✕</span><div><b>CANCELLED</b><small></small></div></li>` : ""}</ol></section>`,
+      `<button type="button" class="btn" data-x>Close</button>`);
+    $("[data-x]", m.el).onclick = m.close;
+  }
   // 3.74: the customer's orders, invoices, payments and the SOA (current month first; earlier months to choose)
   async function custHistory(key) {
     const box = $("#chHist");
@@ -482,9 +505,10 @@
     box.innerHTML = `${soa ? `<div class="cust-soa"><div><small>STATEMENT OF ACCOUNT</small><b>${esc(soa.monthText(cur).toUpperCase())} (TO DATE)</b><span>${esc(soa.period(cur).no)}</span></div>
         <button type="button" class="btn primary" id="chSoa">${ic("download")} Download SOA</button></div>
         ${soa.months.length > 1 ? `<div class="btnrow"><select id="chSoaM">${soa.months.map((m, i) => `<option value="${m}">${esc(soa.monthText(m).toUpperCase())}${i ? "" : " (TO DATE)"}</option>`).join("")}</select><button type="button" class="btn" id="chSoaOld">${ic("print")} Other Month</button></div>` : ""}` : ""}
-      ${tbl("MY ORDERS", ["Order No", "Date", "Status", "Boxes", "Amount (₱)"], (data.orders || []).slice(0, 30).map((o) => `<tr><td>${esc(o.order_no || "")}</td><td>${esc(E.mdy(o.order_date))}</td><td>${E.pill(o.status === "completed" ? "delivered" : o.status)}</td><td>${esc(String(o.total_boxes || 0))}</td><td class="num">${peso(o.total_amount)}</td></tr>`), "No orders yet.")}
+      ${tbl("MY ORDERS", ["Order No", "Date", "Status", "Boxes", "Amount (₱)"], (data.orders || []).slice(0, 30).map((o, oi) => `<tr class="click" data-co="${oi}"><td>${esc(o.order_no || "")}</td><td>${esc(E.mdy(o.order_date))}</td><td>${E.pill(...custTrack(o).pill)}<br><small>${esc(custTrack(o).at ? E.dateTime(custTrack(o).at) : "")}</small></td><td>${esc(String(o.total_boxes || 0))}</td><td class="num">${peso(o.total_amount)}</td></tr>`), "No orders yet.")}
       ${tbl("MY INVOICES", ["Invoice No", "Date", "Status", "Balance (₱)", "Amount (₱)"], (data.invoices || []).slice(0, 30).map((i) => `<tr><td>${esc(E.insOfInvoice?.(i) ? `COVERAGE ${E.insOfInvoice(i)}` : i.invoice_no || "")}</td><td>${esc(E.mdy(i.invoice_date))}</td><td>${E.pill(i.pay_status || "")}</td><td>${peso(i.balance)}</td><td class="num">${peso(i.total_amount)}</td></tr>`), "No invoices yet.")}
       ${tbl("MY PAYMENTS", ["Receipt No", "Date", "Amount (₱)"], (data.payments || []).slice(0, 30).map((p) => `<tr><td>${esc(p.receipt_no || "")}</td><td>${esc(E.mdy(p.paid_date))}</td><td class="num">${peso(p.amount)}</td></tr>`), "No payments yet.")}`;
+    $$("[data-co]", box).forEach((tr) => (tr.onclick = () => custTrackShow((data.orders || [])[Number(tr.dataset.co)]))); // 3.88: the tracking
     if ($("#chSoa")) $("#chSoa").onclick = () => soa.print(cur);
     if ($("#chSoaOld")) $("#chSoaOld").onclick = () => soa.print($("#chSoaM").value);
   }
