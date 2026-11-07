@@ -1397,26 +1397,28 @@
     E.setRecords("New payment voucher");
   };
 
-  // The voucher: PDF417 barcode, the amount in the company's currency (BDT a little bigger), receipt photo
-  // fitted in its box. System-generated: no signature line.
-  function voucherPage(v, receiptUrl) {
-    const a = v.pay_accounts || {}, co = v.pay_companies || {};
-    return `${E.printHead("PAYMENT VOUCHER", `<img src="${E.pdf417DataUrl("EMONBD|" + v.voucher_no)}" alt="" class="ph-bar"><div class="mono">${esc(v.voucher_no)}</div>`)}
-      <div class="vno-row"><span>Voucher No: <b>${esc(v.voucher_no)}</b></span><span>Issued By: <b>${esc(v.created_by_name || "")}</b></span><span>Date: <b>${esc(E.mdy(v.pay_date))}</b></span></div>
-      ${E.box("Paid To", `<div class="pgrid2">${E.cell("Company", co.name, "hl")}${E.cell("Contact Person", co.contact_person)}${E.cell("Account Name", a.account_name)}${E.cell("Account Number", a.account_number)}
-        ${E.cell("Bank / Branch", [a.bank_name, a.branch_name].filter(Boolean).join(" — "))}${E.cell("Address", co.address || co.country)}</div>`)}
-      ${E.box("Payment", `<div class="prow3">${E.cell("Method", v.method)}${E.cell("Reference No", v.reference_no)}</div>
-        ${v.stock_bills ? E.cell("For E-Bill", v.stock_bills.bill_no, "hl") : ""}
-        <table class="rp v-amt"><tbody>
-          ${v.amount_php != null ? `<tr class="${v.amount_bdt == null ? "v-bdt" : ""}"><td>Amount (Philippine Peso)</td><td class="num">PHP ${peso(v.amount_php)}</td></tr>` : ""}
-          ${v.exchange_rate != null ? `<tr><td>Exchange Rate (BDT per 1 PHP)</td><td class="num">× ${rateText(v.exchange_rate)}</td></tr>` : ""}
-          ${v.amount_bdt != null ? `<tr class="v-bdt"><td>Amount (Bangladeshi Taka)</td><td class="num">BDT ${peso(v.amount_bdt)}</td></tr>` : ""}</tbody></table>
-        <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(amountWords(v))}</div></div>`)}
-      ${receiptUrl ? `<div class="pbox v-rcpt"><div class="pbox-h">Receipt</div><div class="v-rcpt-in"><img src="${esc(receiptUrl)}" alt="Receipt"></div></div>` : ""}
-      ${v.notes ? `<p class="pdecl"><b>Notes:</b> ${esc(v.notes)}</p>` : ""}
-      <div class="soa-sys">This is a system-generated voucher. No signature is required.</div>
-      <div class="rp-foot"><span>Scan the barcode in the ${esc(E.APP)} to verify this voucher.</span><span>${esc(v.voucher_no)}</span></div>`;
+  // 3.95: the payment voucher on A5 landscape in the receipt layout (as every voucher), with its PURPOSE
+  function payVoucherA5(v) {
+    const a = v.pay_accounts || {}, co = v.pay_companies || {}, bdt = v.amount_bdt != null;
+    const nt = String(v.notes || "").trim(), short = nt.length > 90 ? nt.slice(0, 90).replace(/\s+\S*$/, "") + "…" : nt;
+    const purpose = v.stock_bills ? `E-BILL PAYMENT · ${v.stock_bills.bill_no}` : short || "PAYMENT";
+    const rows = [];
+    if (v.amount_php != null) rows.push(["Amount (Philippine Peso)", `PHP ${peso(v.amount_php)}`]);
+    if (v.exchange_rate != null) rows.push(["Exchange Rate (BDT per 1 PHP)", `× ${rateText(v.exchange_rate)}`]);
+    if (bdt) rows.push(["Amount (Bangladeshi Taka)", `BDT ${peso(v.amount_bdt)}`]);
+    const total = bdt ? ["TOTAL: BDT", peso(v.amount_bdt)] : ["TOTAL: PHP", peso(v.amount_php)];
+    const acct = [a.account_name, a.account_number].filter(Boolean).join(" · "), bank = [a.bank_name, a.branch_name].filter(Boolean).join(" — ");
+    return E.voucherA5({ title: "PAYMENT VOUCHER", sub: v.stock_bills ? "E-BILL PAYMENT" : "COMPANY PAYMENT", stamp: ["paid", "PAID", mdy(v.pay_date)],
+      fields: [["Voucher No", v.voucher_no], ["Reference No", v.reference_no], ["Payment Date", mdy(v.pay_date)], ["Paid By", v.method],
+        ["Status", `PAID · ${mdy(v.pay_date)}`, "st-paid", true], ["Purpose", purpose, "purpose", true], ["Paid To", [co.name, co.contact_person].filter(Boolean).join(" · "), "", true],
+        ...(acct ? [["Account", acct, "", true]] : []), ...(bank ? [["Bank / Branch", bank], ["Issued By", v.created_by_name]] : [["Issued By", v.created_by_name, "", true]])],
+      qr: `EMONBD|${v.voucher_no}|${Number(bdt ? v.amount_bdt : v.amount_php || 0).toFixed(2)}|PAID`, code: v.voucher_no, bar: "EMONBD|" + v.voucher_no,
+      head: "AMOUNT", rows: rows.length ? rows : [["Amount", "—"]], total, words: amountWords(v),
+      note: v.notes && v.stock_bills ? `Notes: ${esc(v.notes)}.` : "" });
   }
+  const payVoucherPic = (v, pic) => `<div class="cvr cvr-picpage"><div class="cvr-title sm">RECEIPT · ${esc(v.voucher_no)}</div><div class="cvr-pic"><img src="${esc(pic)}" alt="Receipt"></div></div>`;
+  E._docs = { ...(E._docs || {}), payVoucherA5 };
+
   // 3.48: the account a payment went to: one of the company's accounts, or a new one added here
   async function voucherAccount(v, reload) {
     const { data: accs, error: e0 } = await sb.from("pay_accounts").select("*").eq("company_id", v.company_id).order("account_name");
@@ -1457,7 +1459,10 @@
     if (!here()) return; // 3.35: not drawn over the page the person went to
     if (!v) { $("#main").innerHTML = `<div class="empty">Voucher not found. <a href="#billing">Back</a></div>`; return; }
     const rcpt = att.find((a) => a.kind === "receipt" && E.isImage(a));
-    const print = async () => E.openPreview(`Voucher ${v.voucher_no}`, [voucherPage(v, rcpt ? await E.signedUrl(rcpt.storage_path, 1800) : "")]);
+    const print = async () => { // 3.95: A5 landscape, as every voucher (the receipt picture on its own page)
+      const pic = rcpt ? await E.signedUrl(rcpt.storage_path, 1800) : ""; // rcpt is a picture (E.isImage)
+      E.openPreview(`Voucher ${v.voucher_no}`, [payVoucherA5(v), ...(pic ? [payVoucherPic(v, pic)] : [])], { size: "a5l", bare: true });
+    };
     const a = v.pay_accounts || {};
     $(".band h1").textContent = `Payment Voucher — ${v.voucher_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(v.voucher_no)} · ${esc(v.pay_companies?.name || "")}</div><div class="wbody">

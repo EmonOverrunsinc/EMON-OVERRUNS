@@ -3440,3 +3440,9 @@ body:has(.login) { background: #0f3a8c; }
 .cvr-note { font: italic 6.5pt/1.4 Arial, sans-serif; color: #3c4a66; }
 .cvr-bar { text-align: center; } .cvr-bar img { height: 11mm; width: 58mm; object-fit: fill; display: block; }
 .cvr-picpage { align-items: center; } .cvr-pic { flex: 1; display: grid; place-items: center; width: 100%; } .cvr-pic img { max-width: 100%; max-height: 118mm; object-fit: contain; }
+
+/* ===================== 3.95: EVERY VOUCHER on A5 landscape (collection and payment) - details in 2 columns, the PURPOSE ===================== */
+.cvr-f.two { grid-template-columns: 23mm 1fr 23mm 1fr; gap: 1mm 3mm; }
+.cvr-f.two b.w { grid-column: span 3; }
+.cvr-f.two span:has(+ b.w) { grid-column: 1; }
+.cvr-f b.purpose { color: #0f3a8c; font-weight: 900; letter-spacing: .03em; text-transform: uppercase; }
