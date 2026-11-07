@@ -404,6 +404,8 @@
         Account No <b>${esc(c.account_no || "")}</b>, the application number and the Public ID stay the same.</div>
       <fieldset class="opt"><legend>Personal Details</legend><div class="fields wide">
         <label for="ecFirst">First Name *</label><input type="text" id="ecFirst" value="${v(c.first_name)}" autocomplete="off">
+        <label for="ecMiddle" class="mid-row"${c.no_middle_name ? " hidden" : ""}>Middle Name</label><input type="text" id="ecMiddle" class="mid-row"${c.no_middle_name ? " hidden" : ""} autocomplete="off" value="${v(c.middle_name)}">
+        <span></span><div class="checks"><label><input type="checkbox" id="ecNoMid"${c.no_middle_name ? " checked" : ""}> I don't have a middle name</label></div>
         <label for="ecLast">Last Name *</label><input type="text" id="ecLast" value="${v(c.last_name)}" autocomplete="off">
         <label for="ecPhone">Phone Number</label><input type="tel" id="ecPhone" value="${v(c.phone)}">
         <label for="ecEmail">Email Address</label><input type="email" id="ecEmail" value="${v(c.email)}">
@@ -446,11 +448,12 @@
     };
     ["ecFirst", "ecLast", "ecPhone", "ecFb", "ecFb2", "ecFbLink"].forEach((k) => $("#" + k, el).addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(check, 400); }));
     check();
+    $("#ecNoMid", el).onchange = (e) => $$(".mid-row", el).forEach((x) => (x.hidden = e.target.checked)); // 3.85: no middle name: the box goes away
     $("[data-x]", el).onclick = m.close;
     $("[data-ok]", el).onclick = async () => {
       const num = (id) => (val(id) === "" ? null : Number(val(id)));
       const now = {
-        first_name: val("ecFirst"), last_name: val("ecLast"), phone: val("ecPhone") || null, email: val("ecEmail") || null,
+        first_name: val("ecFirst"), last_name: val("ecLast"), middle_name: $("#ecNoMid", el).checked ? null : val("ecMiddle") || null, no_middle_name: $("#ecNoMid", el).checked, phone: val("ecPhone") || null, email: val("ecEmail") || null,
         address: val("ecAddr"), application_date: val("ecDate") || null, // 3.80: no location check (the address only)
         credit_limit: num("ecCredit"), opening_balance: num("ecOpen") ?? 0, business_start_date: val("ecStart") || null,
         business_name: val("ecBiz") || null, facebook_name: val("ecFb") || null, facebook_link: val("ecFbLink") || null,
@@ -767,6 +770,8 @@
           <fieldset class="opt"><legend>Personal Details</legend><div class="formgrid">
             <div class="fields wide">
               <label for="ncFirst">First Name *</label><input type="text" id="ncFirst" required autocomplete="given-name">
+              <label for="ncMiddle" class="mid-row">Middle Name *</label><input type="text" id="ncMiddle" class="mid-row" autocomplete="additional-name">
+              <span></span><div class="checks"><label><input type="checkbox" id="ncNoMid"> I don't have a middle name</label></div>
               <label for="ncLast">Last Name *</label><input type="text" id="ncLast" required autocomplete="family-name">
               <label for="ncPhone">Phone Number *</label><input type="tel" id="ncPhone" required placeholder="09xxxxxxxxx">
               <label for="ncEmail">Email Address</label><input type="email" id="ncEmail">
@@ -826,6 +831,7 @@
       $("#ncCheck").innerHTML = personCheckHtml(rows);
     };
     ["ncFirst", "ncLast", "ncPhone", "ncFb", "ncFb2", "ncFbLink"].forEach((k) => $("#" + k).addEventListener("input", () => { clearTimeout(ckTimer); ckTimer = setTimeout(personCheck, 400); }));
+    $("#ncNoMid").onchange = (e) => { $$(".mid-row").forEach((x) => (x.hidden = e.target.checked)); if (!e.target.checked) $("#ncMiddle").focus(); }; // 3.85: no middle name: the box goes away
     $$("input[name=ncFbx]").forEach((r) => r.addEventListener("change", () => { clearTimeout(ckTimer); ckTimer = setTimeout(personCheck, 100); }));
     $$("input[name=ncFbx]").forEach((r) => (r.onchange = () => $$(".fb2").forEach((x) => (x.hidden = r.value !== "yes" || !r.checked))));
     let photoUrl = "";
@@ -841,6 +847,8 @@
       clearTimeout(pvTimer);
       const v = (id) => $("#" + id).value.trim();
       if (!v("ncFirst") || !v("ncLast")) return toast("Enter the first and last name.", true);
+      const noMid = $("#ncNoMid").checked;
+      if (!noMid && !v("ncMiddle")) { toast("Enter the middle name, or tick \"I don't have a middle name\".", true); return $("#ncMiddle").focus(); }
       if (!v("ncPhone")) return toast("Enter the phone number.", true);
       if (!v("ncAddr")) return toast("Enter the full address.", true);
       if (v("ncFbLink") && !FB_LINK.test(v("ncFbLink"))) return toast("Enter the Facebook account link, for example https://www.facebook.com/name — or leave it empty.", true);
@@ -859,14 +867,17 @@
           const up = await sb.storage.from("records").upload(photo_path, photo, { contentType: photo.type });
           if (up.error) { photo_path = null; toast("The photo could not be uploaded; the application is saved without it.", true); }
         }
-        const ins = await sb.from("customers").insert({
-          id, first_name: v("ncFirst"), last_name: v("ncLast"), photo_path, address: v("ncAddr"),
+        const row = {
+          id, first_name: v("ncFirst"), middle_name: noMid ? null : v("ncMiddle"), no_middle_name: noMid, last_name: v("ncLast"), photo_path, address: v("ncAddr"),
           location_check: "no_need", address_verified: false, // 3.80: no location check (the address only)
           credit_limit: v("ncCredit") ? num(v("ncCredit")) : null, opening_balance: num(v("ncOpen")) || 0,
           business_start_date: v("ncStart") || null, business_name: v("ncBiz") || null,
           facebook_name: v("ncFb") || null, facebook_link: v("ncFbLink") || null, has_extra_facebook: extra, extra_facebook_name: extra ? v("ncFb2") : null,
           facebook_verified: $("input[name=ncFbv]:checked").value === "yes", phone: v("ncPhone"), email: v("ncEmail") || null
-        }).select().single();
+        };
+        let ins = await sb.from("customers").insert(row).select().single();
+        // the server has not 089 yet: saved without the middle name
+        if (ins.error && /middle_name/.test(ins.error.message || "")) { delete row.middle_name; delete row.no_middle_name; ins = await sb.from("customers").insert(row).select().single(); }
         if (ins.error) { E.setBusy(e.target, false); return fail(ins.error, "Could not submit the application"); }
         c = ins.data;
         if (photo_path) await sb.from("attachments").insert({ owner_type: "customer", owner_id: c.id, kind: "photo", storage_path: photo_path, file_name: `${c.account_no || c.application_no} Profile Photo`, mime: photo.type, size: photo.size });
@@ -886,8 +897,9 @@
       <div class="prow3">${cell("Application No", c.application_no)}${cell("Account No", c.account_no)}${cell("Application Date", mdy(c.application_date))}</div>
       ${box("Customer Information", `<div class="pgrid">
         <div class="pphoto pqr"><img src="${qr}" alt="Customer QR code"><div class="mono key">${esc(c.public_id)}</div></div>
-        <div class="pgrid2">${cell("First Name", c.first_name)}${cell("Last Name", c.last_name)}
-          ${cell("Phone Number", c.phone)}${cell("Email Address", c.email)}
+        <div class="pgrid2">${cell("First Name", c.first_name)}${cell("Middle Name", c.middle_name || (c.no_middle_name ? "NONE" : ""))}
+          ${cell("Last Name", c.last_name)}${cell("Phone Number", c.phone)}
+          ${cell("Email Address", c.email, "span2")}
           ${cell("Delivery Address", c.address, "span2")}</div></div>`)}
       ${box("Requirements Submitted", `<div class="pv preq">${reqs.length ? reqs.map((r) => `<div><span class="ok-mark">✔</span> ${esc(r.file_name)}</div>`).join("") : "None uploaded yet"}</div>`)}
       ${box("For Office Use", `<div class="pgrid2">${cell("Issued By", c.issued_by_name)}${cell("Status", c.status.toUpperCase())}
@@ -918,8 +930,9 @@
       <div class="prow3">${cell("Account No", c.account_no)}${cell("Application No", c.application_no)}${cell("Opening Date", mdy(c.application_date))}</div>
       ${box("Customer Information", `<div class="pgrid">
         <div class="pphoto pqr"><img src="${E.qrDataUrl(custQr(c))}" alt="Customer QR code"><div class="mono key">${esc(c.public_id)}</div></div>
-        <div class="pgrid2">${cell("First Name", c.first_name)}${cell("Last Name", c.last_name)}
-          ${cell("Phone Number", c.phone)}${cell("Email Address", c.email)}
+        <div class="pgrid2">${cell("First Name", c.first_name)}${cell("Middle Name", c.middle_name || (c.no_middle_name ? "NONE" : ""))}
+          ${cell("Last Name", c.last_name)}${cell("Phone Number", c.phone)}
+          ${cell("Email Address", c.email, "span2")}
           ${c.business_name ? cell("Business Name", c.business_name, "span2") : ""}
           ${cell("Delivery Address", c.address, "span2")}</div></div>`)}
       ${box("Account", `<div class="pgrid2">${cell("Status", String(c.status).toUpperCase())}${cell("Issued By", c.issued_by_name)}
@@ -1139,7 +1152,7 @@
       ["Credits / Discounts", "₱ " + peso(b.total_credits)], ["Balance Due", "₱ " + peso(b.balance_due)]] : [];
     const a = appRows(c);
     const rows = [
-      ["First Name", c.first_name], ["Last Name", c.last_name], a.phone, a.email, a.address, a.credit, a.opening, ...money,
+      ["First Name", c.first_name], ["Middle Name", c.middle_name || (c.no_middle_name ? "NO MIDDLE NAME" : "")], ["Last Name", c.last_name], a.phone, a.email, a.address, a.credit, a.opening, ...money,
       a.business, a.start, a.fb, a.fbLink, a.fbExtra,
       [["pending", "verified", "rejected"].includes(c.status) ? "Application Date" : "Opening Date", mdy(c.application_date)], a.issued, ["Account Status", c.status.toUpperCase()], ["Status Note", c.status_note]
     ];
