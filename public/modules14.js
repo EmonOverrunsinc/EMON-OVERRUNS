@@ -202,7 +202,7 @@
     const [o, s, cv, inv, proof] = await Promise.all([
       sb.from("customer_orders").select("*, customers(first_name, last_name, account_no)").eq("id", i.order_id).maybeSingle().then((r) => r.data),
       settings(),
-      i.cv_id ? sb.from("collection_vouchers").select("id, cv_no").eq("id", i.cv_id).maybeSingle().then((r) => r.data, () => null) : null,
+      i.cv_id ? sb.from("collection_vouchers").select("*").eq("id", i.cv_id).maybeSingle().then((r) => r.data, () => null) : null,
       null, i.proof_path ? E.signedMap([i.proof_path]).then((m) => m.get(i.proof_path) || "") : ""]);
     const invoice = o?.invoice_id ? (await sb.from("customer_invoices").select("id, invoice_no").eq("id", o.invoice_id).maybeSingle()).data : inv;
     const prem = i.invoice_id ? (await sb.from("customer_invoices").select("id, invoice_no").eq("id", i.invoice_id).maybeSingle()).data : null; // 3.77: billed to the account
@@ -213,7 +213,7 @@
         ${i.status === "rejected" ? `<div class="banner warn"><b>Payment not accepted</b>${i.review_note ? `: ${esc(i.review_note)}` : ""}. Submit the right proof again.</div>` : ""}
         ${i.pay_by && i.status === "unpaid" ? `<div class="banner warn ins-payby">${ic("clock")} <b>PAY BY ${esc(mdy(i.pay_by))}</b> — not paid within 3 days, this coverage is <b>CANCELLED automatically</b>.</div>` : ""}
         <div class="ins-choice"><div><b>1 · PAY NOW</b><small>QR code + payment slip below → a collection voucher is issued</small></div>
-          <div><b>2 · ADD TO ACCOUNT</b><small>bill ₱ ${peso(i.amount)} to the customer's account as an invoice (paid later); the coverage is issued now</small>
+          <div><b>2 · ADD TO ACCOUNT</b><small>an UNPAID voucher of ₱ ${peso(i.amount)} is issued (no invoice): the customer pays within 1 month (cash or transfer); the coverage is issued now</small>
           <button type="button" class="btn" id="ipAcct">${ic("doc")} Add to Customer Account</button></div></div>
         <div class="ins-paygrid"><div class="ins-qr"><button type="button" class="ins-qr-btn" id="ipQrBig" aria-label="Show the QR code big"><img src="${esc(q)}" alt="EMON OVERRUNS payment QR code"></button>
           <div class="btnrow center"><button type="button" class="btn small" id="ipQrZoom">${ic("eye")} Big QR</button><a class="btn small" href="${esc(q)}" download="EMON-OVERRUNS-InstaPay-QR.png">${ic("download")} Save QR</a></div>
@@ -231,8 +231,9 @@
           <div class="btnrow"><button type="button" class="btn danger" id="ipNo">${ic("x")} Reject</button><button type="button" class="btn ok" id="ipOk">${ic("check")} Payment Received · Issue Coverage</button></div>` : i.status === "review" ? `<div class="banner info">Waiting for EMON HASAN to check the payment.</div>` : ""}</fieldset>` : "";
     $("#main").innerHTML = `${E.eoTabs("insurance")}<div class="insx">
       <div class="ins-head ${st.k}"><div class="ins-seal">${ic("shield")}</div><div><small>${esc(i.ins_no)} · ORDER ${esc(i.order_no || "")}</small><b>${esc(st.label)}</b>
-        <span>${esc(i.customer_name || "")} · ${E.qtyText(i.boxes)} box(es) · premium ₱ ${peso(i.amount)}</span></div>${i.status === "active" ? `<span class="ins-paidchip">${ic("check")} STATUS: PAID</span>` : ""}</div>
-      ${i.status === "active" ? `<div class="btnrow"><button type="button" class="btn primary" id="ipCert">${ic("download")} Coverage Certificate (PDF)</button>${cv ? `<a class="btn" href="#collection/${cv.id}">${ic("doc")} Collection Voucher ${esc(cv.cv_no)}</a>` : ""}${prem ? `<a class="btn" href="#invoice/${prem.id}">${ic("doc")} Premium Invoice ${esc(prem.invoice_no)} (billed to the account)</a>` : ""}</div>` : ""}
+        <span>${esc(i.customer_name || "")} · ${E.qtyText(i.boxes)} box(es) · premium ₱ ${peso(i.amount)}</span></div>${i.status === "active" ? (cv?.status === "unpaid" ? `<span class="ins-paidchip unpaid">${ic("clock")} STATUS: UNPAID · PAY BEFORE ${esc(mdy(cv.pay_by))}</span>` : `<span class="ins-paidchip">${ic("check")} STATUS: PAID</span>`) : ""}</div>
+      ${i.status === "active" ? `<div class="btnrow"><button type="button" class="btn primary" id="ipCert">${ic("download")} Coverage Certificate (PDF)</button>${cv ? `<a class="btn${cv.status === "unpaid" ? " primary" : ""}" href="#collection/${cv.id}">${ic("doc")} Collection Voucher ${esc(cv.cv_no)}${cv.status === "unpaid" ? " · UNPAID" : ""}</a>` : ""}${prem ? `<a class="btn" href="#invoice/${prem.id}">${ic("doc")} Premium Invoice ${esc(prem.invoice_no)} (billed to the account)</a>` : ""}</div>` : ""}
+      ${prem && isAdmin() ? `<div class="banner info">${ic("doc")} This coverage was billed by <b>invoice ${esc(prem.invoice_no)}</b> (the old way). Change it to an <b>unpaid voucher</b>: the invoice is removed from the customer's account (only when nothing was paid on it). <button type="button" class="btn small primary" id="ipMove">Change to Unpaid Voucher</button></div>` : ""}
       <fieldset class="opt"><legend>Order</legend><div class="pgrid2 qc-head">
         <div class="pcell"><div class="pl">Order No</div><div class="pv">${o ? `<a href="#custorder/${o.id}"><b>${esc(o.order_no)}</b></a>` : esc(i.order_no || "")}</div></div>
         ${E.cell("Customer", i.customer_name || "")}${E.cell("Account No", o?.customers?.account_no || "")}${E.cell("Order Status", o ? String(o.status).toUpperCase() : "")}
@@ -248,13 +249,21 @@
     if ($("#ipQrBig")) { $("#ipQrBig").onclick = bigQr; $("#ipQrZoom").onclick = bigQr; }
     if ($("#ipOpen")) $("#ipOpen").onclick = () => E.viewFile({ storage_path: i.proof_path, mime: isPdf ? "application/pdf" : "image/jpeg", file_name: `${i.ins_no} Proof of Payment` });
     if ($("#ipCert")) $("#ipCert").onclick = () => printCert(i, o, invoice, cv);
+    if ($("#ipMove")) $("#ipMove").onclick = async (e) => { // 3.91: the old way (an invoice) to an unpaid voucher
+      const btn = e.currentTarget;
+      if (!(await E.confirmBox(`Change coverage <b>${esc(i.ins_no)}</b> to an <b>unpaid voucher</b>?<br><br>Invoice <b>${esc(prem.invoice_no)}</b> (₱ ${esc(peso(i.amount))}) is <b>removed</b> from ${esc(i.customer_name || "the customer")}'s account and an unpaid voucher is issued (pay before 1 month after the invoice date).`, { title: "Change to Unpaid Voucher", ok: "Change", danger: true }))) return;
+      btn.disabled = true;
+      const { data: r, error } = await sb.rpc("ins_move_to_voucher", { p_id: i.id });
+      if (error) { btn.disabled = false; return fail(error, /ins_move_to_voucher|schema cache|PGRST202/.test(error.message || "") ? "Run the database update 091_coverage_voucher.sql first" : "Could not change it"); }
+      toast(`Coverage ${r.ins_no}: unpaid voucher ${r.pay_ref}. The invoice is removed.`); insPage(i.id);
+    };
     if ($("#ipAcct")) $("#ipAcct").onclick = async (e) => { // 3.77: ADD TO ACCOUNT: an invoice of the premium; issued now
       const btn = e.currentTarget;
-      if (!(await E.confirmBox(`Bill the premium <b>₱ ${esc(peso(i.amount))}</b> of <b>${esc(i.ins_no)}</b> to <b>${esc(i.customer_name || "the customer")}</b>'s account?<br><br>An invoice is made (on the SOA and the balance) and the coverage is issued now.`, { title: "Add to Customer Account", ok: "Add to Account" }))) return;
+      if (!(await E.confirmBox(`Add the coverage <b>₱ ${esc(peso(i.amount))}</b> of <b>${esc(i.ins_no)}</b> to <b>${esc(i.customer_name || "the customer")}</b>'s account?<br><br>An <b>UNPAID voucher</b> is issued (no invoice): the customer pays within <b>1 month</b>. It is counted when the payment is received. The coverage is issued now.`, { title: "Add to Customer Account", ok: "Add to Account" }))) return;
       btn.disabled = true;
       const { data: r, error } = await sb.rpc("ins_bill_account", { p_id: i.id });
-      if (error) { btn.disabled = false; return fail(error, /ins_bill_account|schema cache|PGRST202/.test(error.message || "") ? "Run the database update 084_insurance_account.sql first" : "Could not bill it to the account"); }
-      toast(`Coverage ${r.ins_no} issued · billed to the account: invoice ${r.pay_ref}.`); insPage(i.id);
+      if (error) { btn.disabled = false; return fail(error, /ins_bill_account|schema cache|PGRST202/.test(error.message || "") ? "Run the database update 091_coverage_voucher.sql first" : "Could not add it to the account"); }
+      toast(`Coverage ${r.ins_no} issued · unpaid voucher ${r.pay_ref}${r.pay_by ? ` (pay before ${mdy(r.pay_by)})` : ""}.`); insPage(i.id);
     };
     // the slip: scanned with the camera or uploaded; EVA reads it at once
     let eva = null, evaFile = null;
@@ -496,7 +505,8 @@
   // ---------- 3.73.4: the coverage on the invoice and the order (information only; the premium is fixed when issued and
   // is not added to the invoice; if the order changes later, the premium stays the same) ----------
   async function insForOrder(orderId) {
-    const { data, error } = await sb.from("order_insurance").select("*").eq("order_id", orderId).eq("status", "active").limit(1);
+    let { data, error } = await sb.from("order_insurance").select("*, collection_vouchers(status, cv_no, pay_by)").eq("order_id", orderId).eq("status", "active").limit(1);
+    if (error) ({ data, error } = await sb.from("order_insurance").select("*").eq("order_id", orderId).eq("status", "active").limit(1)); // the server has not 091 yet
     return error ? null : data?.[0] || null;
   }
   async function insForInvoice(invoiceId) {
@@ -504,7 +514,7 @@
     return error || !o?.[0] ? null : insForOrder(o[0].id);
   }
   const insNote = "Paid separately · fixed when issued · not added to this invoice (stays the same if the order changes)";
-  const insBox = (i) => !i ? "" : `<a class="ins-strip valid ins-inv" href="#insurance/${i.id}"><span class="ins-seal">${ic("shield")}</span><span><small>COVERAGE ${esc(i.ins_no)} · STATUS: PAID</small>
+  const insBox = (i) => !i ? "" : `<a class="ins-strip valid ins-inv" href="#insurance/${i.id}"><span class="ins-seal">${ic("shield")}</span><span><small>COVERAGE ${esc(i.ins_no)} · STATUS: ${i.collection_vouchers?.status === "unpaid" ? `UNPAID · VOUCHER ${esc(i.collection_vouchers.cv_no)} · PAY BEFORE ${esc(mdy(i.collection_vouchers.pay_by))}` : "PAID"}</small>
       <b>Coverage ₱ ${peso(i.amount)}</b><span class="ins-note">${esc(insNote)}</span></span><span class="ins-exp"><small>BENEFITS EXPIRE</small><b>${esc(stateOf(i).short || "")}</b><small>PAYMENT DUE +${DUE} DAYS</small></span></a>`;
   const insPrintBox = (i) => !i ? "" : E.box("Coverage", `<div class="prow3">${E.cell("Certificate No", i.ins_no)}${E.cell("Coverage Amount (₱)", peso(i.amount))}${E.cell("Benefits Expire", i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY")}</div><div class="prow3">${E.cell("Payment Due Extension", `+${DUE} DAYS AFTER THE DUE DATE`)}</div>
       <div class="pcell"><div class="pl">Note</div><div class="pv">STATUS: PAID · ${esc(insNote.toUpperCase())}</div></div>`);
