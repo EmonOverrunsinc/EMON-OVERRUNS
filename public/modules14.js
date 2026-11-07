@@ -448,12 +448,7 @@
     const { data, error } = await sb.from("order_insurance").select("*").eq("order_id", o.id).neq("status", "cancelled").order("created_at", { ascending: false }).limit(1);
     if (error || !el.isConnected) return;
     const i = data?.[0];
-    if (i) {
-      const st = stateOf(i);
-      el.innerHTML = `<a class="ins-strip ${st.k}" href="#insurance/${i.id}"><span class="ins-seal">${ic("shield")}</span><span><small>COVERAGE ${esc(i.ins_no)}</small><b>${st.k === "valid" ? "COVERED" : esc(st.label)}</b></span>
-        ${i.status === "active" ? `<span class="ins-exp"><small>BENEFITS EXPIRE</small><b>${esc(st.short || "")}</b><small>PAYMENT DUE +${DUE} DAYS</small></span>` : ""}</a>`;
-      return;
-    }
+    if (i) { el.innerHTML = ""; return; } // 3.87: an order with coverage shows only the badge at the top (COVERED · due date · claims)
     if (!eligible(o) || !canW()) return;
     const s = await settings(); if (!el.isConnected) return;
     const c = calc(o.total_boxes, o.total_amount, s.ins_box_price, s.ins_rate_pct);
@@ -529,8 +524,9 @@
     }
     if (!el.isConnected) return;
     const st = stateOf(i);
-    el.innerHTML = `<a class="ins-mini ${st.k}" href="#insurance/${i.id}" title="Open coverage ${esc(i.ins_no)}">${ic("shield")}<span><b>${st.k === "valid" ? "COVERED" : esc(st.label)}</b>
-      <small>DUE DATE: ${esc(due ? mdy(due) : dueSum(terms))}</small><small>CLAIMS UNTIL: ${esc(i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY")}</small></span></a>`;
+    // 3.87: the wording: COVERED · the coverage no, the payment due date with the coverage days, and the last day for claims
+    el.innerHTML = `<a class="ins-mini ${st.k}" href="#insurance/${i.id}" title="Open coverage ${esc(i.ins_no)}">${ic("shield")}<span><b>${st.k === "valid" ? "COVERED" : esc(st.label)} <em>${esc(i.ins_no)}</em></b>
+      <small>PAYMENT DUE: ${esc(due ? `${mdy(due)} (+${DUE} DAYS)` : dueSum(terms))}</small><small>CLAIMS UNTIL: ${esc(i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY")}</small></span></a>`;
   }
 
   Object.assign(E, { insMini, insCert: printCert, insDueOf: dueOf, insOrderStrip, insVerify, insOffer, insForOrder, insForInvoice, insBox, insPrintBox });
