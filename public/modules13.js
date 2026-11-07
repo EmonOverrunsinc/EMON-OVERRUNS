@@ -406,7 +406,7 @@
 
   // ---------- 3.69: CUSTOMER SIGN IN: scan the Public ID QR, type the Private PIN; agree; VERIFIED ----------
   const CUST_KEY = /EO[0-9A-F]{40}/i;
-  function renderCustLogin() {
+  function renderCustLogin(scanned = "") {
     let pub = "";
     E.authFrame("Customer Sign In", `<form class="wbody login-form" id="cuForm" novalidate>
       ${E.brandBlock()}
@@ -426,6 +426,7 @@
       $("#cuStep").hidden = false; $("#cuPin").focus();
     };
     $("#cuCam").onclick = () => E.scanDialog(take, { title: "Scan Your Public ID", hint: "Hold the QR code of your Public ID in front of the camera." });
+    if (scanned) take(scanned); // 3.90: already scanned on Sign In
     $("#cuBack").onclick = () => E.route();
     $("#cuForm").onsubmit = async (e) => {
       e.preventDefault();
