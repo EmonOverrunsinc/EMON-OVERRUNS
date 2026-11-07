@@ -987,7 +987,7 @@
     const canPay = ["active", "suspended", "closed"].includes(c.status) && (E.canWrite("payments") || E.canWrite("invoices"));
     const canMemo = ["active", "suspended"].includes(c.status) && E.canWrite("creditmemos");
     const history = [
-      ...(ev.data || []).map((r) => ({ src: "event", id: r.id, at: r.created_at, action: E.gateEventLabel?.(r) || r.action.toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
+      ...(ev.data || []).map((r) => ({ src: "event", id: r.id, at: r.created_at, action: E.gateEventLabel?.(r) || String(r.action || "").toUpperCase(), by: r.actor_name || "", note: r.note || "" })),
     ].sort((x, y) => String(y.at).localeCompare(String(x.at))); // 3.22: newest first; no change records
     const overdue = (invs.data || []).filter(isOverdue).sort((x, y) => String(x.due_date).localeCompare(String(y.due_date)));
     const rets = [], cms = [];
