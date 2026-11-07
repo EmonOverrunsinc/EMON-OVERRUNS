@@ -297,7 +297,7 @@
     const ready = () => {
       const btn = $("#lgSubmit", ov), off = !$("#lgAgree", ov).checked;
       btn.disabled = off;
-      btn.style.cssText = off ? "background:#8fa1c4;border-color:#8fa1c4;color:#fff;opacity:1;cursor:not-allowed" : "background:#0a66c2;border-color:#0a66c2;color:#fff;opacity:1";
+      btn.style.cssText = off ? "background:#8fa1c4;border-color:#8fa1c4;color:#fff;opacity:1;cursor:not-allowed" : "background:#1d4fb0;border-color:#1d4fb0;color:#fff;opacity:1";
       btn.title = off ? "Tick \"I have read all and I agree\" first" : "";
     };
     ready();
