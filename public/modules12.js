@@ -399,7 +399,7 @@
   const isOver = (i) => i.pay_status !== "paid" && num(i.balance) > 0.004 && i.due_date && i.due_date < isoToday();
   const NUM_COL = /₱|Boxes|Pcs|Days|#|BDT|PHP|Qty|Vouchers/;
   const table = (head, rows) => `<table class="eva-t"><thead><tr>${head.map((h) => `<th${NUM_COL.test(h) ? ' class="num"' : ""}>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((v, i) => `<td${NUM_COL.test(head[i]) ? ' class="num"' : ""}>${v}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
-  const ORDER_ST = { pending: "CREATE ORDER (waits for your approval)", approved: "PREPARED (ready to deliver)", completed: "COMPLETE (delivered)", cancelled: "CANCELLED" };
+  const ORDER_ST = { pending: "CREATE ORDER (waits for your approval)", approved: "CONFIRMED (ready to deliver)", completed: "COMPLETE (delivered)", cancelled: "CANCELLED" };
   const rows = async (make) => { const r = await E.allRows(make); if (r.error) throw r.error; return r.data; };
   const one = async (q) => { const { data, error } = await q; if (error) throw error; return data; };
 

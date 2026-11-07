@@ -23,8 +23,15 @@
   const MAX_LINES = 60, MAX_COLS = 4, MAX_PHOTOS = 5;
   // the status of an order in 3 steps (3.39): 1 CREATE ORDER (made, waiting for the Director) → 2 PREPARED (approved: ready to
   // deliver) → 3 COMPLETE (delivered); or CANCELLED
-  const STATUS = { pending: ["pending", "CREATE ORDER"], approved: ["approved", "PREPARED"], completed: ["applied", "COMPLETED"], cancelled: ["rejected", "CANCELLED"] };
+  const STATUS = { pending: ["pending", "CREATE ORDER"], approved: ["approved", "CONFIRMED"], completed: ["applied", "COMPLETED"], cancelled: ["rejected", "CANCELLED"] };
+  // 3.88: the tracking (like a courier): ORDER CREATED → CONFIRMED → SORTING → PREPARING → ASSIGNED FOR DELIVERY → OUT FOR
+  // DELIVERY → DELIVERED → COMPLETED (→ PROOF OF DELIVERY: the photos, optional). The 4 middle steps are pressed on the order.
+  const TRACK = { sorting: "SORTING", preparing: "PREPARING", assigned: "ASSIGNED FOR DELIVERY", out_for_delivery: "OUT FOR DELIVERY" };
+  const MANUAL = Object.keys(TRACK);
+  const NEXT_BTN = { sorting: "Start Sorting", preparing: "Start Preparing", assigned: "Assign Delivery", out_for_delivery: "Out for Delivery" };
+  const lastTrack = (o) => (o._trk || []).at(-1) || null;
   const stPill = (o) => o.status === "approved" && o.delivery_request_at ? pill("pending", "DELIVERY SUBMITTED") // 3.45: waits for EMON HASAN
+    : o.status === "approved" && lastTrack(o) ? pill("approved", TRACK[lastTrack(o).step] || "CONFIRMED")
     : pill(...(STATUS[o.status] || ["pending", String(o.status).toUpperCase()]));
   const open = (o) => ["pending", "approved"].includes(o.status);
   // 3.54: the Director also changes a COMPLETED order (and its boxes); its invoice changes with it
@@ -54,6 +61,13 @@
     if (!here() || !$("#coBody")) return;
     if (error) { $("#coBody").innerHTML = notSet(error) ? needUpdate : `<div class="empty">${esc(error.message)}</div>`; return; }
     const rows = data || [], count = (st) => rows.filter((o) => st.includes(o.status)).length;
+    const conf = rows.filter((o) => o.status === "approved").map((o) => o.id);
+    if (conf.length) { // 3.88: the status shows where the order is (SORTING, OUT FOR DELIVERY …)
+      const { data: tr } = await sb.from("order_tracking").select("order_id, step, at").in("order_id", conf.slice(0, 300)).order("at");
+      const by = new Map(); (tr || []).forEach((t) => by.set(t.order_id, [t]));
+      rows.forEach((o) => { if (by.has(o.id)) o._trk = by.get(o.id); });
+      if (!here() || !$("#coBody")) return;
+    }
     const m = isoToday().slice(0, 7), doneM = rows.filter((o) => o.status === "completed" && String(o.order_date).slice(0, 7) === m);
     // 3.42: every order (newest first); the months with orders to open one month; the search finds in every order
     const months = [...new Set(rows.map((o) => String(o.order_date || "").slice(0, 7)).filter(Boolean))].sort().reverse();
@@ -64,12 +78,12 @@
         <button type="button" class="btn" id="coScan">${ic("scan")} Scan</button>${canW() ? `<a class="btn primary" href="#newcustorder">${ic("plus")} New Customer Order</a>` : ""}</div>
       <div class="tiles co-tiles">
         <div class="tile ${count(["pending"]) ? "warn" : ""}"><span class="tile-ic">${ic("clock")}</span><div class="k">Waiting for Approval</div><div class="v">${count(["pending"])}</div></div>
-        <div class="tile"><span class="tile-ic">${ic("box")}</span><div class="k">Prepared · To Deliver</div><div class="v">${count(["approved"])}</div></div>
+        <div class="tile"><span class="tile-ic">${ic("box")}</span><div class="k">Confirmed · To Deliver</div><div class="v">${count(["approved"])}</div></div>
         <div class="tile ok"><span class="tile-ic">${ic("check")}</span><div class="k">Completed This Month (₱)</div><div class="v">${peso(doneM.reduce((s, o) => s + num(o.total_amount), 0))}</div><small>${doneM.length} order(s)</small></div>
       </div>
       <div class="co-months" id="coMonths"><button type="button" data-m="" class="on">All Orders <small>${rows.length}</small></button>${months.map((k) => `<button type="button" data-m="${k}">${esc(mLabel(k))} <small>${rows.filter((o) => String(o.order_date).startsWith(k)).length}</small></button>`).join("")}</div>
       <div id="coGrid"></div>`;
-    const hay = rows.map((o) => [o.order_no, custName(o), o.customers?.account_no, o.reference, STATUS[o.status]?.[1]].join(" ").toLowerCase());
+    const hay = rows.map((o) => [o.order_no, custName(o), o.customers?.account_no, o.reference, STATUS[o.status]?.[1], TRACK[lastTrack(o)?.step] || ""].join(" ").toLowerCase());
     const cols = [{ label: "Order No", get: (o) => o.order_no }, { label: "Date", get: (o) => mdy(o.order_date) }, { label: "Customer", html: (o) => `<b>${esc(custName(o))}</b><br><small class="mono">${esc(o.customers?.account_no || "")}</small>` },
       { label: "Batch No", get: (o) => o.reference || "" }, { label: "Boxes", num: true, get: (o) => qtyText(o.total_boxes) }, { label: "Pcs", num: true, get: (o) => qtyText(o.total_pcs) }, { label: "Amount (₱)", num: true, get: (o) => peso(o.total_amount) },
       { label: "Status", html: stPill }];
@@ -138,7 +152,7 @@
         <fieldset class="opt"><legend>Order Lines</legend><div id="coLines"></div></fieldset>
         ${o ? "" : `<div id="coInsOffer"></div>`}
       </div><div class="wfoot"><button type="button" class="btn" id="coCancel">Cancel</button><button type="submit" class="btn primary">${o ? "Save" : isAdmin() ? "Save Order" : "Save and Send to EMON HASAN"}</button></div></form>`,
-      isAdmin() ? "" : "CREATE ORDER: the order goes to EMON HASAN to approve. Approved, it is PREPARED: EMON HASAN's signature is on the printed order and the delivery can start.");
+      isAdmin() ? "" : "CREATE ORDER: the order goes to EMON HASAN to approve. Approved, it is CONFIRMED: EMON HASAN's signature is on the printed order and the delivery can start.");
     let cust = preset && preset.status === "active" ? preset : null;
     const fillFrom = (c) => { if (!$("#coAddr").value.trim()) $("#coAddr").placeholder = c.address || ""; };
     E.customerPicker($("#coCust"), { statuses: ["active"], onPick: (c) => { cust = c; fillFrom(c); }, preset: cust || undefined });
@@ -327,14 +341,65 @@
     if (error && notSet(error)) { $("#main").innerHTML = needUpdate; return; }
     if (!o) { $("#main").innerHTML = `<div class="empty">Order not found. <a href="#custorders">All orders</a></div>`; return; }
     const bx = bx0 || (await boxesOf(o.id));
-    const [inv, urls, dl] = await Promise.all([
+    const [inv, urls, dl, trk] = await Promise.all([
       o.invoice_id ? sb.from("invoice_balances").select("*").eq("id", o.invoice_id).maybeSingle().then((r) => r.data, () => null) : null,
       o.delivery_photos?.length ? E.signedMap(o.delivery_photos) : new Map(),
-      sb.rpc("co_delivered", { p_order: o.id }).then((r) => (r.error ? null : r.data), () => null)]); // 3.56: what is charged as delivered
+      sb.rpc("co_delivered", { p_order: o.id }).then((r) => (r.error ? null : r.data), () => null), // 3.56: what is charged as delivered
+      sb.from("order_tracking").select("*").eq("order_id", o.id).order("at").then((r) => (r.error ? null : r.data || []), () => null)]); // 3.88
     if (!here()) return;
-    o._dl = dl;
+    o._dl = dl; o._trk = trk || []; o._trkOn = trk !== null;
     draw(o, bx.data || [], inv, urls);
   };
+
+  // 3.88: the tracking of an order, step by step with the date, the time and who
+  function trackingHtml(o, inv, w) {
+    const trk = o._trk || [], last = (k) => [...trk].reverse().find((t) => t.step === k);
+    const photos = (o.delivery_photos || []).length, off = o.status === "cancelled";
+    const items = [
+      { t: "ORDER CREATED", at: o.created_at || o.order_date, sub: o.created_by_name || "" },
+      { t: "CONFIRMED", at: o.approved_at, sub: o.approved_at ? `Approved by ${o.approved_by_name || ""}` : "Waiting for EMON HASAN's approval" },
+      ...MANUAL.map((k) => { const r = last(k); return { t: TRACK[k], at: r?.at, manual: true,
+        sub: r ? [k === "assigned" ? r.employee_name : "", r.by_name ? `by ${r.by_name}` : "", r.note || ""].filter(Boolean).join(" · ") : "" }; }),
+      { t: "DELIVERED", at: o.delivered_at || o.delivery_request_at, sub: o.delivery_request_by || (o.status === "completed" ? o.completed_by_name || "" : "") },
+      { t: "COMPLETED", at: o.completed_at, sub: o.completed_at ? [o.completed_by_name, inv ? `invoice ${inv.invoice_no}` : ""].filter(Boolean).join(" · ") : "" },
+      { t: "PROOF OF DELIVERY", at: null, done: photos > 0, opt: true, sub: photos ? `${photos} photo(s) · see the Delivery tab` : "Optional · the photos of the delivery" }];
+    items.forEach((it) => { it.done = it.done ?? !!it.at; });
+    // a step not pressed before a later one is done was skipped; the first step not done is where the order is now
+    const lastDone = items.reduce((m, it, i) => (it.done && !it.opt ? i : m), -1);
+    const nowI = off ? -1 : items.findIndex((it, i) => !it.done && !it.opt && i > lastDone);
+    const nextK = o.status === "approved" && w && o._trkOn && !o.delivery_request_at ? MANUAL.find((k, i) => !last(k) && !MANUAL.slice(i + 1).some((x) => last(x))) : null;
+    const reassign = o.status === "approved" && w && o._trkOn && !o.delivery_request_at && last("assigned");
+    return `<section class="trk${off ? " off" : ""}"><div class="trk-head"><b>${ic("box")} TRACKING</b><span class="grow"></span>
+        ${reassign ? `<button type="button" class="btn small" data-trk="assigned">${ic("users")} Change Delivery Person</button>` : ""}
+        ${nextK ? `<button type="button" class="btn primary small" data-trk="${nextK}">${ic("next")} ${NEXT_BTN[nextK]}</button>` : ""}</div>
+      <ol class="trk-list">${items.map((it, i) => {
+        const cls = it.done ? "done" : i === nowI ? "now" : i < lastDone && !it.opt ? "skip" : "";
+        return `<li class="${cls}${it.opt ? " opt" : ""}"><span class="trk-dot">${it.done ? "✓" : i < lastDone && !it.opt ? "–" : i + 1}</span><div><b>${esc(it.t)}</b>
+          <small>${it.at ? esc(E.dateTime(it.at)) : i < lastDone && !it.opt ? "Skipped" : ""}${it.at && it.sub ? " · " : ""}${esc(it.sub && (it.at || it.opt || i === 1) ? it.sub : "")}</small></div></li>`;
+      }).join("")}${off ? `<li class="cancel"><span class="trk-dot">✕</span><div><b>CANCELLED</b><small>${esc(o.cancelled_at ? E.dateTime(o.cancelled_at) : "")}${o.cancelled_by_name ? " · " + esc(o.cancelled_by_name) : ""}</small></div></li>` : ""}</ol></section>`;
+  }
+  // a tracking step pressed (ASSIGNED: choose the employee who delivers)
+  async function trackStep(o, k) {
+    let emp = null, note = null;
+    if (k === "assigned") {
+      const { data: list } = await sb.from("employees").select("id, first_name, last_name, position, status").neq("status", "terminated").order("first_name");
+      const cur = (o._trk || []).filter((t) => t.step === "assigned").at(-1);
+      let done; const asked = new Promise((r) => (done = r));
+      const m = E.modal(`Assign Delivery — ${o.order_no}`,`<div class="fields wide"><label for="trEmp">Employee who delivers *</label><select id="trEmp"><option value="">— Choose the employee —</option>
+          ${(list || []).map((e) => `<option value="${e.id}" ${cur?.employee_id === e.id ? "selected" : ""}>${esc(fullName(e))}${e.position ? " · " + esc(e.position) : ""}</option>`).join("")}</select>
+        <label for="trNote">Note</label><input type="text" id="trNote" maxlength="300" placeholder="e.g. vehicle, plate no, time (optional)"></div>`,
+        `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${ic("check")} Assign</button>`, { onClose: () => done(null) });
+      $("[data-x]", m.el).onclick = m.close;
+      $("[data-ok]", m.el).onclick = () => { if (!$("#trEmp", m.el).value) return toast("Choose the employee who delivers.", true); done([$("#trEmp", m.el).value, $("#trNote", m.el).value]); m.close(); };
+      const picked = await asked;
+      if (!picked) return false;
+      [emp, note] = picked;
+    }
+    const { error } = await sb.rpc("order_track", { p_order: o.id, p_step: k, p_employee: emp, p_note: note || null });
+    if (error) { fail(error, /order_track|schema cache|PGRST202/.test(error.message || "") ? "Run the database update 090_order_tracking.sql first" : "Could not update the tracking"); return false; }
+    toast(`${o.order_no}: ${TRACK[k]}.`);
+    return true;
+  }
 
   // 3.39: the page of an order in the style of a profile: the head (order no, status, customer, its numbers, the QR code of the
   // order paper), the 3 steps, the amount, the buttons, and tabs: the lines, the boxes, the delivery, the invoice
@@ -343,15 +408,8 @@
     const sumPcs = boxes.reduce((s, b) => s + num(b.pcs), 0);
     const deliverNow = !!o.delivery_code && o.status === "approved"; // the paper's Complete Delivery page (048)
     $(".band h1") && ($(".band h1").textContent = `Customer Order — ${o.order_no}`);
-    const step = o.status === "completed" ? 3 : o.status === "approved" ? 2 : 1;
-    const steps = [["CREATE ORDER", `${o.created_by_name ? esc(o.created_by_name) + " · " : ""}${esc(mdy(o.created_at || o.order_date))}`],
-      ["PREPARED", o.approved_at ? `Approved by ${esc(o.approved_by_name || "")} · ${esc(mdy(o.approved_at))}` : "Waiting for EMON HASAN's approval"],
-      ["COMPLETED", o.completed_at ? `Delivered · ${esc(mdy(o.completed_at))}` : step === 2 ? "Ready for delivery" : "Delivery"]];
-    const stepper = `<ol class="co-steps${o.status === "cancelled" ? " off" : ""}">${steps.map(([l, sub], i) => {
-      const k = i + 1, done = k < step || o.status === "completed", now = !done && k === step;
-      return `<li class="${done ? "done" : now ? "now" : ""}"><span class="co-sn">${done ? "✓" : k}</span><div><b>${l}</b><small>${sub}</small></div></li>`;
-    }).join("")}</ol>`;
-    const banner = o.status === "pending" ? `<div class="banner warn">${ic("clock")} CREATE ORDER — waiting for EMON HASAN's approval. Approved, the order is PREPARED: EMON HASAN's signature is on the printed order and the delivery can start.</div>`
+    const stepper = trackingHtml(o, inv, w);
+    const banner = o.status === "pending" ? `<div class="banner warn">${ic("clock")} CREATE ORDER — waiting for EMON HASAN's approval. Approved, the order is CONFIRMED: EMON HASAN's signature is on the printed order and the delivery can start.</div>`
       : o.status === "cancelled" ? `<div class="banner closed">CANCELLED${o.cancelled_by_name ? ` by ${esc(o.cancelled_by_name)}` : ""}${o.cancelled_at ? ` on ${esc(mdy(o.cancelled_at))}` : ""}${o.cancel_note ? ` — ${esc(o.cancel_note)}` : ""}</div>`
       : o.status === "approved" && o.delivery_request_at ? `<div class="banner warn">${ic("clock")} DELIVERY SUBMITTED — ${esc(o.delivery_request_by || "ORDER PAPER")} · ${esc(E.dateTime(o.delivery_request_at))}. It waits for EMON HASAN's approval: approved, the order is COMPLETED and the invoice is made and billed.</div>`
       : o.status === "completed" ? `<div class="banner ok">✔ COMPLETED — DELIVERED${o.completed_at ? ` on ${esc(mdy(o.completed_at))}` : ""}${o.completed_by_name ? ` by ${esc(o.completed_by_name)}` : ""}${inv ? ` — invoice <b>${esc(inv.invoice_no)}</b> was made for the customer` : ""}</div>` : "";
@@ -360,7 +418,7 @@
       <div class="ch-main">
         <div class="ch-name"><h2>${esc(o.order_no)}</h2>${stPill(o)}<span id="coInsMini"></span></div>
         <div class="ch-sub">${E.canOpen("customer") ? `<a href="#customer/${c.id}"><b>${esc(fullName(c))}</b></a>` : `<b>${esc(fullName(c))}</b>`}${c.account_no ? ` · <span class="mono">${esc(c.account_no)}</span>` : ""}${o.address || c.address ? ` · ${esc(o.address || c.address)}` : ""}</div>
-        <div class="ch-ids">${E.idBox("Date", mdy(o.order_date))}${E.idBox("Batch No", o.reference || "")}${E.idBox("Terms of Payment", o.payment_terms || "")}${E.idBox("Due Date", mdy(dueOf(o)))}${E.idBox("Boxes · Pcs", `${qtyText(o.total_boxes)} · ${qtyText(o.total_pcs)}`)}</div>
+        <div class="ch-ids">${E.idBox("Date", mdy(o.order_date))}${E.idBox("Batch No", o.reference || "")}${E.idBox("Terms of Payment", o.payment_terms || "")}${E.idBox("Due Date", mdy(dueOf(o)))}${E.idBox("Boxes", qtyText(o.total_boxes))}${E.idBox("Pcs", qtyText(o.total_pcs))}</div>
       </div>
       ${deliverNow ? `<div class="ch-qr"><canvas id="coQr" aria-label="QR code: Complete Delivery"></canvas><small>Verification</small></div>` : ""}
     </section>`;
@@ -369,7 +427,7 @@
         <tbody>${(o.lines || []).map((l, i) => `<tr><td>${i + 1}</td><td class="num">${l.boxes ? qtyText(l.boxes) : ""}</td><td class="num">${qtyText(l.qty)}</td><td>${esc(l.code || "")}</td><td>${esc(l.lot || "")}</td><td>${esc(l.product)}</td>
           ${cols.map((x) => `<td>${esc(l.extra?.[x] || "")}</td>`).join("")}<td class="num">${peso(l.price)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}</tbody>
         <tfoot><tr><td></td><td class="num">${qtyText(o.total_boxes)}</td><td class="num">${qtyText(o.total_pcs)}</td><td colspan="${3 + cols.length}"><b>TOTAL AMOUNT</b></td><td></td><td class="num"><b>${peso(o.total_amount)}</b></td></tr></tfoot></table></div>`;
-    const delHtml = o.status === "pending" ? `<div class="empty">The delivery starts when the order is PREPARED (approved by EMON HASAN).</div>`
+    const delHtml = o.status === "pending" ? `<div class="empty">The delivery starts when the order is CONFIRMED (approved by EMON HASAN).</div>`
       : o.status === "cancelled" ? `<div class="empty">CANCELLED: no delivery.</div>`
       : deliverNow ? `${(o.delivery_photos || []).length ? deliveryHtml(o, urls, false) : ""}${o.delivery_request_at ? "" : `<div class="co-done">${deliverBtn("big")}
           <small>Scan or add the boxes, add the photos of the delivery, then COMPLETE DELIVERY. Whoever holds the printed order can do it too: scan its QR code (VERIFICATION). Not signed in, the delivery waits for EMON HASAN's approval.</small></div>`}`
@@ -383,7 +441,7 @@
     const tabs = ["Order Lines", `Boxes (${nBoxes(boxes)})`, "Delivery", ...(o.status === "completed" ? ["Invoice"] : [])];
     $("#main").innerHTML = `${head}${stepper}${banner}<div id="coIns"></div>
       ${isAdmin() && o.status === "approved" && o.delivery_request_at ? `<fieldset class="opt review"><legend>Delivery Approval</legend><p class="muted" style="margin:0 0 8px">${vsText(o.total_boxes, nBoxes(boxes), false)} · ${(o.delivery_photos || []).length} photo(s): see the Boxes and Delivery tabs.</p><div class="btnrow"><button type="button" class="btn ok" id="coDvOk">${ic("check")} Approve Delivery · COMPLETE</button><button type="button" class="btn danger" id="coDvNo">Reject</button></div></fieldset>` : ""}
-      ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>EMON HASAN's Decision</legend><div class="btnrow"><button type="button" class="btn ok" id="coApprove">${ic("check")} Approve · 2 PREPARED</button><button type="button" class="btn danger" id="coCancelO">Cancel Order</button></div></fieldset>` : ""}
+      ${isAdmin() && o.status === "pending" ? `<fieldset class="opt review"><legend>EMON HASAN's Decision</legend><div class="btnrow"><button type="button" class="btn ok" id="coApprove">${ic("check")} Approve · CONFIRM</button><button type="button" class="btn danger" id="coCancelO">Cancel Order</button></div></fieldset>` : ""}
       <div class="due-card co-amt"><div><div class="k">Order Amount</div><div class="v">₱ ${peso(o.total_amount)}</div></div><small>${esc(E.words(o.total_amount))}${o.note ? ` · Note: ${esc(o.note)}` : ""}</small></div>
       <div class="actionbar">
         <button type="button" class="btn primary" id="coAll">${ic("download")} Download All Details (PDF)</button>
@@ -417,18 +475,18 @@
       toast(lock ? `Boxes of ${o.order_no} verified and locked.` : `Boxes of ${o.order_no} unlocked.`); reload();
     }; });
     if ($("#coApprove")) $("#coApprove").onclick = async (e) => {
-      if (!(await E.confirmBox(`Approve order <b>${esc(o.order_no)}</b> for <b>${esc(fullName(c))}</b> (₱ ${peso(o.total_amount)}, ${esc(boxesText(o.total_boxes))})? It becomes PREPARED and your signature goes on the printed order.`, { ok: "Approve Order" }))) return;
+      if (!(await E.confirmBox(`Approve order <b>${esc(o.order_no)}</b> for <b>${esc(fullName(c))}</b> (₱ ${peso(o.total_amount)}, ${esc(boxesText(o.total_boxes))})? It becomes CONFIRMED and your signature goes on the printed order.`, { ok: "Approve Order" }))) return;
       e.target.disabled = true;
       const { error } = await sb.rpc("decide_customer_order", { p_id: o.id, p_action: "approve", p_note: null });
       if (error) { e.target.disabled = false; return fail(error, "Could not approve"); }
-      toast(`Order ${o.order_no} approved: PREPARED.`); reload();
+      toast(`Order ${o.order_no} approved: CONFIRMED.`); reload();
     };
     if ($("#coCancelO")) $("#coCancelO").onclick = () => cancelOrder(o, reload);
     // 3.45: a delivery submitted by the order paper (not signed in with EO-Office): the Director approves or rejects it
     const decideDelivery = async (e, action) => {
       const ok = action === "approve"
         ? await E.confirmBox(`${chargeSays(o, boxes)}Approve the delivery of <b>${esc(o.order_no)}</b>?<br><br>The order becomes COMPLETED and the invoice is made and billed to <b>${esc(custName(o))}</b>: <b>₱ ${peso(o._dl?.has_pcs && nBoxes(boxes) ? o._dl.amount : o.total_amount)}</b>.`, { title: "Approve Delivery", ok: "Approve Delivery" })
-        : await E.confirmBox(`Reject the delivery submitted for <b>${esc(o.order_no)}</b>? The order stays PREPARED and the delivery can be done again.`, { ok: "Reject", danger: true });
+        : await E.confirmBox(`Reject the delivery submitted for <b>${esc(o.order_no)}</b>? The order stays CONFIRMED and the delivery can be done again.`, { ok: "Reject", danger: true });
       if (!ok) return;
       e.target.disabled = true;
       const { error } = await sb.rpc("decide_delivery", { p_id: o.id, p_action: action });
@@ -444,6 +502,7 @@
       if (gone?.length) sb.storage.from("records").remove(gone).then(() => {}, () => {});
       toast("Deleted."); location.hash = "custorders";
     };
+    $$("[data-trk]").forEach((b) => (b.onclick = async () => { b.disabled = true; if (await trackStep(o, b.dataset.trk)) reload(); else b.disabled = false; })); // 3.88
     $("#coPdf").onclick = async () => { await E.loadSignatures().catch(() => {}); E.openPreview(`Customer Order ${o.order_no}`, orderPages(o, inv)); };
     $("#coSheet").onclick = () => E.openPreview(`Delivery Sheet ${o.order_no}`, sheetPages(o, boxes));
     // 3.38.1: everything in one PDF: the order (with its invoice and delivery), the Delivery Sheet with the boxes, the check photos
@@ -872,7 +931,7 @@
   }
 
   // 3.41: the order's status, under the title of a print
-  const ST_PRINT = { pending: "CREATE ORDER (WAITING FOR APPROVAL)", approved: "PREPARED", completed: "COMPLETED", cancelled: "CANCELLED" };
+  const ST_PRINT = { pending: "CREATE ORDER (WAITING FOR APPROVAL)", approved: "CONFIRMED", completed: "COMPLETED", cancelled: "CANCELLED" };
   const stLine = (o) => `<p class="co-stline">STATUS: <b>${esc(ST_PRINT[o.status] || String(o.status || "").toUpperCase())}</b></p>`;
   // 3.41 Download All Details: everything of the order in one PDF, on as few pages as it takes (1 page for a small order):
   // the order and its lines, every box (no empty lines), the invoice, the delivery, the photos and the approval signature
@@ -959,7 +1018,7 @@
     const submitOnly = d.can_complete === false; // not signed in with EO-Office: EMON HASAN approves the delivery
     const tick = (on, label) => `<li class="${on ? "ok" : ""}">${on ? "✔" : "○"} ${esc(label)}</li>`;
     $("#pdBody").innerHTML = `${head}
-      <div class="banner">${ic("box")} PREPARED — ready for delivery. Do the steps below.</div>
+      <div class="banner">${ic("box")} CONFIRMED — ready for delivery. Do the steps below.</div>
       <section class="pd-step"><h3><span class="pd-n">1</span> Boxes <small>${vsText(d.total_boxes, nBoxes(boxes), false)} · ${vsText(d.total_pcs, pcs, false, "PCS")}</small></h3>
         ${boxCheck(lines, boxes)}
         <div class="btnrow"><button type="button" class="btn primary" id="pdScan">${ic("scan")} Scan Boxes</button><label class="btn" for="pdLabel">${ic("image")} Box Label Photo</label><input type="file" id="pdLabel" accept="image/*" multiple hidden>

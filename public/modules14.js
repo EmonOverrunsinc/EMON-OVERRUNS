@@ -144,7 +144,7 @@
           ${E.cell("Order Status", String(o.status).toUpperCase())}${E.cell("Boxes", E.qtyText(o.total_boxes))}${E.cell("Order Value (₱)", peso(o.total_amount))}</div>
         ${calcHtml(o.total_boxes, o.total_amount, s.ins_box_price, s.ins_rate_pct)}
         ${open?.length ? `<div class="banner warn">Order ${esc(o.order_no)} already has coverage <a href="#insurance/${open[0].id}">${esc(open[0].ins_no)}</a>.</div>`
-          : o.status === "pending" ? `<div class="banner warn">Order ${esc(o.order_no)} waits for EMON HASAN's approval: the coverage is added when it is PREPARED.</div>`
+          : o.status === "pending" ? `<div class="banner warn">Order ${esc(o.order_no)} waits for EMON HASAN's approval: the coverage is added when it is CONFIRMED.</div>`
           : !eligible(o) ? `<div class="banner warn">Order ${esc(o.order_no)} is already delivered or ${esc(String(o.status).toUpperCase())}: coverage is added only before delivery.</div>`
           : `<div class="btnrow"><button type="button" class="btn primary" id="insAdd">${ic("shield")} Add Coverage · ₱ ${peso(c.total)}</button></div>`}`;
       if ($("#insAdd")) $("#insAdd").onclick = async (e) => { e.currentTarget.disabled = true; addFor(o.id); };
@@ -475,7 +475,7 @@
   // ---------- 3.72: ADD COVERAGE on the new order form (below all the items) ----------
   async function insOffer(el, readLines, onToggle) {
     if (!el || !canW()) return;
-    if (!isAdmin()) { el.innerHTML = `<div class="ins-strip none"><span class="ins-seal">${ic("shield")}</span><span><small>COVERAGE</small><b>Add coverage when EMON HASAN approves this order (PREPARED), before delivery</b></span></div>`; return; }
+    if (!isAdmin()) { el.innerHTML = `<div class="ins-strip none"><span class="ins-seal">${ic("shield")}</span><span><small>COVERAGE</small><b>Add coverage when EMON HASAN approves this order (CONFIRMED), before delivery</b></span></div>`; return; }
     const { data: s, error } = await sb.from("company_settings").select("ins_box_price, ins_rate_pct").eq("id", 1).maybeSingle();
     if (error || !s || !el.isConnected) return; // the server has not 077 yet
     el.innerHTML = `<label class="ins-offer" for="coInsOn"><input type="checkbox" id="coInsOn"><span class="ins-seal">${ic("shield")}</span>
