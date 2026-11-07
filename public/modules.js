@@ -740,9 +740,8 @@
       if (ws.length) { const st0 = (v) => String(v || "").toLowerCase().startsWith(ws[0]); const rk = (c) => (st0(c.first_name) ? 0 : st0(c.last_name) ? 1 : 2); rows.sort((a, b) => rk(a) - rk(b)); }
       $("#cuRes").innerHTML = E.grid({ cols: [
         { label: "Account No", get: (r) => r.account_no }, { label: "Name", html: (r) => `${esc(fullName(r))}${r.status === "closed" ? ' <span class="closed-mark">CLOSED</span>' : ""}` },
-        { label: "Phone", get: (r) => r.phone || "" },
-        { label: "Opened", get: (r) => mdy(r.application_date) }, { label: "Status", html: (r) => pill(r.status) },
-        { label: "Balance Due (₱)", key: "due", num: true, get: (r) => peso(r.due) }],
+        { label: "Status", html: (r) => pill(r.status) }, { label: "Balance Due (₱)", key: "due", num: true, get: (r) => peso(r.due) }, // 3.80.1: seen first on a tablet
+        { label: "Phone", get: (r) => r.phone || "" }, { label: "Opened", get: (r) => mdy(r.application_date) }],
         rows, onRow: true, foot: { due: peso(rows.reduce((s, r) => s + r.due, 0)) }, empty: "No customers found." });
       E.bindGrid($("#cuRes"), rows, (r) => (location.hash = "customer/" + r.id));
       E.setRecords(`Customers: ${rows.length}`);
@@ -1258,6 +1257,8 @@
   // ======================================================================
   // Statement of Account (SOA)
   // ======================================================================
+  const insOfInvoice = (i) => { const n = String(i?.po_number || "").trim().toUpperCase(); return /^INS-\d{6}-\d+$/.test(n) ? n : ""; };
+  E.insOfInvoice = insOfInvoice;
   const monthStart = (iso) => String(iso).slice(0, 7) + "-01";
   const nextMonth = (iso) => { const d = new Date(monthStart(iso) + "T00:00:00"); d.setMonth(d.getMonth() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; };
   const dayBefore = (iso) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
@@ -1265,10 +1266,11 @@
   // (on the day they were carried out) debit; payments, approved credit/discount memos (on approval date) and
   // Settlement Adjustments that take money off credit. Each line is named in short business words in capitals (2.2):
   // a sale is its INVOICE (the invoice number), a payment is PAYMENT RECEIVED, a memo is CREDIT MEMO or DISCOUNT.
+  // 3.80.1: an insurance added to the customer's account (its bill carries the insurance no INS-YYYYMM-NNN) is INSURANCE
   function txnsOf(invs, pays, memos, orders = [], cust = null) {
     const t = [];
     if (num(cust?.opening_balance) > 0) t.push({ date: cust.application_date, ref: cust.account_no, desc: "OPENING BALANCE", debit: num(cust.opening_balance), credit: 0 });
-    invs.forEach((i) => t.push({ date: i.invoice_date, ref: i.invoice_no, desc: "INVOICE", debit: num(i.total_amount), credit: 0, inv: i }));
+    invs.forEach((i) => { const ins = insOfInvoice(i); t.push({ date: i.invoice_date, ref: ins || i.invoice_no, desc: ins ? "INSURANCE" : "INVOICE", debit: num(i.total_amount), credit: 0, inv: i }); });
     orders.filter((o) => ["charge", "settlement"].includes(o.subject_type) && o.status === "applied" && o.applied_at).forEach((o) => {
       const off = o.subject_type === "settlement" && o.adjust_type === "reduce";
       t.push({ date: isoDay(new Date(o.applied_at)), ref: o.order_no, desc: o.subject_type === "charge" ? "ADDITIONAL CHARGE" : "SETTLEMENT ADJUSTMENT", debit: off ? 0 : num(o.amount), credit: off ? num(o.amount) : 0 });
@@ -1301,6 +1303,7 @@
       }
     };
     await pick("invoice", invoices, ["signed_form"], "INVOICE", (r) => r.invoice_no, "total_amount");
+    out.forEach((x) => { const i = invoices.find((r) => r.invoice_no === x.no && x.label === "INVOICE"), ins = insOfInvoice(i); if (ins) { x.label = "INSURANCE"; x.no = ins; } });
     await pick("payment", payments, ["signed_form", "receipt"], "RECEIPT", (r) => r.receipt_no, "amount");
     return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
   }
@@ -1456,7 +1459,7 @@
   const daysOver = (r) => Math.max(0, Math.floor((new Date(isoToday() + "T00:00:00") - new Date(r.due_date + "T00:00:00")) / 86400000));
   const payPill = (r) => `${pill(r.pay_status)}${isOverdue(r) ? ` ${pill("overdue")}` : ""}`;
   const INV_COLS = [
-    { label: "Invoice No", get: (r) => r.invoice_no }, { label: "Date", get: (r) => mdy(r.invoice_date) },
+    { label: "Invoice No", get: (r) => (insOfInvoice(r) ? `${r.invoice_no} · INSURANCE` : r.invoice_no) }, { label: "Date", get: (r) => mdy(r.invoice_date) },
     { label: "Terms", get: (r) => r.payment_terms || "" }, { label: "Due Date", get: (r) => mdy(r.due_date) },
     { label: "Account No", get: (r) => r.account_no }, { label: "Customer", get: fullName },
     { label: "Boxes", num: true, get: (r) => qtyText(r.total_boxes) }, { label: "Pcs", num: true, get: (r) => qtyText(r.total_pcs) },
@@ -2371,5 +2374,5 @@
     docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, cxTop, cxSec, cxKv, uuid, cleanQ, idBox, METHOD,
     loadSignatures, approvedBy, signaturePic, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm, editCustomer, custSoa
   });
-  E._docs = { ...(E._docs || {}), invoicePage, ackPage, soaPages, memoPage, detailsPage, applicationPage }; // 3.79: the document pages (for the print checks)
+  E._docs = { ...(E._docs || {}), invoicePage, ackPage, soaPages, memoPage, detailsPage, applicationPage, txnsOf }; // 3.79: the document pages (for the print checks)
 })();
