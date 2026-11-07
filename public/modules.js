@@ -1623,7 +1623,7 @@
     // what the invoice still needs from linked payments (other payments pay it only through the oldest-first order)
     const need = num(inv.total_amount) - returned - active.reduce((s, l) => s + num(l.amount), 0);
     $(".band h1").textContent = `Invoice — ${inv.invoice_no}`;
-    $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${payPill(inv)}</div><div class="wbody">
+    $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${payPill(inv)}<span id="invInsMini"></span></div><div class="wbody">
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>
@@ -1655,6 +1655,7 @@
       <div class="wfoot">${tools("customer_invoices", inv, `Invoice ${inv.invoice_no}`, { reload: () => V.invoice(id), afterDelete: () => (location.hash = "invoices") })}
         ${(E.canWrite("payments") || E.canWrite("invoices")) && ["active", "suspended", "closed"].includes(inv.customer_status) ? `<a class="btn" href="#newpayment/${inv.customer_id}">Record Payment</a>` : ""}
         <a class="btn" href="#invoices">Close</a></div></div>`;
+    if (ins && E.insMini) E.insMini($("#invInsMini"), { invoiceId: inv.id, invoiceDue: inv.due_date }); // 3.78.2: COVERED · due date · claims until
     bindFiles($("#main"));
     bindDocCards($("#main"), () => V.invoice(id));
     bindTools($("#main"));

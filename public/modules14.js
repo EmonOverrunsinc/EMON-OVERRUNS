@@ -385,6 +385,9 @@
     const band = (title, right) => `<div class="c2-band"><div class="c2-logo">${E.logoHtml("c2-logo-img")}</div>
       <div class="c2-co"><b>${esc(C.company.name)}</b><span class="c2-tag">Factory Branded Overruns &nbsp;|&nbsp; Est. 2023</span><span>Ignacio Street, Pasay City, Metro Manila 1300 &nbsp;·&nbsp; Email: ${esc(C.company.email)}</span></div>
       <div class="c2-title"><b>${title}</b><i></i>${right}</div></div><div class="c2-gold"></div>`;
+    // 3.78.2: a PDF417 barcode of the order no / the invoice no (scanned, it opens the record)
+    const codeBox = (label, payload, text) => `<div class="c2-sig"><div class="c2-sec"><span>${esc(label)}</span></div><div class="c2-sigbox c2-code">
+      ${payload ? `<img class="c2-codebar" src="${E.pdf417DataUrl(payload)}" alt="PDF417 barcode: ${esc(text)}">` : ""}<b class="mono">${v(text)}</b></div></div>`;
     const sig = (label, p, pic) => `<div class="c2-sig"><div class="c2-sec"><span>${esc(label)}</span></div><div class="c2-sigbox">
       ${pic ? `<img class="c2-esig" src="${esc(pic)}" alt="Signature">` : ""}<div class="c2-line"></div><b>${v(p.name)}</b><small>${esc(p.note || "Signature over Printed Name / Date")}</small></div></div>`;
     const rows = [
@@ -421,35 +424,15 @@
         </div></div>
       </div>
       <div class="c2-decl">${sec("CERTIFICATION")}
-        <p><b>THIS IS TO CERTIFY</b> that the Insured named above is covered by the EO-OFFICE INSURANCE of ${esc(C.company.name)} for the <b>${esc(boxes)}</b> of order <b>${esc(i.order_no || "")}</b>, with a covered value of <b>PHP ${peso(covered)}</b>, for the benefits in the Schedule of Coverage, from <b>${esc(i.issued_at ? mdy(i.issued_at) : "")}</b> until the benefits expire on <b>${esc(until)}</b>, and that the invoice of this order is payable within <b>${esc(td == null ? `its terms + ${DUE} days` : `${td + DUE} days (${td} days terms + ${DUE} days insurance)`)}</b>, subject to the terms and conditions on the back of this certificate.</p>
+        <p><b>THIS IS TO CERTIFY</b> that the Insured named above is covered by the EO-OFFICE INSURANCE of ${esc(C.company.name)} for the <b>${esc(boxes)}</b> of order <b>${esc(i.order_no || "")}</b>, with a covered value of <b>PHP ${peso(covered)}</b>, for the benefits in the Schedule of Coverage, from <b>${esc(i.issued_at ? mdy(i.issued_at) : "")}</b> until the benefits expire on <b>${esc(until)}</b>, and that the invoice of this order is payable within <b>${esc(td == null ? `its terms + ${DUE} days` : `${td + DUE} days (${td} days terms + ${DUE} days insurance)`)}</b>, subject to the terms and conditions of the EO-OFFICE INSURANCE.</p>
         <p><b>IN WITNESS WHEREOF</b>, ${esc(C.company.name)} has caused this certificate to be signed by its authorized signatory at Pasay City, Metro Manila, Philippines, on <b>${esc(i.approved_at ? mdy(i.approved_at) : mdy(E.isoToday()))}</b>.</p></div>
       <div class="c2-sigs">
-        ${sig("VERIFIED BY", { name: who.verified.name, note: i.issued_by_eva ? "Payment verified" : "Payment checked" }, "")}
+        ${codeBox("ORDER NO.", i.order_no ? "EMONCO|" + i.order_no : "", i.order_no || "")}
+        ${codeBox("INVOICE NO.", invoice?.invoice_no ? "EMONINV|" + invoice.invoice_no : "", invoice?.invoice_no || "AFTER DELIVERY")}
         ${sig("ISSUED BY", { name: who.approver, note: `Authorized Signatory · ${i.approved_at ? mdy(i.approved_at) : ""}` }, sign.pic)}
-        ${sig("INSURED / CUSTOMER", { name, note: "Signature over Printed Name / Date" }, "")}
       </div>
-      <div class="c2-foot"><span>This certificate is valid only when its number is verified by the QR code. Terms and conditions on the back form part of this certificate.</span><span>${esc(C.company.name)} &nbsp;|&nbsp; Pasay City, Metro Manila</span></div></div>`;
-    const cl = (n, t, body) => `<div class="c2-cl"><h4>${n}. ${esc(t)}</h4>${body}</div>`;
-    const co = esc(C.company.name);
-    const back = `<div class="c2 back">${band("POLICY WORDING", `<div class="c2-no"><small>CERT. NO.</small><span>${esc(i.ins_no)}</span></div><div class="c2-orig">BACK</div>`)}
-      ${sec("TERMS AND CONDITIONS OF THE EO-OFFICE INSURANCE COVERAGE", `${co} · INSURANCE CERTIFICATE · BACK`)}
-      <div class="c2-cols">
-        ${cl(1, "Definitions", `<p><b>"Company"</b> means ${co}, Pasay City, Metro Manila. <b>"Insured"</b> means the customer named on the front. <b>"Covered Boxes"</b> means the sealed boxes of the order named on the front, as listed on its delivery list. <b>"Premium"</b> means the amount shown on the front.</p>`)}
-        ${cl(2, "Insuring Agreement", `<p>In return for the Premium, the Company agrees to give the Insured the benefits in the Schedule of Coverage on the front, for the Covered Boxes only, subject to these terms.</p>`)}
-        ${cl(3, "Period of Coverage", `<p>The benefits start on the date issued and <b>end 15 days after the delivery</b> (Benefits Expire, on the front). No claim is accepted after that date.</p>`)}
-        ${cl(4, "Payment Due Extension", `<p>The invoice of the insured order is due after its terms of payment <b>plus ${DUE} days</b>: for example 7 days terms + ${DUE} = ${7 + DUE} days; 15 days + ${DUE} = ${15 + DUE} days; 30 days + ${DUE} = ${30 + DUE} days, counted from the invoice date. If the coverage is cancelled, the extension ends.</p>`)}
-        ${cl(5, "Conditions", `<p>(a) The box must be kept <b>SEALED</b> as delivered; an opened box cannot be claimed. (b) The seal and the box serial no are checked against the delivery list. (c) Every exchange is for items of the same value; there is no cash refund.</p>`)}
-        ${cl(6, "Exclusions", `<p>Not covered: damage, loss or theft after delivery; opened boxes; items already sold; change of mind; boxes not on the delivery list; any claim after the coverage ends.</p>`)}
-        ${cl(7, "Claims Procedure", `<p>Report the claim to the office of the Company with the certificate no and the box serial nos before the coverage ends. The Company checks the claim and gives its decision in writing.</p>`)}
-        ${cl(8, "Premium and Payment", `<p>The Premium is paid now (a collection voucher is issued) or billed to the Insured's account (an invoice is issued). <b>A coverage not paid within 3 days is cancelled automatically.</b> The Premium is not refundable once the coverage is issued.</p>`)}
-        ${cl(9, "Misrepresentation and Fraud", `<p>A claim with false information, or boxes not delivered under the insured order, voids the claim and may void the coverage, without refund.</p>`)}
-        ${cl(10, "Nature of this Coverage", `<p>This coverage is a service warranty given by the Company on its own goods and deliveries. It is not an insurance policy issued by an insurance company, and it adds to the Customer Agreement accepted in the E-Portal.</p>`)}
-        ${cl(11, "Governing Law and Venue", `<p>This certificate is governed by the laws of the Republic of the Philippines. The courts of Pasay City, Metro Manila have jurisdiction over any dispute.</p>`)}
-        ${cl(12, "Electronic Document", `<p>This certificate is an electronic document and its signatures are electronic signatures under Republic Act No. 8792 (Electronic Commerce Act). Its validity is checked by the QR code on the front.</p>`)}
-      </div>
-      <div class="c2-ack">${sec("ACKNOWLEDGMENT")}<p>I have read and I agree to these terms. &nbsp; <span class="c2-ackline"></span> Signature of the Insured over Printed Name &nbsp; <span class="c2-ackline s"></span> Date</p></div>
-      <div class="c2-foot"><span>This certificate is valid only when its number is verified by the QR code.</span><span>${co} &nbsp;|&nbsp; Pasay City, Metro Manila</span></div></div>`;
-    E.openPreview(`Insurance Certificate ${i.ins_no}`, [front, back], { size: "a4l", bare: true }); // 3.78.1: A4 landscape
+      <div class="c2-foot"><span>This certificate is valid only when its number is verified by the QR code. The terms of the EO-OFFICE INSURANCE in the E-Portal form part of this certificate.</span><span>${esc(C.company.name)} &nbsp;|&nbsp; Pasay City, Metro Manila</span></div></div>`;
+    E.openPreview(`Insurance Certificate ${i.ins_no}`, [front], { size: "a4l", bare: true }); // 3.78.2: 1 page, A4 landscape
   }
 
   // ======================================================================
@@ -526,5 +509,24 @@
   const insPrintBox = (i) => !i ? "" : E.box("Insurance Coverage", `<div class="prow3">${E.cell("Certificate No", i.ins_no)}${E.cell("Coverage Amount (₱)", peso(i.amount))}${E.cell("Benefits Expire", i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY")}</div><div class="prow3">${E.cell("Payment Due Extension", `+${DUE} DAYS AFTER THE DUE DATE`)}</div>
       <div class="pcell"><div class="pl">Note</div><div class="pv">STATUS: PAID · ${esc(insNote.toUpperCase())}</div></div>`);
 
-  Object.assign(E, { insCert: printCert, insDueOf: dueOf, insOrderStrip, insVerify, insOffer, insForOrder, insForInvoice, insBox, insPrintBox });
+  // 3.78.2: a small COVERED badge at the top of the order page and the invoice page: the extended DUE DATE and the
+  // CLAIMS UNTIL date; pressed, it opens the insurance
+  async function insMini(el, { orderId, invoiceId, terms, invoiceDue } = {}) {
+    if (!el) return;
+    const i = orderId ? await insForOrder(orderId) : invoiceId ? await insForInvoice(invoiceId) : null;
+    if (!i || !el.isConnected) return;
+    await settings().catch(() => {});
+    let due = invoiceDue || null;
+    if (!due) {
+      const { data: o } = await sb.from("customer_orders").select("invoice_id, payment_terms").eq("id", i.order_id).maybeSingle();
+      terms = terms || o?.payment_terms;
+      if (o?.invoice_id) due = (await dueOf({ id: o.invoice_id }))?.ext || null;
+    }
+    if (!el.isConnected) return;
+    const st = stateOf(i);
+    el.innerHTML = `<a class="ins-mini ${st.k}" href="#insurance/${i.id}" title="Open insurance ${esc(i.ins_no)}">${ic("shield")}<span><b>${st.k === "valid" ? "COVERED" : esc(st.label)}</b>
+      <small>DUE DATE: ${esc(due ? mdy(due) : dueSum(terms))}</small><small>CLAIMS UNTIL: ${esc(i.valid_until ? mdy(i.valid_until) : "15 DAYS AFTER DELIVERY")}</small></span></a>`;
+  }
+
+  Object.assign(E, { insMini, insCert: printCert, insDueOf: dueOf, insOrderStrip, insVerify, insOffer, insForOrder, insForInvoice, insBox, insPrintBox });
 })();
