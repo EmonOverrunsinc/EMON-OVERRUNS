@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.83"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.84"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.83"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.84"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -128,10 +128,11 @@
   // a "label | value" table; a row [label, value, html] shows html as it is instead of the value; an empty value shows —
   const kvTable = (rows) => `<div class="grid-wrap"><table class="grid kv-table"><tbody>${rows.map(([k, v, html]) => `<tr><th scope="row">${esc(k)}</th><td>${html || esc(v || "—")}</td></tr>`).join("")}</tbody></table></div>`;
   // 2.4: the Terms of Payment of an invoice, and its due date (none for other terms)
-  const TERMS = ["CASH ON DELIVERY", "7 DAYS", "15 DAYS", "30 DAYS", "45 DAYS", "60 DAYS", "90 DAYS"];
+  // 3.84: CASH ON DELIVERY is written COD (an old record with CASH ON DELIVERY counts the same)
+  const TERMS = ["COD", "7 DAYS", "15 DAYS", "30 DAYS", "45 DAYS", "60 DAYS", "90 DAYS"];
   const termsDue = (iso, terms) => {
     if (!iso || !terms) return "";
-    if (terms === "CASH ON DELIVERY") return iso;
+    if (terms === "COD" || terms === "CASH ON DELIVERY") return iso;
     const m = /^(\d{1,3}) DAYS$/.exec(terms);
     if (!m) return "";
     const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + Number(m[1])); return isoDay(d);
