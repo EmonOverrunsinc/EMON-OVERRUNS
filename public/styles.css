@@ -3170,3 +3170,12 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 @media (max-width: 600px) { .dev-set .btn { flex: 1; } }
 .dev-ov .btn.primary { background: #0a66c2; border-color: #0a66c2; color: #fff; opacity: 1; }
 .dev-ov .btn.primary:disabled { background: #8fa1c4; border-color: #8fa1c4; }
+
+/* 3.80.1: a list wider than the screen: a shadow shows at the side that has more, and a "swipe" hint */
+.grid-scroll { -webkit-overflow-scrolling: touch;
+  background: linear-gradient(to right, #fff 40%, rgba(255,255,255,0)) left center / 28px 100% no-repeat local,
+    linear-gradient(to left, #fff 40%, rgba(255,255,255,0)) right center / 28px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(15,58,140,.22), rgba(15,58,140,0)) left center / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(15,58,140,.22), rgba(15,58,140,0)) right center / 12px 100% no-repeat scroll; }
+.grid-wrap.wide .grid-group::after, .grid-wrap.wide:not(:has(.grid-group)) .grid-foot > span:first-child::after { content: "  ·  Swipe sideways ⟷ to see all columns"; color: #0a66c2; font-weight: 600; white-space: pre; }
+@media (max-width: 1024px) { table.grid th, table.grid td { padding: 8px 9px; } }
