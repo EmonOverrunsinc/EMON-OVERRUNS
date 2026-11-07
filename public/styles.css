@@ -3139,3 +3139,34 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 }
 .kyc-card { margin-bottom: 14px; }
 .cols > fieldset.opt + fieldset.opt { margin-top: 14px; }
+
+/* 3.80: the Back button on the RIGHT side, a little higher (above the status bar and the toasts) */
+.band-back { left: auto !important; right: calc(16px + env(safe-area-inset-right, 0px)); bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+
+/* 3.80: DEVICE LOGIN - the "new device" gate, the Devices page and My Devices */
+.dev-ov { position: fixed; inset: 0; z-index: 59; background: rgba(10,22,44,.62); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 14px; animation: fadeIn .25s ease; }
+.dev-win { width: min(520px, 100%); }
+.dev-body { padding: 22px 22px 14px; display: grid; gap: 10px; justify-items: center; text-align: center; overflow: auto; }
+.dev-body p { margin: 0; font-size: 15px; line-height: 1.45; }
+.dev-ic { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; background: #fff7e0; color: #b7791f; border: 3px solid #f2b705; }
+.dev-ic.bad { background: #fdecec; color: #c62828; border-color: #e57373; }
+.dev-ic svg { width: 36px; height: 36px; }
+.dev-name { display: grid; gap: 2px; padding: 8px 16px; border: 1px solid #c9d6ef; border-radius: 10px; background: #eef3fc; }
+.dev-name small { font-size: 11px; color: #5a6b8c; letter-spacing: .06em; }
+.dev-name b { font-size: 15px; color: #0f3a8c; }
+.dev-set { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 12px; border-radius: 12px; border: 1px solid #c9d6ef; background: #eef3fc; }
+.dev-set.off { background: #fff4f4; border-color: #f0b4b4; }
+.dev-set > svg { width: 26px; height: 26px; color: #0f3a8c; flex: none; }
+.dev-set.off > svg { color: #c62828; }
+.dev-set b { display: block; }
+.dev-set small { color: #4a5a78; }
+.dev-set .grow { flex: 1; }
+.dev-list { display: grid; gap: 8px; }
+.dev-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid #e1e7f3; border-radius: 10px; background: #fafcff; }
+.dev-row > svg { width: 22px; height: 22px; color: #0f3a8c; flex: none; }
+.dev-row > div { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.dev-row b { overflow-wrap: anywhere; }
+.dev-row small { color: #5a6b8c; }
+@media (max-width: 600px) { .dev-set .btn { flex: 1; } }
+.dev-ov .btn.primary { background: #0a66c2; border-color: #0a66c2; color: #fff; opacity: 1; }
+.dev-ov .btn.primary:disabled { background: #8fa1c4; border-color: #8fa1c4; }

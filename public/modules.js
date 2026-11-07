@@ -411,7 +411,6 @@
       <div id="ecCheck" class="person-check" aria-live="polite"></div>
       <fieldset class="opt"><legend>Full Address</legend><div class="fields wide">
         <label for="ecAddr">Address *</label><input type="text" id="ecAddr" value="${v(c.address)}">
-        <span>Location *</span><div class="checks loc-checks">${Object.entries(LOCATION).map(([k, l]) => `<label><input type="radio" name="ecLoc" value="${k}" ${locOf(c) === k ? "checked" : ""}> ${esc(l)}</label>`).join("")}</div>
       </div></fieldset>
       <fieldset class="opt"><legend>Account</legend><div class="fields wide">
         <label for="ecDate">Opening Date *</label><input type="date" id="ecDate" value="${day(c.application_date)}" max="${isoToday()}">
@@ -452,14 +451,13 @@
       const num = (id) => (val(id) === "" ? null : Number(val(id)));
       const now = {
         first_name: val("ecFirst"), last_name: val("ecLast"), phone: val("ecPhone") || null, email: val("ecEmail") || null,
-        address: val("ecAddr"), location_check: radio("ecLoc") || null, application_date: val("ecDate") || null,
+        address: val("ecAddr"), application_date: val("ecDate") || null, // 3.80: no location check (the address only)
         credit_limit: num("ecCredit"), opening_balance: num("ecOpen") ?? 0, business_start_date: val("ecStart") || null,
         business_name: val("ecBiz") || null, facebook_name: val("ecFb") || null, facebook_link: val("ecFbLink") || null,
         has_extra_facebook: radio("ecFbx") === "yes", extra_facebook_name: radio("ecFbx") === "yes" ? val("ecFb2") || null : null,
         facebook_verified: radio("ecFbv") === "yes" };
       if (!now.first_name || !now.last_name) return toast("Enter the first name and the last name.", true);
       if (!now.address) return toast("Enter the address.", true);
-      if (!now.location_check) return toast("Choose the location check.", true);
       if (!now.application_date) return toast("Enter the opening date.", true);
       if (now.application_date > isoToday()) return toast("The opening date cannot be after today.", true);
       if ((now.credit_limit ?? 0) < 0 || now.opening_balance < 0 || Number.isNaN(now.credit_limit) || Number.isNaN(now.opening_balance)) return toast("Enter amounts of zero or more.", true);
@@ -470,7 +468,6 @@
         if (["credit_limit", "opening_balance"].includes(k)) return (a == null || a === "" ? null : Number(a)) === (b == null ? null : Number(b)) || (k === "opening_balance" && !Number(a) && !Number(b));
         if (["application_date", "business_start_date"].includes(k)) return String(a || "").slice(0, 10) === String(b || "");
         if (typeof b === "boolean") return !!a === b;
-        if (k === "location_check") return locOf(c) === b;
         return String(a ?? "") === String(b ?? "");
       };
       const changes = Object.fromEntries(Object.keys(now).filter((k) => !same(k)).map((k) => [k, now[k]]));
@@ -640,7 +637,7 @@
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
     // 3.60: no payslip reminder here (the Payroll page shows the employees without the month's payslip)
-    const [apps, jobs, changes, memos, contacts, copies, pos, cords, prints, dlv, insr, kyc] = await Promise.all([
+    const [apps, jobs, changes, memos, contacts, copies, pos, cords, prints, dlv, insr, kyc, devs] = await Promise.all([
       cnt(sb.from("customers").select("id", head).in("status", ["pending", "verified"])),
       cnt(sb.from("job_applications").select("id", head).eq("status", "submitted")),
       cnt(sb.from("change_requests").select("id", head).eq("status", "pending")),
@@ -653,11 +650,12 @@
       // 3.74.1: deliveries submitted by the order paper wait for EMON HASAN (approved: COMPLETED and the invoice is made)
       sb.from("customer_orders").select("id", { count: "exact" }).eq("status", "approved").not("delivery_request_at", "is", null).order("delivery_request_at").limit(1).then((r) => (r.error ? { n: 0 } : { n: r.count || 0, id: r.data?.[0]?.id }), () => ({ n: 0 })),
       cnt(sb.from("order_insurance").select("id", head).eq("status", "review")),
-      cnt(sb.from("kyc_verifications").select("id", head).eq("status", "pending"))
+      cnt(sb.from("kyc_verifications").select("id", head).eq("status", "pending")),
+      cnt(sb.from("user_devices").select("id", head).eq("status", "pending")) // 3.80: a new device waits for approval
     ]);
     return [[apps, "Customer application", "#customers"], [jobs, "Job application", "#jobapps"], [changes, "Correction", "#changes"], [memos, "Credit memo", "#creditmemos"],
       [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [cords, "Customer order", "#custorders"], [prints, "Print request", "#printreqs"],
-      [dlv.n, "Delivery approval", dlv.id ? `#custorder/${dlv.id}` : "#custorders"], [insr, "Insurance payment", "#insurance"], [kyc, "KYC review", "#kyc"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
+      [dlv.n, "Delivery approval", dlv.id ? `#custorder/${dlv.id}` : "#custorders"], [insr, "Insurance payment", "#insurance"], [kyc, "KYC review", "#kyc"], [devs, "New device approval", "#devices"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
   }
   E.todoItems = todoItems;
 
@@ -780,8 +778,7 @@
           <div id="ncCheck" class="person-check" aria-live="polite"></div>
           <fieldset class="opt"><legend>Full Address</legend>
             <div class="fields wide"><label for="ncAddr">Address *</label><input type="text" id="ncAddr" required placeholder="House no, street, barangay, city, province">
-              <span>Location *</span><div class="checks loc-checks">${Object.entries(LOCATION).map(([k, l]) => `<label><input type="radio" name="ncLoc" value="${k}"> ${esc(l)}</label>`).join("")}</div>
-            </div><small>FOUND: the location was checked and found (for example, by a visit or a document). NOT FOUND: it was checked and not found. EMON HASAN can change it later from the customer profile.</small></fieldset>
+            </div></fieldset>
           <fieldset class="opt"><legend>Account</legend><div class="fields wide">
             <label for="ncCredit">Credit Limit (₱)</label><input type="number" id="ncCredit" min="0" step="0.01" inputmode="decimal" placeholder="Optional">
             <label for="ncOpen">Opening Balance (₱)</label><input type="number" id="ncOpen" min="0" step="0.01" inputmode="decimal" placeholder="Optional — leave empty if none">
@@ -846,8 +843,6 @@
       if (!v("ncFirst") || !v("ncLast")) return toast("Enter the first and last name.", true);
       if (!v("ncPhone")) return toast("Enter the phone number.", true);
       if (!v("ncAddr")) return toast("Enter the full address.", true);
-      const loc = $("input[name=ncLoc]:checked")?.value;
-      if (!loc) return toast("Choose the location: FOUND, NO NEED TO CHECK LOCATION or NOT FOUND.", true);
       if (v("ncFbLink") && !FB_LINK.test(v("ncFbLink"))) return toast("Enter the Facebook account link, for example https://www.facebook.com/name — or leave it empty.", true);
       if (blockedWhy) return toast(blockedWhy, true);
       if (num(v("ncCredit")) < 0 || num(v("ncOpen")) < 0) return toast("The credit limit and opening balance cannot be negative.", true);
@@ -866,7 +861,7 @@
         }
         const ins = await sb.from("customers").insert({
           id, first_name: v("ncFirst"), last_name: v("ncLast"), photo_path, address: v("ncAddr"),
-          location_check: loc, address_verified: loc === "found",
+          location_check: "no_need", address_verified: false, // 3.80: no location check (the address only)
           credit_limit: v("ncCredit") ? num(v("ncCredit")) : null, opening_balance: num(v("ncOpen")) || 0,
           business_start_date: v("ncStart") || null, business_name: v("ncBiz") || null,
           facebook_name: v("ncFb") || null, facebook_link: v("ncFbLink") || null, has_extra_facebook: extra, extra_facebook_name: extra ? v("ncFb2") : null,
@@ -882,13 +877,8 @@
     };
   };
 
-  // sign: the Director's approval (approvedBy), printed with the Director's signature.
-  // A customer's LOCATION check (2.1, in place of the address check): found, no need to check, or not found. A database
-  // before 2.1 has only the address check (verified = found).
-  const LOCATION = { found: "✔ FOUND", no_need: "NO NEED TO CHECK LOCATION", not_found: "✖ NOT FOUND" };
-  const locOf = (c) => (LOCATION[c.location_check] ? c.location_check : c.address_verified ? "found" : "not_found");
-  const locSelect = (c, id) => `<label class="loc-pick" for="${id}">Location <select id="${id}">${Object.entries(LOCATION).map(([k, l]) => `<option value="${k}" ${k === locOf(c) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`;
-  function applicationPage(c, photoUrl, reqs, sign = null) {
+  // 3.80: no location check on a customer (the address only)
+  function applicationPage(c, photoUrl, reqs) {
     const qr = E.qrDataUrl(custQr(c));
     const bar = E.pdf417DataUrl(c.application_no);
     // 3.2: no photo box; the customer's QR code with the public key stands in that place (left of the customer details)
@@ -904,47 +894,42 @@
         ${cell("Credit Limit (PHP)", c.credit_limit != null ? peso(c.credit_limit) : "")}
         ${cell("Opening Balance (PHP)", peso(c.opening_balance))}</div>`)}
       <p class="pdecl">I certify that the information above is true and correct, and I agree to the terms of ${esc(C.company.name)}.</p>
-      ${sigs("Customer Signature over Printed Name &nbsp; / &nbsp; Date", sign ? "Approved by" : "Approved by (Signature) &nbsp; / &nbsp; Date", sign)}
+      ${sigs("Customer Signature over Printed Name &nbsp; / &nbsp; Date", "Approved by (Signature) &nbsp; / &nbsp; Date")}
       <div class="rp-foot"><span>Submit this signed form to the ${esc(C.company.name)} office.</span><span>${esc(c.application_no)}</span></div>`;
   }
-  // An approved account: the Director who approved it and when (from its history).
+  // An approved account (active, suspended or closed).
   const isApprovedAccount = (c) => ["active", "suspended", "closed"].includes(c.status);
-  async function accountApproval(c) {
-    if (!isApprovedAccount(c)) return null;
-    const { data } = await sb.from("customer_events").select("actor, actor_name, created_at").eq("customer_id", c.id).eq("action", "approve").order("created_at", { ascending: false }).limit(1);
-    const ev = (data || [])[0];
-    return { id: ev?.actor || c.reviewed_by, name: ev?.actor_name || "", at: ev?.created_at || c.reviewed_at };
-  }
   async function printApplication(c) {
-    const [att, ok] = await Promise.all([attachmentsOf("customer", c.id), accountApproval(c), loadSignatures()]);
-    const pages = [applicationPage(c, null, att.filter((a) => a.kind === "requirement"), ok ? approvedBy(ok.id, ok.name, ok.at) : null)];
-    // an approved account: page 2 is the Record Validation (verified / approved by, E-Portal record date, paper copy)
-    if (ok) pages.push(await validationPage(c, att));
-    E.openPreview(`Application ${c.application_no}`, pages);
+    const att = await attachmentsOf("customer", c.id), reqs = att.filter((a) => a.kind === "requirement");
+    // 3.80: an approved account prints the CUSTOMER DETAILS (one page, no signature lines); the signatures are collected
+    // only on the application form, before the approval
+    if (isApprovedAccount(c)) return E.openPreview(`Customer Details ${c.account_no || c.application_no}`, [await detailsPage(c, att, reqs)], { onePage: true });
+    E.openPreview(`Application ${c.application_no}`, [applicationPage(c, null, reqs)]);
   }
 
-  // 2.6.5 Record Validation (A4, page 2 of an approved account's application print): the account's log validation like the old paper form — verified by / date,
-  // approved by / date — with the date it was recorded in the E-Portal, the paper form on file, and a QR to check it.
-  async function validationPage(c, att) {
-    const ev = await sb.from("customer_events").select("action, actor, actor_name, created_at").eq("customer_id", c.id).in("action", ["verify", "approve"]).order("created_at", { ascending: false });
+  // 3.80 Customer Details: the approved account's record, made by the E-Portal; no signatures (they are on the application form)
+  async function detailsPage(c, att, reqs) {
+    const ev = await sb.from("customer_events").select("action, actor_name, created_at").eq("customer_id", c.id).in("action", ["verify", "approve"]).order("created_at", { ascending: false });
     const last = (a) => (ev.data || []).find((x) => x.action === a);
-    const ver = last("verify"), apr = last("approve"), ok = isApprovedAccount(c);
+    const ver = last("verify"), apr = last("approve");
     const paper = att.filter((a) => a.kind === "signed_form" || a.kind === "application").sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
-    const when = new Date(), vno = "V" + when.toISOString().replace(/\D/g, "").slice(2, 14), at = E.dateTime(when.toISOString());
-    const row = (k, v) => `<tr><th>${esc(k)}</th><td${k === "Public ID" ? ' class="key"' : ""}>${esc(v || "—")}</td></tr>`;
-    const complete = ok && !!paper;
-    return `<div class="vp">${printHead("RECORD VALIDATION")}
-      <div class="vp-true${complete ? "" : " part"}"><span class="vp-seal">${complete ? "✔" : "!"}</span><div><b>${complete ? "RECORD COMPLETE" : ok ? "PAPER FORM NOT ON FILE" : "NOT YET APPROVED"}</b>
-        <small>${esc(fullName(c))} · ${esc(c.account_no || c.application_no)}</small><small>Recorded in the ${esc(E.APP)} on ${esc(mdy(c.created_at))}</small></div></div>
-      ${box("Customer Record", `<table class="vp-fields"><tbody>${row("Account Name", fullName(c))}${row("Account No", c.account_no)}${row("Application No", c.application_no)}
-        ${c.business_name ? row("Business Name", c.business_name) : ""}${row(ok ? "Opening Date" : "Application Date", mdy(c.application_date))}${row("E-Portal Record Date", mdy(c.created_at))}
-        ${row("Account Status", String(c.status).toUpperCase())}${row("Public ID", c.public_id)}${row("Paper Application Form", paper ? `On file · scanned ${mdy(paper.created_at)}` : "Not on file")}</tbody></table>`)}
-      ${box("Log Validation", `<table class="vp-fields"><tbody>${row("Verified By", ver?.actor_name || (ok && !ver ? "Approved directly by EMON HASAN" : ""))}${row("Date of Verification", ver ? mdy(ver.created_at) : "")}
-        ${row("Approved By", ok ? apr?.actor_name || "" : "")}${row("Approval Date", ok ? mdy(apr?.created_at || c.reviewed_at) : "")}</tbody></table>`)}
-      ${box("E-Portal Validation", `<div class="vp-valid"><table class="vp-fields"><tbody>${row("Validation No", vno)}${row("Validated On", at)}${row("Validated By", S.profile?.full_name || "")}</tbody></table>
-        <div class="vp-qr"><img src="${E.qrDataUrl(`${location.origin}${location.pathname}#verify/${encodeURIComponent(c.public_id || c.account_no || "")}`)}" alt="Verification QR code"><small>Scan to verify online</small></div></div>`)}
-      ${sigs("Verified by (Signature) &nbsp; / &nbsp; Date", ok ? "Approved by" : "Approved by (Signature) &nbsp; / &nbsp; Date", ok ? approvedBy(apr?.actor || c.reviewed_by, apr?.actor_name || "", apr?.created_at || c.reviewed_at) : null)}
-      <div class="vp-sys">This record is kept in the ${esc(E.APP)}. Scan the QR code to check it.</div></div>`;
+    const no = c.account_no || c.application_no;
+    return `${printHead("CUSTOMER DETAILS", `<img src="${E.pdf417DataUrl(no)}" alt="Account number barcode" class="ph-bar"><div class="mono">${esc(no)}</div>`)}
+      <div class="prow3">${cell("Account No", c.account_no)}${cell("Application No", c.application_no)}${cell("Opening Date", mdy(c.application_date))}</div>
+      ${box("Customer Information", `<div class="pgrid">
+        <div class="pphoto pqr"><img src="${E.qrDataUrl(custQr(c))}" alt="Customer QR code"><div class="mono key">${esc(c.public_id)}</div></div>
+        <div class="pgrid2">${cell("First Name", c.first_name)}${cell("Last Name", c.last_name)}
+          ${cell("Phone Number", c.phone)}${cell("Email Address", c.email)}
+          ${c.business_name ? cell("Business Name", c.business_name, "span2") : ""}
+          ${cell("Delivery Address", c.address, "span2")}</div></div>`)}
+      ${box("Account", `<div class="pgrid2">${cell("Status", String(c.status).toUpperCase())}${cell("Issued By", c.issued_by_name)}
+        ${cell("Credit Limit (PHP)", c.credit_limit != null ? peso(c.credit_limit) : "")}${cell("Opening Balance (PHP)", peso(c.opening_balance))}</div>`)}
+      ${box("Approval Record", `<div class="pgrid2">${cell("Verified By", ver?.actor_name || (!ver ? "Approved directly by EMON HASAN" : ""))}${cell("Date of Verification", ver ? mdy(ver.created_at) : "")}
+        ${cell("Approved By", apr?.actor_name || "")}${cell("Approval Date", mdy(apr?.created_at || c.reviewed_at))}
+        ${cell("E-Portal Record Date", mdy(c.created_at))}${cell("Signed Application Form", paper ? `On file · scanned ${mdy(paper.created_at)}` : "Not on file")}</div>`)}
+      ${box("Requirements Submitted", `<div class="pv preq">${reqs.length ? reqs.map((r) => `<div><span class="ok-mark">✔</span> ${esc(r.file_name)}</div>`).join("") : "None uploaded"}</div>`)}
+      <div class="ja-appr">( APPROVED )${apr?.actor_name ? ` by ${esc(apr.actor_name)}` : ""} · ${esc(E.dateTime(apr?.created_at || c.reviewed_at))}</div>
+      <div class="rp-foot"><span>System generated by the ${esc(E.APP)} · no signature needed · scan the QR code to check it</span><span>${esc(no)}</span></div>`;
   }
 
   // Suspended / closed accounts are marked for everyone who opens them.
@@ -1026,7 +1011,8 @@
         ${tools("customers", c, `${c.account_no || c.application_no} ${fullName(c)}`, { reload: () => V.customer(c.id), afterDelete: () => (location.hash = "customers"), noFix: isApprovedAccount(c) && isStaff() && !S.mainDirector })}
       </div>
       ${isApprovedAccount(c) && isStaff() ? E.requestsHtml(c, orders) : ""}
-      <div class="docgrid">${docCard({ key: "app", title: "Customer Application Form", tag: "System Generated", sub: `${c.application_no} · made by the E-Portal · print it for the customer to sign`, ownerType: "customer", ownerId: c.id, att, kind: "__system", canUpload: false, print: () => printApplication(c),
+      <div class="docgrid">${docCard({ key: "app", title: isApprovedAccount(c) ? "Customer Details" : "Customer Application Form", tag: "System Generated",
+        sub: isApprovedAccount(c) ? `${c.account_no || c.application_no} · made by the E-Portal · no signature needed` : `${c.application_no} · made by the E-Portal · print it for the customer to sign`, ownerType: "customer", ownerId: c.id, att, kind: "__system", canUpload: false, print: () => printApplication(c),
         approved: isApprovedAccount(c) ? (() => { const a = [...(ev.data || [])].reverse().find((x) => x.action === "approve"); return { name: a?.actor_name || "", at: a?.created_at || c.reviewed_at }; })() : null })}
         ${signed.length && !att.pending.some((a) => ["signed_form", "application"].includes(a.kind)) ? "" : copyCard({ key: "appcopy", title: "Customer Application Form", tag: "Signed Paper Copy", sub: "Scan or upload the form signed by the customer", ownerType: "customer", ownerId: c.id, att, kind: "signed_form", kinds: ["signed_form", "application"], canUpload: isStaff() && c.status !== "closed" })}</div>
       ${isAdmin() && ["pending", "verified"].includes(c.status) ? reviewPanel(c, signed, att.length) : ""}
@@ -1046,7 +1032,6 @@
           ...(isAdmin() ? [{ label: "", html: (r) => `<button type="button" class="btn small danger" data-hdel="${r.src}:${r.id}" aria-label="Delete this history line">${ic("trash")}</button>` }] : [])], rows: history })}</div>
       </div>`;
     E.drawQr($("#pfQr"), custQr(c));
-    if ($("#pfLoc")) $("#pfLoc").onchange = (e) => setLocation(c, e.target.value);
     // Change or remove the profile photo. The new photo is kept in Files; the old one leaves Files (and, for the
     // Director, is deleted from storage too).
     const dropOld = (old) => { if (old && isAdmin()) sb.storage.from("records").remove([old]).catch(() => {}); };
@@ -1161,14 +1146,6 @@
     return E.kvTable(rows);
   }
 
-  // The Director sets the location check: found, no need to check, or not found.
-  async function setLocation(c, loc) {
-    if (!LOCATION[loc] || loc === locOf(c)) return;
-    const r = await sb.rpc("customer_action", { p_id: c.id, p_action: "location_" + loc, p_note: null });
-    if (r.error) return fail(r.error, "Could not update the location");
-    toast(`Location: ${LOCATION[loc]}.`);
-    V.customer(c.id);
-  }
   // 3.34: the Director sees all the data of the application, checks the records (verification), then approves or rejects.
   // The signed paper form is not needed to approve; it can still be scanned or uploaded on the Signed Paper Copy card.
   function reviewPanel(c, signed, nDocs) {
@@ -1184,7 +1161,7 @@
         <li><b>Check records:</b> look for the same name, Facebook name, Facebook link or phone number in other accounts. A person whose account was CLOSED, or whose Facebook link is already on another account, cannot open an account.
           <div class="btnrow"><button type="button" class="btn primary" id="rvCheck">Check &amp; Verify</button>
           <button type="button" class="btn" id="rvFb">${c.facebook_verified ? "Mark Facebook NOT verified" : "Mark Facebook verified"}</button>
-          ${locSelect(c, "rvLoc")}</div><div id="rvResult">${verified ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
+</div><div id="rvResult">${verified ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
         <li><b>Decide:</b>
           <div class="fields wide"><label for="rvNote">Note</label><input type="text" id="rvNote" placeholder="Optional note (shown in history)"></div>
           <div class="btnrow"><button type="button" class="btn ok" id="rvApprove"${verified ? "" : ' disabled title="Press Check &amp; Verify first"'}>Approve — Activate Account</button>
@@ -1243,7 +1220,6 @@
       const r = await sb.rpc("customer_action", { p_id: c.id, p_action: c.facebook_verified ? "facebook_unverified" : "facebook_verified", p_note: null });
       if (r.error) return fail(r.error, "Could not update"); V.customer(c.id);
     };
-    $("#rvLoc").onchange = (e) => setLocation(c, e.target.value);
     if ($("#rvDocs")) $("#rvDocs").onclick = () => { const t = $('#pfTabs button[data-t="5"]'); if (t) { t.click(); t.scrollIntoView({ block: "center" }); } }; // tab 5: Documents
     const act = async (a) => {
       const btns = [$("#rvApprove"), $("#rvReject")], was = btns.map((b) => b.disabled);
@@ -2303,6 +2279,7 @@
         </fieldset>
         <fieldset class="opt"><legend>Password</legend><p>Change the password you sign in with.</p><div class="btnrow"><button type="button" class="btn" id="mpPw">${ic("key")} Change Password</button></div></fieldset>
         <fieldset class="opt kyc-card" id="mpKyc" hidden></fieldset>
+        <fieldset class="opt dev-card" id="mpDev" hidden></fieldset>
       </div>
       ${emp ? `<div id="mpCard"></div>` : ""}
       <fieldset class="opt sigset" id="mpSigBox"><legend>My Signature</legend>
@@ -2328,6 +2305,7 @@
     if (emp && E.cardInfoBox) E.cardInfoBox($("#mpCard")); // the ID card (3.28: no PIN)
     $("#mpPw").onclick = () => E.changePassword();
     E.kycCard?.($("#mpKyc")); // 3.75: optional KYC with a live face check
+    E.myDevices?.($("#mpDev")); // 3.80: the devices this login signs in on
     // 2.4: the request goes to the Director's Contact Messages, who then deletes the account on Login Accounts
     if ($("#mpDel")) $("#mpDel").onclick = async () => {
       $("#mpDel").disabled = true;
@@ -2393,5 +2371,5 @@
     docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, cxTop, cxSec, cxKv, uuid, cleanQ, idBox, METHOD,
     loadSignatures, approvedBy, signaturePic, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm, editCustomer, custSoa
   });
-  E._docs = { ...(E._docs || {}), invoicePage, ackPage, soaPages, memoPage }; // 3.79: the document pages (for the print checks)
+  E._docs = { ...(E._docs || {}), invoicePage, ackPage, soaPages, memoPage, detailsPage, applicationPage }; // 3.79: the document pages (for the print checks)
 })();

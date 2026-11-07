@@ -6,17 +6,35 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.79"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.80"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.79"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.80"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
   // record saved straight to a table also up to 1.5 seconds after it was saved (a server function is asked again once
   // it has answered: it may only read, like Check & Verify). Reading (GET) and file uploads always go to the server.
   const sent = new Map();
+  // 3.80: this device's own ID (kept in the browser). It goes with every request to the records and files (in the
+  // x-client-info header the portal already sends), so the server gives a login's data only to its approved devices.
+  let DEVICE = "";
+  try { DEVICE = localStorage.getItem("eo.device") || ""; } catch { /* no site data: a new ID */ }
+  if (!/^[A-Za-z0-9-]{16,64}$/.test(DEVICE)) {
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    DEVICE = "d" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+    try { localStorage.setItem("eo.device", DEVICE); } catch { /* kept for this visit only */ }
+  }
+  window.EO.deviceId = DEVICE;
+  function withDevice(input, init) {
+    if (!/\/(rest|storage)\/v1\//.test(String(input?.url || input))) return init;
+    const h = new Headers(init.headers || undefined), info = h.get("x-client-info");
+    if (!info || info.includes("eo-device/")) return init;
+    h.set("x-client-info", `${info} eo-device/${DEVICE}`);
+    return { ...init, headers: h };
+  }
   function sendOnce(input, init = {}) {
+    init = withDevice(input, init);
     const method = String(init.method || "GET").toUpperCase();
     if (method === "GET" || method === "HEAD" || typeof init.body !== "string") return fetch(input, init);
     const url = String(input?.url || input), key = `${method} ${url} ${init.body}`;
@@ -186,6 +204,7 @@
     building: '<rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M10 21v-3h4v3"/>',
     stamp: '<path d="M9 3h6l-1 7h-4z"/><path d="M5 14h14v3H5zM4 21h16"/>',
     globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+    device: '<rect x="6" y="2.5" width="12" height="19" rx="2.2"/><path d="M10.5 18.5h3"/>',
     ai: '<circle cx="5" cy="6.5" r="2"/><circle cx="5" cy="17.5" r="2"/><circle cx="12" cy="12" r="2.2"/><circle cx="19" cy="6.5" r="2"/><circle cx="19" cy="17.5" r="2"/><path d="m6.8 7.6 3.4 3.2M6.8 16.4l3.4-3.2M13.8 10.8l3.4-3.2M13.8 13.2l3.4 3.2"/>'
   };
   const ic = (name, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
@@ -1033,6 +1052,7 @@
     ["printreqs", "Print Requests", () => isAdmin(), "print"], // 3.65
     ["gateai", "EVA AI", () => isAdmin(), "ai"], // 3.38 (3.38.1: named EVA, EMON Virtual Assistant)
     ["kyc", "KYC Verification", () => isAdmin(), "idcard"], // 3.75: optional KYC with a live face check
+    ["devices", "Devices", () => isAdmin(), "device"], // 3.80: the devices of every login; a new device waits for approval
     ["legal", "Legal Terms", () => true, "doc"] // 3.69: the terms every login accepts; EMON HASAN sees every acceptance
   ];
   const ACTIVE_OF = { employees: "eooffice", newemployee: "eooffice", editemployee: "eooffice", employee: "eooffice", payroll: "eooffice", payslip: "eooffice", creditmemos: "eooffice", newcreditmemo: "eooffice", creditmemo: "eooffice", projects: "eooffice", newproject: "eooffice", project: "eooffice", jobapps: "eooffice", jobapp: "eooffice", positions: "eooffice", newqc: "eooffice", qc: "eooffice", newcollection: "eooffice", editcollection: "eooffice", collection: "eooffice", newpurchase: "purchase", po: "purchase", editpo: "purchase", ebill: "inventory", custorders: "eooffice", newcustorder: "eooffice", editcustorder: "eooffice", custorder: "eooffice", insurance: "eooffice", find: "", profile: "", settings: "" };
@@ -2056,7 +2076,7 @@
   // in from the left (iOS) and puts it back as it was; a new page slides in from the right.
   let navDir = "fwd", shownHash = null;
   const trail = [], pageMemo = new Map();
-  const NO_RESTORE = new Set(["rvLoc", "tbQ"]);
+  const NO_RESTORE = new Set(["tbQ"]);
   function memoPage() {
     const main = $("#main");
     if (!shownHash || !main) return;
@@ -2135,6 +2155,8 @@
       return;
     }
     if (S.profile.status === "disabled") return renderDisabled();
+    // 3.80: a new device waits for approval first (nothing of the portal opens on it)
+    if (window.EO.deviceGate && !(await window.EO.deviceGate())) { closePreview(); stopTimers(); $$(".chat-panel, .eva-panel, #drawer").forEach((x) => x.remove()); app.innerHTML = `<div class="legal-bg"></div>`; return; }
     // 3.70: nothing of the portal opens until this login has agreed (Reject signs them out)
     if (window.EO.legalGate && !(await window.EO.legalGate())) { closePreview(); stopTimers(); $$(".chat-panel, .eva-panel, #drawer").forEach((x) => x.remove()); app.innerHTML = `<div class="legal-bg"></div>`; return; }
     if (S.profile.status !== "active") {
@@ -2175,7 +2197,7 @@
     if (event === "PASSWORD_RECOVERY") { booted = true; S.profile = null; setTimeout(() => renderSetPassword(true), 0); return; }
     // 3.0: the first page does not wait more than a moment for the company logo (it is set as soon as it comes)
     if (!booted) { booted = true; S.profile = null; setTimeout(() => Promise.race([loadBranding(), new Promise((r) => setTimeout(r, 350))]).then(route), 0); return; }
-    if (changedUser) { S.profile = null; badgeState.at = 0; pageMemo.clear(); trail.length = 0; stopTimers(); setTimeout(route, 0); }
+    if (changedUser) { S.profile = null; S.deviceOk = null; $$(".dev-ov").forEach((x) => x.remove()); badgeState.at = 0; pageMemo.clear(); trail.length = 0; stopTimers(); setTimeout(route, 0); }
   });
 
   // 3.66: every date box shows the portal's date (JUNE 30 2026; a month box: JUNE 2026), not the phone's own format
