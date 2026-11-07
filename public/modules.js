@@ -535,7 +535,7 @@
     const first = String(myName() || "").trim().split(/\s+/)[0] || "";
     // the key numbers: [name, icon, the list it opens, the line under the number]
     const tiles = [["Active Customers", "users", "customers", "Open accounts"], ["Applications to Review", "order", "customers", "Waiting for a decision"],
-      ["Balance Due", "wallet", "invoices", "Still to collect"], ["Payments This Month", "check", "payments", `Received in ${now.toLocaleDateString("en-US", { month: "long" }).toUpperCase()}`]];
+      ["Unpaid This Month", "wallet", "invoices", `Invoices of ${now.toLocaleDateString("en-US", { month: "long" }).toUpperCase()}`], ["Payments This Month", "check", "payments", `Received in ${now.toLocaleDateString("en-US", { month: "long" }).toUpperCase()}`]];
     const tile = ([k, icon, page, sub]) => {
       const tag = E.canOpen(page) ? "a" : "div";
       return `<${tag} class="tile"${tag === "a" ? ` href="#${page}"` : ""}><div class="tile-top"><span class="k">${k}</span><span class="tile-ic">${ic(icon)}</span></div>
@@ -570,7 +570,8 @@
     // are added up from all rows, also past 1000)
     const [cust, bal, inv, pay, month, activeN, waitN] = await Promise.all([
       sb.from("customers").select("id,first_name,last_name,account_no,application_no,status,application_date,business_name").in("status", ["pending", "verified"]).order("created_at", { ascending: false }).limit(8),
-      E.allRows(() => sb.from("customer_balances").select("customer_id,balance_due").order("customer_id")),
+      // 3.95: this month's invoices still unpaid (not the whole balance of every customer)
+      E.allRows(() => sb.from("invoice_balances").select("id,balance").gte("invoice_date", ym + "-01").lt("invoice_date", nextMonth(ym)).gt("balance", 0).order("id")),
       sb.from("invoice_balances").select("id,invoice_no,first_name,last_name,balance,pay_status,due_date").order("invoice_date", { ascending: false }).order("invoice_no", { ascending: false }).limit(8),
       sb.from("payments_received").select("id,receipt_no,amount,paid_date,customers(first_name,last_name)").order("created_at", { ascending: false }).limit(8),
       E.allRows(() => sb.from("payments_received").select("id,amount").gte("paid_date", ym + "-01").lt("paid_date", nextMonth(ym)).order("id")),
@@ -583,12 +584,14 @@
       return;
     }
     const cs = cust.data || [];
-    const due = (bal.data || []).reduce((s, b) => s + Math.max(0, num(b.balance_due)), 0);
+    const unpaidRows = bal.data || [], due = unpaidRows.reduce((s, b) => s + Math.max(0, num(b.balance)), 0);
     const pays = pay.data || [];
     const monthPaid = (month.data || []).reduce((s, p) => s + num(p.amount), 0);
     const waiting = cs.filter((c) => ["pending", "verified"].includes(c.status)), waitCount = waitN.count ?? waiting.length;
-    const vals = [["ok", activeN.count || 0], [waitCount ? "warn" : "", waitCount], ["", "₱ " + peso(due)], ["ok", "₱ " + peso(monthPaid)]];
+    const vals = [["ok", activeN.count || 0], [waitCount ? "warn" : "", waitCount], [due > 0 ? "warn" : "ok", "₱ " + peso(due)], ["ok", "₱ " + peso(monthPaid)]];
     $$("#dTiles .tile").forEach((t, i) => { t.className = "tile " + vals[i][0]; $(".v", t).textContent = vals[i][1]; });
+    const ut = $$("#dTiles .tile")[2]; // 3.95: how many of this month's invoices are unpaid
+    if (ut && $(".s", ut)) $(".s", ut).textContent = `${unpaidRows.length} unpaid invoice${unpaidRows.length === 1 ? "" : "s"} of ${now.toLocaleDateString("en-US", { month: "long" }).toUpperCase()}`;
     if ($("#dApps") && waiting.length) { // shown only when an application waits
       $("#dAppsBox").hidden = false;
       $("#dApps").innerHTML = E.grid({ cols: [
