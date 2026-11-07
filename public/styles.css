@@ -3037,3 +3037,8 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 /* 3.78.2: the order no / invoice no barcodes on the certificate */
 .c2-code { justify-content: center; gap: 1mm; } .c2-codebar { width: 80%; height: 10mm; object-fit: fill; }
 .c2-sigs { grid-template-columns: 1fr 1fr 1.3fr; }
+/* 3.78.3: the certificate on 1 page, A4 portrait */
+.page.bare:not(.a4l):has(.c2) { padding: 8mm 9mm 6mm; } .page:not(.a4l) .c2 { min-height: 281mm; }
+.page:not(.a4l) .c2-main { grid-template-columns: 1fr; } .page:not(.a4l) .c2-right { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; align-items: start; }
+.page:not(.a4l) .c2-band { padding: 3mm 4mm; } .page:not(.a4l) .c2-co b, .page:not(.a4l) .c2-title b { font-size: 15pt; } .page:not(.a4l) .c2-title i { min-width: 50mm; } .page:not(.a4l) .c2-no { min-width: 48mm; }
+.page:not(.a4l) .c2-sigs { grid-template-columns: 1fr 1fr 1.2fr; } .page:not(.a4l) .c2-sigbox { height: 22mm; }
