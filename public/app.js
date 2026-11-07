@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.84"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.85"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.84"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.85"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -58,7 +58,8 @@
   const pad = (n) => String(n).padStart(2, "0");
   // 2.9: small helpers shared by every section (they were written again in each file)
   const num = (v) => Number(v || 0);
-  const fullName = (r) => `${(r && r.first_name) || ""} ${(r && r.last_name) || ""}`.trim();
+  // 3.85: a customer's middle name is in the name (FIRST MIDDLE LAST)
+  const fullName = (r) => [r?.first_name, r?.middle_name, r?.last_name].filter(Boolean).join(" ").trim();
   const qtyText = (n) => Number(n || 0).toLocaleString("en-PH", { maximumFractionDigits: 2 });
   const bdt = (n) => `BDT ${peso(n)}`;
   const verifyUrl = (code) => `${location.origin}${location.pathname}#verify/${encodeURIComponent(code)}`;

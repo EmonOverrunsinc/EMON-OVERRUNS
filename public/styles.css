@@ -3228,3 +3228,6 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
   table.grid th, table.grid td { padding: 8px 6px; }
   table.grid td .pill { font-size: 10.5px; padding: 2px 7px; }
 }
+
+/* 3.85: the middle name box goes away when the no-middle-name box is ticked */
+.fields .mid-row[hidden] { display: none !important; }
