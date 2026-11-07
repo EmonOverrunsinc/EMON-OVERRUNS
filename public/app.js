@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.89"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.90"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.89"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.90"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -610,13 +610,11 @@
       <div class="seg" role="tablist"><button type="button" class="on" role="tab" aria-selected="true">Sign In</button><button type="button" role="tab" id="toSignup">Create Account</button></div>
       <label class="fl" for="lgId">Email or Username</label>
       <div class="in-scan"><input type="text" id="lgId" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(preset)}" required>
-        <button type="button" class="in-scan-btn" id="lgScanId" title="Sign in with your ID card: scan it" aria-label="Sign in with your ID card (scan)">${ic("scan")}</button></div>
+        <button type="button" class="in-scan-btn" id="lgScanId" title="Scan your employee ID card or your customer Public ID" aria-label="Sign in by scanning your ID card or Public ID">${ic("scan")}</button></div>
       ${pwField("lgPass", "Password", "current-password")}
       <button class="btn primary big" type="submit">Sign In</button>
       <div class="login-links"><button type="button" class="linkbtn" id="toForgot">Forgot password?</button></div>
-      <div class="login-or">or</div>
-      <button type="button" class="btn big" id="toCard">${ic("idcard")} Sign In with ID Card</button>
-      <button type="button" class="btn big" id="toCust">${ic("user")} Customer Sign In (Public ID)</button>
+      <p class="login-scan-hint">${ic("scan")} <span>Employee ID card or customer Public ID: press the scan button in the box above.</span></p>
     </form>`);
     bindEyes();
     if (linkError) {
@@ -626,9 +624,13 @@
     $(preset ? "#lgPass" : "#lgId").focus();
     $("#toSignup").onclick = () => renderSignup();
     $("#toForgot").onclick = () => renderForgot($("#lgId").value.trim());
-    $("#toCard").onclick = () => renderCardLogin();
-    $("#lgScanId").onclick = () => { renderCardLogin(); $("#clCam")?.click(); }; // 3.75.1: the scan icon in the email box opens the ID card scan at once
-    $("#toCust").onclick = () => window.EO.renderCustLogin?.(); // 3.69
+    // 3.90: ONE scan for both: the employee ID card (then the password) or the customer's Public ID (then the Private PIN)
+    $("#lgScanId").onclick = () => scanDialog((t) => {
+      const v = String(t || "").trim();
+      if (CARD_CODE.test(v)) return renderCardLogin(v);
+      if (/EO[0-9A-F]{40}/i.test(v) && window.EO.renderCustLogin) return window.EO.renderCustLogin(v);
+      toast("This QR code is not an EMON OVERRUNS employee ID card or customer Public ID.", true);
+    }, { title: "Scan Your ID", hint: "Hold your employee ID card (the QR code on the back) or your customer Public ID in front of the camera.", photo: false });
     $("#lgForm").onsubmit = async (e) => {
       e.preventDefault();
       const id = $("#lgId").value.trim(), password = $("#lgPass").value;
@@ -652,7 +654,7 @@
   // 3.28: then the password of the portal account linked to the employee profile and Sign In (no PIN).
   // 3.30: the first scan (no login yet) makes the password right there: no email, no code; after that scan + password.
   const CARD_CODE = /^EMONID\|EOID-\d{4}-\d{4,}\|[0-9A-F]{40}$/i;
-  function renderCardLogin() {
+  function renderCardLogin(scanned = "") {
     authFrame("Sign In with ID Card", `<form class="wbody login-form" id="clForm" novalidate>
       ${brandBlock()}
       <div class="cl-scan">
@@ -701,6 +703,7 @@
     };
     $("#clBack").onclick = () => renderLogin("signin");
     $("#clCam").onclick = () => scanDialog(take, { title: "Scan Your ID Card", hint: "Hold the back of your ID card (the QR code) in front of the camera.", photo: false }); // 3.25: live scan only
+    if (scanned) take(scanned); // 3.90: already scanned on Sign In
     $("#clForm").onsubmit = async (e) => {
       e.preventDefault();
       if (!st) return toast("Scan your ID card first.", true);
