@@ -3179,3 +3179,42 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
     radial-gradient(farthest-side at 100% 50%, rgba(15,58,140,.22), rgba(15,58,140,0)) right center / 12px 100% no-repeat scroll; }
 .grid-wrap.wide .grid-group::after, .grid-wrap.wide:not(:has(.grid-group)) .grid-foot > span:first-child::after { content: "  ·  Swipe sideways ⟷ to see all columns"; color: #0a66c2; font-weight: 600; white-space: pre; }
 @media (max-width: 1024px) { table.grid th, table.grid td { padding: 8px 9px; } }
+
+/* ===================== 3.82: INK SAVER - EVERY PRINTED DOCUMENT WITHOUT SOLID BLUE =====================
+   The same layout and colours as 3.79, but no filled navy areas: white paper, navy text and thin navy lines, a thin gold
+   edge. What is seen in the preview is what prints. (The employee ID card keeps its card design.) */
+.page .ph.ph2, .page .rp-brand { background: #fff !important; color: var(--nv); border: .35mm solid var(--nv); border-radius: 3mm; }
+.page .ph2 .ph-co, .page .rp-brand .ph-co { color: var(--nv); }
+.page .ph2 .ph-tag { color: #9a6f00; }
+.page .ph2 .ph-addr, .page .rp-brand .ph-addr, .page .rp-brand .rp-stamp { color: #3c4a66; }
+.page .ph2 .ph-title { color: var(--nv); }
+.page .ph2 .ph-gl { height: .6mm; }
+.page .ph2 .ph-logo-ring { border: .3mm solid var(--ln); }
+.page .ph2 .ph-right { border: .3mm solid var(--ln); }
+.page .ph2 .ph-right .co-verify, .co-qr small.co-verify { background: #fff; color: var(--nv, #0f3a8c); border: 1px solid currentColor; }
+.page .ph2-gold { display: none; }
+.page .rp-brand { border-bottom: .35mm solid var(--nv); }
+.page .ph-title:not(.ph2 .ph-title), .page .rp-title, .page .vt { background: #fff; color: var(--nv); border: 0; border-bottom: .4mm solid var(--nv); border-left: 1mm solid var(--gd); border-radius: 0; }
+.page .pbox-h, .page .ol-sec, .page .cx-sec, .page .qx-h { background: #fff; color: var(--nv); border: 0; border-bottom: .3mm solid var(--nv2); border-left: 1mm solid var(--gd); }
+.page .cx-sec small, .page .qx-h small { color: #4a5a78; }
+.page .pcell.hl .pv { background: none; color: var(--nv); font-weight: 800; }
+.page :is(.ol-grid, .rp, .ptl, .soa-table, .sbt, .qx-t, .ga-t, .vp-fields, .vf-fields, .bx-table, .rp-table) th { background: #fff; color: var(--nv); border-bottom: .4mm solid var(--nv2); }
+.page table.soa-table th, .page .rp-table th, .page table.ol-sched th, .page table.rp.sb-items th { background: #fff; color: var(--nv); }
+.page :is(.rp, .ptl, .soa-table, .sbt, .ga-t, .qx-t) tbody tr:nth-child(even) td { background: none; }
+.page .soa-total td, .page tr.tot td, .page tr.total td, .page table.rp.sb-items tfoot td { background: none !important; color: var(--nv); font-weight: 800; border-top: .4mm solid var(--nv); }
+.page .po-net, .page .cx-amt, .page .qx-verdict { background: none; }
+.page .pdecl, .page .qx-need { background: none; }
+/* the coverage certificate */
+.c2-band { background: #fff; color: var(--nv); border: .4mm solid var(--nv); }
+.c2-co b, .c2-title b { color: var(--nv); } .c2-co .c2-tag, .c2-orig { color: #9a6f00; } .c2-co span { color: #3c4a66; }
+.c2-title i { height: .6mm; }
+.c2-no { border: .3mm solid var(--ln); }
+.c2-gold { display: none; }
+.c2.expired .c2-band, .c2.cancelled .c2-band { background: #fff; border-color: #4b5563; }
+.c2-sec { background: #fff; color: var(--nv); border-bottom: .3mm solid var(--nv2); border-left: 1mm solid var(--gd); }
+.c2-tbl th, .c2-kv th { background: #fff; }
+.c2-tbl th { border-bottom: .4mm solid var(--nv2); }
+.c2-tbl tbody tr:nth-child(even) td, .c2-tbl tbody tr:last-child td, .c2-kv tr.tot td, .c2-date.due, .c2-eqdue { background: none; }
+.c2-kv tr.tot td { font-weight: 800; }
+.c2-eqb.tot { background: #fff; border: .6mm solid var(--nv); border-bottom: 1mm solid var(--gd); }
+.c2-eqb.tot b { color: var(--nv); } .c2-eqb.tot small { color: #9a6f00; }
