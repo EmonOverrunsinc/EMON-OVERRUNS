@@ -3289,3 +3289,7 @@ body:has(.band-back) #main { padding-bottom: calc(84px + env(safe-area-inset-bot
 
 /* 3.90.1: the Back button hides while a window is open (it has its own Cancel / X): it covered the Save button */
 body:has(.modal) .band-back, body:has(.legal-ov) .band-back, body:has(.dev-ov) .band-back { display: none !important; }
+
+/* 3.90.2: the coverage logo next to an invoice of a coverage (in place of the word) */
+.cov-ic { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #0f3a8c; vertical-align: middle; margin-left: 4px; box-shadow: 0 0 0 2px #f2b705 inset; }
+.cov-ic .ic { width: 12px; height: 12px; stroke: #f2b705; }

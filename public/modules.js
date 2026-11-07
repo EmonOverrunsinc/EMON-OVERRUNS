@@ -1473,7 +1473,8 @@
   const daysOver = (r) => Math.max(0, Math.floor((new Date(isoToday() + "T00:00:00") - new Date(r.due_date + "T00:00:00")) / 86400000));
   const payPill = (r) => `${pill(r.pay_status)}${isOverdue(r) ? ` ${pill("overdue")}` : ""}`;
   const INV_COLS = [
-    { label: "Invoice No", get: (r) => (insOfInvoice(r) ? `${r.invoice_no} · COVERAGE` : r.invoice_no) }, { label: "Date", get: (r) => mdy(r.invoice_date) },
+    // 3.90.2: an invoice of a coverage shows the coverage logo (the shield), not the word
+    { label: "Invoice No", get: (r) => r.invoice_no, html: (r) => `${esc(r.invoice_no)}${insOfInvoice(r) ? ` <span class="cov-ic" title="Coverage ${esc(insOfInvoice(r))}" aria-label="Coverage">${ic("shield")}</span>` : ""}` }, { label: "Date", get: (r) => mdy(r.invoice_date) },
     { label: "Terms", get: (r) => r.payment_terms || "" }, { label: "Due Date", get: (r) => mdy(r.due_date) },
     { label: "Account No", get: (r) => r.account_no }, { label: "Customer", get: fullName },
     { label: "Boxes", num: true, get: (r) => qtyText(r.total_boxes) }, { label: "Pcs", num: true, get: (r) => qtyText(r.total_pcs) },
