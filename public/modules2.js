@@ -222,7 +222,7 @@
         ${isAdmin() && em.approval_status === "pending" ? `<button type="button" class="btn ok" id="emApprove">${ic("check")} Approve Employee</button>` : ""}
         ${canPay ? `<button type="button" class="btn primary" id="emIssue">${ic("plus")} Issue Payslip</button>` : ""}
         ${canPay && st.unpaid > 0 ? `<button type="button" class="btn ok" id="emPaySal">${ic("wallet")} Pay Salary</button>` : ""}
-        ${isAdmin() ? `<button type="button" class="btn" id="emPrint">${ic("print")} Employee Profile (PDF)</button>` : ""}
+        ${isAdmin() ? `<button type="button" class="btn" id="emPrint">${ic("print")} ${empApproved ? "Employee Details" : "Employee Profile"} (PDF)</button>` : ""}
         ${isAdmin() ? `<a class="btn" href="#editemployee/${em.id}">${ic("edit")} Edit Employee</a>` : ""}
         ${isAdmin() ? `<label class="btn" for="emPhoto">${ic("camera")} ${photo ? "Change Photo" : "Add Photo"}</label><input type="file" id="emPhoto" accept="image/*" hidden>` : ""}
         ${isAdmin() && em.status !== "terminated" && em.profile_id !== S.profile.id ? `<button type="button" class="btn danger" id="emTerm">Terminate</button>` : ""}
@@ -238,7 +238,7 @@
         <div data-p="1" hidden><div id="emSlips">${slipGrid(slips, "No payslips issued yet. Press Issue Payslip.")}</div></div>
         <div data-p="2" hidden><div id="emPays">${payGrid(pays.rows, slips, "No salary paid yet.")}</div></div>
         <div data-p="3" hidden>
-          ${isAdmin() ? `<div class="docgrid">${E.docCard({ key: "emp", title: `Employee Profile ${em.employee_no}`, sub: "Only EMON HASAN can open and print it", ownerType: "employee", ownerId: em.id, att, print: () => printProfile(), canUpload: false,
+          ${isAdmin() ? `<div class="docgrid">${E.docCard({ key: "emp", title: `${empApproved ? "Employee Details" : "Employee Profile"} ${em.employee_no}`, sub: empApproved ? "System generated · no signature needed · only EMON HASAN can open it" : "Only EMON HASAN can open and print it", ownerType: "employee", ownerId: em.id, att, print: () => printProfile(), canUpload: false,
             approved: empApproved ? { name: em.approved_by_name, at: em.approved_at } : null })}</div>` : ""}
           ${app ? `<div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${app.application_no}`, sub: `Approved ${app.approval_no || ""}`, ownerType: "job_application", ownerId: app.id, att: appAtt, print: () => printJobApp(app), canUpload: isAdmin(),
             approved: jaApproved(app) ? { name: app.approved_by_name, at: app.approved_at } : null })}</div>
@@ -338,9 +338,8 @@
     };
     // 3.52: the Employee Profile PDF (the Director only): approved by, the Director's signature, the date and time; once approved it is locked
     async function printProfile() {
-      await E.loadSignatures();
-      const sign = empApproved ? E.approvedBy(em.approved_by, em.approved_by_name, em.approved_at) : null;
-      E.openPreview(`Employee Profile ${em.employee_no}`, [`${E.printHead("EMPLOYEE PROFILE", `<img src="${E.pdf417DataUrl("EMONEMP|" + em.employee_no)}" alt="" class="ph-bar"><div class="mono">${esc(em.employee_no)}</div>`)}
+      // 3.80: once approved it is the EMPLOYEE DETAILS (no signature lines); signatures are collected on the application only
+      E.openPreview(`${empApproved ? "Employee Details" : "Employee Profile"} ${em.employee_no}`, [`${E.printHead(empApproved ? "EMPLOYEE DETAILS" : "EMPLOYEE PROFILE", `<img src="${E.pdf417DataUrl("EMONEMP|" + em.employee_no)}" alt="" class="ph-bar"><div class="mono">${esc(em.employee_no)}</div>`)}
       ${E.box("Employee", `<div class="pgrid"><div class="pphoto">${photo ? `<img src="${esc(photo)}" alt="">` : "PHOTO"}</div><div class="pgrid2">
         ${E.cell("First Name", em.first_name)}${E.cell("Last Name", em.last_name)}${E.cell("Position", em.position)}${E.cell("Date Hired", mdy(em.date_hired))}
         ${E.cell("Email", em.email)}${E.cell("Phone", em.phone)}${E.cell("Monthly Salary (PHP)", peso(em.monthly_salary))}${E.cell("Status", em.status.toUpperCase())}
@@ -352,9 +351,10 @@
       ${em.status === "terminated" ? E.box("Termination", `<div class="pgrid2">${E.cell("Date", mdy(em.termination_date))}${E.cell("Reason", em.termination_reason)}</div>`) : ""}
       ${(em.experience || []).length ? E.box("Work Experience", `<table class="rp ja-tbl"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${em.experience.map((r) => `<tr>${[r.company, r.position, r.from, r.to].map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`) : ""}
       ${E.box("Salary", `<div class="pgrid2">${E.cell("Monthly Salary (PHP)", peso(em.monthly_salary))}${E.cell("Payslips Issued (PHP)", peso(st.issued))}${E.cell("Salary Paid (PHP)", peso(st.paid))}${E.cell("Unpaid Salary (PHP)", peso(st.unpaid), "hl")}</div>`)}
-      ${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
-      ${empApproved ? `<div class="ja-appr">( APPROVED · LOCKED ) by ${esc(em.approved_by_name)} · ${esc(E.dateTime(em.approved_at))}</div>` : ""}
-      ${E.sigs("Employee Signature / Date", sign ? "Approved by" : "Approved by / Date", sign)}`], { onePage: true }); // 3.29.1: the whole record on one A4 page
+      ${empApproved ? `<div class="ja-appr">( APPROVED · LOCKED ) by ${esc(em.approved_by_name)} · ${esc(E.dateTime(em.approved_at))}</div>
+      <div class="rp-foot"><span>System generated by the ${esc(E.APP)} · no signature needed</span><span>${esc(em.employee_no)}</span></div>`
+        : `${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
+      ${E.sigs("Employee Signature / Date", "Approved by / Date", null)}`}`], { onePage: true }); // 3.29.1: the whole record on one A4 page
     }
     if ($("#emPrint")) $("#emPrint").onclick = printProfile;
     E.setRecords(`Employee: ${em.employee_no}`);

@@ -8,8 +8,7 @@ window.EMON_CONFIG = {
     name: "EMON OVERRUNS",
     // 2.2: the address is the city only, and no phone number is shown anywhere (screens, prints and PDFs)
     address: ["Pasay City, Metro Manila"],
-    // 3.79: the letterhead of the printed documents (the company document design): street address and the tag line
-    letterhead: "Ignacio Street, Pasay City, Metro Manila 1300",
+    // 3.79: the tag line on the letterhead of the printed documents (3.80: no street address on documents, the city only)
     tagline: "Factory Branded Overruns | Est. 2023",
     email: "emonoverruns@gmail.com",
     director: "Emon Hasan, Managing Director",

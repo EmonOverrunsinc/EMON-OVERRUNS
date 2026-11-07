@@ -383,7 +383,7 @@
     const sec = (t, right = "") => `<div class="c2-sec"><span>${esc(t)}</span>${right ? `<em>${esc(right)}</em>` : ""}</div>`;
     const kv = (rows) => `<table class="c2-kv">${rows.map(([k, x, cls = ""]) => `<tr class="${cls}"><th>${esc(k)}</th><td>${v(x)}</td></tr>`).join("")}</table>`;
     const band = (title, right) => `<div class="c2-band"><div class="c2-logo">${E.logoHtml("c2-logo-img")}</div>
-      <div class="c2-co"><b>${esc(C.company.name)}</b><span class="c2-tag">Factory Branded Overruns &nbsp;|&nbsp; Est. 2023</span><span>Ignacio Street, Pasay City, Metro Manila 1300 &nbsp;·&nbsp; Email: ${esc(C.company.email)}</span></div>
+      <div class="c2-co"><b>${esc(C.company.name)}</b><span class="c2-tag">Factory Branded Overruns &nbsp;|&nbsp; Est. 2023</span><span>${esc(C.company.address.join(", "))} &nbsp;·&nbsp; Email: ${esc(C.company.email)}</span></div>
       <div class="c2-title"><b>${title}</b><i></i>${right}</div></div><div class="c2-gold"></div>`;
     // 3.78.2: a PDF417 barcode of the order no / the invoice no (scanned, it opens the record)
     const codeBox = (label, payload, text) => `<div class="c2-sig"><div class="c2-sec"><span>${esc(label)}</span></div><div class="c2-sigbox c2-code">
