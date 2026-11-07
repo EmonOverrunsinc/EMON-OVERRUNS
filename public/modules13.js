@@ -455,8 +455,8 @@
     const peso = (n) => Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     // 3.74: no agreement button once agreed (it shows only once); the history and the SOA instead
     E.authFrame("My Account", `<div class="wbody login-form cust-home">
-      ${E.brandBlock()}<h3 class="cust-name">${esc(d.name)}<small>${esc([Number(d.credit_limit) >= 1000000 ? "" : d.business_name, d.account_no].filter(Boolean).join(" · "))}</small></h3>
-      ${Number(d.credit_limit) >= 1000000 ? `<div class="vip-badge big">${ic("shield")} VIP CUSTOMER${d.business_name ? `<small>${esc(d.business_name)}</small>` : ""}</div>` : ""}
+      ${E.brandBlock()}<h3 class="cust-name">${esc(d.name)}<small>${esc([d.business_name, d.account_no].filter(Boolean).join(" · "))}</small></h3>
+      ${Number(d.credit_limit) >= 1000000 ? `<div class="vip-badge big">${ic("shield")} VIP CUSTOMER<small>Credit limit ₱ ${peso(d.credit_limit)}</small></div>` : ""}
       <div class="cust-ver ${d.agreed ? "ok" : ""}">${d.agreed ? "✅ <b>VERIFIED</b>" : "<b>NOT VERIFIED</b>"}</div>
       <table class="grid cust-tbl"><tbody>
         <tr><th>Account No</th><td>${esc(d.account_no || "")}</td></tr><tr><th>Account Status</th><td>${E.pill(d.status)}</td></tr>
