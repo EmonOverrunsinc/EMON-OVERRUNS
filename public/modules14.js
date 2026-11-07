@@ -409,8 +409,8 @@
           <table class="c2-tbl"><thead><tr><th>#</th><th>COVERAGE</th><th>WHAT IS COVERED</th><th>BENEFIT</th></tr></thead>
             <tbody>${rows.map((r, k) => `<tr><td>${k + 1}</td><td><b>${esc(r[0])}</b></td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("")}</tbody></table>
           <div class="c2-dates">
-            <div class="c2-date"><small>BENEFITS EXPIRE</small><b>${esc(until)}</b><span>15 days after the delivery · no claim after this date</span></div>
-            <div class="c2-date due"><small>PAYMENT DUE (EXTENDED)</small><b>${esc(dueDate)}</b><span>${esc(dueSum(terms))}</span></div>
+            <div class="c2-date"><small>BENEFITS EXPIRE · CLAIMS UNTIL</small><b>${esc(until)}</b><span>15 days after the delivery · no claim is accepted after this date</span></div>
+
           </div>
         </div>
         <div class="c2-right"><div>
@@ -418,7 +418,12 @@
           ${kv([["CALCULATION", `${boxes} × PHP ${peso(i.box_price)} + ${num(i.rate_pct)}%`], ["PREMIUM", `PHP ${peso(i.amount)}`, "tot"], ["IN WORDS", E.words(i.amount, "PESOS")],
             ["PAID BY", PAID_BY[i.pay_method] || i.pay_method || ""], ...(i.pay_method === "account" ? [["PREMIUM INVOICE", i.pay_ref || ""]] : [["REFERENCE NO.", i.pay_ref || ""], ["COLLECTION VOUCHER", cv?.cv_no || ""]])])}
           </div><div>${sec("PAYMENT DUE")}
-          ${kv([["TERMS OF PAYMENT", terms || "—"], ["INSURANCE EXTENSION", `+${DUE} DAYS`], ["TOTAL DAYS TO PAY", td == null ? "—" : `${td + DUE} DAYS`, "tot"]])}
+          <div class="c2-eq">
+            <div class="c2-eqb"><b>${td == null ? esc(terms || "—") : `${td}`}</b><small>${td == null ? "TERMS" : "DAYS · TERMS"}</small></div><i>+</i>
+            <div class="c2-eqb"><b>${DUE}</b><small>DAYS · INSURANCE</small></div><i>=</i>
+            <div class="c2-eqb tot"><b>${td == null ? "—" : td + DUE}</b><small>DAYS TO PAY</small></div>
+          </div>
+          <div class="c2-eqdue"><small>DUE DATE</small><b>${esc(i._due ? mdy(i._due.ext) : "COUNTED FROM THE INVOICE DATE")}</b></div>
           <div class="c2-ver"><img src="${E.qrDataUrl(E.verifyUrl(i.ins_no))}" alt="QR code: verify" class="c2-qr"><div><b>VERIFY THIS CERTIFICATE</b><span>Scan the QR code or enter ${esc(i.ins_no)} at ${esc(E.siteName?.() || "emonoverruns.online")}</span>
             <img src="${E.pdf417DataUrl("EMONINS|" + i.ins_no)}" alt="" class="c2-bar"></div></div>
         </div></div>

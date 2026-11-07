@@ -3042,3 +3042,12 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .page:not(.a4l) .c2-main { grid-template-columns: 1fr; } .page:not(.a4l) .c2-right { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; align-items: start; }
 .page:not(.a4l) .c2-band { padding: 3mm 4mm; } .page:not(.a4l) .c2-co b, .page:not(.a4l) .c2-title b { font-size: 15pt; } .page:not(.a4l) .c2-title i { min-width: 50mm; } .page:not(.a4l) .c2-no { min-width: 48mm; }
 .page:not(.a4l) .c2-sigs { grid-template-columns: 1fr 1fr 1.2fr; } .page:not(.a4l) .c2-sigbox { height: 22mm; }
+/* 3.78.4: payment due as a clear sum: terms + insurance = days to pay */
+.c2-eq { display: flex; align-items: stretch; gap: 1.5mm; margin-bottom: 1.6mm; }
+.c2-eq i { align-self: center; font-style: normal; font-weight: 900; font-size: 14pt; color: var(--nv); }
+.c2-eqb { flex: 1; border: 1.4px solid var(--nv2); border-radius: 2mm; text-align: center; padding: 1.6mm 1mm; background: #fff; }
+.c2-eqb b { display: block; font-size: 16pt; line-height: 1.05; color: var(--nv); } .c2-eqb small { display: block; font-size: 6pt; font-weight: 800; letter-spacing: .06em; color: #4b5872; margin-top: .6mm; }
+.c2-eqb.tot { background: var(--nv); border-color: var(--nv); border-bottom: 1mm solid var(--gd); } .c2-eqb.tot b { color: #fff; } .c2-eqb.tot small { color: var(--gd); }
+.c2-eqdue { display: flex; justify-content: space-between; align-items: baseline; border: 1.4px solid var(--gd); background: #fffaea; border-radius: 2mm; padding: 1.4mm 2.5mm; margin-bottom: 1.6mm; }
+.c2-eqdue small { font-size: 6.5pt; font-weight: 800; letter-spacing: .08em; color: var(--nv); } .c2-eqdue b { font-size: 9.5pt; color: var(--nv); }
+.c2-dates { grid-template-columns: 1fr; }
