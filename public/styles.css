@@ -3297,3 +3297,7 @@ body:has(.modal) .band-back, body:has(.legal-ov) .band-back, body:has(.dev-ov) .
 /* 3.90.3: the coverage logo in royal blue, clean and clear (white shield) */
 .cov-ic { width: 22px; height: 22px; background: #4169e1; box-shadow: none; }
 .cov-ic .ic { width: 13px; height: 13px; stroke: #fff; stroke-width: 2.4; }
+
+/* 3.90.5: the VIP badge small, clean and clear, in gold (like the coverage logo) */
+.vip-chip { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 8px 0 6px; margin-left: 6px; border-radius: 999px; vertical-align: middle; background: linear-gradient(180deg, #f9d55b, #d9a514); color: #3d2a00; font: 800 11px/1 Arial, sans-serif; letter-spacing: .1em; border: 1px solid #c4930d; }
+.vip-chip .ic { width: 13px; height: 13px; stroke: #3d2a00; stroke-width: 2.2; fill: #ffe9a3; }
