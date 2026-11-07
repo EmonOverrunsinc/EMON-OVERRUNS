@@ -96,6 +96,7 @@
             <label for="nePhone">Phone</label><input type="tel" id="nePhone" value="${val("phone")}">
             <label for="neAddr">Present Address</label><input type="text" id="neAddr" value="${val("address")}">
             <label for="nePerm">Permanent Address</label><input type="text" id="nePerm" value="${val("permanent_address")}">
+            <label for="neWork">Assigned Location</label><input type="text" id="neWork" maxlength="200" placeholder="Where the employee works, e.g. Warehouse · Pasay City" value="${val("work_location")}">
             <label for="neHrs">Duty Hours</label><input type="text" id="neHrs" placeholder="e.g. 9:00 AM - 6:00 PM" value="${val("duty_hours")}">
             ${ed ? "" : `<label for="nePhoto">Photo</label><input type="file" id="nePhoto" accept="image/*">`}
           </div></div>${linked ? `<small class="muted">The email is the login of the linked account and stays the same.</small>` : ""}</fieldset>
@@ -149,15 +150,19 @@
         date_of_birth: v("neDob") || null, birth_place: v("neBirth") || null, id_number: v("neIdNo") || null, gender: v("neGender") || null, religion: v("neRel") || null, blood_group: v("neBlood") || null,
         experience: $$("#neExp tr").map((tr) => ({ company: $(".x1", tr).value.trim(), position: $(".x2", tr).value.trim(), from: $(".x3", tr).value.trim(), to: $(".x4", tr).value.trim() })).filter((r) => r.company || r.position)
       };
+      // 3.93: the assigned location (sent only when it is written or changed: a server without 092 saves the rest)
+      const work = v("neWork");
+      if (work !== String((ed ? x.work_location : "") || "")) rec.work_location = work || null;
       E.setBusy(e.target, true, "Saving");
       if (ed) {
         const { error } = await sb.rpc("director_edit_employee", { p_id: x.id, p_changes: rec });
-        if (error) { E.setBusy(e.target, false); return fail(error, /director_edit_employee/.test(error.message || "") ? "Run the database update 037_edit_employee.sql first" : "Could not save the changes"); }
+        if (error) { E.setBusy(e.target, false); return fail(error, /work_location/.test(error.message || "") ? "Run the database update 092_employee_location.sql first (Assigned Location)" : /director_edit_employee/.test(error.message || "") ? "Run the database update 037_edit_employee.sql first" : "Could not save the changes"); }
         toast(`${x.employee_no} saved.`); location.hash = "employee/" + x.id; return;
       }
       const id = E.uuid();
       const photo_path = await uploadPhoto("employee", id, $("#nePhoto").files[0]);
-      const { data, error } = await sb.from("employees").insert({ id, ...rec, photo_path, ...readAccess(), approval_status: "pending" /* 3.25: EMON HASAN approves it next; the ID card is made then */ }).select().single();
+      let { data, error } = await sb.from("employees").insert({ id, ...rec, photo_path, ...readAccess(), approval_status: "pending" /* 3.25: EMON HASAN approves it next; the ID card is made then */ }).select().single();
+      if (error && /work_location/.test(error.message || "")) { delete rec.work_location; ({ data, error } = await sb.from("employees").insert({ id, ...rec, photo_path, ...readAccess(), approval_status: "pending" }).select().single()); } // the server has not 092 yet
       if (error) { E.setBusy(e.target, false); return fail(error, /approval_status/.test(error.message || "") ? "Run the database update 035_employee_approval.sql first" : "Could not save the employee"); }
       let f = await E.uploadRecords("employee", id, "application", E.filesOf("neApp"));
       f += await E.uploadRecords("employee", id, "signature", E.filesOf("neSig"));
@@ -222,7 +227,7 @@
         ${isAdmin() && em.approval_status === "pending" ? `<button type="button" class="btn ok" id="emApprove">${ic("check")} Approve Employee</button>` : ""}
         ${canPay ? `<button type="button" class="btn primary" id="emIssue">${ic("plus")} Issue Payslip</button>` : ""}
         ${canPay && st.unpaid > 0 ? `<button type="button" class="btn ok" id="emPaySal">${ic("wallet")} Pay Salary</button>` : ""}
-        ${isAdmin() ? `<button type="button" class="btn" id="emPrint">${ic("print")} ${empApproved ? "Employee Details" : "Employee Profile"} (PDF)</button>` : ""}
+        ${isAdmin() ? `<button type="button" class="btn" id="emPrint">${ic("print")} Employee Details (PDF)</button>` : ""}
         ${isAdmin() ? `<a class="btn" href="#editemployee/${em.id}">${ic("edit")} Edit Employee</a>` : ""}
         ${isAdmin() ? `<label class="btn" for="emPhoto">${ic("camera")} ${photo ? "Change Photo" : "Add Photo"}</label><input type="file" id="emPhoto" accept="image/*" hidden>` : ""}
         ${isAdmin() && em.status !== "terminated" && em.profile_id !== S.profile.id ? `<button type="button" class="btn danger" id="emTerm">Terminate</button>` : ""}
@@ -238,7 +243,7 @@
         <div data-p="1" hidden><div id="emSlips">${slipGrid(slips, "No payslips issued yet. Press Issue Payslip.")}</div></div>
         <div data-p="2" hidden><div id="emPays">${payGrid(pays.rows, slips, "No salary paid yet.")}</div></div>
         <div data-p="3" hidden>
-          ${isAdmin() ? `<div class="docgrid">${E.docCard({ key: "emp", title: `${empApproved ? "Employee Details" : "Employee Profile"} ${em.employee_no}`, sub: empApproved ? "System generated · no signature needed · only EMON HASAN can open it" : "Only EMON HASAN can open and print it", ownerType: "employee", ownerId: em.id, att, print: () => printProfile(), canUpload: false,
+          ${isAdmin() ? `<div class="docgrid">${E.docCard({ key: "emp", title: `Employee Details ${em.employee_no}`, sub: "System generated · no signature needed · only EMON HASAN can open it", ownerType: "employee", ownerId: em.id, att, print: () => printProfile(), canUpload: false,
             approved: empApproved ? { name: em.approved_by_name, at: em.approved_at } : null })}</div>` : ""}
           ${app ? `<div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${app.application_no}`, sub: `Approved ${app.approval_no || ""}`, ownerType: "job_application", ownerId: app.id, att: appAtt, print: () => printJobApp(app), canUpload: isAdmin(),
             approved: jaApproved(app) ? { name: app.approved_by_name, at: app.approved_at } : null })}</div>
@@ -255,7 +260,7 @@
             <div class="fields wide"><label for="emLinkSel">Login Account</label><select id="emLinkSel"><option value="">Loading…</option></select></div>
             <div class="btnrow"><button type="button" class="btn" id="emLink">${ic("key")} Link Login Account</button></div>`}</fieldset></div>` : ""}
         ${isAdmin() ? `<div data-p="5" hidden id="emCard"></div>` : ""}
-        <div data-p="${isAdmin() ? 6 : 4}" hidden>${E.kvTable([["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Present Address", em.address], ["Permanent Address", em.permanent_address], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Duty Hours", em.duty_hours],
+        <div data-p="${isAdmin() ? 6 : 4}" hidden>${E.kvTable([["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Present Address", em.address], ["Permanent Address", em.permanent_address], ["Assigned Location", em.work_location], ["Approved By", em.approved_by_name ? `${em.approved_by_name} · ${E.dateTime(em.approved_at)}` : em.approval_status === "pending" ? "WAITING FOR APPROVAL" : ""], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Duty Hours", em.duty_hours],
           ["Father's Name", em.father_name], ["Mother's Name", em.mother_name], ["Wife's / Husband's Name", em.spouse_name], ["Date of Birth", mdy(em.date_of_birth)], ["Birth Place", em.birth_place],
           ["BRC / NID / Passport No", em.id_number], ["Gender", (em.gender || "").toUpperCase()], ["Religion", em.religion], ["Blood Group", em.blood_group],
           ["Work Experience", (em.experience || []).map((r) => [r.company, r.position, [r.from, r.to].filter(Boolean).join("–")].filter(Boolean).join(" · ")).join(" | ")], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""],
@@ -336,25 +341,32 @@
       if (error) return fail(error, "Could not re-hire");
       toast(`${fullName(em)} re-hired.`); V.employee(id);
     };
-    // 3.52: the Employee Profile PDF (the Director only): approved by, the Director's signature, the date and time; once approved it is locked
+    // 3.93: the Employee Details PDF (the Director only): no signature lines; who approved it and when, the assigned location,
+    // the portal access, the ID card, the KYC ID and the devices the employee signs in on
     async function printProfile() {
-      // 3.80: once approved it is the EMPLOYEE DETAILS (no signature lines); signatures are collected on the application only
-      E.openPreview(`${empApproved ? "Employee Details" : "Employee Profile"} ${em.employee_no}`, [`${E.printHead(empApproved ? "EMPLOYEE DETAILS" : "EMPLOYEE PROFILE", `<img src="${E.pdf417DataUrl("EMONEMP|" + em.employee_no)}" alt="" class="ph-bar"><div class="mono">${esc(em.employee_no)}</div>`)}
+      const pid = em.profile_id;
+      const [card, kyc, devs] = await Promise.all([
+        sb.from("employee_cards").select("card_no, issued_at, valid_until, status").eq("employee_id", em.id).order("issued_at", { ascending: false }).limit(1).then((r) => r.data?.[0] || null, () => null),
+        pid ? sb.from("kyc_verifications").select("id_type, id_number, reviewed_at").eq("user_id", pid).eq("status", "approved").order("reviewed_at", { ascending: false }).limit(1).then((r) => r.data?.[0] || null, () => null) : null,
+        pid ? sb.from("user_devices").select("name, status, last_seen").eq("user_id", pid).neq("status", "removed").order("last_seen", { ascending: false }).limit(4).then((r) => r.data || [], () => []) : []]);
+      const DEV = { approved: "APPROVED", pending: "WAITING", blocked: "BLOCKED" };
+      E.openPreview(`Employee Details ${em.employee_no}`, [`${E.printHead("EMPLOYEE DETAILS", `<img src="${E.pdf417DataUrl("EMONEMP|" + em.employee_no)}" alt="" class="ph-bar"><div class="mono">${esc(em.employee_no)}</div>`)}
       ${E.box("Employee", `<div class="pgrid"><div class="pphoto">${photo ? `<img src="${esc(photo)}" alt="">` : "PHOTO"}</div><div class="pgrid2">
         ${E.cell("First Name", em.first_name)}${E.cell("Last Name", em.last_name)}${E.cell("Position", em.position)}${E.cell("Date Hired", mdy(em.date_hired))}
         ${E.cell("Email", em.email)}${E.cell("Phone", em.phone)}${E.cell("Monthly Salary (PHP)", peso(em.monthly_salary))}${E.cell("Status", em.status.toUpperCase())}
         ${E.cell("Present Address", em.address)}${E.cell("Permanent Address", em.permanent_address)}</div></div>`)}
+      ${E.box("Approval and Assignment", `<div class="pgrid2">${E.cell("Approved By", empApproved ? em.approved_by_name : em.approval_status === "pending" ? "WAITING FOR APPROVAL" : "—")}${E.cell("Approval Date", em.approved_at ? E.dateTime(em.approved_at) : "")}
+        ${E.cell("Assigned Location", em.work_location || "", "span2")}${E.cell("Access Level", E.roleName(em.role).toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
+      ${E.box("ID and Devices", `<div class="pgrid2">${E.cell("Employee ID Card", card ? `${card.card_no} · ${String(card.status || "").toUpperCase()}` : "NOT ISSUED")}${E.cell("Card Valid Until", card?.valid_until ? mdy(card.valid_until) : "")}
+        ${E.cell("KYC ID", kyc ? `${kyc.id_type} · ${kyc.id_number}` : "NOT VERIFIED")}${E.cell("KYC Verified On", kyc?.reviewed_at ? mdy(kyc.reviewed_at) : "")}
+        ${E.cell("Devices", devs.length ? devs.map((d) => `${d.name || "DEVICE"} (${DEV[d.status] || String(d.status).toUpperCase()}${d.last_seen ? " · last used " + mdy(d.last_seen) : ""})`).join(" · ") : "NO DEVICE YET", "span2")}</div>`)}
       ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Father's Name", em.father_name)}${E.cell("Mother's Name", em.mother_name)}${E.cell("Wife's / Husband's Name", em.spouse_name)}${E.cell("Date of Birth", mdy(em.date_of_birth))}
         ${E.cell("Birth Place", em.birth_place)}${E.cell("BRC / NID / Passport No", em.id_number)}${E.cell("Gender", (em.gender || "").toUpperCase())}${E.cell("Religion", em.religion)}${E.cell("Blood Group", em.blood_group)}${E.cell("Duty Hours", em.duty_hours)}</div>`)}
       ${E.box("Emergency Contact", `<div class="pgrid2">${E.cell("Name", em.emergency_name)}${E.cell("Relationship", em.emergency_relation)}${E.cell("Contact No", em.emergency_phone)}${E.cell("Address", em.emergency_address)}</div>`)}
-      ${E.box("Portal Access", `<div class="pgrid2">${E.cell("Access Level", E.roleName(em.role).toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
       ${em.status === "terminated" ? E.box("Termination", `<div class="pgrid2">${E.cell("Date", mdy(em.termination_date))}${E.cell("Reason", em.termination_reason)}</div>`) : ""}
       ${(em.experience || []).length ? E.box("Work Experience", `<table class="rp ja-tbl"><thead><tr>${EXP_COLS.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${em.experience.map((r) => `<tr>${[r.company, r.position, r.from, r.to].map((c) => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`) : ""}
       ${E.box("Salary", `<div class="pgrid2">${E.cell("Monthly Salary (PHP)", peso(em.monthly_salary))}${E.cell("Payslips Issued (PHP)", peso(st.issued))}${E.cell("Salary Paid (PHP)", peso(st.paid))}${E.cell("Unpaid Salary (PHP)", peso(st.unpaid), "hl")}</div>`)}
-      ${empApproved ? `<div class="ja-appr">( APPROVED · LOCKED ) by ${esc(em.approved_by_name)} · ${esc(E.dateTime(em.approved_at))}</div>
-      <div class="rp-foot"><span>System generated by the ${esc(E.APP)} · no signature needed</span><span>${esc(em.employee_no)}</span></div>`
-        : `${E.box("Specimen Signature", `<div class="sigbox"><div></div><div></div><div></div></div>`)}
-      ${E.sigs("Employee Signature / Date", "Approved by / Date", null)}`}`], { onePage: true }); // 3.29.1: the whole record on one A4 page
+      <div class="rp-foot"><span>System generated by the ${esc(E.APP)} · no signature needed</span><span>${esc(em.employee_no)}</span></div>`], { onePage: true }); // one A4 page
     }
     if ($("#emPrint")) $("#emPrint").onclick = printProfile;
     E.setRecords(`Employee: ${em.employee_no}`);
