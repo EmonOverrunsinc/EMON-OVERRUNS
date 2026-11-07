@@ -3051,3 +3051,91 @@ button.ver-badge { border: 0; cursor: pointer; font-family: inherit; }
 .c2-eqdue { display: flex; justify-content: space-between; align-items: baseline; border: 1.4px solid var(--gd); background: #fffaea; border-radius: 2mm; padding: 1.4mm 2.5mm; margin-bottom: 1.6mm; }
 .c2-eqdue small { font-size: 6.5pt; font-weight: 800; letter-spacing: .08em; color: var(--nv); } .c2-eqdue b { font-size: 9.5pt; color: var(--nv); }
 .c2-dates { grid-template-columns: 1fr; }
+/* 3.79: KYC ID: scan in a card frame, auto-crop, crop screen; the ID shown whole (card shape) */
+.kyc-pic { cursor: default; gap: 6px; } .kyc-pic.done { border-style: solid; border-color: #1fa463; background: #f2fbf5; }
+.kyc-pic img { width: 100%; max-height: none; aspect-ratio: 85.6 / 54; object-fit: contain; background: #fff; border-radius: 8px; }
+.kyc-pic .btnrow { justify-content: center; margin: 4px 0 0; flex-wrap: wrap; }
+.kyc-thumbs.ids { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); } .kyc-thumbs img.id, .kyc-gal figure.id img { aspect-ratio: 85.6 / 54; object-fit: contain; background: #fff; }
+.kyc-gal figure.id { grid-column: span 2; }
+.kc-modal .modal-body, .kc-modal .mbody { overflow: auto; }
+.kc-stage { position: relative; display: block; margin: 0 auto; max-width: 100%; width: fit-content; overflow: hidden; touch-action: none; user-select: none; border-radius: 8px; background: #111; }
+.kc-stage img { display: block; max-width: min(100%, 860px); max-height: 62vh; width: auto; height: auto; pointer-events: none; }
+.kc-box { position: absolute; border: 2px solid #f2b705; box-shadow: 0 0 0 9999px rgba(10, 20, 40, .55); cursor: move; border-radius: 4px; }
+.kc-box i { position: absolute; width: 26px; height: 26px; background: #f2b705; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.kc-box i[data-h="nw"] { left: -14px; top: -14px; cursor: nwse-resize; } .kc-box i[data-h="ne"] { right: -14px; top: -14px; cursor: nesw-resize; }
+.kc-box i[data-h="sw"] { left: -14px; bottom: -14px; cursor: nesw-resize; } .kc-box i[data-h="se"] { right: -14px; bottom: -14px; cursor: nwse-resize; }
+.kc-cam { position: relative; width: 100%; max-width: 760px; aspect-ratio: 4 / 3; margin: 0 auto; background: #0b1220; border-radius: 14px; overflow: hidden; }
+.kc-cam video { width: 100%; height: 100%; object-fit: cover; }
+.kc-frame { position: absolute; left: 50%; top: 50%; width: 86%; aspect-ratio: 85.6 / 54; transform: translate(-50%, -50%); border: 3px solid #f2b705; border-radius: 12px; box-shadow: 0 0 0 9999px rgba(10, 20, 40, .5); }
+.kc-frame b { position: absolute; inset: 8px; border: 1px dashed rgba(255,255,255,.6); border-radius: 8px; }
+@media (max-width: 600px) { .kc-cam { aspect-ratio: 3 / 4; } .kc-frame { width: 92%; } }
+/* ===================== 3.79: EVERY PRINTED DOCUMENT IN THE COMPANY DOCUMENT DESIGN =====================
+   navy band letterhead (logo in a white ring, company, gold tag line, address; the title right with a gold line; the
+   codes in a white box), a gold rule, navy section bars with a gold edge, light-blue table heads and lines, navy labels */
+.page { --nv: #0f3a8c; --nv2: #1d4fb0; --gd: #f2b705; --ln: #7f9ed8; --lt: #eef3fc; --doc: #0f3a8c; --doc-line: #a9bfe6; --doc-soft: #eef3fc; }
+.page .ph.ph2 { display: flex; align-items: center; gap: 4mm; background: var(--nv); color: #fff; border: 0; border-radius: 3mm; padding: 3mm 4mm; margin: 0; }
+.page .ph2 .ph-left { flex: 1; min-width: 0; display: flex; align-items: center; gap: 3mm; }
+.page .ph2 .ph-logo-ring { width: 15mm; height: 15mm; flex: none; border-radius: 50%; background: #fff; display: grid; place-items: center; overflow: hidden; }
+.page .ph2 .ph-logo { width: 12.5mm; height: 12.5mm; object-fit: contain; background: #fff; border-radius: 50%; }
+.page .ph2 .ph-co { color: #fff; font: 900 15pt/1.1 Arial, "Helvetica Neue", sans-serif; letter-spacing: .02em; text-transform: uppercase; }
+.page .ph2 .ph-tag { color: var(--gd); font: 600 7.5pt/1.3 Arial, sans-serif; margin-top: .4mm; }
+.page .ph2 .ph-addr { color: #dbe6ff; font: 7pt/1.35 Arial, sans-serif; margin-top: .4mm; letter-spacing: 0; }
+.page .ph2 .ph-mid { text-align: right; flex: none; max-width: 60mm; }
+.page .ph2 .ph-title { color: #fff; font: 900 13pt/1.15 Arial, sans-serif; letter-spacing: .03em; margin: 0; padding: 0; border: 0; text-align: right; background: none; }
+.page .ph2 .ph-title::before { content: none; }
+.page .ph2 .ph-gl { display: block; height: 1mm; background: var(--gd); margin-top: 1.2mm; min-width: 34mm; }
+.page .ph2 .ph-right { flex: none; background: #fff; color: #10203f; border-radius: 2mm; padding: 1.4mm 2mm; text-align: center; }
+.page .ph2 .ph-right .ph-bar { height: 34px; } .page .ph2 .ph-right .ph-qr, .page .ph2 .co-qr .ph-qr { width: 64px; height: 64px; }
+.page .ph2 .ph-right .co-verify { background: var(--nv); }
+.page .ph2-gold { height: .9mm; background: var(--gd); margin: -1.4mm 2mm 3mm; border-radius: 0 0 1mm 1mm; }
+/* a document title that stands alone (not in the band): a navy bar with a gold edge */
+.page .ph-title:not(.ph2 .ph-title), .page .rp-title, .page .vt { background: var(--nv); color: #fff; border: 0; border-left: 1.6mm solid var(--gd); border-radius: 1mm; padding: 1.4mm 3mm; letter-spacing: .08em; text-align: center; }
+/* section bars, boxes and fields */
+.page .pbox { border: 1px solid var(--nv2); border-radius: 2mm; overflow: hidden; }
+.page .pbox-h, .page .ol-sec, .page .cx-sec, .page .qx-h { background: var(--nv); color: #fff; border: 0; border-left: 1.4mm solid var(--gd); letter-spacing: .05em; padding: 1.1mm 3mm; font-weight: 800; }
+.page .pbox-h::before, .page .ol-sec::before { content: none; counter-increment: none; }
+.page .cx-sec small, .page .qx-h small { color: #dbe6ff; }
+.page .pcell { border-bottom: 1px solid var(--doc-line); }
+.page .pl { color: var(--nv); font-weight: 800; letter-spacing: .04em; text-transform: uppercase; font-size: 7.5px; }
+.page .pcell.hl .pv { background: #fff6d6; color: var(--nv); font-weight: 800; }
+.page .cx-top { border-bottom: 1px solid var(--doc-line); } .page .cx-top small { color: var(--nv); font-weight: 800; }
+.page .cx-r span { color: var(--nv); font-weight: 700; }
+/* tables: light-blue heads, blue lines, every second row tinted */
+.page :is(.ol-grid, .rp, .ptl, .soa-table, .sbt, .qx-t, .ga-t, .vp-fields, .vf-fields, .bx-table) th { background: var(--lt); color: var(--nv); border-color: var(--ln); font-weight: 800; }
+.page :is(.ol-grid, .rp, .ptl, .soa-table, .sbt, .qx-t, .ga-t, .bx-table) td { border-color: var(--ln); }
+.page :is(.rp, .ptl, .soa-table, .sbt, .ga-t) tbody tr:nth-child(even) td { background: #f5f8fe; }
+.page table.soa-table th, .page .rp-table th { background: var(--lt); color: var(--nv); border-color: var(--ln); }
+.page .soa-total td, .page tr.tot td, .page tr.total td { background: #fff6d6 !important; color: var(--nv); font-weight: 800; }
+/* reports (listings): the same navy band */
+.page .rp-brand { background: var(--nv); color: #fff; border: 0; border-radius: 3mm; padding: 3mm 4mm; border-bottom: 1mm solid var(--gd); }
+.page .rp-brand .ph-co { color: #fff; } .page .rp-brand .ph-addr, .page .rp-brand .rp-stamp { color: #dbe6ff; }
+.page .rp-brand .ph-logo { background: #fff; border-radius: 50%; padding: 1mm; }
+/* signatures and the foot */
+.page .psig { color: var(--nv); } .page .psig .line { border-top-color: #10203f; }
+.page > .pg-web { border-top: 1px solid var(--ln); }
+.page .soa-due { border-color: var(--nv); } .page .soa-due b { color: var(--nv); }
+.page .ph2 .ph-co { white-space: nowrap; font-size: 14pt; } .page .ph2 .ph-addr { font-size: 6.6pt; } .page .ph2 .ph-left > div { min-width: 0; }
+.page .ph2 .ph-mid { max-width: 54mm; } .page .ph2:has(.ph-right) .ph-title { font-size: 12pt; }
+.page table.soa-table { border-collapse: collapse; border-spacing: 0; } .page table.soa-table th, .page table.soa-table td { border: 1px solid var(--ln); }
+.page .ph2 .ph-left { min-width: 82mm; } .page .ph2 .ph-tag { white-space: nowrap; } .page .ph2 .ph-mid { max-width: 46mm; min-width: 0; flex: 0 1 auto; } .page .ph2 .ph-right { max-width: 58mm; } .page .ph2 .ph-right .ph-bar { max-width: 50mm; }
+.page .ph2 .ph-left { min-width: 72mm; } .page .ph2 .ph-mid { flex: 1 1 auto; max-width: none; } .page .ph2:has(.ph-right) .ph-title { font-size: 11pt; } .page .ph2 .ph-right { max-width: 52mm; } .page .ph2 .ph-right .ph-bar { max-width: 46mm; }
+/* ===================== 3.79: iPad (iPad mini 7) and iPhone fixes =====================
+   1. Safari zooms the page in when a box with text smaller than 16px is tapped (and does not zoom back): 16px on touch screens
+   2. forms of two columns stay one column until there is room (iPad portrait)
+   3. Safari's moving toolbar: windows use the visible height (dvh) so their buttons are not hidden
+   4. space between the boxes of My Profile */
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]), select, textarea, .tb-search input, .eva-ask input { font-size: 16px !important; }
+  .tb-search input::placeholder { font-size: 14px; }
+}
+.formgrid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); }
+@media (max-width: 900px) { .fields { grid-template-columns: max-content minmax(0, 1fr); } .fields input:not([type=checkbox]):not([type=radio]):not([type=file]), .fields select, .fields textarea { width: 100%; min-width: 0; } }
+@supports (height: 100dvh) {
+  .modal .window, .viewer .window { max-height: calc(100dvh - 32px); }
+  .legal-win { max-height: calc(100dvh - 28px); }
+  .viewer-body img { max-height: calc(100dvh - 150px); } .viewer-body iframe { height: calc(100dvh - 150px); }
+  .boot { min-height: 100dvh; } .login { min-height: calc(100dvh - 70px); }
+  .kc-stage img { max-height: 58dvh; }
+}
+.kyc-card { margin-bottom: 14px; }
+.cols > fieldset.opt + fieldset.opt { margin-top: 14px; }

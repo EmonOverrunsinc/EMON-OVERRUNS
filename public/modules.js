@@ -487,12 +487,15 @@
   }
 
   // ---------- print helpers ----------
+  // 3.79: the company document design on every printed document: a navy band with the logo, the company, its tag line
+  // and address, the document TITLE on the right with a gold line, the codes (barcode / QR) in a white box; a gold rule
   function printHead(title, rightHtml = "") {
-    return `<div class="ph">
-      <div class="ph-left">${E.logoHtml("ph-logo")}<div><div class="ph-co">${esc(C.company.name)}</div>
-        <div class="ph-addr">${esc(C.company.address.join(", "))}<br>${esc(C.company.email)}${E.siteText()}</div></div></div>
-      <div class="ph-right">${rightHtml}</div></div>
-      <div class="ph-title">${esc(title)}</div>`;
+    return `<div class="ph ph2">
+      <div class="ph-left"><span class="ph-logo-ring">${E.logoHtml("ph-logo")}</span><div><div class="ph-co">${esc(C.company.name)}</div>
+        ${C.company.tagline ? `<div class="ph-tag">${esc(C.company.tagline)}</div>` : ""}
+        <div class="ph-addr">${esc(C.company.letterhead || C.company.address.join(", "))} &nbsp;·&nbsp; Email: ${esc(C.company.email)}${E.siteText()}</div></div></div>
+      <div class="ph-mid"><div class="ph-title">${esc(title)}</div><i class="ph-gl"></i></div>
+      ${rightHtml ? `<div class="ph-right">${rightHtml}</div>` : ""}</div><div class="ph2-gold"></div>`;
   }
   const val = (v) => (v === "" || v == null ? "&nbsp;" : esc(v)); // an empty value keeps its line on paper
   const cell = (label, value, cls = "") => `<div class="pcell ${cls}"><div class="pl">${esc(label)}</div><div class="pv">${val(value)}</div></div>`;
@@ -1337,8 +1340,7 @@
     const rows = txns.map((x) => { bal += x.debit - x.credit; return { ...x, bal }; });
     const deb = txns.reduce((s, x) => s + x.debit, 0), cre = txns.reduce((s, x) => s + x.credit, 0);
     const closing = p.closing ?? (p.opening + deb - cre);
-    const head = `<div class="soa-logo">${E.logoHtml("soa-logo-img")}<div class="soa-co">${esc(C.company.name)}</div><div class="soa-addr">${esc(C.company.address.join(", "))} · ${esc(C.company.email)}${E.siteText()}</div></div>
-      <div class="ph-title">STATEMENT OF ACCOUNT</div>
+    const head = `${printHead("STATEMENT OF ACCOUNT")}
       <div class="soa-top"><div class="soa-cust"><b>${esc(fullName(c).toUpperCase())}</b></div>
         <div class="soa-acct"><span>Statement No :</span><b>${esc(p.no || "—")}</b><span>Account No :</span><b>${esc(c.account_no)}</b>
           <span>Period Covered :</span><b>${mdy(p.from || p.start)} - ${mdy(p.end)}</b><span>Date Printed :</span><b>${mdy(isoToday())}</b></div></div>`;
@@ -2391,4 +2393,5 @@
     docCard, bindDocCards, customerPicker, getCustomer, fullName, printHead, box, cell, sigs, sigCol, cxTop, cxSec, cxKv, uuid, cleanQ, idBox, METHOD,
     loadSignatures, approvedBy, signaturePic, pickSignature, sigPill, signatureFormPage, openSignatureForm, openBlankSignatureForm, editCustomer, custSoa
   });
+  E._docs = { ...(E._docs || {}), invoicePage, ackPage, soaPages, memoPage }; // 3.79: the document pages (for the print checks)
 })();

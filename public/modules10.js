@@ -852,6 +852,8 @@
       totalRow: `<tr class="ptl-tot"><td class="num">${qtyText(o.total_boxes)}</td><td class="num">${qtyText(o.total_pcs)}</td><td colspan="${3 + cols.length}">TOTAL · ${esc(boxesText(o.total_boxes))} · ${qtyText(o.total_pcs)} PCS</td><td></td><td class="num">${peso(o.total_amount)}</td></tr>`,
       bottom, caps: { single: extraBoxes === 2 ? 6 : extraBoxes ? 9 : 13, first: 18, next: 26, last: extraBoxes === 2 ? 8 : extraBoxes ? 11 : 15 } });
   }
+  E._docs = { ...(E._docs || {}), orderPages }; // 3.79: for the print checks
+
   function sheetPages(o, boxes) {
     const c = o.customers || {}, pcs = boxes.reduce((s, b) => s + num(b.pcs), 0);
     const rows = boxes.length >= 24 ? boxes : [...boxes, ...Array(24 - boxes.length).fill(null)]; // empty lines to write by hand, like the paper sheet
