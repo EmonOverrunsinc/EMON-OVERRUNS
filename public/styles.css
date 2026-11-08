@@ -3446,7 +3446,7 @@ body:has(.login) { background: #0f3a8c; }
 .cvr-f.two b.w { grid-column: span 3; }
 .cvr-f.two span:has(+ b.w) { grid-column: 1; }
 .cvr-f b.purpose { color: #0f3a8c; font-weight: 900; letter-spacing: .03em; text-transform: uppercase; }
-/* ISSUED BY (unpaid) / RECEIVED BY (paid) and the AUTHORIZED REPRESENTATIVE: signed by hand above the line */
+/* ISSUED BY (unpaid) / RECEIVED BY (paid): signed by hand above the line */
 .cvr-sign { display: grid; grid-template-columns: 1fr 1fr; gap: 22mm; margin: auto 8mm 0; padding-top: 3mm; text-align: center; }
 .cvr-sign i { display: block; height: 10mm; border-bottom: .3mm solid #10203f; }
 .cvr-sign b { display: block; min-height: 3.6mm; margin-top: .8mm; font: 700 8.4pt/1.2 Arial, sans-serif; text-transform: uppercase; }
