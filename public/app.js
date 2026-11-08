@@ -1464,6 +1464,7 @@
       location.hash = "collection/" + data.id;
       return true;
     }
+    if (cvm) { location.hash = "verify/" + cvm[1].toUpperCase(); return; } // 3.95: anyone else: the Verification page (never the key)
     if (/^EMON[A-Z]*\|/.test(t)) { location.hash = "verify/" + encodeURIComponent(t); return; }
     location.hash = "find/" + encodeURIComponent(t);
   }
