@@ -3440,3 +3440,5 @@ body:has(.login) { background: #0f3a8c; }
 .cvr-note { font: italic 6.5pt/1.4 Arial, sans-serif; color: #3c4a66; }
 .cvr-bar { text-align: center; } .cvr-bar img { height: 11mm; width: 58mm; object-fit: fill; display: block; }
 .cvr-picpage { align-items: center; } .cvr-pic { flex: 1; display: grid; place-items: center; width: 100%; } .cvr-pic img { max-width: 100%; max-height: 118mm; object-fit: contain; }
+/* 3.94.2: the gold line under a document title is only as wide as the title (it was as wide as the empty middle) */
+.page .ph2 .ph-mid { display: grid; justify-content: end; align-content: center; }
