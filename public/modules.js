@@ -643,7 +643,7 @@
     const cnt = (q) => q.then((r) => (r.error ? 0 : r.count || 0), () => 0);
     const head = { count: "exact", head: true };
     // 3.60: no payslip reminder here (the Payroll page shows the employees without the month's payslip)
-    const [apps, jobs, changes, memos, contacts, copies, pos, cords, prints, dlv, insr, kyc, devs] = await Promise.all([
+    const [apps, jobs, changes, memos, contacts, copies, pos, cords, prints, dlv, insr, devs] = await Promise.all([
       cnt(sb.from("customers").select("id", head).in("status", ["pending", "verified"])),
       cnt(sb.from("job_applications").select("id", head).eq("status", "submitted")),
       cnt(sb.from("change_requests").select("id", head).eq("status", "pending")),
@@ -656,12 +656,11 @@
       // 3.74.1: deliveries submitted by the order paper wait for EMON HASAN (approved: COMPLETED and the invoice is made)
       sb.from("customer_orders").select("id", { count: "exact" }).eq("status", "approved").not("delivery_request_at", "is", null).order("delivery_request_at").limit(1).then((r) => (r.error ? { n: 0 } : { n: r.count || 0, id: r.data?.[0]?.id }), () => ({ n: 0 })),
       cnt(sb.from("order_insurance").select("id", head).eq("status", "review")),
-      cnt(sb.from("kyc_verifications").select("id", head).eq("status", "pending")),
       cnt(sb.from("user_devices").select("id", head).eq("status", "pending")) // 3.80: a new device waits for approval
     ]);
     return [[apps, "Customer application", "#customers"], [jobs, "Job application", "#jobapps"], [changes, "Correction", "#changes"], [memos, "Credit memo", "#creditmemos"],
       [contacts, "Contact message", "#contacts"], [pos, "Purchase order", "#purchase"], [cords, "Customer order", "#custorders"], [prints, "Print request", "#printreqs"],
-      [dlv.n, "Delivery approval", dlv.id ? `#custorder/${dlv.id}` : "#custorders"], [insr, "Coverage payment", "#insurance"], [kyc, "KYC review", "#kyc"], [devs, "New device approval", "#devices"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
+      [dlv.n, "Delivery approval", dlv.id ? `#custorder/${dlv.id}` : "#custorders"], [insr, "Coverage payment", "#insurance"], [devs, "New device approval", "#devices"], [copies.length, "Paper copy update", copies.length ? `#${copies[0].owner_type}/${copies[0].owner_id}` : ""]].filter(([n]) => n > 0);
   }
   E.todoItems = todoItems;
 
@@ -1802,7 +1801,7 @@
       <form class="window" id="npForm" novalidate>
         <div class="wtitle">Record Payment</div>
         <div class="wbody">
-          <fieldset class="opt"><legend>Customer</legend><div id="npCust"></div></fieldset>
+          <fieldset class="opt"><legend>Customer</legend><div id="npCust"></div><div class="np-due" id="npDue" hidden></div></fieldset>
           <fieldset class="opt"><legend>Payment</legend><div class="formgrid">
             <div class="fields wide">
               <label for="npAmt">Amount (₱) *</label><input type="number" id="npAmt" min="0.01" step="0.01" required>
@@ -1825,7 +1824,16 @@
         <div class="wfoot"><button type="button" class="btn" id="npCancel">Cancel</button><button type="submit" class="btn primary">Submit Payment</button></div>
       </form>`);
     let cust = null;
-    customerPicker($("#npCust"), { statuses: ["active", "suspended", "closed"], onPick: (c) => (cust = c), preset: (await getCustomer(custId)) || undefined });
+    // 3.96: the customer's TOTAL TO PAY (shown to everyone; staff without "See Balances" see no invoice or payment history)
+    const showDue = async (c) => {
+      const box = $("#npDue"); if (!box) return;
+      const { data, error } = await sb.rpc("account_due", { p_customer: c.id });
+      if (cust !== c || !$("#npDue")) return;
+      const due = error || !data ? null : Number(data.balance_due || 0);
+      box.hidden = due == null;
+      if (due != null) box.innerHTML = `<span>TOTAL TO PAY</span><b>₱ ${due.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>`;
+    };
+    customerPicker($("#npCust"), { statuses: ["active", "suspended", "closed"], onPick: (c) => { cust = c; showDue(c); }, preset: (await getCustomer(custId)) || undefined });
     const methodUi = () => { const m = $("#npMethod").value; $$(".npb").forEach((x) => (x.hidden = m === "cash")); };
     // 3.51: the usual account of each way of paying is filled in by itself (it can still be changed)
     const PAY_TO = { bank_transfer: ["EAST WEST BANK", "EMON HASAN"], online_transfer: ["GCASH", "EMN H."] };
@@ -2299,7 +2307,6 @@
               <div class="btnrow"><button type="button" class="btn primary" id="mpUserSave">Save Username</button></div>`}
         </fieldset>
         <fieldset class="opt"><legend>Password</legend><p>Change the password you sign in with.</p><div class="btnrow"><button type="button" class="btn" id="mpPw">${ic("key")} Change Password</button></div></fieldset>
-        <fieldset class="opt kyc-card" id="mpKyc" hidden></fieldset>
         <fieldset class="opt dev-card" id="mpDev" hidden></fieldset>
       </div>
       ${emp ? `<div id="mpCard"></div>` : ""}
@@ -2325,7 +2332,6 @@
     if (emp) { E.bindGrid($("#mpSlips"), slips, (r) => (location.hash = "payslip/" + r.id)); E.bindGrid($("#mpPays"), myPays.rows, (r) => (location.hash = "payslip/" + r.payslip_id)); }
     if (emp && E.cardInfoBox) E.cardInfoBox($("#mpCard")); // the ID card (3.28: no PIN)
     $("#mpPw").onclick = () => E.changePassword();
-    E.kycCard?.($("#mpKyc")); // 3.75: optional KYC with a live face check
     E.myDevices?.($("#mpDev")); // 3.80: the devices this login signs in on
     // 2.4: the request goes to the Director's Contact Messages, who then deletes the account on Login Accounts
     if ($("#mpDel")) $("#mpDel").onclick = async () => {
