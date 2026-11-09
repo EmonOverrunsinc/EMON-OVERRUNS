@@ -3319,3 +3319,104 @@ body:has(.login) { background: #0f3a8c; }
 .fields .sec-k + span:empty { display: none; }
 /* 3.97: Mark all as read at the top of the notifications (it stays there while the list scrolls) */
 .mail-top { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; background: #fff; border-bottom: 1px solid var(--grid-head, #dfe5f0); font-size: 12px; font-weight: 700; color: var(--ink-soft, #5b6577); }
+
+/* ===================== 3.98: THE NEW PROFILE LAYOUT - clear and easy to see (customer, employee, invoice, order ...) ===================== */
+/* the header card: a navy band with a gold line, the photo on it, the name, the facts in clear boxes */
+#main .cust-hero { position: relative; display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; gap: 4px 22px; align-items: start; padding: 78px 22px 18px; border: 1px solid #dfe5f0; border-radius: 18px; background: #fff; box-shadow: 0 6px 22px rgba(15,58,140,.08); overflow: hidden; }
+#main .cust-hero::before { content: ""; position: absolute; inset: 0 0 auto 0; width: auto; height: 60px; background: linear-gradient(100deg, #0f3a8c, #1d4fb0); border-bottom: 3px solid #f2b705; }
+#main .cust-hero.st-suspended::before, #main .cust-hero.st-inactive::before { background: linear-gradient(100deg, #8a5a00, #c98a00); }
+#main .cust-hero.st-closed::before, #main .cust-hero.st-rejected::before, #main .cust-hero.st-terminated::before { background: linear-gradient(100deg, #7d1a14, #b3261e); }
+#main .cust-hero .ch-pic, #main .cust-hero > .ch-photo { position: relative; z-index: 1; margin-top: -56px; }
+#main .cust-hero .ch-photo { width: 108px; height: 108px; border-radius: 20px; border: 4px solid #fff; box-shadow: 0 6px 18px rgba(15,58,140,.22); background: #eef2fa; font-size: 34px; }
+#main .cust-hero .ch-main { min-width: 0; }
+#main .cust-hero .ch-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+#main .cust-hero .ch-name h2 { margin: 0; font-size: 25px; line-height: 1.15; letter-spacing: .01em; color: #0f3a8c; }
+#main .cust-hero .ch-sub { margin-top: 3px; font-size: 14px; color: #5b6577; overflow-wrap: anywhere; }
+#main .cust-hero .ch-ids { display: grid; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr)); gap: 8px; margin-top: 12px; }
+#main .cust-hero .idbox { min-width: 0; padding: 8px 12px; border-radius: 10px; background: #f6f8fc; border: 1px solid #e3e9f4; border-left: 3px solid #f2b705; }
+#main .cust-hero .idbox small { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; color: #5b6577; }
+#main .cust-hero .idbox b { font-size: 15px; color: #10203f; overflow-wrap: break-word; }
+#main .cust-hero .idbox b.mono { overflow-wrap: anywhere; }
+#main .cust-hero .ch-qr { position: relative; z-index: 1; margin-top: -56px; border-radius: 14px; border: 1px solid #dfe5f0; box-shadow: 0 6px 18px rgba(15,58,140,.14); }
+/* the balance: one clear number */
+#main .due-card { border-radius: 16px; border: 1px solid #dfe5f0; border-left: 6px solid #1b6b33; box-shadow: 0 4px 16px rgba(15,58,140,.06); padding: 14px 20px; }
+#main .due-card.warn { border-left-color: #c8102e; } #main .due-card.credit { border-left-color: #1d4fb0; }
+#main .due-card .k { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #5b6577; }
+#main .due-card .v { font-size: 34px; line-height: 1.1; }
+/* ONE Actions button: the list of everything that can be done here */
+#main .actionbar.am-done { display: block; margin: 12px 0; }
+.am { position: relative; display: inline-block; }
+.am-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 0 20px; font-size: 15px; font-weight: 700; border-radius: 12px; gap: 9px; box-shadow: 0 6px 16px rgba(15,58,140,.22); }
+.am-btn .ic { width: 19px; height: 19px; }
+.am-n { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: #f2b705; color: #10203f; font-size: 12px; font-weight: 800; }
+.am-back { position: fixed; inset: 0; z-index: 70; background: transparent; }
+.am-list { position: fixed; top: 0; left: 0; z-index: 71; width: max-content; min-width: 280px; max-width: min(92vw, 380px); max-height: min(70vh, 520px); overflow: auto; padding: 8px; border-radius: 16px; background: #fff; border: 1px solid #dfe5f0; box-shadow: 0 18px 44px rgba(10,20,50,.24); display: grid; gap: 2px; }
+.am-list[hidden] { display: none; }
+.am-head { display: none; align-items: center; justify-content: space-between; padding: 6px 8px 10px; font-size: 15px; color: #0f3a8c; }
+.am-list > .grow { display: none; }
+.am-list > :not(.am-head):not(.btn):not(input):not(.grow) { display: contents; } /* a group of buttons (Edit, Delete): its buttons are lines of the list too */
+.am-list .btn:not(.am-x) { display: flex; width: 100%; min-height: 46px; justify-content: flex-start; align-items: center; gap: 12px; margin: 0; padding: 0 14px; border-radius: 10px; border: 0; box-shadow: none; background: transparent; color: #10203f; font-size: 15px; font-weight: 600; text-align: left; }
+.am-list .btn:not(.am-x) .ic { width: 19px; height: 19px; color: #1d4fb0; flex: none; }
+.am-list .btn:not(.am-x):hover, .am-list .btn:not(.am-x):focus-visible { background: #eef3fc; transform: none; }
+.am-list .btn.ok:not(.am-x), .am-list .btn.ok:not(.am-x) .ic { color: #1b6b33; }
+.am-list .btn.danger:not(.am-x), .am-list .btn.danger:not(.am-x) .ic { color: #b3261e; }
+.am-list .btn.danger:not(.am-x):hover { background: #fdf0ef; }
+@media (max-width: 700px) {
+  .am, .am-btn { display: flex; width: 100%; justify-content: center; }
+  .am-back { background: rgba(10,20,50,.45); }
+  .am-list { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-width: none; max-height: 76vh; border-radius: 20px 20px 0 0; padding: 12px 12px calc(14px + env(safe-area-inset-bottom)); }
+  .am-head { display: flex; }
+  .am-list .btn:not(.am-x) { min-height: 52px; font-size: 16px; }
+  body:has(.am-back) .band-back { display: none; }
+}
+/* the tabs: one line that slides sideways; the open tab is navy with a gold line */
+#main .tabs { display: flex; flex-wrap: nowrap; max-width: 100%; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; gap: 4px; padding: 5px; border-radius: 13px; background: #e9edf5; }
+#main .tabs::-webkit-scrollbar { display: none; }
+#main .tabs button { flex: none; white-space: nowrap; min-height: 40px; padding: 0 16px; border-radius: 9px; font-size: 14px; font-weight: 600; color: #3c4a66; }
+#main .tabs button.on { background: #0f3a8c; color: #fff; box-shadow: inset 0 -3px 0 #f2b705, 0 2px 8px rgba(15,58,140,.25); }
+/* the details: the name of each detail small and grey, its value big and dark; two columns on a wide screen */
+#main .kv-table { border: 0; }
+#main .kv-table tbody { display: grid; grid-template-columns: 1fr; }
+#main .kv-table tr { display: grid; grid-template-columns: minmax(120px, 34%) minmax(0, 1fr); align-items: baseline; border-bottom: 1px solid #edf0f6; background: #fff; }
+#main .kv-table th { width: auto; padding: 11px 14px; background: transparent; border: 0; font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #5b6577; }
+#main .kv-table td { padding: 11px 14px; border: 0; font-size: 15px; font-weight: 600; color: #10203f; overflow-wrap: anywhere; }
+@media (min-width: 1100px) { #main .kv-table tbody { grid-template-columns: 1fr 1fr; column-gap: 24px; } }
+@media (max-width: 560px) { #main .kv-table tr { grid-template-columns: 1fr; } #main .kv-table th { padding-bottom: 0; } #main .kv-table td { padding-top: 2px; } }
+/* a record page (invoice, payment, voucher, order ...): the number big at the top, the money in tiles, the details clear */
+#main .window > .wtitle { padding: 14px 18px; font-size: 19px; letter-spacing: .02em; }
+#main .rec-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+#main .rec-tile { padding: 12px 14px; border-radius: 12px; background: #f6f8fc; border: 1px solid #e3e9f4; border-top: 3px solid #0f3a8c; }
+#main .rec-tile small { display: block; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: #5b6577; }
+#main .rec-tile b { display: block; margin-top: 2px; font-size: 20px; line-height: 1.2; color: #10203f; overflow-wrap: break-word; }
+#main .rec-tile.ok { border-top-color: #1b6b33; } #main .rec-tile.ok b { color: #1b6b33; }
+#main .rec-tile.warn { border-top-color: #c8102e; } #main .rec-tile.warn b { color: #c8102e; }
+#main .window .fields.wide:not(:has(input, select, textarea)) > :nth-child(odd) { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #5b6577; align-self: center; }
+#main .window .fields.wide:not(:has(input, select, textarea)) > :nth-child(even) { font-size: 15px; font-weight: 600; color: #10203f; padding: 5px 0; border-bottom: 1px solid #edf0f6; min-width: 0; overflow-wrap: anywhere; }
+/* a phone: the photo and the name on one line, the facts 2 by 2, the QR code small beside its number */
+@media (max-width: 700px) {
+  #main .cust-hero { grid-template-columns: 78px minmax(0, 1fr); gap: 4px 14px; padding: 62px 14px 14px; }
+  #main .cust-hero::before { height: 48px; }
+  #main .cust-hero .ch-pic, #main .cust-hero > .ch-photo { margin-top: -44px; grid-row: span 2; }
+  #main .cust-hero .ch-photo { width: 76px; height: 76px; border-radius: 16px; font-size: 24px; }
+  #main .cust-hero .ch-main { display: contents; }
+  #main .cust-hero .ch-name h2 { font-size: 20px; }
+  #main .cust-hero .ch-name, #main .cust-hero .ch-sub { grid-column: 2; }
+  #main .cust-hero .ch-ids { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; margin-top: 10px; }
+  #main .cust-hero .idbox { padding: 7px 9px; } #main .cust-hero .idbox b { font-size: 13px; letter-spacing: -.01em; }
+  #main .cust-hero .ch-qr { grid-column: 1 / -1; margin-top: 2px; display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 0 12px; align-items: center; text-align: left; padding: 8px; box-shadow: none; }
+  #main .cust-hero .ch-qr canvas { width: 84px; height: 84px; grid-row: span 3; }
+  #main .cust-hero .ch-qr .key { max-width: none; margin: 0; }
+  #main .due-card .v { font-size: 28px; }
+  #main .rec-tiles { grid-template-columns: 1fr 1fr; }
+  #main .rec-tile b { font-size: 18px; }
+}
+/* 3.98: a phone: the record number stays on one line, its badge goes under it; money never breaks from its peso sign */
+#main .rec-tile.sm b { font-size: 16px; }
+@media (max-width: 700px) {
+  #main .window > .wtitle { flex-wrap: wrap; justify-content: flex-start; gap: 6px 10px; padding: 12px 14px; font-size: 18px; white-space: nowrap; }
+  #main .window > .wtitle > #invInsMini { flex: 1 1 100%; min-width: 0; white-space: normal; }
+  #main .window > .wtitle > #invInsMini > * { max-width: 100%; }
+  #main .rec-tile { padding: 10px 11px; }
+  #main .rec-tile b { font-size: 16px; white-space: nowrap; }
+  #main .rec-tile.sm b { font-size: 13px; }
+}

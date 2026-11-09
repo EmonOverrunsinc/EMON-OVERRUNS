@@ -1621,6 +1621,10 @@
     const need = num(inv.total_amount) - returned - active.reduce((s, l) => s + num(l.amount), 0);
     $(".band h1").textContent = `Invoice — ${inv.invoice_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${payPill(inv)}<span id="invInsMini"></span></div><div class="wbody">
+      <div class="rec-tiles"><div class="rec-tile"><small>Total Amount</small><b>₱ ${peso(inv.total_amount)}</b></div>
+        <div class="rec-tile ok"><small>Paid</small><b>₱ ${peso(inv.amount_paid)}</b></div>
+        <div class="rec-tile ${bal > 0 ? "warn" : "ok"}"><small>Balance</small><b>₱ ${peso(bal)}</b></div>
+        <div class="rec-tile sm"><small>Due Date</small><b>${mdy(inv.due_date) || "—"}</b></div></div>
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>
@@ -1628,8 +1632,7 @@
         <span>Terms of Payment</span><span>${esc(inv.payment_terms || "—")}</span><span>Due Date</span><span>${mdy(inv.due_date) || "—"}${ins?.status === "active" && inv.due_date ? " (EXTENDED BY COVERAGE)" : ""}</span>
         <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${qtyText(inv.total_boxes)}</b><span>Total Pcs</span><b>${qtyText(inv.total_pcs)}</b>
-        <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b>${returned > 0 ? `<span>Returned</span><b>− ₱ ${peso(returned)}</b>` : ""}<span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b>
-        <span>Balance</span><b class="${bal < 0 ? "neg" : ""}">₱ ${peso(bal)}</b>
+        ${returned > 0 ? `<span>Returned</span><b>− ₱ ${peso(returned)}</b>` : ""}
         <span>Payment Status</span><span>${payPill(inv)}${isOverdue(inv) ? ` <small class="muted">${daysOver(inv)} day(s) overdue</small>` : ""}${bal < 0 ? ` <small class="muted">overpaid ₱ ${peso(-bal)}</small>` : ""}</span></div></div>
       <small class="muted">A payment linked to this invoice pays it first; only what the invoice needs is taken, the rest of the payment stays available for another invoice. Other payments, discounts and orders pay the customer's oldest invoices first.${bal < 0 ? " A negative balance means the customer has paid more than everything owed." : ""}</small>
       <div class="linked-pays"><div class="lp-head"><b>Returns</b>${canReturn ? `<button type="button" class="btn small" id="ivReturn">${ic("back")} Record Return</button>` : ""}</div>
