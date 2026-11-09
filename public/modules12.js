@@ -16,7 +16,7 @@
 (() => {
   "use strict";
   const E = window.EO;
-  const { sb, S, esc, peso, isoToday, isoDay, mdy, $, $$, isAdmin, toast, fail, ic, num, fullName, qtyText } = E;
+  const { sb, S, esc, peso, isoToday, isoDay, mdy, $, isAdmin, toast, fail, ic, num, fullName, qtyText } = E;
 
   // ======================================================================
   // Words: the same word written a little wrong ("cureent", "balanse") is read as the word it is close to
@@ -413,7 +413,7 @@
       <br>${open.length ? `${open.length} unpaid invoice${open.length === 1 ? "" : "s"}${over.length ? `, <b>${over.length} overdue</b> (${money(over.reduce((s, i) => s + num(i.balance), 0))}, the oldest ${oldest} day${oldest === 1 ? "" : "s"} late)` : ", nothing overdue"}` : "No unpaid invoice."}
       ${lim != null ? `<br>Credit limit ${money(lim)}${due > lim + 0.004 ? ` — <b>over the limit by ${money(due - lim)}</b>` : ` — ${money(Math.max(0, lim - due))} still free`}` : ""}
       ${String(c.status) !== "active" ? `<br>The account is <b>${esc(String(c.status).toUpperCase())}</b>.` : ""}`,
-      chips: [["Last payment", "last payment of this customer"], ["Unpaid invoices", "unpaid invoices of this customer"], ["Gate pass idea", "gate pass this customer"]] };
+      chips: [["Last payment", "last payment of this customer"], ["Unpaid invoices", "unpaid invoices of this customer"], ["CLEAR or HOLD", "gate pass this customer"]] };
   }
   async function balances() {
     const [bal, list] = await Promise.all([rows(() => sb.from("customer_balances").select("customer_id, balance_due").order("customer_id")), customers()]);
@@ -552,7 +552,7 @@
     return { cust: c, html: `${custLink(c)} · <b>${esc(String(c.status || "").toUpperCase())}</b>${c.application_date ? ` · customer since ${esc(mdy(c.application_date))}` : ""}
       <br>Current due <b class="eva-amt">${money(b?.balance_due)}</b>${over.length ? ` · ${over.length} overdue invoice${over.length === 1 ? "" : "s"}` : " · nothing overdue"}${c.credit_limit != null ? ` · credit limit ${money(c.credit_limit)}` : ""}
       <br>${last ? `Last payment ${money(last.amount)} on ${esc(mdy(last.paid_date))}` : "No payment yet"} · ${(ords || []).length} open order${(ords || []).length === 1 ? "" : "s"}`,
-      chips: [["Gate pass idea", "gate pass this customer"], ["Unpaid invoices", "unpaid invoices of this customer"], ["Orders", "orders of this customer"]] };
+      chips: [["CLEAR or HOLD", "gate pass this customer"], ["Unpaid invoices", "unpaid invoices of this customer"], ["Orders", "orders of this customer"]] };
   }
   async function aCount() {
     const list = await customers(), by = (s) => list.filter((c) => c.status === s).length;

@@ -198,19 +198,6 @@
       (e) => end({ status: e && e.code === 1 ? "not allowed by the person" : "not available" }), { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
   });
   const locText = (l) => (!l ? "—" : l.status === "allowed" ? `${l.lat}, ${l.lng} (within ${l.accuracy_m} m) · maps.google.com/?q=${l.lat},${l.lng}` : String(l.status || "—").toUpperCase());
-  // the signature pad (finger, pen or mouse)
-  function sigPad(canvas) {
-    const ctx = canvas.getContext("2d"); let drawing = false, last = null, inked = false;
-    const fit = () => { const r = canvas.getBoundingClientRect(); canvas.width = Math.max(300, Math.round(r.width * 2)); canvas.height = Math.round(canvas.width * 0.32);
-      ctx.lineWidth = 5; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#0b1f4d"; ctx.clearRect(0, 0, canvas.width, canvas.height); inked = false; };
-    const pt = (e) => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) * (canvas.width / r.width), (e.clientY - r.top) * (canvas.height / r.height)]; };
-    canvas.addEventListener("pointerdown", (e) => { e.preventDefault(); canvas.setPointerCapture?.(e.pointerId); drawing = true; last = pt(e); });
-    canvas.addEventListener("pointermove", (e) => { if (!drawing) return; const p2 = pt(e); ctx.beginPath(); ctx.moveTo(...last); ctx.lineTo(...p2); ctx.stroke(); last = p2; if (!inked) { inked = true; canvas.dispatchEvent(new Event("inked")); } });
-    const up = () => { drawing = false; }; canvas.addEventListener("pointerup", up); canvas.addEventListener("pointerleave", up); canvas.addEventListener("pointercancel", up);
-    requestAnimationFrame(fit);
-    return { clear: () => { fit(); canvas.dispatchEvent(new Event("inked")); }, inked: () => inked, png: () => canvas.toDataURL("image/png") };
-  }
-
   // ---------- the print: the terms, and the acceptance when there is one ----------
   function pages(acc, t = "portal") {
     if (acc) t = typeOf(acc.terms_version);
@@ -278,7 +265,6 @@
           <button type="button" class="btn primary" id="lgSubmit" disabled>${ic("check")} Submit</button></div>
         <small class="muted">Signed in as ${esc(who)}. ${opts.onSubmit ? "Your account opens only after you agree." : "The portal opens only after you agree."} <b>Reject</b> signs you out; the agreement shows again at your next sign in. <b class="lg-strict">Not agreed in <span class="lg-timer">3:00</span> = signed out.</b></small></div></div>`;
     document.body.appendChild(ov);
-    let pad = null;
     // 3.75.1: STRICT: not agreed within 3 minutes = signed out (a login only; a customer goes back to its sign in)
     const LIMIT = window.EO_LEGAL_LIMIT || 180; // (a test can make it shorter)
     let left = LIMIT;

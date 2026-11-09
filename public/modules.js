@@ -949,7 +949,7 @@
 
   // Suspended / closed accounts are marked for everyone who opens them.
   function statusBanner(c) {
-    if (c.status === "closed") return `<div class="banner closed">${ic("x")} CLOSED ACCOUNT — new invoices cannot be recorded; payments can still be recorded. ${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
+    if (c.status === "closed") return `<div class="banner closed">${ic("x")} BLACKLISTED (CLOSED ACCOUNT) — new invoices cannot be recorded; payments can still be recorded. ${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
     if (c.status === "suspended") return `<div class="banner warn">⚠ SUSPENDED ACCOUNT — new invoices are blocked while the account is suspended; payments can still be recorded.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
     if (c.status === "rejected") return `<div class="banner closed">REJECTED APPLICATION${c.status_note ? " — " + esc(c.status_note) : ""}</div>`;
     return "";
@@ -1015,7 +1015,6 @@
       </section>
       <div class="due-card ${num(b.balance_due) > 0 ? "warn" : num(b.balance_due) < 0 ? "credit" : "ok"}"><div><div class="k">Balance Due</div><div class="v">₱ ${peso(b.balance_due)}</div></div>
         <small>${num(b.balance_due) > 0 ? "Amount the customer still owes" : num(b.balance_due) < 0 ? `Overpaid · ₱ ${peso(-num(b.balance_due))} is ready for the customer's next invoice (it is used by itself)` : "Nothing due · fully paid"} · see Details for the full summary</small></div>
-      ${isStaff() && E.gateCard ? E.gateCard(orders, ev.data || [], aiLog.data || []) : ""}
       <div class="actionbar">
         ${canInvoice ? `<a class="btn primary" href="#newinvoice/${c.id}">${ic("plus")} Record Invoice</a>` : ""}
         ${canPay ? `<a class="btn" href="#newpayment/${c.id}">${ic("plus")} Record Payment</a>` : ""}
@@ -1083,6 +1082,7 @@
       [1, 2, 3, 4, 7, 8].forEach((i) => { $(`#pfTabs [data-t="${i}"]`)?.remove(); $(`.tabpanes [data-p="${i}"]`)?.remove(); });
       $("#pfTabs")?.insertAdjacentHTML("beforebegin", `<div class="banner info">${ic("shield")} The balance and the purchase history of this customer are for EMON HASAN only. You can still record invoices, payments and orders.</div>`);
     }
+    $('#pfTabs [data-t="9"]')?.remove(); $('.tabpanes [data-p="9"]')?.remove(); // 3.97: no Gate Pass tab any more
     E.keepTab("#pfTabs", "customer:" + c.id);
     if (showOrders) E.customerOrdersOf(c.id).then((rows) => {
       const el = $("#pfOrders"); if (!el || !here()) return;
@@ -1121,7 +1121,6 @@
     if ($("#pfRequest")) $("#pfRequest").onclick = () => E.customerRequest(c, gctx);
     E.bindRequests(c, orders, gctx);
     E.standingBadge($("#pfStanding"), c, gctx);
-    E.bindGateCard?.(orders, ev.data || [], aiLog.data || []);
     E.custVerified?.($("#pfVerified"), c.id); // 3.69: the customer agreed to the legal terms
     // 3.12: the Director deletes a history line
     $$("[data-hdel]").forEach((b) => (b.onclick = async () => {

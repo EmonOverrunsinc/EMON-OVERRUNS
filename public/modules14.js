@@ -6,7 +6,7 @@
 (function () {
   "use strict";
   const E = window.EO, V = (window.EO_VIEWS = window.EO_VIEWS || {});
-  const { sb, S, C, esc, peso, mdy, $, $$, isAdmin, toast, fail, ic, busy, num, fullName } = E;
+  const { sb, S, C, esc, peso, mdy, $, isAdmin, toast, fail, ic, busy, num, fullName } = E;
   // 3.76: the payment due extension of an insured order's invoice (days after its due date; insurance settings)
   let DUE = 15;
   const METHODS = { gcash: "GCash / Online", bank: "Bank Transfer / Deposit", cash: "Cash", check: "Check", other: "Other" };
@@ -386,7 +386,6 @@
     const name = i.customer_name || fullName(c), boxes = `${E.qtyText(i.boxes)} ${Number(i.boxes) === 1 ? "BOX" : "BOXES"}`;
     const covered = o?.status === "completed" ? o.total_amount : i.order_amount;
     const terms = o?.payment_terms || "", td = termsDays(terms);
-    const dueDate = i._due ? mdy(i._due.ext) : "COUNTED FROM THE INVOICE DATE";
     const v = (x) => (x === "" || x == null ? "&nbsp;" : esc(x));
     const fld = (label, value, cls = "") => `<div class="c2-fld ${cls}"><small>${esc(label)}</small><b>${v(value)}</b></div>`;
     const sec = (t, right = "") => `<div class="c2-sec"><span>${esc(t)}</span>${right ? `<em>${esc(right)}</em>` : ""}</div>`;

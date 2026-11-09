@@ -13,7 +13,7 @@
 (() => {
   "use strict";
   const E = window.EO;
-  const { sb, S, esc, peso, isoToday, isoDay, mdy, $, $$, isAdmin, isStaff, toast, fail, ic, busy, num, fullName } = E;
+  const { sb, S, esc, peso, isoToday, isoDay, mdy, $, isAdmin, toast, fail, ic, busy, num, fullName } = E;
   const V = window.EO_VIEWS;
   const BUCKET = "ai", FOLDER = "gate-pass";
   const notSet = (e) => ["PGRST205", "PGRST202", "42P01"].includes(e?.code) || /ai_models|ai_gate_log|schema cache|Bucket not found/i.test(e?.message || "");
@@ -384,9 +384,9 @@
         <div class="tile"><span class="tile-ic">${ic("clock")}</span><div class="k">Last Learned</div><div class="v ai-v">${top ? esc(E.dateTime(top.created_at)) : "Not yet"}</div><small>${top ? `by ${esc(top.trained_by_name || "")}` : "Press Learn Now"}</small></div>
         <div class="tile"><span class="tile-ic">${ic("doc")}</span><div class="k">Records Learned From</div><div class="v">${top ? top.samples : 0}</div><small>${top ? `${top.decisions} decision${top.decisions === 1 ? "" : "s"}` : ""}</small></div>
         <div class="tile ok"><span class="tile-ic">${ic("check")}</span><div class="k">Right on Records It Had Not Seen</div><div class="v">${top?.accuracy != null ? `${num(top.accuracy).toFixed(0)}%` : "—"}</div><small>${top?.agree != null ? `${num(top.agree).toFixed(0)}% of your decisions` : ""}</small></div>
-        <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">Agreed With the Decision</div><div class="v">${decided.length ? `${agreed} / ${decided.length}` : "—"}</div><small>gate passes decided with its idea</small></div>
+        <div class="tile"><span class="tile-ic">${ic("shield")}</span><div class="k">Agreed With the Decision</div><div class="v">${decided.length ? `${agreed} / ${decided.length}` : "—"}</div><small>decisions taken with its idea</small></div>
       </div>
-      <h3 class="sec">Gate Pass Learning</h3>
+      <h3 class="sec">Learning</h3>
       <div class="btnrow"><button type="button" class="btn primary" id="aiLearn">${ic("ai")} Learn Now</button><span class="muted" id="aiStep"></span></div>
       <div class="ai-prog" id="aiProg" hidden><i></i></div>
       <h3 class="sec">Every Open Customer Today</h3><div id="aiNow">${top ? busy("The AI is reading every customer") : `<div class="empty">The AI has not learned yet. Press <b>Learn Now</b>.</div>`}</div>
@@ -394,7 +394,7 @@
       ${E.grid({ cols: [{ label: "Date / Time", get: (x) => E.dateTime(x.created_at) }, { label: "Customer", html: (x) => `<b>${esc(fullName(x.customers || {}))}</b> <small class="mono">${esc(x.customers?.account_no || "")}</small>` },
         { label: "AI Idea", html: (x) => `${E.pill(x.suggestion === "CLEAR" ? "approved" : "rejected", x.suggestion)} <small>${surePct(x.suggestion === "CLEAR" ? num(x.p_clear) : 1 - num(x.p_clear))}%</small>` },
         { label: "Decision", html: (x) => (x.decision ? E.pill(x.decision === "CLEAR" ? "approved" : "rejected", x.decision) : "") }, { label: "Agreed", get: (x) => (x.decision ? (x.decision === x.suggestion ? "✔" : "✖") : "") },
-        { label: "By", get: (x) => x.decided_by_name || "" }], rows: lg, empty: "No gate pass decided with the AI's idea yet." })}
+        { label: "By", get: (x) => x.decided_by_name || "" }], rows: lg, empty: "No decision taken with the AI's idea yet." })}
       <h3 class="sec">Box Database (Google Sheet)</h3><div id="aiBoxes">${busy()}</div>
       <h3 class="sec">The AI's Folder on the Server</h3>
       <p class="muted">Bucket <b class="mono">${BUCKET}</b>, folder <b class="mono">${FOLDER}/</b>: what it learned last. Each Learn Now replaces the old file with the new one.</p>

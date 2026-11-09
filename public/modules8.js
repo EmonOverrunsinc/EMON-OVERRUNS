@@ -143,7 +143,6 @@
       ${a.pays.length ? `<div class="ga-h">Payments and Gaps</div><table class="ga-t"><thead><tr><th>Date Paid</th><th>Receipt No</th><th class="num">Amount (₱)</th><th class="num">Days Since the Payment Before</th></tr></thead><tbody>
         ${a.pays.slice(-12).map((p, j, last) => { const k = a.pays.length - last.length + j; return `<tr><td>${esc(mdy(p.paid_date))}</td><td>${esc(p.receipt_no || "")}</td><td class="num">${peso(p.amount)}</td><td class="num">${k ? a.gaps[k - 1].gap : "—"}</td></tr>`; }).reverse().join("")}</tbody></table>` : ""}`;
   }
-  const summaryText = (a) => `Rating ${a.rating} · invoices ${a.invs.length} · overdue now ${a.overdueNow.length} · average ${a.avgDays ?? "—"} days to pay · ${a.onTime ?? "—"}% on time · balance PHP ${peso(a.bal)}`;
 
   function gatePage(c, no, a, approved = null) {
     return `${E.printHead("GATE PASS CLEARANCE FOR DELIVERY", codes(c, no))}
@@ -173,66 +172,6 @@
     issueDoc(c, "Gate Pass", no, gatePage(c, no, a, approved), approved ? `Cleared by EMON HASAN (${approved.order_no})` : `${a.byTrust ? "Cleared as a trusted customer" : "Cleared for delivery"} · balance PHP ${peso(a.bal)}`);
   }
 
-  async function gatePass(c, ctx) {
-    const m = E.modal(`Gate Pass — ${fullName(c)} (${c.account_no || ""})`, `<div class="ga-run" id="gaRun"><div class="ga-bar"><i></i></div>
-      <ul>${["Reading the invoices", "Reading the payments", "Checking overdue invoices", "Credit memos and returns", "Gaps between payments and days to pay", "Making the decision"].map((t) => `<li>${esc(t)}…</li>`).join("")}</ul></div><div id="gaOut" hidden></div>`,
-      `<button type="button" class="btn" data-x>Close</button>`, { wide: true });
-    $("[data-x]", m.el).onclick = m.close;
-    const a = analyse(c, ctx);
-    // the analysis is shown step by step
-    const lis = $$("#gaRun li", m.el);
-    for (let k = 0; k < lis.length; k++) {
-      await new Promise((r) => setTimeout(r, 260));
-      if (!m.el.isConnected) return;
-      lis[k].classList.add("done"); $("#gaRun .ga-bar i", m.el).style.width = `${Math.round(((k + 1) / lis.length) * 100)}%`;
-    }
-    await new Promise((r) => setTimeout(r, 200));
-    if (!m.el.isConnected) return;
-    const wait = (ctx.orders || []).find((o) => isGate(o) && o.status === "pending");
-    $("#gaRun", m.el).hidden = true;
-    const out = $("#gaOut", m.el); out.hidden = false;
-    out.innerHTML = `<div class="gp-verdict ${a.ok ? "ok" : "no"}"><span>${ic(a.ok ? "check" : "x")}</span><div><b>${a.ok ? "CLEARED FOR DELIVERY" : "NOT CLEARED FOR DELIVERY"}</b>
-        <small>${a.byTrust ? "Cleared as a TRUSTED CUSTOMER (old, buys regularly, keeps paying). Open items allowed:" : a.ok ? "The account is open, within its credit limit and has no overdue invoice." : "Why the gate pass is not issued:"}</small></div></div>
-      ${a.reasons.length ? `<ul class="gp-why">${a.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
-      ${analysisHtml(a)}
-      ${!a.ok ? (wait ? `<div class="rq-item"><span>${ic("clock")}</span><div><b>Request for Clearance · ${esc(wait.order_no)}</b><small>Sent by ${esc(wait.created_by_name || "")} · waiting for EMON HASAN</small></div></div>`
-        : `<div class="fields wide" style="margin-top:10px"><label for="gaNote">${isAdmin() ? "EMON HASAN's note" : "Note for EMON HASAN"}</label><textarea id="gaNote" rows="2" maxlength="600" placeholder="e.g. customer promised to pay on Friday; delivery is needed today"></textarea></div>`) : ""}`;
-    aiIdea(c, ctx, out);
-    const foot = $(".wfoot", m.el);
-    const add = (html) => { foot.insertAdjacentHTML("beforeend", html); };
-    if (a.ok) {
-      add(`<button type="button" class="btn primary" data-issue>${ic("print")} Issue Gate Pass</button>`);
-      $("[data-issue]", m.el).onclick = () => { m.close(); issueGate(c, a); };
-      return;
-    }
-    if (wait && isAdmin()) {
-      add(`<button type="button" class="btn danger" data-hold>${ic("x")} Hold for Delivery</button><button type="button" class="btn primary" data-appr>${ic("check")} Approve Clearance</button>`);
-      $("[data-appr]", m.el).onclick = () => { m.close(); decideGate(c, ctx, wait, "approve", a); };
-      $("[data-hold]", m.el).onclick = () => { m.close(); decideGate(c, ctx, wait, "reject", a); };
-      return;
-    }
-    if (wait || !canRequest()) return;
-    const send = async (decide) => {
-      const note = $("#gaNote", m.el).value.trim();
-      if (decide === "reject" && !note) { $("#gaNote", m.el).focus(); return toast("Write why the delivery is on hold.", true); }
-      $$("[data-req],[data-appr],[data-hold]", m.el).forEach((b) => (b.disabled = true));
-      const row = { customer_id: c.id, subject_type: "other", subject: `${GATE}: ${a.reasons.join(" ").slice(0, 240)}`, details: [note, summaryText(a)].filter(Boolean).join("\n"), order_date: isoToday() };
-      const { data: o, error } = await sb.from("order_letters").insert(row).select().single();
-      if (error) { $$("[data-req],[data-appr],[data-hold]", m.el).forEach((b) => (b.disabled = false)); return fail(error, "Could not send the request"); }
-      m.close();
-      if (!decide) { toast(`Request for Clearance ${o.order_no} sent to EMON HASAN.`); return V.customer(c.id); }
-      const e2 = await applyDecision(c, a, o, decide, note);
-      if (e2) { fail(e2, "Could not record the decision"); return V.customer(c.id); }
-    };
-    if (isAdmin()) {
-      add(`<button type="button" class="btn danger" data-hold>${ic("x")} Hold for Delivery</button><button type="button" class="btn primary" data-appr>${ic("check")} Approve Clearance &amp; Issue</button>`);
-      $("[data-appr]", m.el).onclick = () => send("approve");
-      $("[data-hold]", m.el).onclick = () => send("reject");
-    } else {
-      add(`<button type="button" class="btn primary" data-req>${ic("send")} Request for Clearance</button>`);
-      $("[data-req]", m.el).onclick = () => send(null);
-    }
-  }
   // The Director decides a Request for Clearance (from the profile or the gate pass window): a note, then approve / hold
   // The decision on a Request for Clearance; approved = the gate pass prints. Gives back the error, if any.
   async function applyDecision(c, a, o, action, note) {
@@ -299,23 +238,6 @@
     }
     return rows.sort((x, y) => String(y.when || y.at).localeCompare(String(x.when || x.at)));
   }
-  // 3.69: the gate pass on the customer profile: the current status, the action and the date (the newest line decides:
-  // FREEZE ACCOUNT while on hold, CLEARED FOR DELIVERY when cleared again or a gate pass is issued)
-  function gateCard(orders, events, ai = []) {
-    const rows = gateHistoryRows(orders, events, ai);
-    if (!rows.length) return "";
-    const r = rows[0], ok = r.tone === "approved", wait = r.tone === "pending";
-    const status = ok ? "CLEARED FOR DELIVERY" : wait ? "WAITING · SYSTEM REJECT" : "FREEZE ACCOUNT";
-    return `<div class="gp-card ${ok ? "ok" : wait ? "wait" : "no"}" id="gpCard"><span class="gp-ic">${ic(ok ? "check" : wait ? "clock" : "x")}</span>
-      <div class="gp-cell"><small>Gate Pass · Current Status</small><b>${esc(status)}</b><span>${esc(r.no)} · ${esc(r.sys)}</span></div>
-      <div class="gp-cell"><small>Action</small><b>${esc(r.act)}</b>${r.actNote ? `<span>${esc(r.actNote)}</span>` : ""}</div>
-      <div class="gp-cell"><small>${ok ? "Date Issued" : "Date"}</small><b>${esc(E.dateTime(r.when || r.at))}</b></div>
-      <button type="button" class="btn small" id="gpHist">${ic("clock")} History (${rows.length})</button></div>`;
-  }
-  function bindGateCard(orders, events, ai = []) {
-    const b = document.getElementById("gpHist");
-    if (b) b.onclick = () => E.modal("Gate Pass History", gateHistoryHtml(orders, events, ai), "", { wide: true });
-  }
   // the gate pass now: the newest line decides (FREEZE ACCOUNT while on hold, CLEARED BY name when cleared)
   function gateNow(rows) {
     const r = rows[0];
@@ -345,8 +267,8 @@
   const STATUS_REQ = {
     suspension: { title: "Restrict Account", sub: "Restrict (suspend) this account: no new invoices until the restriction is lifted", from: ["active"], to: "SUSPENDED (RESTRICTED)", icon: "shield" },
     reactivation: { title: "Lift Restriction", sub: "Make the restricted account active again", from: ["suspended"], to: "ACTIVE", icon: "check" },
-    closure: { title: "Close Account", sub: "Close this account: no new invoices or deliveries", from: ["active", "suspended"], to: "CLOSED", icon: "x" },
-    reopen: { title: "Reopen Account", sub: "Make the closed account active again", from: ["closed"], to: "ACTIVE", icon: "check" }
+    closure: { title: "Blacklist Account (Close)", sub: "Blacklist this account: it is closed, no new invoices or deliveries", from: ["active", "suspended"], to: "BLACKLISTED (CLOSED)", icon: "x" },
+    reopen: { title: "Reopen Account", sub: "Take the account off the blacklist: active again", from: ["closed"], to: "ACTIVE", icon: "check" }
   };
   const pendingOf = (orders) => (orders || []).filter((o) => STATUS_REQ[o.subject_type] && o.status === "pending");
   const canRequest = () => E.canWrite("customers") || E.canWrite("orders");
@@ -434,7 +356,6 @@
       ["update", "edit", "Update Information", isAdmin() && S.mainDirector ? "Change the customer's details. Saved at once; the Update Form prints with the old and new details."
         : "Change the customer's details. The Update Form prints with the old and new details; EMON HASAN approves the change.", isStaff()],
       ["balance", "wallet", "Account Balance Certificate", "The total outstanding balance as of today, with the unpaid invoices", true],
-      ["gate", "check", "Gate Pass", "Checks the whole payment record (invoices, payments, overdue, credit memos, returns, days to pay), then issues the Gate Pass Clearance for Delivery or says why not; a delivery not cleared can be sent to EMON HASAN", true],
       ...Object.entries(STATUS_REQ).filter(([, x]) => x.from.includes(c.status)).map(([k, x]) => [k, x.icon, x.title,
         wait ? `${wait.order_no} (${STATUS_REQ[wait.subject_type].title}) is waiting for EMON HASAN` : !canRequest() ? "You have no access to make this request" : `${x.sub}. ${isAdmin() ? "As EMON HASAN it is done at once." : "EMON HASAN approves it."}`,
         !wait && canRequest()]),
@@ -446,10 +367,9 @@
     $("[data-x]", m.el).onclick = m.close;
     $$("[data-rq]", m.el).forEach((b) => (b.onclick = async () => {
       const k = b.dataset.rq; m.close();
-      if (k === "gate") return gatePass(c, ctx);
       if (k === "update") return E.correctRecord("customers", c, `${c.account_no || c.application_no} ${fullName(c)}`, () => V.customer(c.id), { onSaved: (r) => printUpdate(c, r) });
       await E.loadSignatures().catch(() => {});
-      if (k === "balance") return balanceForm(c, ctx);
+      if (k === "balance") { const no = docNo("AB", c); return E.openPreview(`Account Balance Certificate ${no}`, [balancePage(c, ctx, no)]); } // 3.97: only generated (not recorded)
       if (k === "closurecert") {
         const ord = (ctx.orders || []).filter((o) => o.subject_type === "closure" && o.status === "applied").sort((x, y) => String(y.applied_at || y.created_at).localeCompare(String(x.applied_at || x.created_at)))[0];
         const no = docNo("CA", c);
@@ -457,17 +377,6 @@
       }
       statusForm(c, k, ctx);
     }));
-  }
-  function balanceForm(c, ctx) {
-    const bal = num(ctx.b?.balance_due);
-    const m = E.modal("Account Balance Certificate", `<div class="summary-box"><div class="fields wide"><span>Customer</span><b>${esc(fullName(c))} (${esc(c.account_no || "")})</b>
-        <span>Total Outstanding Balance</span><b class="${bal < 0 ? "neg" : ""}">₱ ${peso(bal)}</b><span>As Of</span><b>${esc(mdy(isoToday()))}</b></div></div>`,
-      `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${ic("print")} Print / Download</button>`);
-    $("[data-x]", m.el).onclick = m.close;
-    $("[data-ok]", m.el).onclick = () => {
-      const no = docNo("AB", c);
-      m.close(); issueDoc(c, "Account Balance Certificate", no, balancePage(c, ctx, no), `PHP ${peso(bal)}`);
-    };
   }
   // Restrict / lift / close / reopen: the reason, then it waits for the Director (the Director's own is done at once)
   function statusForm(c, kind, ctx) {
@@ -538,5 +447,5 @@
     $("button", el).onclick = () => E.modal(`${label} · ${fullName(c)}`, `<p class="stand-since">Business with us ${esc(sinceTxt)}</p>${analysisHtml(a)}`, "", { wide: true });
   }
 
-  Object.assign(E, { gatePass, standingBadge, gateCheck, customerRequest, requestsHtml, bindRequests, gateHistoryHtml, gateHistoryRows, gateEventLabel, gateCard, bindGateCard });
+  Object.assign(E, { standingBadge, gateCheck, customerRequest, requestsHtml, bindRequests, gateHistoryHtml, gateHistoryRows, gateEventLabel });
 })();
