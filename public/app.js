@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.96"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.97"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.96"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.97"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -143,7 +143,7 @@
     const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + Number(m[1])); return isoDay(d);
   };
   // 2.4: an invoice that is partly paid shows PARTIAL PAYMENT
-  const PILL_LABEL = { partial: "PARTIAL PAYMENT" };
+  const PILL_LABEL = { partial: "PARTIAL PAYMENT", closed: "BLACKLISTED" }; // 3.97: a closed customer account is a blacklisted one
   const pill = (s, label) => `<span class="pill ${esc(s)}">${esc(label || PILL_LABEL[s] || String(s || "").replace(/_/g, " ").toUpperCase())}</span>`;
   // The steps of an e-bill: 1 SHIP, 2 RELEASED, 3 SALES, 4 PAID (saved as shipped, released, sold, paid; an e-bill
   // marked "arrived" before Update 2.0 is still at SHIP).
@@ -615,7 +615,6 @@
       ${pwField("lgPass", "Password", "current-password")}
       <button class="btn primary big" type="submit">Sign In</button>
       <div class="login-links"><button type="button" class="linkbtn" id="toForgot">Forgot password?</button></div>
-      <p class="login-scan-hint">${ic("scan")} <span>Employee ID card or customer Public ID: press the scan button in the box above.</span></p>
     </form>`);
     bindEyes();
     if (linkError) {
@@ -1267,9 +1266,11 @@
     const box = $("#mailList"); if (!box) return;
     if (error) { box.innerHTML = `<div class="empty">Notifications could not be loaded.</div>`; return; }
     if (!data.length) { box.innerHTML = `<div class="empty">No notifications yet.</div>`; return; }
-    box.innerHTML = data.map((n) => `<a class="mail-item ${n.is_read ? "" : "unread"}" href="#${esc(n.link || "dashboard")}" data-n="${n.id}">
-      <b>${esc(n.title)}</b><span>${esc(n.body || "")}</span><small>${esc(timeAgo(n.created_at))}</small></a>`).join("")
-      + `<button type="button" class="btn" id="mailAllRead" style="margin:6px">Mark all as read</button>`;
+    // 3.97: Mark all as read stays at the top of the list (it was below the last notification)
+    const unread = data.filter((n) => !n.is_read).length;
+    box.innerHTML = `<div class="mail-top"><span>${unread ? `${unread} unread` : "All read"}</span><button type="button" class="btn small" id="mailAllRead"${unread ? "" : " disabled"}>${ic("check")} Mark all as read</button></div>`
+      + data.map((n) => `<a class="mail-item ${n.is_read ? "" : "unread"}" href="#${esc(n.link || "dashboard")}" data-n="${n.id}">
+      <b>${esc(n.title)}</b><span>${esc(n.body || "")}</span><small>${esc(timeAgo(n.created_at))}</small></a>`).join("");
     $$(".mail-item", box).forEach((a) => (a.onclick = () => { sb.from("notifications").update({ is_read: true }).eq("id", Number(a.dataset.n)).then(refreshBadge); }));
     $("#mailAllRead").onclick = async () => { await sb.from("notifications").update({ is_read: true }).eq("is_read", false); loadMail(); refreshBadge(); };
   }

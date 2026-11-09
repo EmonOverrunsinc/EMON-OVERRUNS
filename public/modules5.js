@@ -7,7 +7,7 @@
 (() => {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, monthOf, monthText, $, $$, isAdmin, isStaff, meId, pill, toast, fail, ic, busy, num } = E;
+  const { sb, S, esc, peso, isoToday, mdy, monthOf, monthText, $, $$, isAdmin, isStaff, meId, pill, toast, fail, ic, busy, num } = E;
   const V = window.EO_VIEWS;
   const MAX_LINES = 20, MAX_PHOTOS = 5; // 3.32: 5 photos (needs 042_po_photos.sql; the server allowed 2 before)
   const ST = { pending: "WAITING FOR REVIEW", negotiation: "PRICE NEGOTIATION", approved: "APPROVED", cancelled: "CANCELLED" };

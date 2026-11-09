@@ -6,7 +6,7 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, pill, ebillStep, ebillPill, toast, fail, words, ic, busy, num, qtyText, bdt, verifyUrl } = E;
+  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, ebillStep, ebillPill, toast, fail, words, ic, busy, num, qtyText, bdt, verifyUrl } = E;
   const V = window.EO_VIEWS;
   const tools = (...a) => (E.recordTools ? E.recordTools(...a) : "");
   const bindTools = (root) => E.bindRecordTools && E.bindRecordTools(root);

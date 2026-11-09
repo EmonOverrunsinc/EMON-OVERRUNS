@@ -9,7 +9,7 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, C, esc, mdy, $, $$, isAdmin, toast, fail, ic, busy, fullName } = E;
+  const { sb, C, esc, mdy, $, isAdmin, toast, fail, ic, busy, fullName } = E;
   const W = 54, H = 85.6;
   const STAMP = "brand/stamp.png"; // the company stamp (round seal, see-through), on the photo corner and by EMON HASAN's signature
   let uid = 0;

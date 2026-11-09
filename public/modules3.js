@@ -4,7 +4,7 @@
 (function () {
   "use strict";
   const E = window.EO;
-  const { sb, S, C, esc, peso, isoToday, mdy, $, $$, isAdmin, isStaff, meId, pill, toast, fail, words, ic, busy, num, fullName, verifyUrl, qtyText } = E;
+  const { sb, S, C, esc, peso, mdy, $, $$, isAdmin, meId, pill, toast, fail, ic, busy, num, verifyUrl } = E;
   const V = window.EO_VIEWS;
 
   // Large phone photos are resized before upload (max 1600 px, JPEG).
