@@ -25,7 +25,12 @@
   }
   const photoBox = (url, fallback) => `<div class="ch-photo">${url ? `<img src="${esc(url)}" alt="">` : `<span>${esc(fallback)}</span>`}</div>`;
   const verifiedBadge = (on) => on ? `<span class="vbadge" title="Verified employee">${ic("check")}</span>` : "";
-  const kycBadge = (r, ids) => (r?.profile_id && ids?.has(r.profile_id) ? `<span class="kyc-badge" title="KYC verified: ID + live face check">${ic("shield")} KYC VERIFIED</span>` : ""); // 3.75.1
+  // 3.96: the IDs and other documents an employee can have (uploaded on the Documents tab)
+  const DOC_TYPES = ["SSS ID", "PhilHealth ID", "TIN ID", "Pag-IBIG ID", "UMID", "Passport", "Driver's License", "NBI Clearance", "Police Clearance", "Barangay Clearance", "Birth Certificate", "Contract", "Other"];
+  // 3.96: what the employee can open in the portal, menu by menu
+  const accessList = (role, mods) => `<div class="acc-list">${role === "admin" ? `<span class="acc on">${ic("check")} EVERYTHING (EMON HASAN)</span>`
+    : MODULES.map(([k, l]) => { const on = mods == null || (mods || []).includes(k); return `<span class="acc ${on ? "on" : "off"}">${on ? ic("check") : "✕"} ${esc(l.replace(/^\d+\s*/, ""))}</span>`; }).join("")}
+    ${role === "viewer" ? `<span class="acc note">VIEW ONLY: cannot record or change</span>` : ""}</div>`;
 
   // ======================================================================
   // 5. Employee
@@ -38,10 +43,9 @@
       <div id="emRes">${busy()}</div>`,
       "Employees come from approved job applications, or EMON HASAN adds them here. Open an employee to record salary or advance payments, change access, or terminate them.");
     const here = E.stillHere();
-    const [{ data, error }, att, kycIds] = await Promise.all([
+    const [{ data, error }, att] = await Promise.all([
       sb.from("employees").select("*").order("created_at", { ascending: false }),
-      sb.from("attachments").select("owner_id, kind").eq("owner_type", "employee").in("kind", ["signature", "signed_form", "application"]),
-      E.kycIds ? E.kycIds() : new Set()
+      sb.from("attachments").select("owner_id, kind").eq("owner_type", "employee").in("kind", ["signature", "signed_form", "application"])
     ]);
     if (!here()) return; // 3.35: another page was opened while the list loaded
     if (error) return fail(error, "Could not load employees");
@@ -50,7 +54,7 @@
     const run = (f) => {
       const rows = f === "current" ? all.filter((r) => r.status !== "terminated") : f ? all.filter((r) => r.status === f) : all;
       $("#emRes").innerHTML = E.grid({ cols: [
-        { label: "Employee No", get: (r) => r.employee_no }, { label: "Name", html: (r) => `${esc(fullName(r))} ${verifiedBadge(r.verified)}${kycBadge(r, kycIds)}` }, { label: "Position", get: (r) => r.position || "" },
+        { label: "Employee No", get: (r) => r.employee_no }, { label: "Name", html: (r) => `${esc(fullName(r))} ${verifiedBadge(r.verified)}` }, { label: "Position", get: (r) => r.position || "" },
         { label: "Email", get: (r) => r.email }, { label: "Access", get: (r) => accessText(r.role, r.modules) },
         { label: "Salary (₱)", num: true, get: (r) => peso(r.monthly_salary) },
         { label: "Status", html: (r) => r.approval_status === "pending" ? `<span class="pill pending">WAITING FOR APPROVAL</span>` : r.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(r.status) }],
@@ -96,6 +100,8 @@
             <label for="nePhone">Phone</label><input type="tel" id="nePhone" value="${val("phone")}">
             <label for="neAddr">Present Address</label><input type="text" id="neAddr" value="${val("address")}">
             <label for="nePerm">Permanent Address</label><input type="text" id="nePerm" value="${val("permanent_address")}">
+            <label for="neSss">SSS No</label><input type="text" id="neSss" maxlength="20" placeholder="e.g. 34-1234567-8 (leave empty if none)" value="${val("sss_no")}">
+            <label for="neSssAmt">SSS Contribution / Month (₱)</label><input type="number" id="neSssAmt" min="0" step="0.01" inputmode="decimal" placeholder="taken off each salary payslip" value="${ed && num(x.sss_amount) ? num(x.sss_amount) : ""}">
             <label for="neWork">Assigned Location</label><input type="text" id="neWork" maxlength="200" placeholder="Where the employee works, e.g. Warehouse · Pasay City" value="${val("work_location")}">
             <label for="neHrs">Duty Hours</label><input type="text" id="neHrs" placeholder="e.g. 9:00 AM - 6:00 PM" value="${val("duty_hours")}">
             ${ed ? "" : `<label for="nePhoto">Photo</label><input type="file" id="nePhoto" accept="image/*">`}
@@ -153,6 +159,10 @@
       // 3.93: the assigned location (sent only when it is written or changed: a server without 092 saves the rest)
       const work = v("neWork");
       if (work !== String((ed ? x.work_location : "") || "")) rec.work_location = work || null;
+      // 3.96: the SSS No and the monthly SSS contribution (sent only when written or changed: a server without 094 saves the rest)
+      const sss = v("neSss"), sssAmt = num($("#neSssAmt").value);
+      if (sss !== String((ed ? x.sss_no : "") || "")) rec.sss_no = sss || null;
+      if (sssAmt !== num(ed ? x.sss_amount : 0)) rec.sss_amount = sssAmt;
       E.setBusy(e.target, true, "Saving");
       if (ed) {
         const { error } = await sb.rpc("director_edit_employee", { p_id: x.id, p_changes: rec });
@@ -162,7 +172,7 @@
       const id = E.uuid();
       const photo_path = await uploadPhoto("employee", id, $("#nePhoto").files[0]);
       let { data, error } = await sb.from("employees").insert({ id, ...rec, photo_path, ...readAccess(), approval_status: "pending" /* 3.25: EMON HASAN approves it next; the ID card is made then */ }).select().single();
-      if (error && /work_location/.test(error.message || "")) { delete rec.work_location; ({ data, error } = await sb.from("employees").insert({ id, ...rec, photo_path, ...readAccess(), approval_status: "pending" }).select().single()); } // the server has not 092 yet
+      if (error && /work_location|sss_/.test(error.message || "")) { delete rec.work_location; delete rec.sss_no; delete rec.sss_amount; ({ data, error } = await sb.from("employees").insert({ id, ...rec, photo_path, ...readAccess(), approval_status: "pending" }).select().single()); } // the server has not 092 yet
       if (error) { E.setBusy(e.target, false); return fail(error, /approval_status/.test(error.message || "") ? "Run the database update 035_employee_approval.sql first" : "Could not save the employee"); }
       let f = await E.uploadRecords("employee", id, "application", E.filesOf("neApp"));
       f += await E.uploadRecords("employee", id, "signature", E.filesOf("neSig"));
@@ -198,16 +208,10 @@
     ]);
     if (!here()) return;
     if (!em) { $("#main").innerHTML = `<div class="empty">Employee not found. <a href="#employees">Back</a></div>`; return; }
-    const [ja, appAtt, photo] = await Promise.all([
-      em.job_application_id ? sb.from("job_applications").select("*").eq("id", em.job_application_id).maybeSingle() : Promise.resolve({ data: null }),
-      em.job_application_id ? E.attachmentsOf("job_application", em.job_application_id) : [],
-      em.photo_path ? E.signedUrl(em.photo_path) : ""
-    ]);
+    const photo = em.photo_path ? await E.signedUrl(em.photo_path) : "";
     if (!here()) return; // another page was opened while this one loaded
     const slips = withBalance(ps.data || [], bal);
-    const app = ja.data;
     const verified = em.status === "active" && (!!em.job_application_id || att.some((a) => ["signature", "signed_form", "application"].includes(a.kind)));
-    const kycIds = E.kycIds ? await E.kycIds() : new Set(); // 3.75.1: KYC VERIFIED badge
     const canPay = E.canWrite("employees") && em.status !== "terminated";
     const st = salaryTotals(slips, pays.rows), acct = salaryAccount(slips, pays.rows);
     const empApproved = em.approval_status === "approved" && !!em.approved_by_name;
@@ -218,7 +222,7 @@
       ${em.approval_status === "pending" ? `<div class="banner warn">⚠ WAITING FOR APPROVAL — check the details and the portal access (Access &amp; Status). ${isAdmin() ? "Then press <b>Approve Employee</b>: the employee ID card is made and the login opens." : "EMON HASAN approves it."}</div>` : ""}
       ${em.status === "waiting" && em.approval_status !== "pending" ? `<div class="banner warn">No login yet. Ask ${esc(em.first_name)} to open the portal, tap <b>Create Account</b> and use <b>${esc(em.email)}</b>. They can sign in immediately with the access below.</div>` : ""}
       <section class="cust-hero st-${esc(em.status)}">${photoBox(photo, (em.first_name[0] || "") + (em.last_name[0] || ""))}
-        <div class="ch-main"><div class="ch-name"><h2>${esc(fullName(em))}</h2>${verifiedBadge(verified)}${kycBadge(em, kycIds)}${em.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(em.status)}</div>
+        <div class="ch-main"><div class="ch-name"><h2>${esc(fullName(em))}</h2>${verifiedBadge(verified)}${em.status === "waiting" ? `<span class="pill pending">WAITING SIGN-UP</span>` : pill(em.status)}</div>
           <div class="ch-sub">${esc(em.position || "—")} · ${esc(em.email)}${em.phone ? " · " + esc(em.phone) : ""}</div>
           <div class="ch-ids">${E.idBox("Employee No", em.employee_no)}${E.idBox("Date Hired", mdy(em.date_hired))}${E.idBox("Monthly Salary (₱)", peso(em.monthly_salary))}${E.idBox("Access Level", E.roleName(em.role).toUpperCase())}</div></div></section>
       ${salaryTiles(em, st)}
@@ -245,11 +249,10 @@
         <div data-p="3" hidden>
           ${isAdmin() ? `<div class="docgrid">${E.docCard({ key: "emp", title: `Employee Details ${em.employee_no}`, sub: "System generated · no signature needed · only EMON HASAN can open it", ownerType: "employee", ownerId: em.id, att, print: () => printProfile(), canUpload: false,
             approved: empApproved ? { name: em.approved_by_name, at: em.approved_at } : null })}</div>` : ""}
-          ${app ? `<div class="docgrid">${E.docCard({ key: "ja", title: `Job Application Form ${app.application_no}`, sub: `Approved ${app.approval_no || ""}`, ownerType: "job_application", ownerId: app.id, att: appAtt, print: () => printJobApp(app), canUpload: isAdmin(),
-            approved: jaApproved(app) ? { name: app.approved_by_name, at: app.approved_at } : null })}</div>
-            <p><a href="#jobapp/${app.id}">Open job application ${esc(app.application_no)}</a></p>` : ""}
-          ${E.filesHtml(att, "No documents uploaded.")}
-          ${isAdmin() ? `<div class="fields wide" style="margin-top:8px">${E.fileField("emSig", "Upload Signature Form", 'accept="image/*,application/pdf" data-save-now')}${E.fileField("emApp", "Upload Application Form", 'multiple accept="image/*,application/pdf" data-save-now')}</div>` : ""}
+          <h4 class="doc-h">IDs and Other Documents</h4>
+          ${E.filesHtml(att.map((f) => { const t = DOC_TYPES.find((x) => String(f.file_name || "").startsWith(x + " - ")); return t ? { ...f, kind: t.toUpperCase() } : f; }), "No ID or document uploaded yet.")}
+          ${isAdmin() ? `<div class="fields wide emp-doc-add"><label for="emDocType">Type of Document</label><select id="emDocType">${DOC_TYPES.map((t) => `<option>${esc(t)}</option>`).join("")}</select>
+            ${E.fileField("emDoc", "Add ID / Document", 'multiple accept="image/*,application/pdf" data-save-now')}</div>` : ""}
         </div>
         ${isAdmin() ? `<div data-p="4" hidden><fieldset class="opt"><legend>Access &amp; Status</legend><div class="fields wide">${accessFields(em.role, em.modules || [])}
           ${["active", "inactive"].includes(em.status) ? `<label for="emStatus">Login</label><select id="emStatus"><option value="active" ${em.status === "active" ? "selected" : ""}>Active — can sign in</option><option value="inactive" ${em.status === "inactive" ? "selected" : ""}>Inactive — blocked</option></select>` : ""}</div>
@@ -260,7 +263,7 @@
             <div class="fields wide"><label for="emLinkSel">Login Account</label><select id="emLinkSel"><option value="">Loading…</option></select></div>
             <div class="btnrow"><button type="button" class="btn" id="emLink">${ic("key")} Link Login Account</button></div>`}</fieldset></div>` : ""}
         ${isAdmin() ? `<div data-p="5" hidden id="emCard"></div>` : ""}
-        <div data-p="${isAdmin() ? 6 : 4}" hidden>${E.kvTable([["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Present Address", em.address], ["Permanent Address", em.permanent_address], ["Assigned Location", em.work_location], ["Approved By", em.approved_by_name ? `${em.approved_by_name} · ${E.dateTime(em.approved_at)}` : em.approval_status === "pending" ? "WAITING FOR APPROVAL" : ""], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Duty Hours", em.duty_hours],
+        <div data-p="${isAdmin() ? 6 : 4}" hidden><h4 class="doc-h">Portal Access — what ${esc(fullName(em))} can open</h4>${accessList(em.role, em.modules)}${E.kvTable([["Employee No", em.employee_no], ["Name", fullName(em)], ["Position", em.position], ["Email (login)", em.email], ["Phone", em.phone], ["Present Address", em.address], ["Permanent Address", em.permanent_address], ["Assigned Location", em.work_location], ["SSS No", em.sss_no], ["SSS Contribution / Month", num(em.sss_amount) ? "₱ " + peso(em.sss_amount) : ""], ["Approved By", em.approved_by_name ? `${em.approved_by_name} · ${E.dateTime(em.approved_at)}` : em.approval_status === "pending" ? "WAITING FOR APPROVAL" : ""], ["Date Hired", mdy(em.date_hired)], ["Monthly Salary", "₱ " + peso(em.monthly_salary)], ["Duty Hours", em.duty_hours],
           ["Father's Name", em.father_name], ["Mother's Name", em.mother_name], ["Wife's / Husband's Name", em.spouse_name], ["Date of Birth", mdy(em.date_of_birth)], ["Birth Place", em.birth_place],
           ["BRC / NID / Passport No", em.id_number], ["Gender", (em.gender || "").toUpperCase()], ["Religion", em.religion], ["Blood Group", em.blood_group],
           ["Work Experience", (em.experience || []).map((r) => [r.company, r.position, [r.from, r.to].filter(Boolean).join("–")].filter(Boolean).join(" · ")).join(" | ")], ["Access", accessText(em.role, em.modules)], ["Status", em.status.toUpperCase()], ["Terminated", em.termination_date ? `${mdy(em.termination_date)} — ${em.termination_reason || ""}` : ""],
@@ -318,8 +321,12 @@
       if (error) return fail(error, "Could not save");
       toast("Access saved."); V.employee(id);
     };
-    const up = (inp, kind) => inp && (inp.onchange = async (e) => { const here = E.stillHere(), f = await E.uploadRecords("employee", id, kind, Array.from(e.target.files)); toast(f ? `${f} file(s) failed to upload.` : "Uploaded.", f > 0); if (here()) V.employee(id); });
-    up($("#emSig"), "signature"); up($("#emApp"), "application");
+    // 3.96: an ID or another document: its type goes in front of the file name (e.g. "SSS ID - photo.jpg")
+    if ($("#emDoc")) $("#emDoc").onchange = async (e) => {
+      const type = $("#emDocType").value, files = Array.from(e.target.files).map((f) => new File([f], `${type} - ${f.name}`, { type: f.type }));
+      const here = E.stillHere(), f = await E.uploadRecords("employee", id, "requirement", files);
+      toast(f ? `${f} file(s) failed to upload.` : `${type} uploaded.`, f > 0); if (here()) V.employee(id);
+    };
     if ($("#emTerm")) $("#emTerm").onclick = () => {
       const m = E.modal(`Terminate ${fullName(em)}`, `<div class="banner closed">The employee's login will be disabled immediately. Payslips and records are kept.</div>
         <div class="fields wide"><label for="tmDate">Termination Date</label><input type="date" id="tmDate" value="${isoToday()}">
@@ -342,12 +349,11 @@
       toast(`${fullName(em)} re-hired.`); V.employee(id);
     };
     // 3.93: the Employee Details PDF (the Director only): no signature lines; who approved it and when, the assigned location,
-    // the portal access, the ID card, the KYC ID and the devices the employee signs in on
+    // the portal access, the ID card, the SSS and the devices the employee signs in on
     async function printProfile() {
       const pid = em.profile_id;
-      const [card, kyc, devs] = await Promise.all([
+      const [card, devs] = await Promise.all([
         sb.from("employee_cards").select("card_no, issued_at, valid_until, status").eq("employee_id", em.id).order("issued_at", { ascending: false }).limit(1).then((r) => r.data?.[0] || null, () => null),
-        pid ? sb.from("kyc_verifications").select("id_type, id_number, reviewed_at").eq("user_id", pid).eq("status", "approved").order("reviewed_at", { ascending: false }).limit(1).then((r) => r.data?.[0] || null, () => null) : null,
         pid ? sb.from("user_devices").select("name, status, last_seen").eq("user_id", pid).neq("status", "removed").order("last_seen", { ascending: false }).limit(4).then((r) => r.data || [], () => []) : []]);
       const DEV = { approved: "APPROVED", pending: "WAITING", blocked: "BLOCKED" };
       E.openPreview(`Employee Details ${em.employee_no}`, [`${E.printHead("EMPLOYEE DETAILS", `<img src="${E.pdf417DataUrl("EMONEMP|" + em.employee_no)}" alt="" class="ph-bar"><div class="mono">${esc(em.employee_no)}</div>`)}
@@ -358,7 +364,7 @@
       ${E.box("Approval and Assignment", `<div class="pgrid2">${E.cell("Approved By", empApproved ? em.approved_by_name : em.approval_status === "pending" ? "WAITING FOR APPROVAL" : "—")}${E.cell("Approval Date", em.approved_at ? E.dateTime(em.approved_at) : "")}
         ${E.cell("Assigned Location", em.work_location || "", "span2")}${E.cell("Access Level", E.roleName(em.role).toUpperCase())}${E.cell("Menu Access", accessText(em.role, em.modules))}</div>`)}
       ${E.box("ID and Devices", `<div class="pgrid2">${E.cell("Employee ID Card", card ? `${card.card_no} · ${String(card.status || "").toUpperCase()}` : "NOT ISSUED")}${E.cell("Card Valid Until", card?.valid_until ? mdy(card.valid_until) : "")}
-        ${E.cell("KYC ID", kyc ? `${kyc.id_type} · ${kyc.id_number}` : "NOT VERIFIED")}${E.cell("KYC Verified On", kyc?.reviewed_at ? mdy(kyc.reviewed_at) : "")}
+        ${E.cell("SSS No", em.sss_no || "NONE")}${E.cell("SSS Contribution / Month (PHP)", num(em.sss_amount) ? peso(em.sss_amount) : "")}
         ${E.cell("Devices", devs.length ? devs.map((d) => `${d.name || "DEVICE"} (${DEV[d.status] || String(d.status).toUpperCase()}${d.last_seen ? " · last used " + mdy(d.last_seen) : ""})`).join(" · ") : "NO DEVICE YET", "span2")}</div>`)}
       ${E.box("Personal Information", `<div class="pgrid2">${E.cell("Father's Name", em.father_name)}${E.cell("Mother's Name", em.mother_name)}${E.cell("Wife's / Husband's Name", em.spouse_name)}${E.cell("Date of Birth", mdy(em.date_of_birth))}
         ${E.cell("Birth Place", em.birth_place)}${E.cell("BRC / NID / Passport No", em.id_number)}${E.cell("Gender", (em.gender || "").toUpperCase())}${E.cell("Religion", em.religion)}${E.cell("Blood Group", em.blood_group)}${E.cell("Duty Hours", em.duty_hours)}</div>`)}
@@ -488,6 +494,7 @@
           ${money("psAdv", "Advance Amount (₱)", "advance")}
           <span class="sec-k" data-for-k="salary other">DEDUCTIONS</span><span data-for-k="salary other"></span>
           ${money("psAdvDed", "Less: Advance Deduction (₱)", "salary")}
+          ${money("psSss", "Less: SSS Contribution (₱)", "salary", num(em?.sss_amount))}
           ${money("psOther", "Less: Other Deductions (₱)", "salary other")}
           <div class="fpair" data-for="salary other"><label for="psDedNote">Deduction Reason</label><input type="text" id="psDedNote" maxlength="200" placeholder="e.g. 2 days absent, late, damage"></div>
         </div>
@@ -500,7 +507,7 @@
     const emp = () => em || list.find((e) => e.id === $("#psEmp", d).value);
     const val = (id) => { const el = $("#" + id, d); return el && !el.closest(".fpair").hidden ? num(el.value) : 0; };
     const calc = () => {
-      const net = val("psBasic") + val("psAllow") + val("psOt") + val("psBonus") + val("psAdv") - val("psAdvDed") - val("psOther");
+      const net = val("psBasic") + val("psAllow") + val("psOt") + val("psBonus") + val("psAdv") - val("psAdvDed") - val("psSss") - val("psOther");
       $("#psNet", d).textContent = "₱ " + peso(net);
       $("#psNet", d).classList.toggle("neg", net < 0);
       $("#psWords", d).textContent = words(Math.max(0, net));
@@ -518,7 +525,7 @@
     };
     $$("#psType button", d).forEach((b) => (b.onclick = () => setType(b.dataset.t)));
     $$("input", d).forEach((i) => (i.oninput = calc));
-    if ($("#psEmp", d)) $("#psEmp", d).onchange = () => { if (type === "salary") $("#psBasic", d).value = num(emp()?.monthly_salary); calc(); };
+    if ($("#psEmp", d)) $("#psEmp", d).onchange = () => { if (type === "salary") $("#psBasic", d).value = num(emp()?.monthly_salary); $("#psSss", d).value = num(emp()?.sss_amount); calc(); };
     setType("salary");
     $("[data-x]", d).onclick = m.close;
     $("[data-save]", d).onclick = async () => {
@@ -530,7 +537,7 @@
       const { data, error } = await sb.rpc("issue_payslip", { p_data: {
         employee_id: e.id, pay_type: type, period_month: ($("#psPeriod", d).value || nowMonth()) + "-01", pay_date: $("#psDate", d).value || isoToday(),
         basic_pay: val("psBasic"), allowances: val("psAllow"), overtime_pay: val("psOt"), bonus: val("psBonus"), advance_amount: val("psAdv"),
-        advance_deduction: val("psAdvDed"), other_deductions: val("psOther"), deduction_note: val("psOther") ? $("#psDedNote", d).value.trim() : "", notes: $("#psNotes", d).value.trim() } });
+        advance_deduction: val("psAdvDed"), other_deductions: val("psOther"), sss_deduction: val("psSss"), deduction_note: val("psOther") ? $("#psDedNote", d).value.trim() : "", notes: $("#psNotes", d).value.trim() } });
       btn.disabled = false;
       if (error) return missingSql(error, "Could not issue the payslip");
       m.close();
@@ -619,12 +626,13 @@
     const em = p.employees;
     const title = { salary: "PAYSLIP", advance: "SALARY ADVANCE PAYSLIP", bonus: "BONUS PAYSLIP", other: "PAYSLIP" }[p.pay_type] || "PAYSLIP";
     const earn = [["Basic Pay", p.basic_pay, p.pay_type !== "advance"], ["Allowances", p.allowances], ["Overtime Pay", p.overtime_pay], ["Bonus", p.bonus], ["Advance Given", p.advance_amount]].filter((x) => x[2] || num(x[1]) > 0);
-    const ded = [["Advance Deduction", p.advance_deduction], [`Other Deductions${p.deduction_note ? " (" + p.deduction_note + ")" : ""}`, p.other_deductions]].filter((x) => num(x[1]) > 0);
+    const sss = num(p.sss_deduction), sssNo = p.sss_no || em.sss_no || ""; // 3.96: the SSS contribution is part of other_deductions
+    const ded = [["Advance Deduction", p.advance_deduction], [`SSS Contribution${sssNo ? " (SSS No " + sssNo + ")" : ""}`, sss], [`Other Deductions${p.deduction_note ? " (" + p.deduction_note + ")" : ""}`, num(p.other_deductions) - sss]].filter((x) => num(x[1]) > 0);
     const gross = earn.reduce((s, x) => s + num(x[1]), 0), less = ded.reduce((s, x) => s + num(x[1]), 0);
     const legacy = !p.issued_at;
     return `${E.printHead(title, `<img src="${E.pdf417DataUrl("EMONPS|" + p.payslip_no)}" alt="" class="ph-bar"><div class="mono">${esc(p.payslip_no)}</div>`)}
       ${E.box("Employee", `<div class="pgrid2">${E.cell("Employee Name", fullName(em), "hl")}${E.cell("Employee No", em.employee_no)}${E.cell("Position", em.position)}${E.cell("Payslip No", p.payslip_no)}
-        ${E.cell("For Month", monthText(p.period_month))}${E.cell(legacy ? "Pay Date" : "Issue Date", mdy(p.pay_date))}${E.cell("Status", (SLIP_ST[p.status] || SLIP_ST.paid)[1], "hl")}${E.cell("Issued By", p.created_by_name)}</div>`)}
+        ${sssNo ? E.cell("SSS No", sssNo) + E.cell("SSS Contribution (PHP)", peso(sss)) : ""}${E.cell("For Month", monthText(p.period_month))}${E.cell(legacy ? "Pay Date" : "Issue Date", mdy(p.pay_date))}${E.cell("Status", (SLIP_ST[p.status] || SLIP_ST.paid)[1], "hl")}${E.cell("Issued By", p.created_by_name)}</div>`)}
       <div class="pgrid2 slip-cols">
         ${E.box("Earnings", `<table class="rp"><tbody>${earn.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${peso(v)}</td></tr>`).join("")}<tr class="sub"><td>Total</td><td class="num">${peso(gross)}</td></tr></tbody></table>`)}
         ${E.box("Deductions", `<table class="rp"><tbody>${ded.length ? ded.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${peso(v)}</td></tr>`).join("") : `<tr><td>None</td><td class="num">0.00</td></tr>`}<tr class="sub"><td>Total</td><td class="num">${peso(less)}</td></tr></tbody></table>`)}
@@ -643,6 +651,7 @@
     return `${E.printHead("SALARY PAYMENT RECEIPT", `<img src="${E.pdf417DataUrl("EMONPS|" + p.payslip_no)}" alt="" class="ph-bar"><div class="mono">${esc(x.payment_no)}</div>`)}
       ${E.box("Payment", `<div class="pgrid2">${E.cell("Employee Name", fullName(em), "hl")}${E.cell("Employee No", em.employee_no)}${E.cell("Payment No", x.payment_no)}${E.cell("Pay Date", mdy(x.pay_date))}
         ${E.cell("Payslip No", p.payslip_no)}${E.cell("For Month", monthText(p.period_month))}${E.cell("Method", x.method)}${E.cell("Reference No", x.reference_no)}
+        ${p.sss_no || em.sss_no ? E.cell("SSS No", p.sss_no || em.sss_no) + E.cell("SSS Contribution On The Payslip (PHP)", peso(p.sss_deduction)) : ""}
         ${E.cell("ID Card Verified", x.card_no ? `✔ ${x.card_no}` : "")}${E.cell("Verified At", x.verified_at ? E.dateTime(x.verified_at) : "")}${E.cell("Paid By", x.created_by_name)}${E.cell("Unpaid On The Payslip (PHP)", peso(p.balance))}</div>`)}
       <div class="net-print"><span>AMOUNT PAID (PHP)</span><b>₱ ${peso(x.amount)}</b></div>
       <div class="pcell"><div class="pl">Amount in Words</div><div class="pv words">${esc(words(x.amount))}</div></div>

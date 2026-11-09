@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.94.2"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.96"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.94.2"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.96"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -1048,7 +1048,8 @@
   // Admins see everything; NULL modules = all (older accounts).
   // 3.31: Employees, Payroll and Job Applications come with EO-Office (there is no Employee (HR) access any more)
   const hasModule = (m) => !m || isAdmin() || !S.profile?.modules || S.profile.modules.includes(m === "employees" ? "eooffice" : m);
-  const canOpen = (key) => { const m = MODULE_OF[key]; return Array.isArray(m) ? m.some(hasModule) : hasModule(m); };
+  // 3.96: the statements of account only for those who see the money history (EMON HASAN, or "13 See Balances & History")
+  const canOpen = (key) => { if (key === "statements" && S.hideMoney) return false; const m = MODULE_OF[key]; return Array.isArray(m) ? m.some(hasModule) : hasModule(m); };
   // Staff may add records in the sections they can open; viewers only look.
   const canWrite = (m) => isAdmin() || (isStaff() && hasModule(m));
   // 3.43: EVA AI for the Director and the staff the Director ticked "12 EVA AI" for (never given by the old all-access)
@@ -1061,7 +1062,6 @@
     ["forms", "Download Forms", () => true, "download"],
     ["printreqs", "Print Requests", () => isAdmin(), "print"], // 3.65
     ["gateai", "EVA AI", () => isAdmin(), "ai"], // 3.38 (3.38.1: named EVA, EMON Virtual Assistant)
-    ["kyc", "KYC Verification", () => isAdmin(), "idcard"], // 3.75: optional KYC with a live face check
     ["devices", "Devices", () => isAdmin(), "device"], // 3.80: the devices of every login; a new device waits for approval
     ["legal", "Legal Terms", () => true, "doc"] // 3.69: the terms every login accepts; EMON HASAN sees every acceptance
   ];
