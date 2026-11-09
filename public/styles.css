@@ -3442,3 +3442,17 @@ body:has(.login) { background: #0f3a8c; }
 .cvr-picpage { align-items: center; } .cvr-pic { flex: 1; display: grid; place-items: center; width: 100%; } .cvr-pic img { max-width: 100%; max-height: 118mm; object-fit: contain; }
 /* 3.94.2: the gold line under a document title is only as wide as the title (it was as wide as the empty middle) */
 .page .ph2 .ph-mid { display: grid; justify-content: end; align-content: center; }
+/* 3.96: the employee's portal access, menu by menu; the IDs and documents; the customer's total to pay on Record Payment */
+.acc-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
+.acc { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: .02em; border: 1px solid; }
+.acc .ic { width: 13px; height: 13px; }
+.acc.on { color: #1b6b33; border-color: #9fd3ad; background: #eef9f0; }
+.acc.off { color: #8a94a8; border-color: #d9dee8; background: #f6f7fa; text-decoration: line-through; }
+.acc.note { color: #8a5a00; border-color: #e8c96a; background: #fff8e1; }
+.doc-h { margin: 12px 0 6px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--title-2, #0f3a8c); }
+.emp-doc-add { margin-top: 8px; }
+.np-due { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 8px; padding: 10px 14px; border: 2px solid #0f3a8c; border-left: 6px solid #f2b705; border-radius: 10px; background: #f4f7fd; }
+.np-due span { font-size: 12px; font-weight: 800; letter-spacing: .1em; color: #3c4a66; }
+.np-due b { font-size: 22px; color: #0f3a8c; }
+/* 3.96: a section title (EARNINGS, DEDUCTIONS) takes the whole row: the empty box after it no longer pushes the labels out of line */
+.fields .sec-k + span:empty { display: none; }

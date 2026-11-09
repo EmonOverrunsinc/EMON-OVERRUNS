@@ -1048,7 +1048,8 @@
   // Admins see everything; NULL modules = all (older accounts).
   // 3.31: Employees, Payroll and Job Applications come with EO-Office (there is no Employee (HR) access any more)
   const hasModule = (m) => !m || isAdmin() || !S.profile?.modules || S.profile.modules.includes(m === "employees" ? "eooffice" : m);
-  const canOpen = (key) => { const m = MODULE_OF[key]; return Array.isArray(m) ? m.some(hasModule) : hasModule(m); };
+  // 3.96: the statements of account only for those who see the money history (EMON HASAN, or "13 See Balances & History")
+  const canOpen = (key) => { if (key === "statements" && S.hideMoney) return false; const m = MODULE_OF[key]; return Array.isArray(m) ? m.some(hasModule) : hasModule(m); };
   // Staff may add records in the sections they can open; viewers only look.
   const canWrite = (m) => isAdmin() || (isStaff() && hasModule(m));
   // 3.43: EVA AI for the Director and the staff the Director ticked "12 EVA AI" for (never given by the old all-access)
@@ -1061,7 +1062,6 @@
     ["forms", "Download Forms", () => true, "download"],
     ["printreqs", "Print Requests", () => isAdmin(), "print"], // 3.65
     ["gateai", "EVA AI", () => isAdmin(), "ai"], // 3.38 (3.38.1: named EVA, EMON Virtual Assistant)
-    ["kyc", "KYC Verification", () => isAdmin(), "idcard"], // 3.75: optional KYC with a live face check
     ["devices", "Devices", () => isAdmin(), "device"], // 3.80: the devices of every login; a new device waits for approval
     ["legal", "Legal Terms", () => true, "doc"] // 3.69: the terms every login accepts; EMON HASAN sees every acceptance
   ];
