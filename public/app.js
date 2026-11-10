@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.97.1"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.98"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.97.1"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.98"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -168,7 +168,8 @@
 
   // Line icons (stroke drawn with the text colour).
   const ICONS = {
-    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>',
+    menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', // 3.98: the Actions button
+    search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>',
     scan: '<path d="M3 8V4h4M17 4h4v4M21 16v4h-4M7 20H3v-4"/><path d="M7 12h10"/>',
     qr: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z"/><path d="M14 14h2v2h-2zM18 14h2M14 18h2M18 18h2v2"/>',
     bell: '<path d="M6 16v-5a6 6 0 1 1 12 0v5l1.6 2H4.4z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
@@ -1520,8 +1521,60 @@
     // 3.85.2: also the tables made by hand in a list box (purchase order items, order lines, return items, gate passes …)
     $$(".grid-wrap > table, .modal .wbody table, .cust-hist table").forEach((t) => { if (!t.closest(FIT)) fitTable(t.parentElement, t, floor); });
   };
-  let wideT = 0;
-  const wideSoon = () => { clearTimeout(wideT); wideT = setTimeout(markWide, 150); };
+  // 3.98: the buttons of a profile page (customer, employee, order ...) are inside ONE "Actions" button: a clear list,
+  // each action on its own line; on a phone it opens from the bottom of the screen. The buttons themselves are only moved,
+  // so everything they do stays the same.
+  // (an open list sits on the page itself, over everything: it goes back into its button when it closes)
+  let amOpen = null;
+  const closeActions = () => {
+    if (!amOpen) return;
+    const { wrap, list, back } = amOpen;
+    amOpen = null;
+    back.remove();
+    list.hidden = true; list.classList.remove("am-float");
+    if (wrap.isConnected) { wrap.appendChild(list); wrap.classList.remove("open"); $(".am-btn", wrap).setAttribute("aria-expanded", "false"); } else list.remove();
+  };
+  window.addEventListener("hashchange", closeActions);
+  const actionMenus = () => $$("#main .actionbar:not(.am-done)").forEach((bar) => {
+    bar.classList.add("am-done");
+    const n = [...bar.children].filter((x) => x.matches("a.btn, button.btn, label.btn") && !x.hidden).length;
+    if (n < 2) return;
+    const wrap = document.createElement("div");
+    wrap.className = "am";
+    wrap.innerHTML = `<button type="button" class="btn primary am-btn" aria-haspopup="true" aria-expanded="false">${ic("menu")} Actions <span class="am-n">${n}</span></button>
+      <div class="am-list" hidden><div class="am-head"><b>Actions</b><button type="button" class="btn small am-x">Close</button></div></div>`;
+    const list = $(".am-list", wrap);
+    [...bar.childNodes].forEach((x) => list.appendChild(x));
+    bar.appendChild(wrap);
+    $(".am-n", wrap).textContent = $$("a.btn, button.btn, label.btn", list).filter((x) => !x.hidden && !x.classList.contains("am-x")).length;
+    $(".am-btn", wrap).onclick = (e) => {
+      e.stopPropagation();
+      const open = amOpen?.wrap !== wrap;
+      closeActions();
+      if (!open) return;
+      const back = document.createElement("div");
+      back.className = "am-back";
+      back.onclick = closeActions;
+      document.body.append(back, list);
+      list.hidden = false; list.classList.add("am-float");
+      if (window.innerWidth > 700) { // a computer or a tablet: under the button
+        const r = $(".am-btn", wrap).getBoundingClientRect();
+        list.style.left = Math.max(8, Math.min(r.left, window.innerWidth - list.offsetWidth - 8)) + "px";
+        const below = window.innerHeight - r.bottom - 16, h = list.offsetHeight;
+        list.style.top = (h <= below || below >= r.top ? r.bottom + 8 : Math.max(8, r.top - h - 8)) + "px";
+        list.style.maxHeight = Math.max(200, h <= below || below >= r.top ? below : r.top - 16) + "px";
+      } else { list.style.left = list.style.top = list.style.maxHeight = ""; }
+      wrap.classList.add("open"); $(".am-btn", wrap).setAttribute("aria-expanded", "true");
+      amOpen = { wrap, list, back };
+    };
+    $(".am-x", list).onclick = closeActions;
+  });
+  document.addEventListener("click", (e) => { if (amOpen && e.target.closest(".am-list .btn, .am-list a")) setTimeout(closeActions, 0); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeActions(); });
+  // the open tab is always in view in the row of tabs (one line that slides sideways)
+  document.addEventListener("click", (e) => { const t = e.target.closest(".tabs button"); if (t) t.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); });
+  let wideT = 0, amT = 0;
+  const wideSoon = () => { clearTimeout(wideT); wideT = setTimeout(markWide, 150); clearTimeout(amT); amT = setTimeout(actionMenus, 0); };
   new MutationObserver(wideSoon).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden", "open"] });
   window.addEventListener("resize", wideSoon);
   document.addEventListener("click", wideSoon, true); // a tab opened (shown by its class)

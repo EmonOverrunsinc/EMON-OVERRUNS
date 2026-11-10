@@ -236,11 +236,9 @@
     const tg = tag ? `<span class="dc-tag">${esc(tag)}</span>` : "";
     DC.set(key, { att, print, kind, copyName });
     const signed = latestSigned(att, kind);
-    if (approved) return `<div class="doccard signed esigned">
-      <div class="dc-ic">${ic("doc")}<span class="dc-ok">${ic("check")}</span></div>
-      <div class="dc-main">${tg}<b>${esc(title)}</b><small>Approved${approved.name ? ` by ${esc(approved.name)}` : ""}${approved.at ? ` on ${mdy(approved.at)}` : ""} · EMON HASAN's signature is printed on it</small></div>
-      <div class="dc-act"><button type="button" class="btn primary" data-dc-print="${esc(key)}">${ic("print")} ${esc(printLabel)}</button>
-        ${signed ? `<button type="button" class="btn" data-dc-view="${esc(key)}">${ic("eye")} ${esc(copyName)}</button>` : ""}</div></div>`;
+    // 3.98: an approved, system-generated document is one button: press to view or print it
+    if (approved) return `<div class="doc-btns"><button type="button" class="btn doc-btn" data-dc-print="${esc(key)}" title="Approved${approved.name ? ` by ${esc(approved.name)}` : ""}${approved.at ? ` on ${mdy(approved.at)}` : ""}">${ic("doc")}<span><b>${esc(title)}</b><small>Press to view or print</small></span>${ic("print")}</button>
+        ${signed ? `<button type="button" class="btn" data-dc-view="${esc(key)}">${ic("eye")} ${esc(copyName)}</button>` : ""}</div>`;
     const upId = `dcUp_${key.replace(/\W/g, "_")}`;
     const mayUpload = signed ? isAdmin() : canUpload;
     return `<div class="doccard${signed ? " signed" : ""}">
@@ -1167,16 +1165,16 @@
     const facts = [["Name", fullName(c)], a.phone, a.email, a.address, a.business, a.start, a.fb, a.fbLink, a.fbExtra, a.credit, a.opening,
       ["Application Date", mdy(c.application_date)], a.issued];
     const verified = c.status === "verified";
-    return `<fieldset class="opt review"><legend>EMON HASAN's Review — ${esc(c.application_no)}</legend>
+    return `<fieldset class="opt review"><legend>APPLICATION DETAILS — ${esc(c.application_no)}</legend>
       <ol class="steps">
-        <li><b>Application details:</b> everything written on the customer application form.
+        <li><b>What the customer wrote</b><span class="rv-say">Everything on the application form.</span>
           <div class="rv-facts">${facts.map(([k, v, html]) => `<div><small>${esc(k)}</small><b>${html || esc(v || "—")}</b></div>`).join("")}</div>
           ${nDocs ? `<button type="button" class="btn small" id="rvDocs">${ic("doc")} Documents (${nDocs})</button>` : ""}</li>
-        <li><b>Check records:</b> look for the same name, Facebook name, Facebook link or phone number in other accounts. A person whose account was CLOSED, or whose Facebook link is already on another account, cannot open an account.
+        <li><b>Check records</b><span class="rv-say">The portal looks for the same name, Facebook or phone number in other accounts. A person with a CLOSED account cannot open a new one.</span>
           <div class="btnrow"><button type="button" class="btn primary" id="rvCheck">Check &amp; Verify</button>
           <button type="button" class="btn" id="rvFb">${c.facebook_verified ? "Mark Facebook NOT verified" : "Mark Facebook verified"}</button>
 </div><div id="rvResult">${verified ? `<div class="addr-msg ok">✔ Verification successful (already verified).</div>` : ""}</div></li>
-        <li><b>Decide:</b>
+        <li><b>Decide</b><span class="rv-say">Approve to open the account, or reject the application.</span>
           <div class="fields wide"><label for="rvNote">Note</label><input type="text" id="rvNote" placeholder="Optional note (shown in history)"></div>
           <div class="btnrow"><button type="button" class="btn ok" id="rvApprove"${verified ? "" : ' disabled title="Press Check &amp; Verify first"'}>Approve — Activate Account</button>
           <button type="button" class="btn danger" id="rvReject">Reject</button><small class="muted" id="rvFirst"${verified ? " hidden" : ""}>Press <b>Check &amp; Verify</b> first.</small></div>
@@ -1621,6 +1619,10 @@
     const need = num(inv.total_amount) - returned - active.reduce((s, l) => s + num(l.amount), 0);
     $(".band h1").textContent = `Invoice — ${inv.invoice_no}`;
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(inv.invoice_no)} ${payPill(inv)}<span id="invInsMini"></span></div><div class="wbody">
+      <div class="rec-tiles"><div class="rec-tile"><small>Total Amount</small><b>₱ ${peso(inv.total_amount)}</b></div>
+        <div class="rec-tile ok"><small>Paid</small><b>₱ ${peso(inv.amount_paid)}</b></div>
+        <div class="rec-tile ${bal > 0 ? "warn" : "ok"}"><small>Balance</small><b>₱ ${peso(bal)}</b></div>
+        <div class="rec-tile sm"><small>Due Date</small><b>${mdy(inv.due_date) || "—"}</b></div></div>
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>
@@ -1628,10 +1630,9 @@
         <span>Terms of Payment</span><span>${esc(inv.payment_terms || "—")}</span><span>Due Date</span><span>${mdy(inv.due_date) || "—"}${ins?.status === "active" && inv.due_date ? " (EXTENDED BY COVERAGE)" : ""}</span>
         <span>Recorded By</span><span>${esc(inv.created_by_name || "")}</span></div>
       <div class="fields wide"><span>Total Boxes</span><b>${qtyText(inv.total_boxes)}</b><span>Total Pcs</span><b>${qtyText(inv.total_pcs)}</b>
-        <span>Total Amount</span><b>₱ ${peso(inv.total_amount)}</b>${returned > 0 ? `<span>Returned</span><b>− ₱ ${peso(returned)}</b>` : ""}<span>Paid</span><b>₱ ${peso(inv.amount_paid)}</b>
-        <span>Balance</span><b class="${bal < 0 ? "neg" : ""}">₱ ${peso(bal)}</b>
+        ${returned > 0 ? `<span>Returned</span><b>− ₱ ${peso(returned)}</b>` : ""}
         <span>Payment Status</span><span>${payPill(inv)}${isOverdue(inv) ? ` <small class="muted">${daysOver(inv)} day(s) overdue</small>` : ""}${bal < 0 ? ` <small class="muted">overpaid ₱ ${peso(-bal)}</small>` : ""}</span></div></div>
-      <small class="muted">A payment linked to this invoice pays it first; only what the invoice needs is taken, the rest of the payment stays available for another invoice. Other payments, discounts and orders pay the customer's oldest invoices first.${bal < 0 ? " A negative balance means the customer has paid more than everything owed." : ""}</small>
+      <small class="muted">A linked payment pays this invoice first. Other payments, discounts and orders pay the customer's oldest invoices first.${bal < 0 ? " A negative balance means the customer has paid more than everything owed." : ""}</small>
       <div class="linked-pays"><div class="lp-head"><b>Returns</b>${canReturn ? `<button type="button" class="btn small" id="ivReturn">${ic("back")} Record Return</button>` : ""}</div>
         ${rets.length ? rets.map((r) => `<div class="lp-row lp-ret"><a href="#creditmemo/${r.id}"><b>${esc(r.memo_no || "")}</b></a><span>${mdy(r.memo_date)} · ${esc(r.serial_no || "")}${r.qty ? ` · ${r.qty} pcs` : ""}</span><b>− ₱ ${peso(r.request_amount)}</b>
           ${r.status === "pending" ? `<span class="pill pending">WAITING FOR APPROVAL</span>` : r.status === "rejected" ? pill("rejected") : `<span class="pill active">TAKEN OFF</span>`}${r.warehouse_status ? ` <span class="pill ${r.warehouse_status === "received" ? "active" : "pending"}">${WAREHOUSE[r.warehouse_status] || ""}</span>` : ""}</div>`).join("")
