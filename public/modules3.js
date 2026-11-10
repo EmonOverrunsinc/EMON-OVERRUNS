@@ -384,7 +384,7 @@
       <div id="vfResult"></div>`;
     if (inside) E.shell("verify", "Verification", body); else E.miniShell("Verification", body, { home: "#verify" });
     const run = async (raw) => {
-      const t = String(raw || "").trim();
+      let t = String(raw || "").trim();
       if (!t) return toast("Type a record number or scan its code.", true);
       const dv = E.deliveryHashOf?.(t); // 3.39: an order paper: its Complete Delivery page
       if (dv) { location.hash = dv; return; }
@@ -396,6 +396,16 @@
         const r = await E.cardCheck(t);
         if ($("#vfResult")) $("#vfResult").innerHTML = r.html;
         return;
+      }
+      // 3.95: a collection voucher (its barcode, its QR code or its number): a few details and PAID / UNPAID; the key in
+      // its QR code never goes into the address
+      if (/^EMONCV\|/i.test(t)) t = (t.split("|")[1] || "").toUpperCase();
+      if (E.cvVerify && /^CV-\d{6}-\d+$/i.test(t)) {
+        $("#vfCode").value = t.toUpperCase();
+        if (decodeURIComponent(location.hash.slice(1)) !== "verify/" + t.toUpperCase()) history.replaceState(null, "", "#verify/" + encodeURIComponent(t.toUpperCase()));
+        $("#vfResult").innerHTML = `<div class="vf-wait">${busy("Checking the voucher")}</div>`;
+        const cv = await E.cvVerify(t);
+        if (cv) { if ($("#vfResult")) { $(".verify-hero").hidden = true; window.scrollTo(0, 0); $("#vfResult").innerHTML = cv; } return; }
       }
       $("#vfCode").value = t.replace(/^.*#verify\//i, "");
       $("#vfResult").innerHTML = `<div class="vf-wait">${busy("Searching the records")}</div>`;
