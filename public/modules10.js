@@ -388,7 +388,7 @@
     if (o.status === "cancelled") add(o.cancelled_at || o.updated_at || o.created_at, "Order cancelled", [by(o.cancelled_by_name), o.cancel_note ? esc(o.cancel_note) : ""], "tl-bad");
     const open = o.status === "approved" && !o.delivery_request_at, sorted = trk.some((t) => t.step === "sorting");
     const next = o.status === "pending" ? "Waiting for EMON HASAN's approval" : waiting ? "EMON HASAN approves the delivery"
-      : !open ? "" : !ser.length ? "Add the box serials" : !sorted ? "Mark as sorting" : "Complete the delivery: the car plate no and the proof of delivery photo";
+      : !open ? "" : !ser.length ? "Add the box serials" : !sorted ? "Mark as sorting" : "Complete the delivery (car plate no and proof of delivery photo are optional)";
     const btns = !(open && w) ? "" : `${!ser.length ? `<button type="button" class="btn primary small" data-trk-go="1">${ic("box")} Add Box Serials</button>` : ""}
         ${!sorted && o._trkOn ? `<button type="button" class="btn ${ser.length ? "primary" : ""} small" data-trk="sorting">${ic("next")} Mark as Sorting</button>` : ""}
         ${ser.length && (sorted || !o._trkOn) ? goBtn || `<button type="button" class="btn ok small" data-trk-go="2">${ic("check")} Complete Delivery</button>` : ""}`;
@@ -413,7 +413,7 @@
   }
   // the car plate no of the delivery: its box, and saving it (the order page and the Complete Delivery page)
   const noPlate = (e) => e?.code === "PGRST202" || /set_order_plate|delivery_plate|schema cache/.test(e?.message || "");
-  const plateField = (p, v) => `<h4 class="co-h4">Car Plate No * <small>(License Plate Number)</small></h4>
+  const plateField = (p, v) => `<h4 class="co-h4">Car Plate No <small>(License Plate Number · optional)</small></h4>
     <div class="plate-row"><input type="text" id="${p}Plate" maxlength="30" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="e.g. NBC 1234" value="${esc(v || "")}" aria-label="Car plate no">
       <button type="button" class="btn primary" id="${p}PlateSave">${ic("check")} ${v ? "Change" : "Save"}</button>${v ? `<span class="plate-ok">${ic("check")} SAVED</span>` : ""}</div>
     <small class="muted">Write PICK UP when the customer picks the order up.</small>`;
@@ -455,7 +455,7 @@
     const delHtml = o.status === "pending" ? `<div class="empty">The delivery starts when the order is CONFIRMED (approved by EMON HASAN).</div>`
       : o.status === "cancelled" ? `<div class="empty">CANCELLED: no delivery.</div>`
       : deliverNow ? `${(o.delivery_photos || []).length ? deliveryHtml(o, urls, false) : ""}${o.delivery_request_at ? "" : `<div class="co-done">${deliverBtn("big")}
-          <small>Add the box serials, the car plate no and the proof of delivery photo, then press COMPLETE DELIVERY. The printed order can do it too: scan its QR code.</small></div>`}`
+          <small>Add the box serials, then press COMPLETE DELIVERY (the car plate no and the proof of delivery photo are optional). The printed order can do it too: scan its QR code.</small></div>`}`
       : deliveryHtml(o, urls, w);
     const invHtml = inv ? `<div class="pgrid2 qc-head">
           <div class="pcell"><div class="pl">Invoice No</div><div class="pv">${E.canOpen("invoice") ? `<a href="#invoice/${inv.id}"><b>${esc(inv.invoice_no)}</b></a>` : `<b>${esc(inv.invoice_no)}</b>`}</div></div>
@@ -845,11 +845,10 @@
         ${E.cell("License Plate Number", o.plate_no || "")}${o.delivery_note ? E.cell("Note", o.delivery_note) : ""}${o.delivery_edited_at ? E.cell("Last Edited", `${E.dateTime(o.delivery_edited_at)} · ${o.delivery_edited_by_name || ""}`) : ""}</div>${pics.length ? photos : ""}
       ${fix ? `<div class="btnrow"><button type="button" class="btn" id="dvFix">${ic("edit")} Edit Delivery</button><label class="btn" for="dvPic" ${pics.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="dvPic" accept="image/*" multiple hidden></div>
         <small class="muted">Only EMON HASAN and the employee who completed this delivery can edit it.</small>` : ""}`;
-    const ready = !!o.plate_no && pics.length > 0; // 3.98: the car plate no and a proof of delivery photo, then COMPLETE
-    return `${plateField("dv", o.plate_no)}<h4 class="co-h4">Proof of Delivery Photo * (up to ${MAX_PHOTOS})</h4>${photos}
+    return `${plateField("dv", o.plate_no)}<h4 class="co-h4">Proof of Delivery Photo (optional, up to ${MAX_PHOTOS})</h4>${photos}
       <div class="btnrow"><label class="btn" for="dvPic" id="dvPicL" ${pics.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="dvPic" accept="image/*" multiple hidden></div>
-      <div class="co-done"><button type="button" class="btn ok big" id="dvDone"${ready ? "" : " disabled"}>${ic("check")} Complete Delivery</button>
-        <small>${ready ? `COMPLETE makes the customer's invoice by itself (₱ ${peso(o.total_amount)}).` : "First save the car plate no and add the proof of delivery photo."}</small></div>`;
+      <div class="co-done"><button type="button" class="btn ok big" id="dvDone">${ic("check")} Complete Delivery</button>
+        <small>The car plate no and the photo are optional. COMPLETE makes the customer's invoice by itself (₱ ${peso(o.total_amount)}).</small></div>`;
   }
   const canFixDelivery = (o) => o.status === "completed" && (isAdmin() || (!!o.completed_by && o.completed_by === meId()));
   function bindDelivery(o, boxes, urls, reload) {
@@ -1051,8 +1050,8 @@
       return;
     }
     const submitOnly = d.can_complete === false; // not signed in with EO-Office: EMON HASAN approves the delivery
-    // 3.98: the car plate no and a proof of delivery photo, then COMPLETE (a server without 095 asks for neither)
-    const needPlate = "plate_no" in d, ready = !needPlate || (!!d.plate_no && photos.length > 0);
+    // 3.98: the car plate no (optional; a server without 095 has no box for it)
+    const needPlate = "plate_no" in d;
     const tick = (on, label) => `<li class="${on ? "ok" : ""}">${on ? "✔" : "○"} ${esc(label)}</li>`;
     $("#pdBody").innerHTML = `${head}
       <div class="banner">${ic("box")} CONFIRMED — ready for delivery. Do the steps below.</div>
@@ -1067,14 +1066,13 @@
           { label: "", html: (b) => `<button type="button" class="btn small danger" data-pdx="${b.id}" aria-label="Remove ${esc(b.serial_no || b.items || "line")}">×</button>` }], rows: boxes, empty: "No boxes yet: scan the QR or PDF417 code on each box label." })}
       </section>
       <section class="pd-step"><h3><span class="pd-n">2</span> ${needPlate ? "Car Plate No and Proof of Delivery" : "Delivery Photos"}</h3>
-        ${needPlate ? plateField("pd", d.plate_no) : ""}<h4 class="co-h4">${needPlate ? `Proof of Delivery Photo * (up to ${MAX_PHOTOS})` : `Photos: the proof of delivery (optional, up to ${MAX_PHOTOS})`}</h4>
+        ${needPlate ? plateField("pd", d.plate_no) : ""}<h4 class="co-h4">Proof of Delivery Photo (optional, up to ${MAX_PHOTOS})</h4>
         <div class="po-photos co-photos">${photos.map((x, i) => `<div class="po-pic"><button type="button" class="co-ph" data-ph="${esc(urls.get(x) || "")}" aria-label="Open photo ${i + 1}"><img src="${esc(urls.get(x) || "")}" alt="Delivery photo"></button><button type="button" data-pdrm="${esc(x)}" aria-label="Remove photo">×</button></div>`).join("")}</div>
         <div class="btnrow"><label class="btn" for="pdPic" ${photos.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="pdPic" accept="image/*" multiple hidden></div>
       </section>
       <section class="pd-step"><h3><span class="pd-n">3</span> Complete Delivery</h3>
-        <ul class="pd-check">${tick(nBoxes(boxes) > 0, `Boxes: ${vsText(d.total_boxes, nBoxes(boxes), false)}`)}${needPlate ? tick(!!d.plate_no, d.plate_no ? `Car plate no: ${d.plate_no}` : "Car plate no (step 2)") : ""}${tick(photos.length > 0, photos.length ? `Proof of delivery: ${photos.length} photo(s)` : needPlate ? "Proof of delivery photo (step 2)" : "A photo of the delivery (optional)")}</ul>
-        <div class="co-done"><button type="button" class="btn ok big" id="pdDone"${ready ? "" : " disabled"}>${ic("check")} ${submitOnly ? "Submit Delivery for Approval" : "Complete Delivery"}</button><small>${!ready ? "First save the car plate no and add the proof of delivery photo (step 2)."
-          : submitOnly
+        <ul class="pd-check">${tick(nBoxes(boxes) > 0, `Boxes: ${vsText(d.total_boxes, nBoxes(boxes), false)}`)}${needPlate ? tick(!!d.plate_no, d.plate_no ? `Car plate no: ${d.plate_no}` : "Car plate no (optional)") : ""}${tick(photos.length > 0, photos.length ? `Proof of delivery: ${photos.length} photo(s)` : "Proof of delivery photo (optional)")}</ul>
+        <div class="co-done"><button type="button" class="btn ok big" id="pdDone">${ic("check")} ${submitOnly ? "Submit Delivery for Approval" : "Complete Delivery"}</button><small>${submitOnly
           ? "You are not signed in with EO-Office: the delivery is SUBMITTED and EMON HASAN approves it. Approved, the order is COMPLETED and the invoice is made."
           : "The order becomes COMPLETED and the customer's invoice is made and billed by itself."}</small></div>
         ${submitOnly && !S.session ? `<div class="banner warn pd-signin">${ic("key")} <b>To make the invoice at once:</b> sign in with your EO-Office account first, then open this page again (scan the order paper). Without signing in, the invoice is made only when EMON HASAN approves the delivery.

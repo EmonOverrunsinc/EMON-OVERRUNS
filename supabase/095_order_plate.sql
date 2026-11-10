@@ -2,8 +2,7 @@
 -- EMON OVERRUNS E-PORTAL - Update 3.98: ORDER TRACKING - THE CAR PLATE NO AND THE PROOF OF DELIVERY
 -- * The tracking of a customer order: ORDER CREATED, CONFIRMED, BOX SERIALS ADDED, SORTING, then DELIVERED with the
 --   LICENSE PLATE NUMBER of the car and the PROOF OF DELIVERY photo (shown like a courier's tracking).
--- * A delivery is completed (or submitted by the order paper) only with the car plate no AND at least one proof of
---   delivery photo.
+-- * The car plate no and the proof of delivery photo are optional.
 -- * The customer sees the same tracking on their portal (with the plate no).
 -- Needs 090_order_tracking.sql. Paste all of it in Supabase > SQL Editor > New query and press Run. Safe to run again.
 -- The last line says: UPDATE 3.98 READY - ...
@@ -47,19 +46,9 @@ end $$;
 revoke execute on function public.delivery_plate(text, text, text) from public;
 grant execute on function public.delivery_plate(text, text, text) to anon, authenticated;
 
--- 2) DELIVERED only with the car plate no and a proof of delivery photo
-create or replace function public.customer_orders_delivery_proof()
-returns trigger language plpgsql security definer set search_path = '' as $$
-begin
-  if coalesce(current_setting('eo.allow_change', true), '') = 'on' then return new; end if;
-  if nullif(btrim(coalesce(new.plate_no, '')), '') is null then raise exception 'Order %: write the car plate no first (License Plate Number)', new.order_no; end if;
-  if coalesce(cardinality(new.delivery_photos), 0) = 0 then raise exception 'Order %: add the proof of delivery photo first', new.order_no; end if;
-  return new;
-end $$;
-revoke execute on function public.customer_orders_delivery_proof() from public, anon, authenticated;
+-- 2) the car plate no and the proof of delivery photo are OPTIONAL (no rule refuses a delivery without them)
 drop trigger if exists customer_orders_delivery_proof on public.customer_orders;
-create trigger customer_orders_delivery_proof before update of delivered_at on public.customer_orders
-  for each row when (old.delivered_at is null and new.delivered_at is not null) execute function public.customer_orders_delivery_proof();
+drop function if exists public.customer_orders_delivery_proof();
 
 -- 3) the Complete Delivery page reads the plate no
 do $$
@@ -89,7 +78,6 @@ end $$;
 notify pgrst, 'reload schema';
 
 select case when to_regprocedure('public.set_order_plate(uuid,text)') is not null and to_regprocedure('public.delivery_plate(text,text,text)') is not null
-    and exists (select 1 from pg_trigger where tgname = 'customer_orders_delivery_proof' and not tgisinternal)
     and position('''plate_no''' in pg_get_functiondef('public.delivery_order(text,text)'::regprocedure)) > 0
     and position('''plate_no''' in pg_get_functiondef('public.customer_history(text,text)'::regprocedure)) > 0
   then 'UPDATE 3.98 READY - order tracking with the car plate no and the proof of delivery photo'

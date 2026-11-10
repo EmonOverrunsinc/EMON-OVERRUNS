@@ -1165,9 +1165,9 @@
     const facts = [["Name", fullName(c)], a.phone, a.email, a.address, a.business, a.start, a.fb, a.fbLink, a.fbExtra, a.credit, a.opening,
       ["Application Date", mdy(c.application_date)], a.issued];
     const verified = c.status === "verified";
-    return `<fieldset class="opt review"><legend>EMON HASAN's Review — ${esc(c.application_no)}</legend>
+    return `<fieldset class="opt review"><legend>APPLICATION DETAILS — ${esc(c.application_no)}</legend>
       <ol class="steps">
-        <li><b>Application details</b><span class="rv-say">What the customer wrote on the application form.</span>
+        <li><b>What the customer wrote</b><span class="rv-say">Everything on the application form.</span>
           <div class="rv-facts">${facts.map(([k, v, html]) => `<div><small>${esc(k)}</small><b>${html || esc(v || "—")}</b></div>`).join("")}</div>
           ${nDocs ? `<button type="button" class="btn small" id="rvDocs">${ic("doc")} Documents (${nDocs})</button>` : ""}</li>
         <li><b>Check records</b><span class="rv-say">The portal looks for the same name, Facebook or phone number in other accounts. A person with a CLOSED account cannot open a new one.</span>
