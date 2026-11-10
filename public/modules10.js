@@ -140,7 +140,6 @@
             <label for="coDue">Due Date</label><input type="date" id="coDue" value="${esc(o?.due_date || "")}">
           </div>
           <div class="fields wide">
-            <label for="coAddr">Address</label><input type="text" id="coAddr" maxlength="300" value="${esc(o?.address || "")}" placeholder="The customer's address when empty">
             <label for="coNote">Note</label><input type="text" id="coNote" maxlength="500" value="${esc(o?.note || "")}">
             <span>Order No</span><small>${o ? `<b class="mono">${esc(o.order_no)}</b>` : "Given by the system when you save (OR-YYYYMM-####)."}</small>
           </div></div></fieldset>
@@ -155,8 +154,7 @@
       </div><div class="wfoot"><button type="button" class="btn" id="coCancel">Cancel</button><button type="submit" class="btn primary">${o ? "Save" : isAdmin() ? "Save Order" : "Save and Send to EMON HASAN"}</button></div></form>`,
       isAdmin() ? "" : "CREATE ORDER: the order goes to EMON HASAN to approve. Approved, it is CONFIRMED: EMON HASAN's signature is on the printed order and the delivery can start.");
     let cust = preset && preset.status === "active" ? preset : null;
-    const fillFrom = (c) => { if (!$("#coAddr").value.trim()) $("#coAddr").placeholder = c.address || ""; };
-    E.customerPicker($("#coCust"), { statuses: ["active"], onPick: (c) => { cust = c; fillFrom(c); }, preset: cust || undefined });
+    E.customerPicker($("#coCust"), { statuses: ["active"], onPick: (c) => { cust = c; }, preset: cust || undefined });
     if (preset && !cust) toast(`${fullName(preset)}'s account is ${String(preset.status).toUpperCase()}: an order is made only for an ACTIVE account.`, true);
     const ed = linesEditor($("#coLines"), o?.lines || [], o?.extra_columns || []);
     // 3.40: boxes scanned (or typed) on the form: each fills the lines from the box database and goes on the order when saved
@@ -216,7 +214,7 @@
       if (bad >= 0) return toast(`Line ${bad + 1}: write the product, and the boxes and pcs (or the quantity).`, true);
       E.setBusy(e.target, true, "Saving");
       const p_data = { customer_id: cust.id, order_date: $("#coDate").value || null, due_date: $("#coDue").value || null,
-        reference: $("#coRef").value, payment_terms: terms(), address: $("#coAddr").value, note: $("#coNote").value, extra_columns: cols, lines };
+        reference: $("#coRef").value, payment_terms: terms(), address: o?.address || "", note: $("#coNote").value, extra_columns: cols, lines };
       const { data: row, error } = picked.length ? await sb.rpc("save_order_with_boxes", { p_id: o?.id || null, p_data, p_boxes: picked.map((b) => b.serial_no) })
         : await sb.rpc("save_customer_order", { p_id: o?.id || null, p_data });
       if (error) { E.setBusy(e.target, false); return fail(error, /save_order_with_boxes/.test(error.message || "") && notSet(error) ? "Run the database update 052_order_scan.sql first" : notSet(error) ? "Run the database update RUN_041_TO_046.sql first" : o?.status === "completed" && /cannot be changed/.test(error.message || "") ? "Run the database update 062_edit_completed_order.sql first" : "Could not save the order"); }
@@ -441,7 +439,7 @@
       <div class="ch-pic"><div class="ch-photo co-ic">${ic("box")}</div></div>
       <div class="ch-main">
         <div class="ch-name"><h2>${esc(o.order_no)}</h2>${stPill(o)}<span id="coInsMini"></span></div>
-        <div class="ch-sub">${E.canOpen("customer") ? `<a href="#customer/${c.id}"><b>${esc(fullName(c))}</b></a>` : `<b>${esc(fullName(c))}</b>`}${c.account_no ? ` · <span class="mono">${esc(c.account_no)}</span>` : ""}${o.address || c.address ? ` · ${esc(o.address || c.address)}` : ""}</div>
+        <div class="ch-sub">${E.canOpen("customer") ? `<a href="#customer/${c.id}"><b>${esc(fullName(c))}</b></a>` : `<b>${esc(fullName(c))}</b>`}${c.account_no ? ` · <span class="mono">${esc(c.account_no)}</span>` : ""}</div>
         <div class="ch-ids">${E.idBox("Date", mdy(o.order_date))}${E.idBox("Batch No", o.reference || "")}${E.idBox("Terms of Payment", o.payment_terms || "")}${E.idBox("Due Date", mdy(dueOf(o)))}${E.idBox("Boxes", qtyText(o.total_boxes))}${E.idBox("Pcs", qtyText(o.total_pcs))}</div>
       </div>
       ${deliverNow ? `<div class="ch-qr"><canvas id="coQr" aria-label="QR code: Complete Delivery"></canvas><small>Verification</small></div>` : ""}
@@ -1034,7 +1032,7 @@
     const head = `<section class="cust-hero co-hero pd-head">
       <div class="ch-pic"><div class="ch-photo co-ic">${ic("box")}</div></div>
       <div class="ch-main"><div class="ch-name"><h2>${esc(d.order_no)}</h2>${stPill(d)}</div>
-        <div class="ch-sub"><b>${esc(d.customer)}</b>${d.account_no ? ` · <span class="mono">${esc(d.account_no)}</span>` : ""}${d.address ? ` · ${esc(d.address)}` : ""}</div>
+        <div class="ch-sub"><b>${esc(d.customer)}</b>${d.account_no ? ` · <span class="mono">${esc(d.account_no)}</span>` : ""}</div>
         <div class="ch-ids">${E.idBox("Batch No", d.reference || "")}${E.idBox("Boxes", vsText(d.total_boxes, nBoxes(boxes), d.status === "completed"))}${E.idBox("Pcs", vsText(d.total_pcs, pcs, d.status === "completed", "PCS"))}</div></div>
     </section>`;
     if (d.status !== "approved") { // completed, waiting or cancelled: what was done; nothing to change
