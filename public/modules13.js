@@ -470,12 +470,18 @@
   }
   function custTrackShow(o) {
     if (!o) return;
-    const steps = custSteps(o), lastI = steps.reduce((m, x, i) => (x[1] ? i : m), -1);
-    const m = E.modal(`Tracking — ${o.order_no}`, `<section class="trk${o.status === "cancelled" ? " off" : ""}"><ol class="trk-list">${steps.map(([t, at, sub, done], i) => {
-        const ok = !!at || done, cls = ok ? "done" : o.status !== "cancelled" && i === lastI + 1 ? "now" : "";
-        return `<li class="${cls}"><span class="trk-dot">${ok ? "✓" : i + 1}</span><div><b>${esc(t)}</b><small>${esc(at ? E.dateTime(at) : "")}${at && sub ? " · " : ""}${esc(sub || "")}</small></div></li>`;
-      }).join("")}${o.status === "cancelled" ? `<li class="cancel"><span class="trk-dot">✕</span><div><b>CANCELLED</b><small></small></div></li>` : ""}</ol></section>`,
-      `<button type="button" class="btn" data-x>Close</button>`);
+    // 3.98: the same tracking as in the office: the newest on top, with the car plate no of the delivery
+    const SAY = { sorting: "Order is being sorted", preparing: "Order is being prepared", assigned: "Delivery person assigned", out_for_delivery: "Order is out for delivery" };
+    const ev = [], add = (at, t, lines = [], cls = "") => { if (at) ev.push({ at, t, lines, cls }); };
+    add(o.created_at || o.order_date, "Order created");
+    add(o.approved_at, "Order confirmed");
+    if (Number(o.boxes_added) > 0) add(o.boxes_at, "Box serials added", [`${Number(o.boxes_added)} of ${Number(o.total_boxes || 0)} box(es)`]);
+    for (const t of o.tracking || []) add(t.at, SAY[t.step] || String(t.step || "").toUpperCase(), [t.employee ? `Delivery person: ${esc(t.employee)}` : ""]);
+    add(o.delivered_at, "Order has been delivered", [o.proof_photos ? `Proof of delivery: ${Number(o.proof_photos)} photo(s) on record` : "", o.plate_no ? `License Plate Number: <b>${esc(o.plate_no)}</b>` : ""]);
+    if (o.completed_at && (!o.delivered_at || Math.abs(new Date(o.completed_at) - new Date(o.delivered_at)) > 120000)) add(o.completed_at, "Order completed");
+    const next = o.status === "pending" ? "Waiting for approval" : o.status === "approved" && !o.delivered_at ? "On the way: sorting, then delivery" : "";
+    const body = E.orderTimeline ? `<section class="trk">${E.orderTimeline(ev, next)}</section>` : "";
+    const m = E.modal(`Tracking — ${o.order_no}`, body, `<button type="button" class="btn" data-x>Close</button>`);
     $("[data-x]", m.el).onclick = m.close;
   }
   // 3.74: the customer's orders, invoices, payments and the SOA (current month first; earlier months to choose)

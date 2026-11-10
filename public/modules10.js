@@ -27,8 +27,9 @@
   // 3.88: the tracking (like a courier): ORDER CREATED → CONFIRMED → SORTING → PREPARING → ASSIGNED FOR DELIVERY → OUT FOR
   // DELIVERY → DELIVERED → COMPLETED (→ PROOF OF DELIVERY: the photos, optional). The 4 middle steps are pressed on the order.
   const TRACK = { sorting: "SORTING", preparing: "PREPARING", assigned: "ASSIGNED FOR DELIVERY", out_for_delivery: "OUT FOR DELIVERY" };
-  const MANUAL = Object.keys(TRACK);
-  const NEXT_BTN = { sorting: "Start Sorting", preparing: "Start Preparing", assigned: "Assign Delivery", out_for_delivery: "Out for Delivery" };
+  // 3.98: what each tracking line says (PREPARING, ASSIGNED and OUT FOR DELIVERY are no longer pressed; the lines of
+  // orders tracked before still show)
+  const TRACK_SAY = { sorting: "Order is being sorted", preparing: "Order is being prepared", assigned: "Delivery person assigned", out_for_delivery: "Order is out for delivery" };
   const lastTrack = (o) => (o._trk || []).at(-1) || null;
   const stPill = (o) => o.status === "approved" && o.delivery_request_at ? pill("pending", "DELIVERY SUBMITTED") // 3.45: waits for EMON HASAN
     : o.status === "approved" && lastTrack(o) ? pill("approved", TRACK[lastTrack(o).step] || "CONFIRMED")
@@ -351,54 +352,78 @@
     draw(o, bx.data || [], inv, urls);
   };
 
-  // 3.88: the tracking of an order, step by step with the date, the time and who
-  function trackingHtml(o, inv, w) {
-    const trk = o._trk || [], last = (k) => [...trk].reverse().find((t) => t.step === k);
-    const photos = (o.delivery_photos || []).length, off = o.status === "cancelled";
-    const items = [
-      { t: "ORDER CREATED", at: o.created_at || o.order_date, sub: o.created_by_name || "" },
-      { t: "CONFIRMED", at: o.approved_at, sub: o.approved_at ? `Approved by ${o.approved_by_name || ""}` : "Waiting for EMON HASAN's approval" },
-      ...MANUAL.map((k) => { const r = last(k); return { t: TRACK[k], at: r?.at, manual: true,
-        sub: r ? [k === "assigned" ? r.employee_name : "", r.by_name ? `by ${r.by_name}` : "", r.note || ""].filter(Boolean).join(" · ") : "" }; }),
-      { t: "DELIVERED", at: o.delivered_at || o.delivery_request_at, sub: o.delivery_request_by || (o.status === "completed" ? o.completed_by_name || "" : "") },
-      { t: "COMPLETED", at: o.completed_at, sub: o.completed_at ? [o.completed_by_name, inv ? `invoice ${inv.invoice_no}` : ""].filter(Boolean).join(" · ") : "" },
-      { t: "PROOF OF DELIVERY", at: null, done: photos > 0, opt: true, sub: photos ? `${photos} photo(s) · see the Delivery tab` : "Optional · the photos of the delivery" }];
-    items.forEach((it) => { it.done = it.done ?? !!it.at; });
-    // a step not pressed before a later one is done was skipped; the first step not done is where the order is now
-    const lastDone = items.reduce((m, it, i) => (it.done && !it.opt ? i : m), -1);
-    const nowI = off ? -1 : items.findIndex((it, i) => !it.done && !it.opt && i > lastDone);
-    const nextK = o.status === "approved" && w && o._trkOn && !o.delivery_request_at ? MANUAL.find((k, i) => !last(k) && !MANUAL.slice(i + 1).some((x) => last(x))) : null;
-    const reassign = o.status === "approved" && w && o._trkOn && !o.delivery_request_at && last("assigned");
-    return `<section class="trk${off ? " off" : ""}"><div class="trk-head"><b>${ic("box")} TRACKING</b><span class="grow"></span>
-        ${reassign ? `<button type="button" class="btn small" data-trk="assigned">${ic("users")} Change Delivery Person</button>` : ""}
-        ${nextK ? `<button type="button" class="btn primary small" data-trk="${nextK}">${ic("next")} ${NEXT_BTN[nextK]}</button>` : ""}</div>
-      <ol class="trk-list">${items.map((it, i) => {
-        const cls = it.done ? "done" : i === nowI ? "now" : i < lastDone && !it.opt ? "skip" : "";
-        return `<li class="${cls}${it.opt ? " opt" : ""}"><span class="trk-dot">${it.done ? "✓" : i < lastDone && !it.opt ? "–" : i + 1}</span><div><b>${esc(it.t)}</b>
-          <small>${it.at ? esc(E.dateTime(it.at)) : i < lastDone && !it.opt ? "Skipped" : ""}${it.at && it.sub ? " · " : ""}${esc(it.sub && (it.at || it.opt || i === 1) ? it.sub : "")}</small></div></li>`;
-      }).join("")}${off ? `<li class="cancel"><span class="trk-dot">✕</span><div><b>CANCELLED</b><small>${esc(o.cancelled_at ? E.dateTime(o.cancelled_at) : "")}${o.cancelled_by_name ? " · " + esc(o.cancelled_by_name) : ""}</small></div></li>` : ""}</ol></section>`;
+  // 3.98: THE TRACKING like a courier's: what happened, the newest on top (green), each line with its date and time on the
+  // left. events: [{ at, t, lines: [html], cls }]; next: what comes next (a grey line on top).
+  const tlWhen = (at) => {
+    const d = new Date(/^\d{4}-\d\d-\d\d$/.test(String(at)) ? at + "T00:00:00+08:00" : at);
+    if (isNaN(d)) return ["", ""];
+    return [d.toLocaleDateString("en-GB", { timeZone: "Asia/Manila", day: "numeric", month: "short" }).toUpperCase(),
+      /^\d{4}-\d\d-\d\d$/.test(String(at)) ? "" : d.toLocaleTimeString("en-US", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })];
+  };
+  function timelineHtml(events, next = "") {
+    const rows = events.filter((e) => e.at).map((e, i) => ({ ...e, i })).sort((a, b) => new Date(a.at) - new Date(b.at) || a.i - b.i).reverse();
+    return `<ol class="tl">${next ? `<li class="tl-next"><div class="tl-when"><small>NEXT</small></div><span class="tl-dot"></span><div class="tl-what"><b>${esc(next)}</b></div></li>` : ""}${rows.map((e, i) => {
+      const [d, t] = tlWhen(e.at);
+      return `<li class="${i ? "" : "tl-now"}${e.cls ? " " + e.cls : ""}"><div class="tl-when"><b>${esc(d)}</b><small>${esc(t)}</small></div><span class="tl-dot"></span>
+        <div class="tl-what"><b>${esc(e.t)}</b>${(e.lines || []).filter(Boolean).map((l) => `<span>${l}</span>`).join("")}</div></li>`;
+    }).join("")}</ol>`;
   }
-  // a tracking step pressed (ASSIGNED: choose the employee who delivers)
+  // the tracking of an order: ORDER CREATED, CONFIRMED, BOX SERIALS ADDED, SORTING, then DELIVERED with the car plate no and
+  // the proof of delivery photo. goBtn: the Complete Delivery button of the order paper, when the order has one.
+  function trackingHtml(o, inv, w, boxes = [], goBtn = "") {
+    const ev = [], add = (at, t, lines = [], cls = "") => { if (at) ev.push({ at, t, lines, cls }); };
+    const by = (n) => (n ? `by ${esc(n)}` : "");
+    add(o.created_at || o.order_date, "Order created", [by(o.created_by_name)]);
+    add(o.approved_at, "Order confirmed", [`Approved by ${esc(o.approved_by_name || "EMON HASAN")}`]);
+    const ser = boxes.filter((b) => b.serial_no), boxAt = ser.reduce((m, b) => (!m || String(b.created_at) > String(m) ? b.created_at : m), null);
+    add(boxAt, "Box serials added", [`${ser.length} of ${qtyText(o.total_boxes)} box(es)`]);
+    const trk = o._trk || [];
+    for (const r of trk) add(r.at, TRACK_SAY[r.step] || String(r.step || "").toUpperCase(), [r.employee_name ? `Delivery person: ${esc(r.employee_name)}` : "", by(r.by_name), r.note ? esc(r.note) : ""]);
+    const photos = (o.delivery_photos || []).length, waiting = o.status === "approved" && !!o.delivery_request_at, done = o.status === "completed";
+    const sameTime = done && o.delivered_at && Math.abs(new Date(o.completed_at) - new Date(o.delivered_at)) < 120000;
+    add(o.delivered_at || o.delivery_request_at, waiting ? "Delivery submitted" : "Order has been delivered", [
+      photos ? `<button type="button" class="tl-link" data-pod>View Proof of Delivery</button>` : "", o.plate_no ? `License Plate Number: <b>${esc(o.plate_no)}</b>` : "",
+      waiting ? "Waiting for EMON HASAN's approval" : "", by(done ? o.completed_by_name : o.delivery_request_by), sameTime && inv ? `Invoice ${esc(inv.invoice_no)} made and billed` : ""]);
+    if (done && !sameTime) add(o.completed_at, "Order completed", [inv ? `Invoice ${esc(inv.invoice_no)} made and billed` : "", by(o.completed_by_name)]);
+    if (o.status === "cancelled") add(o.cancelled_at || o.updated_at || o.created_at, "Order cancelled", [by(o.cancelled_by_name), o.cancel_note ? esc(o.cancel_note) : ""], "tl-bad");
+    const open = o.status === "approved" && !o.delivery_request_at, sorted = trk.some((t) => t.step === "sorting");
+    const next = o.status === "pending" ? "Waiting for EMON HASAN's approval" : waiting ? "EMON HASAN approves the delivery"
+      : !open ? "" : !ser.length ? "Add the box serials" : !sorted ? "Mark as sorting" : "Complete the delivery: the car plate no and the proof of delivery photo";
+    const btns = !(open && w) ? "" : `${!ser.length ? `<button type="button" class="btn primary small" data-trk-go="1">${ic("box")} Add Box Serials</button>` : ""}
+        ${!sorted && o._trkOn ? `<button type="button" class="btn ${ser.length ? "primary" : ""} small" data-trk="sorting">${ic("next")} Mark as Sorting</button>` : ""}
+        ${ser.length && (sorted || !o._trkOn) ? goBtn || `<button type="button" class="btn ok small" data-trk-go="2">${ic("check")} Complete Delivery</button>` : ""}`;
+    return `<section class="trk"><div class="trk-head"><b>${ic("box")} TRACKING</b><span class="grow"></span>${btns}</div>${timelineHtml(ev, next)}</section>`;
+  }
+  // a tracking step pressed
   async function trackStep(o, k) {
-    let emp = null, note = null;
-    if (k === "assigned") {
-      const { data: list } = await sb.from("employees").select("id, first_name, last_name, position, status").neq("status", "terminated").order("first_name");
-      const cur = (o._trk || []).filter((t) => t.step === "assigned").at(-1);
-      let done; const asked = new Promise((r) => (done = r));
-      const m = E.modal(`Assign Delivery — ${o.order_no}`,`<div class="fields wide"><label for="trEmp">Employee who delivers *</label><select id="trEmp"><option value="">— Choose the employee —</option>
-          ${(list || []).map((e) => `<option value="${e.id}" ${cur?.employee_id === e.id ? "selected" : ""}>${esc(fullName(e))}${e.position ? " · " + esc(e.position) : ""}</option>`).join("")}</select>
-        <label for="trNote">Note</label><input type="text" id="trNote" maxlength="300" placeholder="e.g. vehicle, plate no, time (optional)"></div>`,
-        `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${ic("check")} Assign</button>`, { onClose: () => done(null) });
-      $("[data-x]", m.el).onclick = m.close;
-      $("[data-ok]", m.el).onclick = () => { if (!$("#trEmp", m.el).value) return toast("Choose the employee who delivers.", true); done([$("#trEmp", m.el).value, $("#trNote", m.el).value]); m.close(); };
-      const picked = await asked;
-      if (!picked) return false;
-      [emp, note] = picked;
-    }
-    const { error } = await sb.rpc("order_track", { p_order: o.id, p_step: k, p_employee: emp, p_note: note || null });
+    const { error } = await sb.rpc("order_track", { p_order: o.id, p_step: k, p_employee: null, p_note: null });
     if (error) { fail(error, /order_track|schema cache|PGRST202/.test(error.message || "") ? "Run the database update 090_order_tracking.sql first" : "Could not update the tracking"); return false; }
     toast(`${o.order_no}: ${TRACK[k]}.`);
     return true;
+  }
+  // 3.98: View Proof of Delivery: the photos, the car plate no, when and by whom
+  function showPod(o, urls) {
+    const pics = (o.delivery_photos || []).map((p) => urls.get(p) || "").filter(Boolean);
+    const m = E.modal(`Proof of Delivery — ${o.order_no}`, `<div class="pgrid2 qc-head">${E.cell("Delivered", o.delivered_at ? E.dateTime(o.delivered_at) : "")}${E.cell("License Plate Number", o.plate_no || "")}
+        ${E.cell(o.status === "completed" ? "Completed By" : "Submitted By", o.completed_by_name || o.delivery_request_by || "")}${o.delivery_note ? E.cell("Note", o.delivery_note) : ""}</div>
+      <div class="pod-pics">${pics.map((u, i) => `<button type="button" class="co-ph" data-ph="${esc(u)}" aria-label="Open photo ${i + 1}"><img src="${esc(u)}" alt="Proof of delivery photo ${i + 1}"></button>`).join("") || `<div class="empty small">No photo.</div>`}</div>`,
+      `<button type="button" class="btn" data-x>Close</button>`, { wide: true });
+    $("[data-x]", m.el).onclick = m.close;
+    $$("[data-ph]", m.el).forEach((b) => (b.onclick = () => E.lightbox(b.dataset.ph)));
+  }
+  // the car plate no of the delivery: its box, and saving it (the order page and the Complete Delivery page)
+  const noPlate = (e) => e?.code === "PGRST202" || /set_order_plate|delivery_plate|schema cache/.test(e?.message || "");
+  const plateField = (p, v) => `<h4 class="co-h4">Car Plate No * <small>(License Plate Number)</small></h4>
+    <div class="plate-row"><input type="text" id="${p}Plate" maxlength="30" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="e.g. NBC 1234" value="${esc(v || "")}" aria-label="Car plate no">
+      <button type="button" class="btn primary" id="${p}PlateSave">${ic("check")} ${v ? "Change" : "Save"}</button>${v ? `<span class="plate-ok">${ic("check")} SAVED</span>` : ""}</div>
+    <small class="muted">Write PICK UP when the customer picks the order up.</small>`;
+  async function savePlate(e, value, save, reload) {
+    const v = String(value || "").trim(), btn = e.currentTarget;
+    if (!v) return toast("Write the car plate no.", true);
+    btn.disabled = true;
+    const { error } = await save(v);
+    if (error) { btn.disabled = false; return fail(error, noPlate(error) ? "Run the database update 095_order_plate.sql first" : "Could not save the car plate no"); }
+    toast("Car plate no saved."); reload();
   }
 
   // 3.39: the page of an order in the style of a profile: the head (order no, status, customer, its numbers, the QR code of the
@@ -408,10 +433,9 @@
     const sumPcs = boxes.reduce((s, b) => s + num(b.pcs), 0);
     const deliverNow = !!o.delivery_code && o.status === "approved"; // the paper's Complete Delivery page (048)
     $(".band h1") && ($(".band h1").textContent = `Customer Order — ${o.order_no}`);
-    const stepper = trackingHtml(o, inv, w);
-    const banner = o.status === "pending" ? `<div class="banner warn">${ic("clock")} CREATE ORDER — waiting for EMON HASAN's approval. Approved, the order is CONFIRMED: EMON HASAN's signature is on the printed order and the delivery can start.</div>`
+    const banner = o.status === "pending" ? `<div class="banner warn">${ic("clock")} WAITING FOR APPROVAL — EMON HASAN approves the order. Then it is CONFIRMED and the delivery can start.</div>`
       : o.status === "cancelled" ? `<div class="banner closed">CANCELLED${o.cancelled_by_name ? ` by ${esc(o.cancelled_by_name)}` : ""}${o.cancelled_at ? ` on ${esc(mdy(o.cancelled_at))}` : ""}${o.cancel_note ? ` — ${esc(o.cancel_note)}` : ""}</div>`
-      : o.status === "approved" && o.delivery_request_at ? `<div class="banner warn">${ic("clock")} DELIVERY SUBMITTED — ${esc(o.delivery_request_by || "ORDER PAPER")} · ${esc(E.dateTime(o.delivery_request_at))}. It waits for EMON HASAN's approval: approved, the order is COMPLETED and the invoice is made and billed.</div>`
+      : o.status === "approved" && o.delivery_request_at ? `<div class="banner warn">${ic("clock")} DELIVERY SUBMITTED — ${esc(o.delivery_request_by || "ORDER PAPER")} · ${esc(E.dateTime(o.delivery_request_at))}. Waiting for EMON HASAN's approval. Then the order is COMPLETED and the invoice is made.</div>`
       : o.status === "completed" ? `<div class="banner ok">✔ COMPLETED — DELIVERED${o.completed_at ? ` on ${esc(mdy(o.completed_at))}` : ""}${o.completed_by_name ? ` by ${esc(o.completed_by_name)}` : ""}${inv ? ` — invoice <b>${esc(inv.invoice_no)}</b> was made for the customer` : ""}</div>` : "";
     const head = `<section class="cust-hero co-hero">
       <div class="ch-pic"><div class="ch-photo co-ic">${ic("box")}</div></div>
@@ -423,6 +447,7 @@
       ${deliverNow ? `<div class="ch-qr"><canvas id="coQr" aria-label="QR code: Complete Delivery"></canvas><small>Verification</small></div>` : ""}
     </section>`;
     const deliverBtn = (cls = "") => `<a class="btn ok ${cls}" href="#${deliveryHash(o.order_no, o.delivery_code)}">${ic("check")} Complete Delivery</a>`;
+    const stepper = trackingHtml(o, inv, w, boxes, deliverNow && !o.delivery_request_at ? deliverBtn("small") : "");
     const linesHtml = `<div class="grid-wrap co-wrap"><table class="grid co-lines"><thead><tr><th>#</th><th class="num">Boxes</th><th class="num">Pcs</th><th>Code</th><th>Lot No.</th><th>Product</th>${cols.map((x) => `<th>${esc(x)}</th>`).join("")}<th class="num">Price (₱)</th><th class="num">Amount (₱)</th></tr></thead>
         <tbody>${(o.lines || []).map((l, i) => `<tr><td>${i + 1}</td><td class="num">${l.boxes ? qtyText(l.boxes) : ""}</td><td class="num">${qtyText(l.qty)}</td><td>${esc(l.code || "")}</td><td>${esc(l.lot || "")}</td><td>${esc(l.product)}</td>
           ${cols.map((x) => `<td>${esc(l.extra?.[x] || "")}</td>`).join("")}<td class="num">${peso(l.price)}</td><td class="num">${peso(l.amount)}</td></tr>`).join("")}</tbody>
@@ -430,7 +455,7 @@
     const delHtml = o.status === "pending" ? `<div class="empty">The delivery starts when the order is CONFIRMED (approved by EMON HASAN).</div>`
       : o.status === "cancelled" ? `<div class="empty">CANCELLED: no delivery.</div>`
       : deliverNow ? `${(o.delivery_photos || []).length ? deliveryHtml(o, urls, false) : ""}${o.delivery_request_at ? "" : `<div class="co-done">${deliverBtn("big")}
-          <small>Scan or add the boxes, add the photos of the delivery, then COMPLETE DELIVERY. Whoever holds the printed order can do it too: scan its QR code (VERIFICATION). Not signed in, the delivery waits for EMON HASAN's approval.</small></div>`}`
+          <small>Add the box serials, the car plate no and the proof of delivery photo, then press COMPLETE DELIVERY. The printed order can do it too: scan its QR code.</small></div>`}`
       : deliveryHtml(o, urls, w);
     const invHtml = inv ? `<div class="pgrid2 qc-head">
           <div class="pcell"><div class="pl">Invoice No</div><div class="pv">${E.canOpen("invoice") ? `<a href="#invoice/${inv.id}"><b>${esc(inv.invoice_no)}</b></a>` : `<b>${esc(inv.invoice_no)}</b>`}</div></div>
@@ -503,6 +528,9 @@
       toast("Deleted."); location.hash = "custorders";
     };
     $$("[data-trk]").forEach((b) => (b.onclick = async () => { b.disabled = true; if (await trackStep(o, b.dataset.trk)) reload(); else b.disabled = false; })); // 3.88
+    // 3.98: the next step opens its tab (the boxes, the delivery); View Proof of Delivery shows the photos and the plate no
+    $$("[data-trk-go]").forEach((b) => (b.onclick = () => { const t = $(`#coPfTabs [data-t="${b.dataset.trkGo}"]`); if (t) { t.click(); t.scrollIntoView({ block: "center", behavior: "smooth" }); } }));
+    $$("[data-pod]").forEach((b) => (b.onclick = () => showPod(o, urls)));
     $("#coPdf").onclick = async () => { await E.loadSignatures().catch(() => {}); E.openPreview(`Customer Order ${o.order_no}`, orderPages(o, inv)); };
     $("#coSheet").onclick = () => E.openPreview(`Delivery Sheet ${o.order_no}`, sheetPages(o, boxes));
     // 3.38.1: everything in one PDF: the order (with its invoice and delivery), the Delivery Sheet with the boxes, the check photos
@@ -814,13 +842,14 @@
     const photos = `<div class="po-photos co-photos">${pics.map((x, i) => `<div class="po-pic"><button type="button" class="co-ph" data-ph="${esc(x.u)}" aria-label="Open delivery photo ${i + 1}"><img src="${esc(x.u)}" alt="Delivery photo"></button>${edit || fix ? `<button type="button" data-rmph="${esc(x.p)}" aria-label="Remove photo">×</button>` : ""}</div>`).join("")}</div>`;
     // 3.68: a completed delivery is changed only by EMON HASAN and the employee who completed it
     if (!edit) return `<div class="pgrid2 qc-head">${E.cell("Delivered", o.delivered_at ? E.dateTime(o.delivered_at) : "")}${E.cell(o.status === "completed" ? "Completed By" : "Submitted By", o.completed_by_name || o.delivery_request_by || "")}
-        ${o.delivery_note ? E.cell("Note", o.delivery_note) : ""}${o.delivery_edited_at ? E.cell("Last Edited", `${E.dateTime(o.delivery_edited_at)} · ${o.delivery_edited_by_name || ""}`) : ""}</div>${pics.length ? photos : ""}
+        ${E.cell("License Plate Number", o.plate_no || "")}${o.delivery_note ? E.cell("Note", o.delivery_note) : ""}${o.delivery_edited_at ? E.cell("Last Edited", `${E.dateTime(o.delivery_edited_at)} · ${o.delivery_edited_by_name || ""}`) : ""}</div>${pics.length ? photos : ""}
       ${fix ? `<div class="btnrow"><button type="button" class="btn" id="dvFix">${ic("edit")} Edit Delivery</button><label class="btn" for="dvPic" ${pics.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="dvPic" accept="image/*" multiple hidden></div>
         <small class="muted">Only EMON HASAN and the employee who completed this delivery can edit it.</small>` : ""}`;
-    return `<h4 class="co-h4">Delivery Photos (optional, up to ${MAX_PHOTOS})</h4>${photos}
+    const ready = !!o.plate_no && pics.length > 0; // 3.98: the car plate no and a proof of delivery photo, then COMPLETE
+    return `${plateField("dv", o.plate_no)}<h4 class="co-h4">Proof of Delivery Photo * (up to ${MAX_PHOTOS})</h4>${photos}
       <div class="btnrow"><label class="btn" for="dvPic" id="dvPicL" ${pics.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="dvPic" accept="image/*" multiple hidden></div>
-      <div class="co-done"><button type="button" class="btn ok big" id="dvDone">${ic("check")} Complete Delivery</button>
-        <small>A photo of the delivery is optional. COMPLETE makes the customer's invoice by itself (₱ ${peso(o.total_amount)}).</small></div>`;
+      <div class="co-done"><button type="button" class="btn ok big" id="dvDone"${ready ? "" : " disabled"}>${ic("check")} Complete Delivery</button>
+        <small>${ready ? `COMPLETE makes the customer's invoice by itself (₱ ${peso(o.total_amount)}).` : "First save the car plate no and add the proof of delivery photo."}</small></div>`;
   }
   const canFixDelivery = (o) => o.status === "completed" && (isAdmin() || (!!o.completed_by && o.completed_by === meId()));
   function bindDelivery(o, boxes, urls, reload) {
@@ -852,6 +881,7 @@
       if (await setPhotos((o.delivery_photos || []).filter((p) => p !== b.dataset.rmph))) reload();
     }));
     if ($("#dvFix")) $("#dvFix").onclick = () => fixDelivery(o, reload);
+    if ($("#dvPlateSave")) $("#dvPlateSave").onclick = (e) => savePlate(e, $("#dvPlate").value, (v) => sb.rpc("set_order_plate", { p_id: o.id, p_plate: v }), reload);
     if ($("#dvDone")) $("#dvDone").onclick = async (e) => {
       const short = nBoxes(boxes) !== num(o.total_boxes);
       const msg = `${chargeSays(o, boxes)}Complete the delivery of <b>${esc(o.order_no)}</b>?<br><br>The invoice is made and billed to <b>${esc(custName(o))}</b> by itself${o._dl?.has_pcs && nBoxes(boxes) ? "" : `: <b>₱ ${peso(o.total_amount)}</b>, ${esc(boxesText(o.total_boxes))}, ${qtyText(o.total_pcs)} pcs`}${o.payment_terms ? `, ${esc(o.payment_terms)}` : ""}.`
@@ -869,15 +899,20 @@
       return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`; };
     const m = E.modal(`Edit Delivery — ${o.order_no}`, `<div class="fields wide">
         <label for="fdAt">Date and Time of Delivery</label><input type="datetime-local" id="fdAt" value="${esc(local(o.delivered_at))}">
+        <label for="fdPlate">Car Plate No</label><input type="text" id="fdPlate" maxlength="30" autocapitalize="characters" autocomplete="off" value="${esc(o.plate_no || "")}">
         <label for="fdNote">Note</label><textarea id="fdNote" rows="2" maxlength="300">${esc(o.delivery_note || "")}</textarea></div>
       <p class="muted">The change is saved with your name and the time.</p>`,
       `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn primary" data-ok>${ic("check")} Save</button>`);
     $("[data-x]", m.el).onclick = m.close;
     $("[data-ok]", m.el).onclick = async (e) => {
-      const at = $("#fdAt", m.el).value;
-      e.currentTarget.disabled = true;
+      const at = $("#fdAt", m.el).value, plate = $("#fdPlate", m.el).value.trim(), btn = e.currentTarget;
+      btn.disabled = true;
+      if (plate && plate.toUpperCase() !== String(o.plate_no || "")) {
+        const r = await sb.rpc("set_order_plate", { p_id: o.id, p_plate: plate });
+        if (r.error) { btn.disabled = false; return fail(r.error, noPlate(r.error) ? "Run the database update 095_order_plate.sql first" : "Could not save the car plate no"); }
+      }
       const { error } = await sb.rpc("edit_order_delivery", { p_id: o.id, p_data: { delivered_at: at ? at + ":00+08:00" : "", delivery_note: $("#fdNote", m.el).value.trim() } });
-      if (error) { e.currentTarget.disabled = false; return fail(error, "Could not save the delivery"); }
+      if (error) { btn.disabled = false; return fail(error, "Could not save the delivery"); }
       m.close(); toast(`Delivery of ${o.order_no} saved.`); reload();
     };
   }
@@ -947,7 +982,7 @@
         <tr class="ptl-tot"><td class="num">${qtyText(o.total_boxes)}</td><td class="num">${qtyText(o.total_pcs)}</td><td colspan="${4 + cols.length}">TOTAL · ${esc(E.words(o.total_amount))}</td><td class="num">${peso(o.total_amount)}</td></tr></tbody></table>`)}`;
     const bottom = `${done && inv ? E.box("Invoice", `<div class="prow3">${E.cell("Invoice No", inv.invoice_no)}${E.cell("Invoice Date", mdy(inv.invoice_date))}${E.cell("Due Date", mdy(inv.due_date))}</div>
         <div class="prow3">${E.cell("Amount (₱)", peso(inv.total_amount))}${E.cell("Terms of Payment", inv.payment_terms || "")}${E.cell("Status", inv.pay_status === "paid" ? "PAID" : inv.pay_status === "partial" ? "PARTIAL PAYMENT" : "UNPAID")}</div>`) : ""}
-      ${o.delivered_at ? E.box(done ? "Done Delivery" : "Delivery", `<div class="prow3">${E.cell("Date and Time", E.dateTime(o.delivered_at))}${E.cell(done ? "Completed By" : "Submitted By", o.completed_by_name || o.delivery_request_by || "")}${E.cell("Note", o.delivery_note || "")}</div>`) : ""}
+      ${o.delivered_at ? E.box(done ? "Done Delivery" : "Delivery", `<div class="prow3">${E.cell("Date and Time", E.dateTime(o.delivered_at))}${E.cell(done ? "Completed By" : "Submitted By", o.completed_by_name || o.delivery_request_by || "")}${E.cell("License Plate Number", o.plate_no || "")}</div>${o.delivery_note ? E.cell("Note", o.delivery_note) : ""}`) : ""}
       ${pics.length ? E.box("Delivery Photos", `<div class="ad-pics">${pics.map((u) => `<img src="${esc(u)}" alt="Delivery photo">`).join("")}</div>`) : ""}
       ${o.status === "cancelled" ? `<p class="po-warn"><b>CANCELLED</b>${o.cancel_note ? ` — ${esc(o.cancel_note)}` : ""}</p>` : ""}
       <div class="psig one"><div></div>${E.sigCol("Authorized Signature", sign)}</div>`;
@@ -1005,17 +1040,19 @@
     </section>`;
     if (d.status !== "approved") { // completed, waiting or cancelled: what was done; nothing to change
       $("#pdBody").innerHTML = `${head}<div class="banner ${d.status === "completed" ? "ok" : d.status === "cancelled" ? "closed" : "warn"}">${d.status === "completed" ? "✔ COMPLETED — " : ""}${esc(d.state)}</div>
-        ${d.status === "completed" ? `<div class="pgrid2 qc-head">${E.cell("Date and Time", d.delivered_at ? E.dateTime(d.delivered_at) : "")}${E.cell("Completed By", d.completed_by_name || "")}${E.cell("Boxes", String(nBoxes(boxes)))}${E.cell("Photos", String(photos.length))}</div>` : ""}
+        ${d.status === "completed" ? `<div class="pgrid2 qc-head">${E.cell("Date and Time", d.delivered_at ? E.dateTime(d.delivered_at) : "")}${E.cell("Completed By", d.completed_by_name || "")}${d.plate_no ? E.cell("License Plate Number", d.plate_no) : ""}${E.cell("Boxes", String(nBoxes(boxes)))}${E.cell("Photos", String(photos.length))}</div>` : ""}
         <div class="btnrow">${orderLink}</div>`;
       return;
     }
     if (d.request_at && !d.can_complete) { // 3.45: submitted: EMON HASAN approves it
       $("#pdBody").innerHTML = `${head}<div class="banner warn">${ic("clock")} DELIVERY SUBMITTED — ${esc(E.dateTime(d.request_at))}. It waits for EMON HASAN's approval: approved, the order is COMPLETED.</div>
-        <div class="pgrid2 qc-head">${E.cell("Submitted By", d.request_by || "")}${E.cell("Boxes", vsText(d.total_boxes, nBoxes(boxes), d.status === "completed"))}${E.cell("Pcs", vsText(d.total_pcs, pcs, d.status === "completed", "PCS"))}${E.cell("Photos", String(photos.length))}</div>
+        <div class="pgrid2 qc-head">${E.cell("Submitted By", d.request_by || "")}${d.plate_no ? E.cell("License Plate Number", d.plate_no) : ""}${E.cell("Boxes", vsText(d.total_boxes, nBoxes(boxes), d.status === "completed"))}${E.cell("Pcs", vsText(d.total_pcs, pcs, d.status === "completed", "PCS"))}${E.cell("Photos", String(photos.length))}</div>
         <div class="btnrow">${orderLink}</div>`;
       return;
     }
     const submitOnly = d.can_complete === false; // not signed in with EO-Office: EMON HASAN approves the delivery
+    // 3.98: the car plate no and a proof of delivery photo, then COMPLETE (a server without 095 asks for neither)
+    const needPlate = "plate_no" in d, ready = !needPlate || (!!d.plate_no && photos.length > 0);
     const tick = (on, label) => `<li class="${on ? "ok" : ""}">${on ? "✔" : "○"} ${esc(label)}</li>`;
     $("#pdBody").innerHTML = `${head}
       <div class="banner">${ic("box")} CONFIRMED — ready for delivery. Do the steps below.</div>
@@ -1029,14 +1066,15 @@
           { label: "Items", get: (b) => b.items || "" }, { label: "Brand", get: (b) => b.brand || "" }, { label: "Pcs", num: true, get: (b) => qtyText(b.pcs) },
           { label: "", html: (b) => `<button type="button" class="btn small danger" data-pdx="${b.id}" aria-label="Remove ${esc(b.serial_no || b.items || "line")}">×</button>` }], rows: boxes, empty: "No boxes yet: scan the QR or PDF417 code on each box label." })}
       </section>
-      <section class="pd-step"><h3><span class="pd-n">2</span> Delivery Photos</h3>
-        <h4 class="co-h4">Photos: the proof of delivery (optional, up to ${MAX_PHOTOS})</h4>
+      <section class="pd-step"><h3><span class="pd-n">2</span> ${needPlate ? "Car Plate No and Proof of Delivery" : "Delivery Photos"}</h3>
+        ${needPlate ? plateField("pd", d.plate_no) : ""}<h4 class="co-h4">${needPlate ? `Proof of Delivery Photo * (up to ${MAX_PHOTOS})` : `Photos: the proof of delivery (optional, up to ${MAX_PHOTOS})`}</h4>
         <div class="po-photos co-photos">${photos.map((x, i) => `<div class="po-pic"><button type="button" class="co-ph" data-ph="${esc(urls.get(x) || "")}" aria-label="Open photo ${i + 1}"><img src="${esc(urls.get(x) || "")}" alt="Delivery photo"></button><button type="button" data-pdrm="${esc(x)}" aria-label="Remove photo">×</button></div>`).join("")}</div>
         <div class="btnrow"><label class="btn" for="pdPic" ${photos.length >= MAX_PHOTOS ? "hidden" : ""}>${ic("camera")} Add Photo</label><input type="file" id="pdPic" accept="image/*" multiple hidden></div>
       </section>
       <section class="pd-step"><h3><span class="pd-n">3</span> Complete Delivery</h3>
-        <ul class="pd-check">${tick(nBoxes(boxes) > 0, `Boxes: ${vsText(d.total_boxes, nBoxes(boxes), false)}`)}${tick(photos.length > 0, photos.length ? `Photos: ${photos.length}` : "A photo of the delivery (optional)")}</ul>
-        <div class="co-done"><button type="button" class="btn ok big" id="pdDone">${ic("check")} ${submitOnly ? "Submit Delivery for Approval" : "Complete Delivery"}</button><small>${submitOnly
+        <ul class="pd-check">${tick(nBoxes(boxes) > 0, `Boxes: ${vsText(d.total_boxes, nBoxes(boxes), false)}`)}${needPlate ? tick(!!d.plate_no, d.plate_no ? `Car plate no: ${d.plate_no}` : "Car plate no (step 2)") : ""}${tick(photos.length > 0, photos.length ? `Proof of delivery: ${photos.length} photo(s)` : needPlate ? "Proof of delivery photo (step 2)" : "A photo of the delivery (optional)")}</ul>
+        <div class="co-done"><button type="button" class="btn ok big" id="pdDone"${ready ? "" : " disabled"}>${ic("check")} ${submitOnly ? "Submit Delivery for Approval" : "Complete Delivery"}</button><small>${!ready ? "First save the car plate no and add the proof of delivery photo (step 2)."
+          : submitOnly
           ? "You are not signed in with EO-Office: the delivery is SUBMITTED and EMON HASAN approves it. Approved, the order is COMPLETED and the invoice is made."
           : "The order becomes COMPLETED and the customer's invoice is made and billed by itself."}</small></div>
         ${submitOnly && !S.session ? `<div class="banner warn pd-signin">${ic("key")} <b>To make the invoice at once:</b> sign in with your EO-Office account first, then open this page again (scan the order paper). Without signing in, the invoice is made only when EMON HASAN approves the delivery.
@@ -1115,6 +1153,7 @@
       if (await setPhotos(photos.filter((x) => x !== b.dataset.pdrm))) reload();
     }));
     // step 3: COMPLETE DELIVERY
+    if ($("#pdPlateSave")) $("#pdPlateSave").onclick = (e) => savePlate(e, $("#pdPlate").value, (v) => rpc("delivery_plate", { p_plate: v }), reload);
     $("#pdDone").onclick = async (e) => {
       const short = nBoxes(boxes) !== num(d.total_boxes);
       // 3.59: no box - the invoice is the ORDER AMOUNT; with boxes (serial no) it charges the boxes delivered
@@ -1149,5 +1188,5 @@
         { label: "Amount (₱)", num: true, get: (o) => peso(o.total_amount) }, { label: "Status", html: stPill }], rows, onRow: true, empty: "No customer orders yet." })}`;
   }
 
-  Object.assign(E, { customerOrdersOf: ordersOf, customerOrdersHtml: ordersHtml, readBoxLabel: readLabel, deliveryHashOf });
+  Object.assign(E, { customerOrdersOf: ordersOf, customerOrdersHtml: ordersHtml, readBoxLabel: readLabel, deliveryHashOf, orderTimeline: timelineHtml });
 })();
