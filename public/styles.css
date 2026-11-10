@@ -3550,3 +3550,17 @@ body:has(.login) { background: #0f3a8c; }
 .plate-row .plate-in input { flex: none; max-width: none; width: 100%; }
 .plate-row .plate-in + .plate-in input { font: 600 16px/1 inherit; letter-spacing: .04em; }
 .plate-row { align-items: flex-end; }
+
+/* ===================== 3.99.4: MESSAGES at the top of the screen, clear to see; an X on the side menu ===================== */
+.toast { top: calc(70px + env(safe-area-inset-top, 0px)); bottom: auto; left: 0; right: 0; margin-inline: auto; width: fit-content; max-width: min(560px, calc(100vw - 24px)); z-index: 90;
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 18px 12px 12px; border-radius: 14px; background: #10203f; color: #fff; border: 0; border-left: 6px solid #2fbf71;
+  font-size: 15.5px; font-weight: 600; line-height: 1.35; box-shadow: 0 14px 34px rgba(10,20,50,.32); animation: toastTop .32s cubic-bezier(.2,.8,.2,1); }
+.toast.err { background: #b3261e; border-left-color: #ffd7d3; }
+.toast-ic { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: #2fbf71; color: #fff; font-size: 14px; font-weight: 800; }
+.toast.err .toast-ic { background: #fff; color: #b3261e; }
+.toast-msg { min-width: 0; overflow-wrap: anywhere; }
+@keyframes toastTop { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+.drawer-head { position: relative; }
+.drawer-x { margin-left: auto; flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; border: 1px solid #d9e1ef; background: #fff; color: #0f3a8c; cursor: pointer; box-shadow: 0 2px 8px rgba(15,58,140,.12); }
+.drawer-x .ic { width: 20px; height: 20px; }
+.drawer-x:hover, .drawer-x:focus-visible { background: #eef3fc; border-color: #1d4fb0; }

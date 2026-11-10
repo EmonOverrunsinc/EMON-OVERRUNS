@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.3"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.4"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.3"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.4"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -227,14 +227,17 @@
     const t = document.createElement("div");
     t.className = "toast" + (err ? " err" : "");
     t.setAttribute("role", err ? "alert" : "status");
-    t.textContent = msg;
-    document.body.insertBefore(t, $(".toast")); // the newest first (and lowest on the screen)
+    // 3.99.4: at the top of the screen, under the top bar (it was at the bottom, behind the Back button), with a mark
+    // (✓ saved, ! a problem); a mark typed in the message itself is not shown twice
+    t.innerHTML = `<span class="toast-ic" aria-hidden="true">${err ? "!" : "✓"}</span><span class="toast-msg"></span>`;
+    t.lastChild.textContent = String(msg == null ? "" : msg).replace(/^\s*[✔✓✅✖⚠]\s*/u, "");
+    document.body.insertBefore(t, $(".toast")); // the newest first (and highest on the screen)
     stackToasts();
     setTimeout(() => { t.classList.add("out"); setTimeout(() => { t.remove(); stackToasts(); }, 300); }, err ? 7000 : 3500);
   }
   function stackToasts() {
-    let y = 16;
-    $$(".toast").forEach((t) => { t.style.bottom = `calc(${y}px + env(safe-area-inset-bottom, 0px))`; y += t.offsetHeight + 8; });
+    let y = document.querySelector(".topbar") ? 70 : 16;
+    $$(".toast").forEach((t) => { t.style.top = `calc(${y}px + env(safe-area-inset-top, 0px))`; y += t.offsetHeight + 8; });
   }
   // 3.29.1: a server that does not answer in time (HTTP 502 / 503 / 504; for sign-up and code emails: the email server)
   // gives no message of its own
@@ -1201,7 +1204,8 @@
       </div>
       <div class="layout">
         <nav class="drawer" id="drawer" aria-label="Main menu">
-          <div class="drawer-head">${logoHtml("drawer-logo")}<div><b>${esc(C.company.name)}</b><small>E-PORTAL v${VERSION}</small></div></div>
+          <div class="drawer-head">${logoHtml("drawer-logo")}<div><b>${esc(C.company.name)}</b><small>E-PORTAL v${VERSION}</small></div>
+            <button type="button" class="drawer-x" id="drawerX" aria-label="Close the menu" title="Close the menu">${ic("x")}</button></div>
           ${main}
           <div class="drawer-sep" style="--i:${items.length}">Other</div>
           ${other}
@@ -1218,6 +1222,7 @@
     bindSwipe();
     bindBack("#dashboard");
     $("#tbMenu").onclick = () => drawerOpen(!document.body.classList.contains("drawer-open"));
+    if ($("#drawerX")) $("#drawerX").onclick = () => drawerOpen(false); // 3.99.4: the X at the top of the menu
     $("#scrim").onclick = () => drawerOpen(false);
     $$("#drawer a").forEach((a) => (a.onclick = () => { if (isPhone()) drawerOpen(false); }));
     $("#signOut").onclick = signOut;
@@ -1502,7 +1507,9 @@
     if (!box || !t || t.querySelector("input, select, textarea")) return;
     if (t.style.zoom) t.style.zoom = "";
     const sw = box.scrollWidth, cw = box.clientWidth;
-    if (sw > cw + 4 && cw > 0) t.style.zoom = Math.max(floor, Math.floor((cw / sw) * 1000) / 1000);
+    // 3.99.4: a table that fits with only a little more zoom gets it (the Payment list on an iPad: no column cut off);
+    // one that would need much more keeps the usual zoom and is swiped sideways
+    if (sw > cw + 4 && cw > 0) { const fit = Math.floor((cw / sw) * 1000) / 1000; t.style.zoom = fit >= floor - 0.12 ? fit : floor; }
     (box.classList.contains("grid-scroll") ? box.parentElement : box)?.classList.toggle("wide", box.scrollWidth > box.clientWidth + 4);
   }
   // 3.91.1: the blocks of details of one page (one under the other on an iPad) get the same label width, so all the
