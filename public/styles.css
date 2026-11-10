@@ -3510,3 +3510,37 @@ body:has(.login) { background: #0f3a8c; }
 .doc-btn .ic { width: 20px; height: 20px; flex: none; color: #1d4fb0; }
 .doc-btn:hover { background: #eef3fc; border-color: #1d4fb0; }
 @media (max-width: 700px) { .doc-btns, .doc-btn { width: 100%; } .doc-btn > span { flex: 1; } }
+
+/* ===================== 3.95: THE COLLECTION VOUCHER on A5 landscape - details in 2 columns, PURPOSE, ACCOUNT, signature lines ===================== */
+.cvr-f.two { grid-template-columns: 23mm 1fr 23mm 1fr; gap: 1mm 3mm; }
+.cvr-f.two b.w { grid-column: span 3; }
+.cvr-f.two span:has(+ b.w) { grid-column: 1; }
+.cvr-f b.purpose { color: #0f3a8c; font-weight: 900; letter-spacing: .03em; text-transform: uppercase; }
+/* ISSUED BY (unpaid) / RECEIVED BY (paid): signed by hand above the line */
+.cvr-sign { display: grid; grid-template-columns: 1fr 1fr; gap: 22mm; margin: auto 8mm 0; padding-top: 3mm; text-align: center; }
+.cvr-sign i { display: block; height: 10mm; border-bottom: .3mm solid #10203f; }
+.cvr-sign b { display: block; min-height: 3.6mm; margin-top: .8mm; font: 700 8.4pt/1.2 Arial, sans-serif; text-transform: uppercase; }
+.cvr-sign small { display: block; font: 800 6.6pt/1.3 Arial, sans-serif; letter-spacing: .1em; color: #3c4a66; }
+.cvr-sign + .cvr-foot { margin-top: 0; padding-top: 2mm; }
+/* the voucher form: the customer / employee rows come and go */
+.fields .cv-row[hidden] { display: none !important; }
+/* Receive Payment: the QR code of the printed voucher unlocks it */
+.rp-qr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.rp-qr-st { font-size: 13px; color: var(--ink-soft); }
+.rp-qr-st.ok { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--ok); }
+.rp-qr-st .ic { width: 16px; height: 16px; }
+/* the Verification page: an UNPAID voucher is shown in gold */
+.vf-ok.vf-warn { background: linear-gradient(160deg, #fff8e1, #fff); border-color: #d9a514; box-shadow: 0 12px 30px rgba(217,165,20,.2); }
+.vf-warn .vf-seal { background: #d9a514; box-shadow: 0 0 0 7px #fbecc0; }
+.vf-warn .vf-title { color: #8a5a00; }
+.vf-cv .vf-fields { margin-top: 4px; }
+.vf-cv .vf-checked { display: block; margin-top: 10px; color: var(--ink-soft); }
+/* 3.95: 2 copies on one A4 page: each half is an A5 landscape voucher, with a cut line between */
+.page.bare:has(> .cv2) { padding: 0; min-height: 297mm; }
+.cv2 { display: flex; flex-direction: column; height: 297mm; }
+.cv2-half { position: relative; height: 148mm; padding: 7mm 10mm 6mm; display: flex; box-sizing: border-box; overflow: hidden; }
+.cv2-half > .cvr { flex: 1; min-height: 0; }
+.cv2-tag { position: absolute; top: 2.2mm; left: 50%; transform: translateX(-50%); font: 800 6.4pt Arial, sans-serif; letter-spacing: .2em; color: #3c4a66; }
+.cv2-cut { position: relative; height: 1mm; border-top: .3mm dashed #7f9ed8; }
+.cv2-cut span { position: absolute; top: -2.2mm; left: 50%; transform: translateX(-50%); background: #fff; padding: 0 2mm; font: 6pt Arial, sans-serif; color: #7f9ed8; letter-spacing: .1em; }
+@media print { .page.bare:has(> .cv2) { height: 297mm; min-height: 297mm; } }

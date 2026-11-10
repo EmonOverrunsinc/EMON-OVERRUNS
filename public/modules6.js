@@ -24,7 +24,10 @@
   const unpaid = (v) => v.status === "unpaid";
   const overdue = (v) => unpaid(v) && v.pay_by && v.pay_by < E.isoToday();
   const cvState = (v) => (!unpaid(v) ? pill("approved", "PAID") : overdue(v) ? pill("rejected", `EXPIRED · ${mdy(v.pay_by)}`) : pill("pending", `UNPAID · PAY BEFORE ${mdy(v.pay_by)}`));
-  const methodText = (v) => (unpaid(v) ? "TO COLLECT" : METHODS[v.method] || v.method);
+  const methodLabel = (k) => (k === "account" ? "Customer Account" : METHODS[k] || k || ""); // 3.95: paid through the customer's account
+  const methodText = (v) => (unpaid(v) ? "TO COLLECT" : methodLabel(v.method));
+  // 3.95: who the money is from: a customer (their account no), an employee (their ID no) or anyone else (nothing)
+  const payerOf = (v) => (!v.payer_no ? null : v.customer_id ? ["Account", v.payer_no] : v.employee_id ? ["Employee ID", v.payer_no] : null);
 
   // The 10 checks, each one Pass or Fail. A Fail takes 10 points off 100 (the person may write another total).
   const CHECKS = [
@@ -476,6 +479,9 @@
       <form class="window" id="cvoForm" novalidate><div class="wtitle">${v ? `Collection Voucher ${esc(v.cv_no)}` : "Collection Voucher"}</div><div class="wbody">
         <fieldset class="opt"><legend>Collection</legend><div class="fields wide">
           <label for="cvDate">Date</label><input type="date" id="cvDate" value="${esc(v?.cv_date || isoToday())}">
+          <label for="cvWho">Collected From</label><select id="cvWho"><option value="">Other person</option><option value="customer" ${v?.customer_id ? "selected" : ""}>Customer</option><option value="employee" ${v?.employee_id ? "selected" : ""}>Employee</option></select>
+          <span class="cv-row cv-cust"${v?.customer_id ? "" : " hidden"}>Customer *</span><div class="cv-row cv-cust" id="cvCust"${v?.customer_id ? "" : " hidden"}></div>
+          <label for="cvEmp" class="cv-row cv-emp"${v?.employee_id ? "" : " hidden"}>Employee *</label><select id="cvEmp" class="cv-row cv-emp"${v?.employee_id ? "" : " hidden"}><option value="">— Choose the employee —</option></select>
           <label for="cvFrom">Received From *</label><input type="text" id="cvFrom" maxlength="120" value="${esc(v?.received_from || "")}" placeholder="Name of the customer or person">
           <label for="cvAmt">Amount Collected (₱) *</label><input type="number" id="cvAmt" min="0" step="0.01" inputmode="decimal" value="${v ? num(v.amount) : ""}">
           <label for="cvMethod">Method</label><select id="cvMethod">${Object.entries(METHODS).map(([k, l]) => `<option value="${k}" ${v?.method === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
@@ -492,6 +498,31 @@
     let orig = null, ready = null, pending = null, token = 0, shownUrl = ""; // the picture chosen, the cleaned copy to save, the cleaning that is running
     const oldUrl = v?.receipt_path ? (await E.signedMap([v.receipt_path])).get(v.receipt_path) : "";
     if (!here() || !$("#cvPrev")) return;
+    // 3.95: from a customer (their account no shows on the voucher), an employee (their ID no) or another person (nothing)
+    let cust = null, empLoaded = false, presetting = true;
+    const who = () => $("#cvWho").value;
+    const fillFrom = (name) => { if (name && !presetting) $("#cvFrom").value = name; };
+    const loadEmps = async () => {
+      if (empLoaded) return;
+      empLoaded = true;
+      const { data, error } = await sb.rpc("cv_employees");
+      const sel = $("#cvEmp");
+      if (!sel?.isConnected) return;
+      if (error) { empLoaded = false; sel.innerHTML = `<option value="">Run the database update 093_collection_voucher_key.sql first</option>`; return; }
+      sel.innerHTML = `<option value="">— Choose the employee —</option>` + (data || []).map((e) => `<option value="${esc(e.id)}" data-name="${esc(e.name)}" ${e.id === v?.employee_id ? "selected" : ""}>${esc(`${e.name} · ${e.employee_no}${e.status !== "active" ? ` (${String(e.status).toUpperCase()})` : ""}`)}</option>`).join("");
+    };
+    const showWho = () => {
+      $$(".cv-cust").forEach((x) => (x.hidden = who() !== "customer"));
+      $$(".cv-emp").forEach((x) => (x.hidden = who() !== "employee"));
+      if (who() === "employee") loadEmps();
+    };
+    const preset = v?.customer_id ? (await E.getCustomer(v.customer_id)) || undefined : undefined;
+    if (!here() || !$("#cvCust")) return;
+    E.customerPicker($("#cvCust"), { statuses: ["active", "suspended", "closed"], onPick: (c) => { cust = c; fillFrom(E.fullName(c)); }, preset });
+    presetting = false;
+    $("#cvWho").onchange = showWho;
+    $("#cvEmp").onchange = (e) => fillFrom(e.target.selectedOptions[0]?.dataset.name);
+    showWho();
     const paint = (src, note = "") => { const el = $("#cvPrev"); if (!el) return; el.innerHTML = src ? `<img src="${esc(src)}" alt="Receipt">${note ? `<small>${esc(note)}</small>` : ""}` : ""; };
     paint(oldUrl, oldUrl ? "Receipt on file" : "");
     // The newest choice wins; Save waits for the cleaning to finish.
@@ -524,10 +555,14 @@
       const from = $("#cvFrom").value.trim(), amt = num($("#cvAmt").value);
       if (!from) return toast("Write who the money was collected from.", true);
       if (!(amt > 0)) return toast("Write the amount collected.", true);
+      const w = who(), empId = $("#cvEmp").value;
+      if (w === "customer" && !cust) return toast("Choose the customer.", true);
+      if (w === "employee" && !empId) return toast("Choose the employee.", true);
       E.setBusy(e.target, true, "Saving");
       if (pending) await pending.catch(() => {}); // the receipt picture is ready before it is saved
       const { data: row, error } = await sb.rpc("save_collection", { p_id: v?.id || null, p_data: { cv_date: $("#cvDate").value || null, received_from: from, amount: amt,
-        method: $("#cvMethod").value, reference_no: $("#cvRef").value, note: $("#cvNote").value } });
+        method: $("#cvMethod").value, reference_no: $("#cvRef").value, note: $("#cvNote").value,
+        customer_id: w === "customer" ? cust.id : "", employee_id: w === "employee" ? empId : "" } });
       if (error) { E.setBusy(e.target, false); return fail(error, notSet(error) ? "Run the database update 024_eo_office.sql first" : "Could not save the voucher"); }
       if (ready) {
         const path = `collection/${row.id}/receipt_${Date.now()}_${rand()}.${E.extOf(ready)}`;
@@ -556,10 +591,10 @@
     const isPdf = /\.pdf$/i.test(v.receipt_path || "");
     $(".band h1") && ($(".band h1").textContent = `Collection Voucher — ${v.cv_no}`);
     $("#main").innerHTML = `<div class="window"><div class="wtitle">${esc(v.cv_no)} · ₱ ${peso(v.amount)} ${cvState(v)}</div><div class="wbody">
-      ${unpaid(v) ? `<div class="banner ${overdue(v) ? "closed" : "warn"}">${ic("clock")} <b>UNPAID${overdue(v) ? " — EXPIRED" : ""}</b> · issued ${esc(mdy(v.issued_on || v.cv_date))} · <b>pay before ${esc(mdy(v.pay_by))}</b>. Not counted in the collection until the payment is received: press <b>Receive Payment</b> (cash, transfer …).</div>`
+      ${unpaid(v) ? `<div class="banner ${overdue(v) ? "closed" : "warn"}">${ic("clock")} <b>UNPAID${overdue(v) ? " — EXPIRED" : ""}</b> · issued ${esc(mdy(v.issued_on || v.cv_date))} · <b>pay before ${esc(mdy(v.pay_by))}</b>. Not counted in the collection until the payment is received: press <b>Receive Payment</b> and scan the QR code of the printed voucher (no scan for the Customer Account).</div>`
         : v.paid_at ? `<div class="banner ok">${ic("check")} <b>PAID</b> on ${esc(mdy(v.cv_date))}${v.received_by ? ` · received by ${esc(v.received_by)}` : ""} · recorded by ${esc(v.paid_by_name || "")} · issued ${esc(mdy(v.issued_on))}</div>` : ""}
       <div class="pgrid2 qc-head">${E.cell("Voucher No", v.cv_no)}${E.cell(unpaid(v) ? "Issued" : "Date", mdy(unpaid(v) ? v.issued_on || v.cv_date : v.cv_date))}${E.cell("Received From", v.received_from)}${E.cell(unpaid(v) ? "Amount to Collect (₱)" : "Amount (₱)", peso(v.amount), "hl")}
-        ${E.cell("Method", methodText(v))}${E.cell("Reference No", v.reference_no || "")}${E.cell("Note", v.note || "")}${E.cell("Recorded By", v.created_by_name || "")}</div>
+        ${E.cell("Method", methodText(v))}${E.cell("Reference No", v.reference_no || "")}${E.cell("Note", v.note || "")}${E.cell("Recorded By", v.created_by_name || "")}${payerOf(v) ? E.cell(...payerOf(v)) : ""}</div>
       <p class="muted">${esc(E.words(v.amount, "PESOS"))}</p>
       <fieldset class="opt"><legend>Receipt</legend>${url ? (isPdf ? `<button type="button" class="btn" id="cvOpen">${ic("eye")} Open the Receipt (PDF)</button>`
         : `<button type="button" class="cv-receipt" id="cvOpen" aria-label="Open the receipt"><img src="${esc(url)}" alt="Receipt"></button>`) : `<div class="empty small">No receipt picture.</div>`}</fieldset>
@@ -567,7 +602,9 @@
       ${canW() && canChange(v) ? `<a class="btn" href="#editcollection/${v.id}">${ic("edit")} Edit</a>` : ""}${isAdmin() ? `<button type="button" class="btn danger" id="cvDel">${ic("trash")} Delete</button>` : ""}
       <a class="btn" href="#eooffice/cv">Close</a></div></div>`;
     if ($("#cvOpen")) $("#cvOpen").onclick = () => E.viewFile({ storage_path: v.receipt_path, mime: isPdf ? "application/pdf" : "image/jpeg", file_name: `${v.cv_no} Receipt` });
-    $("#cvPdf").onclick = () => E.openPreview(`Collection Voucher ${v.cv_no}`, [cvPage(v), ...(url && !isPdf ? [cvPicPage(v, url)] : [])], { size: "a5l", bare: true }); // 3.94: A5 landscape
+    // 3.94: A5 landscape; 3.95: the QR code of an unpaid voucher holds its key (it unlocks Receive Payment)
+    // 3.95: 2 copies on one A4 page (the customer's copy and the office copy), the receipt picture on its own page
+    $("#cvPdf").onclick = async () => E.openPreview(`Collection Voucher ${v.cv_no}`, [cvTwo(v, unpaid(v) ? await cvKey(v) : ""), ...(url && !isPdf ? [cvPicPage(v, url)] : [])], { bare: true });
     if ($("#cvRecv")) $("#cvRecv").onclick = () => receivePayment(v); // 3.91
     if ($("#cvDel")) $("#cvDel").onclick = async () => {
       if (!(await E.confirmBox(`Delete collection voucher <b>${esc(v.cv_no)}</b> (₱ ${peso(v.amount)} from ${esc(v.received_from)})? This cannot be undone.`, { ok: "Delete", danger: true }))) return;
@@ -579,24 +616,53 @@
     E.setRecords(`Collection voucher: ${v.cv_no}`);
   };
 
-  // 3.91: RECEIVE PAYMENT on an unpaid voucher: PAID on that date with the amount received (then it is counted)
+  // 3.95: the key in the QR code of an unpaid voucher ("" on a server without 093: the QR code then has no key)
+  const cvKey = async (v) => { const { data, error } = await sb.rpc("cv_pay_key", { p_id: v.id }); return error ? "" : data || ""; };
+  // 3.91: RECEIVE PAYMENT on an unpaid voucher: PAID on that date with the amount received (then it is counted).
+  // 3.95: cash, bank, GCash, check or other is locked until the QR code of the printed voucher is scanned (its key must
+  // match); the Customer Account (only on a customer's voucher) needs no scan.
   function receivePayment(v) {
+    const opts = { ...METHODS, ...(v.customer_id ? { account: "Customer Account" } : {}) };
+    let key = "";
     const m = E.modal(`Receive Payment — ${v.cv_no}`, `<p class="muted" style="margin-top:0">${esc(v.received_from)} · ${esc(v.note || "")}</p><div class="fields wide">
         <label for="rpAmt">Amount Received (₱) *</label><input type="number" id="rpAmt" min="0" step="0.01" inputmode="decimal" value="${num(v.amount)}">
-        <label for="rpMethod">Paid By *</label><select id="rpMethod">${Object.entries(METHODS).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join("")}</select>
+        <label for="rpMethod">Paid By *</label><select id="rpMethod">${Object.entries(opts).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join("")}</select>
+        <span>QR Code *</span><div class="rp-qr" id="rpQr"></div>
         <label for="rpRef">Reference No</label><input type="text" id="rpRef" maxlength="60" placeholder="e.g. bank or GCash ref no (optional)">
         <label for="rpBy">Received By</label><input type="text" id="rpBy" maxlength="120" value="${esc(S.profile?.full_name || "")}" placeholder="the employee who received the money">
         <label for="rpDate">Payment Date *</label><input type="date" id="rpDate" value="${E.isoToday()}" max="${E.isoToday()}">
         <label for="rpFile">Receipt (optional)</label><input type="file" id="rpFile" accept="image/*,application/pdf"></div>`,
       `<button type="button" class="btn" data-x>Cancel</button><button type="button" class="btn ok" data-ok>${ic("check")} Payment Received</button>`);
+    const box = $("#rpQr", m.el), okBtn = $("[data-ok]", m.el), needScan = () => $("#rpMethod", m.el).value !== "account";
+    const scan = () => E.scanDialog(async (text) => {
+      const p = String(text || "").trim().split("|");
+      if (!/^EMONCV$/i.test(p[0] || "")) return toast("That is not the QR code of a collection voucher.", true);
+      if (String(p[1] || "").toUpperCase() !== String(v.cv_no).toUpperCase()) return toast(`That QR code is of voucher ${String(p[1] || "").toUpperCase()}, not ${v.cv_no}.`, true);
+      if (!p[2]) return toast("That code has no key: scan the square QR code (not the barcode). A voucher printed before has no key: print it again.", true);
+      const { data, error } = await sb.rpc("cv_check_key", { p_id: v.id, p_key: p[2] });
+      if (error) return fail(error, /cv_check_key|schema cache|PGRST202/.test(error.message || "") ? "Run the database update 093_collection_voucher_key.sql first" : "Could not check the QR code");
+      if (!data) return toast("That QR code does not match this voucher. Scan the QR code of its newest print.", true);
+      key = p[2]; paint(); toast("QR code checked.");
+    }, { title: `Scan the QR Code of ${v.cv_no}`, hint: "Point the camera at the square QR code of the printed voucher." });
+    const paint = () => {
+      const need = needScan();
+      box.innerHTML = !need ? `<span class="rp-qr-st ok">${ic("check")} Customer Account: no scan needed</span>`
+        : key ? `<span class="rp-qr-st ok">${ic("check")} QR code checked · voucher ${esc(v.cv_no)}</span>`
+        : `<button type="button" class="btn small primary" id="rpScan">${ic("scan")} Scan the QR Code</button><span class="rp-qr-st">Scan the QR code of the printed voucher to unlock Receive Payment.</span>`;
+      okBtn.disabled = need && !key;
+      if ($("#rpScan", m.el)) $("#rpScan", m.el).onclick = scan;
+    };
+    $("#rpMethod", m.el).onchange = paint;
+    paint();
     $("[data-x]", m.el).onclick = m.close;
-    $("[data-ok]", m.el).onclick = async (e) => {
+    okBtn.onclick = async (e) => {
       const btn = e.currentTarget, amt = num($("#rpAmt", m.el).value);
       if (!(amt > 0)) return toast("Write the amount received.", true);
+      if (needScan() && !key) return toast("Scan the QR code of the printed voucher first.", true);
       btn.disabled = true;
       const { data: row, error } = await sb.rpc("cv_receive", { p_id: v.id, p_amount: amt, p_method: $("#rpMethod", m.el).value, p_ref: $("#rpRef", m.el).value,
-        p_received_by: $("#rpBy", m.el).value, p_date: $("#rpDate", m.el).value || null });
-      if (error) { btn.disabled = false; return fail(error, /cv_receive|schema cache|PGRST202/.test(error.message || "") ? "Run the database update 091_coverage_voucher.sql first" : "Could not record the payment"); }
+        p_received_by: $("#rpBy", m.el).value, p_date: $("#rpDate", m.el).value || null, p_key: needScan() ? key : null });
+      if (error) { btn.disabled = false; return fail(error, /cv_receive|schema cache|PGRST202/.test(error.message || "") ? "Run the database update 093_collection_voucher_key.sql first" : "Could not record the payment"); }
       const f = $("#rpFile", m.el).files[0];
       if (f) {
         const file = (await E.slimFile(f, "receipt").catch(() => f)) || f;
@@ -609,33 +675,53 @@
     };
   }
 
-  // 3.94: the voucher on A5 landscape, laid out like an official receipt: the company, the title, the details with the
-  // status and a QR code, the particulars, NOTHING FOLLOWS, the total in figures and in words, the barcode. Ink saver.
-  function cvPage(v) {
+  // 3.95: the Collection Voucher on A5 landscape, laid out like an official receipt (ink saver): the company and the status
+  // stamp, the details in 2 columns with the PURPOSE and the ACCOUNT (a customer's account no or an employee's ID no; nothing
+  // for anyone else), the QR code (on an unpaid voucher it holds the key that unlocks Receive Payment), the particulars,
+  // NOTHING FOLLOWS, the total in figures and in words, the signature line (ISSUED BY when unpaid / RECEIVED BY when paid), the barcode (the Verification page: PAID / UNPAID).
+  const cvPurpose = (v) => (v.ins_id || /^COVERAGE INS-/i.test(String(v.note || "").trim()) ? "COVERAGE" : "COLLECTION");
+  function cvPage(v, key = "") {
     const st = !unpaid(v) ? ["paid", "PAID", mdy(v.cv_date)] : overdue(v) ? ["expired", "EXPIRED", `WAS DUE ${mdy(v.pay_by)}`] : ["unpaid", "UNPAID", `PAY BEFORE ${mdy(v.pay_by)}`];
-    const what = String(v.note || "").trim() || "COLLECTION";
-    const kind = /^COVERAGE INS-/i.test(what) ? "COVERAGE PAYMENT" : "COLLECTION RECEIPT";
-    const f = (k, val, cls = "") => `<span>${esc(k)}</span><b class="${cls}">${esc(val || "—")}</b>`;
+    const purpose = cvPurpose(v), what = String(v.note || "").trim() || purpose, payer = payerOf(v);
+    const dates = unpaid(v) ? [["Issue Date", mdy(v.issued_on || v.cv_date)], ["Pay Before", mdy(v.pay_by)]]
+      : v.issued_on && v.issued_on !== v.cv_date ? [["Issue Date", mdy(v.issued_on)], ["Payment Date", mdy(v.cv_date)]] : [["Payment Date", mdy(v.cv_date)]];
+    const fields = [["Voucher No", v.cv_no], ["Reference No", v.reference_no], ...dates, ["Purpose", purpose, "purpose"], ...(payer ? [payer] : []),
+      ["Status", !unpaid(v) ? `PAID BY ${methodLabel(v.method).toUpperCase()}` : overdue(v) ? "EXPIRED · NOT PAID ON TIME" : "UNPAID · TO COLLECT", "st-" + st[0], true],
+      ["Received From", v.received_from, "", true]];
+    const sign = unpaid(v) ? ["ISSUED BY", v.created_by_name] : ["RECEIVED BY", v.received_by || v.paid_by_name || v.created_by_name];
+    const f = (x) => `<span>${esc(x[0])}</span><b class="${x[2] || ""}${x[3] ? " w" : ""}">${esc(x[1] || "—")}</b>`;
     return `<div class="cvr">
       <div class="cvr-head"><div class="cvr-co">${E.logoHtml("cvr-logo")}<div><b>${esc(C.company.name)}</b><small class="tag">${esc(C.company.tagline || "")}</small>
         <small>${esc(C.company.address.join(", "))} · ${esc(C.company.email)}${E.siteText()}</small></div></div>
         <div class="cvr-stamp ${st[0]}"><b>${st[1]}</b><small>${esc(st[2])}</small></div></div>
-      <div class="cvr-title">COLLECTION VOUCHER</div><div class="cvr-sub">${esc(kind)}</div>
+      <div class="cvr-title">COLLECTION VOUCHER</div><div class="cvr-sub">${purpose === "COVERAGE" ? "COVERAGE PAYMENT" : "COLLECTION RECEIPT"}</div>
       <div class="cvr-dash"></div>
-      <div class="cvr-main"><div class="cvr-f">
-          ${f("Voucher No", v.cv_no)}${f("Reference No", v.reference_no)}${f(unpaid(v) ? "Issue Date" : "Payment Date", mdy(unpaid(v) ? v.issued_on || v.cv_date : v.cv_date))}
-          ${f("Status", unpaid(v) ? `${st[1]} · ${st[2]}` : `PAID · ${mdy(v.cv_date)}${v.issued_on && v.issued_on !== v.cv_date ? ` (ISSUED ${mdy(v.issued_on)})` : ""}`, "st-" + st[0])}<i></i>
-          ${f("Received From", v.received_from)}${f("Paid By", methodText(v))}${f("Received By", v.received_by || (unpaid(v) ? "" : v.created_by_name))}${f("Recorded By", v.paid_by_name || v.created_by_name)}</div>
-        <div class="cvr-qr"><img src="${E.qrDataUrl(`EMONCV|${v.cv_no}|${num(v.amount).toFixed(2)}|${st[1]}`)}" alt="Voucher QR code"><small>${esc(v.cv_no)}</small></div></div>
+      <div class="cvr-main"><div class="cvr-f two">${fields.map(f).join("")}</div>
+        <div class="cvr-qr"><img src="${E.qrDataUrl(`EMONCV|${v.cv_no}${key ? "|" + key : ""}`)}" alt="Voucher QR code"><small>${esc(v.cv_no)}</small></div></div>
       <div class="cvr-dot"></div>
       <table class="cvr-tbl"><thead><tr><th>PARTICULARS</th><th class="num">${unpaid(v) ? "AMOUNT TO COLLECT" : "AMOUNT"} (PHP)</th></tr></thead>
         <tbody><tr><td>${esc(what)}</td><td class="num">${peso(v.amount)}</td></tr></tbody></table>
       <div class="cvr-nf">************************ NOTHING FOLLOWS ************************</div>
       <div class="cvr-bottom"><div class="cvr-words">${esc(E.words(v.amount, "PESOS"))}</div><div class="cvr-total"><span>TOTAL: PHP</span><b>${peso(v.amount)}</b></div></div>
-      <div class="cvr-foot"><div class="cvr-note">${unpaid(v) ? `Not paid yet: this voucher is counted in the collection only when the payment is received (${esc(st[2].toLowerCase())}).` : "Payment received with thanks."}
-          System generated by the ${esc(E.APP)} · no signature needed · scan the QR code to check it.<br>Printed ${esc(E.dateTime(new Date().toISOString()))}${S.profile?.full_name ? ` by ${esc(S.profile.full_name)}` : ""}</div>
+      <div class="cvr-sign"><div><i></i><b>${esc(sign[1] || "")}</b><small>${sign[0]}</small></div></div>
+      <div class="cvr-foot"><div class="cvr-note">${unpaid(v) ? `Not paid yet: counted in the collection only when the payment is received. Bring this voucher when you pay: its QR code is scanned to receive the payment.` : "Payment received with thanks."}
+          System generated by the ${esc(E.APP)} · scan the barcode to check PAID / UNPAID.<br>Printed ${esc(E.dateTime(new Date().toISOString()))}${S.profile?.full_name ? ` by ${esc(S.profile.full_name)}` : ""}</div>
         <div class="cvr-bar"><img src="${E.pdf417DataUrl("EMONCV|" + v.cv_no)}" alt="Voucher barcode"><small>${esc(v.cv_no)}</small></div></div>
     </div>`;
+  }
+  // 3.95: one A4 page = 2 copies of the A5 voucher with a cut line between them
+  const cvTwo = (v, key) => `<div class="cv2">${["CUSTOMER COPY", "OFFICE COPY"].map((c) => `<div class="cv2-half"><span class="cv2-tag">${c}</span>${cvPage(v, key)}</div>`).join(`<div class="cv2-cut"><span>✂ CUT HERE</span></div>`)}</div>`;
+  // 3.95: the Verification page: a collection voucher's few details and PAID / UNPAID / EXPIRED (for anyone; no name)
+  async function cvVerify(code) {
+    const { data, error } = await sb.rpc("cv_verify", { p_code: code });
+    if (error || !data?.found) return null;
+    const s = data.state, cls = s === "PAID" ? "vf-ok" : s === "EXPIRED" ? "vf-bad" : "vf-ok vf-warn";
+    return `<div class="${cls} vf-cv"><div class="vf-seal">${s === "PAID" ? ic("check") : s === "EXPIRED" ? "!" : ic("clock")}</div><div class="vf-title">${esc(s)}</div>
+      <div class="vf-sub"><b>COLLECTION VOUCHER ${esc(data.cv_no)} · ${esc(s === "PAID" ? `PAID ON ${mdy(data.paid_on)}` : s === "EXPIRED" ? `NOT PAID · WAS DUE ${mdy(data.pay_by)}` : `NOT PAID YET · PAY BEFORE ${mdy(data.pay_by)}`)}</b></div>
+      <table class="vf-fields"><tbody><tr><th>Voucher No</th><td>${esc(data.cv_no)}</td></tr><tr><th>Purpose</th><td>${esc(data.purpose)}</td></tr>
+        <tr><th>Amount</th><td>₱ ${peso(data.amount)}</td></tr><tr><th>Issue Date</th><td>${esc(mdy(data.issued_on))}</td></tr>
+        <tr><th>Status</th><td>${esc(s === "PAID" ? `PAID · ${mdy(data.paid_on)}` : s === "EXPIRED" ? `EXPIRED · WAS DUE ${mdy(data.pay_by)}` : `UNPAID · PAY BEFORE ${mdy(data.pay_by)}`)}</td></tr></tbody></table>
+      <small class="vf-checked">Checked ${esc(E.dateTime(new Date().toISOString()))} · ${esc(E.APP)}</small></div>`;
   }
   // the receipt picture of the voucher, on its own A5 page
   const cvPicPage = (v, pic) => `<div class="cvr cvr-picpage"><div class="cvr-title sm">RECEIPT · ${esc(v.cv_no)}</div><div class="cvr-pic"><img src="${esc(pic)}" alt="Receipt"></div></div>`;
@@ -648,12 +734,12 @@
       head: E.printHead("MONTHLY COLLECTION", `<div class="sb-no"><small>Month</small><b>${esc(monthText(m))}</b></div>`), contHead: E.printHead(`MONTHLY COLLECTION ${monthText(m)} (CONTINUED)`, ""),
       top: "", boxTitle: `Collection Vouchers — ${monthText(m)}`,
       thead: `<tr><th>#</th><th>Voucher No</th><th>Date</th><th>Received From</th><th>Method</th><th class="num">Amount (₱)</th></tr>`,
-      rows: sorted, rowHtml: (v, i) => `<tr><td>${i + 1}</td><td>${esc(v.cv_no)}</td><td>${esc(mdy(v.cv_date))}</td><td>${esc(v.received_from)}</td><td>${esc(METHODS[v.method] || v.method)}</td><td class="num">${peso(v.amount)}</td></tr>`,
+      rows: sorted, rowHtml: (v, i) => `<tr><td>${i + 1}</td><td>${esc(v.cv_no)}</td><td>${esc(mdy(v.cv_date))}</td><td>${esc(v.received_from)}</td><td>${esc(methodLabel(v.method))}</td><td class="num">${peso(v.amount)}</td></tr>`,
       totalRow: `<tr class="ptl-tot"><td colspan="5">TOTAL COLLECTED · ${sorted.length} VOUCHER(S)</td><td class="num">${peso(total)}</td></tr>`,
       bottom: `<p class="pdecl">${esc(E.words(total, "PESOS"))}</p>${E.sigs("Prepared by", "Checked by")}`,
       caps: { single: 22, first: 26, next: 32, last: 16 } });
   }
 
-  Object.assign(E, { cutEmpty, eoTabs, qcVerdict: verdict, printBlankQc });
-  E._docs = { ...(E._docs || {}), cvPage }; // 3.94: for the print checks
+  Object.assign(E, { cutEmpty, eoTabs, qcVerdict: verdict, printBlankQc, cvVerify });
+  E._docs = { ...(E._docs || {}), cvPage, cvTwo }; // 3.94: for the print checks
 })();
