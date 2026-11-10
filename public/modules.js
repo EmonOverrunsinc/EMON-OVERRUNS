@@ -479,7 +479,7 @@
       if (error) return fail(error, "Could not save");
       m.close();
       const n = (data?.changed || []).length, st = data?.statements || 0;
-      toast(`✔ Saved — all updated: ${n} detail${n === 1 ? "" : "s"} changed${st ? `, ${st} SOA${st === 1 ? "" : "s"} updated` : ""}.`);
+      toast(`Saved. ${n} detail${n === 1 ? "" : "s"} changed${st ? ` and ${st} SOA${st === 1 ? "" : "s"} updated` : ""}.`);
       if (reload) reload();
     };
   }
