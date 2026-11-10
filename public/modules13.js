@@ -477,7 +477,7 @@
     add(o.approved_at, "Order confirmed");
     if (Number(o.boxes_added) > 0) add(o.boxes_at, "Box serials added", [`${Number(o.boxes_added)} of ${Number(o.total_boxes || 0)} box(es)`]);
     for (const t of o.tracking || []) add(t.at, SAY[t.step] || String(t.step || "").toUpperCase(), [t.employee ? `Delivery person: ${esc(t.employee)}` : ""]);
-    add(o.delivered_at, "Order has been delivered", [o.proof_photos ? `Proof of delivery: ${Number(o.proof_photos)} photo(s) on record` : "", o.plate_no ? `License Plate Number: <b>${esc(o.plate_no)}</b>` : ""]);
+    add(o.delivered_at, "Order has been delivered", [o.proof_photos ? `Proof of delivery: ${Number(o.proof_photos)} photo(s) on record` : "", o.plate_no ? `License Plate Number: <b>${esc(o.plate_no)}</b>` : "", o.vehicle_type ? `Type of Car: <b>${esc(o.vehicle_type)}</b>` : ""]);
     if (o.completed_at && (!o.delivered_at || Math.abs(new Date(o.completed_at) - new Date(o.delivered_at)) > 120000)) add(o.completed_at, "Order completed");
     const next = o.status === "pending" ? "Waiting for approval" : o.status === "approved" && !o.delivered_at ? "On the way: sorting, then delivery" : "";
     const body = E.orderTimeline ? `<section class="trk">${E.orderTimeline(ev, next)}</section>` : "";

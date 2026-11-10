@@ -3544,3 +3544,9 @@ body:has(.login) { background: #0f3a8c; }
 .cv2-cut { position: relative; height: 1mm; border-top: .3mm dashed #7f9ed8; }
 .cv2-cut span { position: absolute; top: -2.2mm; left: 50%; transform: translateX(-50%); background: #fff; padding: 0 2mm; font: 6pt Arial, sans-serif; color: #7f9ed8; letter-spacing: .1em; }
 @media print { .page.bare:has(> .cv2) { height: 297mm; min-height: 297mm; } }
+/* 3.99.3: the car of a delivery: the plate no and the type of car side by side */
+.plate-in { display: grid; gap: 2px; flex: 1 1 170px; max-width: 280px; }
+.plate-in small { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; color: #5b6577; }
+.plate-row .plate-in input { flex: none; max-width: none; width: 100%; }
+.plate-row .plate-in + .plate-in input { font: 600 16px/1 inherit; letter-spacing: .04em; }
+.plate-row { align-items: flex-end; }
