@@ -436,7 +436,7 @@
     const banner = o.status === "pending" ? `<div class="banner warn">${ic("clock")} WAITING FOR APPROVAL — EMON HASAN approves the order. Then it is CONFIRMED and the delivery can start.</div>`
       : o.status === "cancelled" ? `<div class="banner closed">CANCELLED${o.cancelled_by_name ? ` by ${esc(o.cancelled_by_name)}` : ""}${o.cancelled_at ? ` on ${esc(mdy(o.cancelled_at))}` : ""}${o.cancel_note ? ` — ${esc(o.cancel_note)}` : ""}</div>`
       : o.status === "approved" && o.delivery_request_at ? `<div class="banner warn">${ic("clock")} DELIVERY SUBMITTED — ${esc(o.delivery_request_by || "ORDER PAPER")} · ${esc(E.dateTime(o.delivery_request_at))}. Waiting for EMON HASAN's approval. Then the order is COMPLETED and the invoice is made.</div>`
-      : o.status === "completed" ? `<div class="banner ok">✔ COMPLETED — DELIVERED${o.completed_at ? ` on ${esc(mdy(o.completed_at))}` : ""}${o.completed_by_name ? ` by ${esc(o.completed_by_name)}` : ""}${inv ? ` — invoice <b>${esc(inv.invoice_no)}</b> was made for the customer` : ""}</div>` : "";
+      : ""; // 3.99.1: no COMPLETED line here: the tracking shows the delivery and the invoice
     const head = `<section class="cust-hero co-hero">
       <div class="ch-pic"><div class="ch-photo co-ic">${ic("box")}</div></div>
       <div class="ch-main">
