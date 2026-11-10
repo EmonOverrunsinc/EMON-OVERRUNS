@@ -267,8 +267,8 @@
   const STATUS_REQ = {
     suspension: { title: "Restrict Account", sub: "Restrict (suspend) this account: no new invoices until the restriction is lifted", from: ["active"], to: "SUSPENDED (RESTRICTED)", icon: "shield" },
     reactivation: { title: "Lift Restriction", sub: "Make the restricted account active again", from: ["suspended"], to: "ACTIVE", icon: "check" },
-    closure: { title: "Blacklist Account (Close)", sub: "Blacklist this account: it is closed, no new invoices or deliveries", from: ["active", "suspended"], to: "BLACKLISTED (CLOSED)", icon: "x" },
-    reopen: { title: "Reopen Account", sub: "Take the account off the blacklist: active again", from: ["closed"], to: "ACTIVE", icon: "check" }
+    closure: { title: "Close Account", sub: "Close this account (blacklist): no new invoices or deliveries", from: ["active", "suspended"], to: "CLOSED", icon: "x" },
+    reopen: { title: "Reopen Account", sub: "Make the closed account active again", from: ["closed"], to: "ACTIVE", icon: "check" }
   };
   const pendingOf = (orders) => (orders || []).filter((o) => STATUS_REQ[o.subject_type] && o.status === "pending");
   const canRequest = () => E.canWrite("customers") || E.canWrite("orders");

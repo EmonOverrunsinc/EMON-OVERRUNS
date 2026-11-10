@@ -949,7 +949,7 @@
 
   // Suspended / closed accounts are marked for everyone who opens them.
   function statusBanner(c) {
-    if (c.status === "closed") return `<div class="banner closed">${ic("x")} BLACKLISTED (CLOSED ACCOUNT) — new invoices cannot be recorded; payments can still be recorded. ${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
+    if (c.status === "closed") return `<div class="banner closed">${ic("x")} CLOSED ACCOUNT — new invoices cannot be recorded; payments can still be recorded. ${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
     if (c.status === "suspended") return `<div class="banner warn">⚠ SUSPENDED ACCOUNT — new invoices are blocked while the account is suspended; payments can still be recorded.${c.status_note ? " " + esc(c.status_note) : ""}</div>`;
     if (c.status === "rejected") return `<div class="banner closed">REJECTED APPLICATION${c.status_note ? " — " + esc(c.status_note) : ""}</div>`;
     return "";
