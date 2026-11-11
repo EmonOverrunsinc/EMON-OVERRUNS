@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.6"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.7"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.6"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.7"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -736,57 +736,116 @@
     };
   }
 
+  // 3.99.7: the email domains people mistype most, and what they meant
+  const MAIL_FIX = { "gmial.com": "gmail.com", "gmai.com": "gmail.com", "gamil.com": "gmail.com", "gmail.co": "gmail.com", "gmail.con": "gmail.com", "gmail.cm": "gmail.com",
+    "gmal.com": "gmail.com", "gnail.com": "gmail.com", "gmaill.com": "gmail.com", "gmail.om": "gmail.com", "yaho.com": "yahoo.com", "yahoo.con": "yahoo.com", "yhoo.com": "yahoo.com",
+    "hotmal.com": "hotmail.com", "hotmail.con": "hotmail.com", "outlok.com": "outlook.com", "outlook.con": "outlook.com", "icloud.con": "icloud.com" };
+  const mailFix = (email) => { const [u, d] = String(email).split("@"); const f = d && MAIL_FIX[d.toLowerCase()]; return f ? `${u}@${f}` : ""; };
+  const authSteps = (on) => `<ol class="su-steps">${["Your details", "Code from email", "Done"].map((t, i) => `<li class="${i < on ? "done" : i === on ? "on" : ""}"><span>${i < on ? "✔" : i + 1}</span>${t}</li>`).join("")}</ol>`;
+  // a mistake is shown in red under its own box
+  function fieldErr(id, msg) {
+    const i = $("#" + id); if (!i) return;
+    const after = i.closest(".pw") || i;
+    let m = after.nextElementSibling?.classList.contains("f-err") ? after.nextElementSibling : null;
+    if (!msg) { i.classList.remove("bad"); m?.remove(); return; }
+    i.classList.add("bad");
+    if (!m) { m = document.createElement("div"); m.className = "f-err"; m.setAttribute("role", "alert"); after.after(m); }
+    m.textContent = msg;
+  }
+
   function renderSignup() {
     authFrame("Create Account", `<form class="wbody login-form" id="suForm" novalidate>
       ${brandBlock()}
       <div class="seg" role="tablist"><button type="button" role="tab" id="toSignin">Sign In</button><button type="button" class="on" role="tab" aria-selected="true">Create Account</button></div>
-      <label class="fl" for="suName">Full Name</label><input type="text" id="suName" autocomplete="name" required>
-      <label class="fl" for="suUser">Username</label>
-      <input type="text" id="suUser" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" placeholder="3–20 letters, numbers, dot or underscore" required>
-      <div class="uname-msg" id="suUserMsg" aria-live="polite"></div>
-      <label class="fl" for="suEmail">Email</label><input type="email" id="suEmail" autocomplete="email" required>
+      ${authSteps(0)}
+      <label class="fl" for="suName">Full Name</label><input type="text" id="suName" autocomplete="name" autocapitalize="words" placeholder="e.g. Juan Dela Cruz" required>
+      <label class="fl" for="suEmail">Email</label><input type="email" id="suEmail" autocomplete="email" autocapitalize="none" spellcheck="false" inputmode="email" placeholder="name@gmail.com" required>
+      <div class="su-fix" id="suFix" hidden></div>
       ${pwField("suPass", "Password", "new-password")}
-      ${pwField("suPass2", "Confirm Password", "new-password")}
-      <label class="lg-agree su-agree"><input type="checkbox" id="suAgree"> <span><b>I have read all and I agree</b> to the <button type="button" class="linkbtn" id="suTerms">Portal Terms of Use</button> of the EMON OVERRUNS E-PORTAL (data privacy, confidentiality, e-signature and records).</span></label>
+      <div class="uname-msg" id="suPassMsg">At least 6 characters. Press the eye to see it.</div>
+      <label class="fl" for="suUser">Username <span class="fl-note">— made for you, you can change it</span></label>
+      <input type="text" id="suUser" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" placeholder="made from your email" required>
+      <div class="uname-msg" id="suUserMsg" aria-live="polite"></div>
+      <label class="lg-agree su-agree"><input type="checkbox" id="suAgree"> <span><b>I agree</b> to the <button type="button" class="linkbtn" id="suTerms">Portal Terms of Use</button> (data privacy, confidentiality, e-signature and records).</span></label>
       <button class="btn primary big" type="submit">Create Account</button>
-      <div class="hint small">We will email you a confirmation code. After confirming, sign in with your email or username and apply for a job with us.</div>
+      <div class="hint small center">Next: we email you a 6-digit code. Type it, and you are in.</div>
     </form>`);
     bindEyes();
     $("#suName").focus();
     $("#toSignin").onclick = () => renderLogin("signin");
     $("#suTerms").onclick = () => window.EO.showTerms?.(); // 3.69
-    let unameOk = false, timer = null, seq = 0;
+    $("#suPass").removeAttribute("minlength");
+    let unameOk = false, timer = null, seq = 0, ownName = false;
+    const show = (cls, text) => { const m = $("#suUserMsg"); m.className = "uname-msg " + cls; m.textContent = text; };
     const check = async () => {
-      const u = $("#suUser").value.trim().toLowerCase(), m = $("#suUserMsg"), my = ++seq;
+      const u = $("#suUser").value.trim().toLowerCase(), my = ++seq;
       unameOk = false;
-      if (!u) { m.className = "uname-msg"; m.textContent = ""; return; }
-      if (!/^[a-z0-9._]{3,20}$/.test(u)) { m.className = "uname-msg bad"; m.textContent = "Use 3–20 letters, numbers, dot or underscore (no spaces)."; return; }
-      m.className = "uname-msg"; m.innerHTML = `<span class="spin sm"></span> Checking…`;
+      if (!u) return show("", "");
+      if (!/^[a-z0-9._]{3,20}$/.test(u)) return show("bad", "Use 3–20 letters, numbers, dot or underscore (no spaces).");
+      const m = $("#suUserMsg"); m.className = "uname-msg"; m.innerHTML = `<span class="spin sm"></span> Checking…`;
       const { data, error } = await sb.rpc("username_available", { p_username: u });
       if (my !== seq) return;
-      if (error) { m.className = "uname-msg"; m.textContent = ""; unameOk = true; return; } // the server checks again on sign-up
+      if (error) { show("", ""); unameOk = true; return; } // the server checks again on sign-up
       unameOk = !!data;
-      m.className = "uname-msg " + (data ? "ok" : "bad");
-      m.textContent = data ? `✔ “${u}” is available` : `✖ “${u}” is already taken`;
+      if (data) { fieldErr("suUser", ""); return show("ok", `✔ “${u}” is yours`); }
+      show("bad", `✖ “${u}” is already taken`);
     };
-    $("#suUser").oninput = () => { clearTimeout(timer); timer = setTimeout(check, 300); };
+    // the username is made from the email (or the name); if it is taken a number is added, until a free one is found
+    const base = () => {
+      const from = $("#suEmail").value.split("@")[0] || $("#suName").value;
+      let b = from.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, ".").replace(/[^a-z0-9._]/g, "").replace(/^[._]+|[._]+$/g, "").replace(/[._]{2,}/g, ".").slice(0, 17);
+      if (b && b.length < 3) b = (b + "123").slice(0, 3);
+      return b;
+    };
+    const autoName = async () => {
+      if (ownName) return;
+      const b = base(); if (!b) return;
+      for (let n = 0; n < 6; n++) {
+        const u = n ? `${b}${n === 1 ? Math.floor(Math.random() * 90 + 10) : Math.floor(Math.random() * 900 + 100)}` : b;
+        if (ownName) return;
+        $("#suUser").value = u;
+        await check();
+        if (unameOk || ownName || $("#suUser").value !== u) return;
+      }
+    };
+    $("#suUser").oninput = () => { ownName = true; fieldErr("suUser", ""); clearTimeout(timer); timer = setTimeout(check, 300); };
+    $("#suName").oninput = () => fieldErr("suName", "");
+    $("#suName").onchange = () => { if (!$("#suEmail").value.includes("@")) autoName(); };
+    const fixMail = () => {
+      const f = mailFix($("#suEmail").value.trim()), box = $("#suFix");
+      box.hidden = !f;
+      if (f) { box.innerHTML = `Did you mean <b>${esc(f)}</b>? <button type="button" class="linkbtn" id="suFixYes">Yes, use it</button>`; $("#suFixYes").onclick = () => { $("#suEmail").value = f; box.hidden = true; autoName(); $("#suPass").focus(); }; }
+    };
+    $("#suEmail").oninput = () => { fieldErr("suEmail", ""); $("#suFix").hidden = true; };
+    $("#suEmail").onchange = () => { fixMail(); autoName(); };
+    $("#suPass").oninput = () => {
+      fieldErr("suPass", "");
+      const n = $("#suPass").value.length, m = $("#suPassMsg");
+      m.className = "uname-msg" + (n >= 6 ? " ok" : "");
+      m.textContent = n >= 6 ? "✔ Good password length" : n ? `${6 - n} more character${6 - n === 1 ? "" : "s"}` : "At least 6 characters. Press the eye to see it.";
+    };
+    $("#suAgree").onchange = () => $("#suAgree").closest("label").classList.remove("bad");
     $("#suForm").onsubmit = async (e) => {
       e.preventDefault();
-      const full_name = $("#suName").value.trim(), username = $("#suUser").value.trim().toLowerCase(), email = $("#suEmail").value.trim().toLowerCase();
-      const p1 = $("#suPass").value, p2 = $("#suPass2").value;
-      if (!full_name) return toast("Enter your full name.", true);
-      if (!/^[a-z0-9._]{3,20}$/.test(username)) return toast("Choose a username of 3–20 letters, numbers, dot or underscore.", true);
-      if (!/^\S+@\S+\.\S+$/.test(email)) return toast("Enter a valid email address.", true);
-      if (p1.length < 6) return toast("Use a password of at least 6 characters.", true);
-      if (p1 !== p2) return toast("The two passwords do not match.", true);
-      if (!$("#suAgree").checked) { $("#suAgree").focus(); return toast("Read the Legal Terms and tick \"I have read all and I agree\" first.", true); }
+      const full_name = $("#suName").value.trim().replace(/\s+/g, " "), email = $("#suEmail").value.trim().toLowerCase(), p1 = $("#suPass").value;
+      let username = $("#suUser").value.trim().toLowerCase();
+      // every mistake shows under its own box; the first one gets the cursor
+      const errs = [];
+      if (!full_name) errs.push(["suName", "Type your full name."]);
+      if (!/^\S+@\S+\.\S+$/.test(email)) errs.push(["suEmail", "Type a valid email, like name@gmail.com"]);
+      if (p1.length < 6) { errs.push(["suPass", "The password needs at least 6 characters."]); $("#suPassMsg").textContent = ""; }
+      if (!username && !errs.length) { await autoName(); username = $("#suUser").value.trim().toLowerCase(); }
+      if (!/^[a-z0-9._]{3,20}$/.test(username) && (username || !errs.length)) errs.push(["suUser", "Use 3–20 letters, numbers, dot or underscore."]);
+      errs.forEach(([id, m]) => fieldErr(id, m));
+      if (errs.length) { $("#" + errs[0][0]).focus(); return toast(errs.length === 1 ? errs[0][1] : "Please fix the boxes marked in red.", true); }
+      if (!$("#suAgree").checked) { $("#suAgree").closest("label").classList.add("bad"); $("#suAgree").focus(); return toast("Tick “I agree” to the Portal Terms of Use.", true); }
       clearTimeout(timer);
       setBusy(e.target, true, "Creating account"); // 3.35: at once, so a second press cannot send the form twice
       // 3.99.6: no step waits for ever (a slow network or a slow email server left the button on "Creating account"):
       // the username check gets 12 seconds, the sign-up 45 seconds; after 10 seconds the button says it is still working
       const within = (ms, work, late) => Promise.race([work, new Promise((r) => setTimeout(() => r(late), ms))]);
       await within(12000, check());
-      if (!unameOk) { setBusy(e.target, false); return toast(`The username “${username}” is not available. Choose another.`, true); }
+      if (!unameOk) { setBusy(e.target, false); fieldErr("suUser", "This username is taken. Change it a little (add a number)."); $("#suUser").focus(); return toast(`The username “${username}” is taken. Choose another.`, true); }
       const form = e.target, slow = setTimeout(() => { const b = $("button[type=submit]", form); if (b?.disabled) b.innerHTML = `<span class="spin sm light"></span> Still working, please wait`; }, 10000);
       const { data, error } = await within(45000, sb.auth.signUp({ email, password: p1, options: { data: { full_name, username, legal_agreed: window.EO.legalVersion?.() || "", legal_agreed_at: new Date().toISOString() }, emailRedirectTo: authRedirect() } }),
         { data: {}, error: { status: 504, message: "The server did not answer in 45 seconds" } });
@@ -804,10 +863,13 @@
         return toast(free === true ? "The account was not created: the server did not answer in time. Check your internet, then press Create Account again."
           : "The server did not answer. Check your internet, wait a minute, then press Create Account again. If it says the email already has an account, press Sign In.", true);
       }
-      if (error) return fail(error, "Could not create the account");
+      if (error) {
+        if (/password/i.test(error.message || "")) { fieldErr("suPass", "Choose a stronger password (mix letters and numbers)."); $("#suPass").focus(); }
+        return fail(error, "Could not create the account");
+      }
       // Supabase answers an already-registered email with a user that has no identities.
       if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-        toast(`${email} already has an account. Sign in, or press “Forgot password?”`, true);
+        toast(`${email} already has an account. Sign in with your password, or press “Forgot password?”`, true);
         return renderLogin("signin", email);
       }
       if (!data.session) renderCode(email);
@@ -817,8 +879,9 @@
   function renderCode(email) {
     authFrame("Confirm Your Email", `<form class="wbody login-form" id="cdForm" novalidate>
       ${brandBlock()}
+      ${authSteps(1)}
       <div class="code-ic">${ic("mail")}</div>
-      <p class="center">We sent a confirmation code to<br><b>${esc(email)}</b></p>
+      <p class="center">We sent a 6-digit code to<br><b>${esc(email)}</b></p>
       <label class="fl center" for="cdCode">Enter the code</label>
       <input type="text" id="cdCode" class="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="••••••" required>
       <button class="btn primary big" type="submit">Confirm</button>
@@ -826,7 +889,12 @@
       <small class="center muted">No email? Check the Spam folder. You can also tap the link inside the email.</small>
     </form>`);
     $("#cdCode").focus();
-    $("#cdCode").oninput = (e) => (e.target.value = e.target.value.replace(/\D/g, ""));
+    // 3.99.7: it confirms by itself once the 6 digits are typed or pasted
+    $("#cdCode").oninput = (e) => {
+      e.target.value = e.target.value.replace(/\D/g, "");
+      const f = $("#cdForm");
+      if (e.target.value.length === 6 && !$("button[type=submit]", f).disabled) f.requestSubmit();
+    };
     cooldown($("#cdResend"), 60);
     $("#cdResend").onclick = async () => {
       const { error } = await sb.auth.resend({ type: "signup", email, options: { emailRedirectTo: authRedirect() } });
