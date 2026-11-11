@@ -1774,9 +1774,10 @@
   // ======================================================================
   const PAY_COLS = [
     { label: "Receipt No", get: (r) => r.receipt_no }, { label: "Date Paid", get: (r) => mdy(r.paid_date) },
-    { label: "Account No", get: (r) => r.customers?.account_no || "" }, { label: "Customer", get: (r) => fullName(r.customers || {}) },
-    { label: "Method", get: (r) => METHOD[r.method] || r.method }, { label: "Reference", get: (r) => r.reference_no || "" },
-    { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }, { label: "Verified By", get: (r) => r.created_by_name || "" }
+    // 3.99.5: every column shows on an iPad (a long name goes on 2 lines); a phone shows the main columns only
+    { label: "Account No", phone: false, get: (r) => r.customers?.account_no || "" }, { label: "Customer", wrap: true, get: (r) => fullName(r.customers || {}) },
+    { label: "Method", phone: false, get: (r) => METHOD[r.method] || r.method }, { label: "Reference", phone: false, get: (r) => r.reference_no || "" },
+    { label: "Amount (₱)", key: "amount", num: true, get: (r) => peso(r.amount) }, { label: "Verified By", phone: false, wrap: true, get: (r) => r.created_by_name || "" }
   ];
   V.payments = async () => {
     E.shell("payments", "Payment", `

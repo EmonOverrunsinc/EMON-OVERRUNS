@@ -3564,3 +3564,5 @@ body:has(.login) { background: #0f3a8c; }
 .drawer-x { margin-left: auto; flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; border: 1px solid #d9e1ef; background: #fff; color: #0f3a8c; cursor: pointer; box-shadow: 0 2px 8px rgba(15,58,140,.12); }
 .drawer-x .ic { width: 20px; height: 20px; }
 .drawer-x:hover, .drawer-x:focus-visible { background: #eef3fc; border-color: #1d4fb0; }
+/* 3.99.5: on an iPad a long name of a list goes on 2 lines when the list would not fit (the Payment list: every column shows) */
+@media (min-width: 701px) and (max-width: 1194px) { table.grid td.wrap { white-space: normal; min-width: 9.5em; overflow-wrap: break-word; } }
