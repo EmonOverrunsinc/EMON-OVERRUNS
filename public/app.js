@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.4"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.5"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.4"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.5"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -1509,7 +1509,21 @@
     const sw = box.scrollWidth, cw = box.clientWidth;
     // 3.99.4: a table that fits with only a little more zoom gets it (the Payment list on an iPad: no column cut off);
     // one that would need much more keeps the usual zoom and is swiped sideways
-    if (sw > cw + 4 && cw > 0) { const fit = Math.floor((cw / sw) * 1000) / 1000; t.style.zoom = fit >= floor - 0.12 ? fit : floor; }
+    // 3.99.5: the fit is checked again after it is set (an iPad does not make small text as narrow as the zoom says, so
+    // the last column was still cut off): up to 4 times a little smaller, until nothing is cut off
+    if (sw > cw + 4 && cw > 0) {
+      const low = floor - 0.14;
+      let z = Math.floor((cw / sw) * 1000) / 1000;
+      if (z < low) t.style.zoom = floor;
+      else {
+        t.style.zoom = z;
+        for (let i = 0; i < 4 && box.scrollWidth > box.clientWidth + 1; i++) {
+          z = Math.floor(z * (box.clientWidth / box.scrollWidth) * 1000) / 1000 - 0.004;
+          if (z < low) { z = floor; t.style.zoom = z; break; }
+          t.style.zoom = z;
+        }
+      }
+    }
     (box.classList.contains("grid-scroll") ? box.parentElement : box)?.classList.toggle("wide", box.scrollWidth > box.clientWidth + 4);
   }
   // 3.91.1: the blocks of details of one page (one under the other on an iPad) get the same label width, so all the
