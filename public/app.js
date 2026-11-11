@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.5"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.6"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.5"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.6"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -782,19 +782,27 @@
       if (!$("#suAgree").checked) { $("#suAgree").focus(); return toast("Read the Legal Terms and tick \"I have read all and I agree\" first.", true); }
       clearTimeout(timer);
       setBusy(e.target, true, "Creating account"); // 3.35: at once, so a second press cannot send the form twice
-      await check();
+      // 3.99.6: no step waits for ever (a slow network or a slow email server left the button on "Creating account"):
+      // the username check gets 12 seconds, the sign-up 45 seconds; after 10 seconds the button says it is still working
+      const within = (ms, work, late) => Promise.race([work, new Promise((r) => setTimeout(() => r(late), ms))]);
+      await within(12000, check());
       if (!unameOk) { setBusy(e.target, false); return toast(`The username “${username}” is not available. Choose another.`, true); }
-      const { data, error } = await sb.auth.signUp({ email, password: p1, options: { data: { full_name, username, legal_agreed: window.EO.legalVersion?.() || "", legal_agreed_at: new Date().toISOString() }, emailRedirectTo: authRedirect() } });
-      setBusy(e.target, false);
+      const form = e.target, slow = setTimeout(() => { const b = $("button[type=submit]", form); if (b?.disabled) b.innerHTML = `<span class="spin sm light"></span> Still working, please wait`; }, 10000);
+      const { data, error } = await within(45000, sb.auth.signUp({ email, password: p1, options: { data: { full_name, username, legal_agreed: window.EO.legalVersion?.() || "", legal_agreed_at: new Date().toISOString() }, emailRedirectTo: authRedirect() } }),
+        { data: {}, error: { status: 504, message: "The server did not answer in 45 seconds" } });
+      clearTimeout(slow);
+      if (!form.isConnected) return; // another page was opened meanwhile
+      setBusy(form, false);
       if (error && timedOut(error)) {
         // 3.29.1: the email server was slow. The account may still have been made (then its username is taken now):
         // go on to the code, which can come late; otherwise nothing was made and the person tries again.
-        const { data: free } = await sb.rpc("username_available", { p_username: username });
+        const { data: free } = await within(12000, sb.rpc("username_available", { p_username: username }), { data: null });
         if (free === false) {
           toast(`Your account was created. The email with the code can take a few minutes to reach ${email}.`);
           return renderCode(email);
         }
-        return toast("Could not create the account: the email server did not answer in time. Please try again in a few minutes.", true);
+        return toast(free === true ? "The account was not created: the server did not answer in time. Check your internet, then press Create Account again."
+          : "The server did not answer. Check your internet, wait a minute, then press Create Account again. If it says the email already has an account, press Sign In.", true);
       }
       if (error) return fail(error, "Could not create the account");
       // Supabase answers an already-registered email with a user that has no identities.
