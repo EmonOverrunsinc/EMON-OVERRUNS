@@ -3566,3 +3566,17 @@ body:has(.login) { background: #0f3a8c; }
 .drawer-x:hover, .drawer-x:focus-visible { background: #eef3fc; border-color: #1d4fb0; }
 /* 3.99.5: on an iPad a long name of a list goes on 2 lines when the list would not fit (the Payment list: every column shows) */
 @media (min-width: 701px) and (max-width: 1194px) { table.grid td.wrap { white-space: normal; min-width: 9.5em; overflow-wrap: break-word; } }
+/* 3.99.7: the easier Create Account page */
+.su-steps { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; gap: 4px; counter-reset: none; }
+.su-steps li { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11.5px; color: #8a8f98; text-align: center; position: relative; }
+.su-steps li span { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; background: #eef1f6; color: #8a8f98; border: 2px solid #d9dee7; z-index: 1; }
+.su-steps li:not(:last-child)::after { content: ""; position: absolute; top: 13px; left: calc(50% + 15px); right: calc(-50% + 15px); height: 2px; background: #d9dee7; }
+.su-steps li.on { color: var(--accent); font-weight: 700; } .su-steps li.on span { background: var(--accent); color: #fff; border-color: var(--accent); }
+.su-steps li.done { color: var(--ok); } .su-steps li.done span { background: var(--ok); color: #fff; border-color: var(--ok); }
+.su-steps li.done::after { background: var(--ok); }
+.fl-note { font-weight: 400; color: #8a8f98; }
+.login-form input.bad { border-color: var(--bad) !important; box-shadow: 0 0 0 3px rgba(200,40,40,.12) !important; }
+.f-err { color: var(--bad); font-size: 12.5px; font-weight: 600; margin-top: -2px; }
+.su-fix { background: #fff8e1; border: 1px solid #f0d58a; border-radius: 10px; padding: 7px 10px; font-size: 13px; }
+.su-fix .linkbtn { display: inline; padding: 0 0 0 4px; font-size: inherit; font-weight: 700; }
+.su-agree.bad { color: var(--bad); } .su-agree.bad input { outline: 2px solid var(--bad); outline-offset: 2px; }
