@@ -2207,7 +2207,7 @@
     const url = URL.createObjectURL(file);
     const share = !!navigator.canShare?.({ files: [file] });
     const m = modal("PDF Ready", `<p style="margin-top:0"><b>${esc(file.name)}</b> · ${Math.max(1, Math.round(file.size / 1024))} KB</p>
-      <p class="muted">A clean copy of the document: no web address, date or page number of the browser on it.${share ? " Press <b>Share / Print</b> to print it, save it to Files or send it." : ""}</p>`,
+      ${share ? `<p class="muted">Press <b>Share / Print</b> to print it, save it to Files or send it.</p>` : ""}`,
       `${share ? `<button type="button" class="btn primary" id="pdShare">${ic("upload")} Share / Print</button>` : ""}
        <a class="btn${share ? "" : " primary"}" id="pdSave" href="${url}" download="${esc(file.name)}">${ic("download")} Download</a>
        <button type="button" class="btn" id="pdClose">Close</button>`,
