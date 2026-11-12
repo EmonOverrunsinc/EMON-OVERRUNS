@@ -3603,3 +3603,5 @@ img.bw-css { filter: grayscale(1) contrast(1.25); }
 .nw { white-space: nowrap; }
 /* 3.99.19: the print has no grey band under the page (the grey of the preview screen came onto the paper) */
 @media print { .preview, .preview .pv-desk { background: #fff !important; } }
+/* 3.99.20: the "PDF Ready" window shows over a print preview */
+.modal.pdf-ready { z-index: 70; }
