@@ -3601,3 +3601,5 @@ img.bw-css { filter: grayscale(1) contrast(1.25); }
 #main .cust-hero .ch-ids > .idbox.ib-wide { grid-column: span 2; }
 /* 3.99.18: a record number (MS-202611001) is kept whole on one line */
 .nw { white-space: nowrap; }
+/* 3.99.19: the print has no grey band under the page (the grey of the preview screen came onto the paper) */
+@media print { .preview, .preview .pv-desk { background: #fff !important; } }
