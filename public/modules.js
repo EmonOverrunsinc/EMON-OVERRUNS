@@ -91,7 +91,7 @@
     for (let i = 0; i < list.length; i++) names.push(await autoName(ownerType, ownerId, kind, i).catch(() => `File ${Date.now()}_${i}`));
     const one = async (raw, i) => {
       try {
-        const f = await E.slimFile(raw); // 2.2.2: a smaller picture, still clear in print
+        const f = await E.slimFile(raw, kind === "requirement" ? "color" : "doc"); // 2.2.2: a smaller picture, still clear in print (3.99.15: black and white; an employee's ID stays in colour)
         const path = `${ownerType}/${ownerId}/${slug(names[i])}_${Date.now()}_${i}.${extOf(f)}`;
         const up = await sb.storage.from("records").upload(path, f, { contentType: f.type || "application/octet-stream" });
         if (up.error) { failed++; console.error(up.error); return; }
