@@ -3584,3 +3584,6 @@ body:has(.login) { background: #0f3a8c; }
 .hint.err.su-problem, .hint.err.su-problem b { color: #a3000f; } .hint.ok.su-problem b { color: #135c27; }
 /* 3.99.12: a details box with an odd number of boxes: the last one goes across the whole width (it was half a box with an empty half) */
 .pgrid2 > .pcell:last-child:nth-child(odd) { grid-column: 1 / -1; border-right: 0; }
+/* 3.99.13: the Due Date box of an invoice never breaks inside the date: a narrow box puts the year on the next line (DECEMBER 02 / 2026) */
+#main .rec-tile.sm b { overflow-wrap: normal; word-break: normal; }
+@media (min-width: 701px) { #main .rec-tile.sm b { white-space: normal; } }

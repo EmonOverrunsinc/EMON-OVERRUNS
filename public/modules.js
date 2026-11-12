@@ -1622,7 +1622,7 @@
       <div class="rec-tiles"><div class="rec-tile"><small>Total Amount</small><b>₱ ${peso(inv.total_amount)}</b></div>
         <div class="rec-tile ok"><small>Paid</small><b>₱ ${peso(inv.amount_paid)}</b></div>
         <div class="rec-tile ${bal > 0 ? "warn" : "ok"}"><small>Balance</small><b>₱ ${peso(bal)}</b></div>
-        <div class="rec-tile sm"><small>Due Date</small><b>${mdy(inv.due_date) || "—"}</b></div></div>
+        <div class="rec-tile sm"><small>Due Date</small><b>${mdy(inv.due_date).replace(/\u00a0(\d{4})$/, " $1") || "—"}</b></div></div>
       <div class="formgrid"><div class="fields wide">
         <span>Customer</span><span><a href="#customer/${inv.customer_id}"><b>${esc(fullName(inv))}</b> (${esc(inv.account_no)})</a> ${inv.customer_status !== "active" ? pill(inv.customer_status) : ""}</span>
         <span>Invoice Date</span><span>${mdy(inv.invoice_date)}</span>
