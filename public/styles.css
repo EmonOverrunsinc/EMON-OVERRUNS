@@ -3582,3 +3582,5 @@ body:has(.login) { background: #0f3a8c; }
 .su-agree.bad { color: var(--bad); } .su-agree.bad input { outline: 2px solid var(--bad); outline-offset: 2px; }
 .su-problem { text-align: left; margin-top: 4px; } .su-problem .muted { font-size: 11.5px; word-break: break-word; }
 .hint.err.su-problem, .hint.err.su-problem b { color: #a3000f; } .hint.ok.su-problem b { color: #135c27; }
+/* 3.99.12: a details box with an odd number of boxes: the last one goes across the whole width (it was half a box with an empty half) */
+.pgrid2 > .pcell:last-child:nth-child(odd) { grid-column: 1 / -1; border-right: 0; }
