@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.16"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.17"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.16"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.17"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -1730,8 +1730,25 @@
     const w = Math.max(0, ...tracks.map((t) => parseFloat(t[0]) || 0));
     if (w > 0 && w < g.clientWidth * 0.5) g.style.setProperty("--lab", Math.ceil(w) + "px");
   });
+  // 3.99.17: the value of a small box (a profile's Contact Person, Last Paid ...; an invoice's Total, Due Date) stays on
+  // ONE line: its writing gets smaller until it fits (down to 12 px); a profile box whose value is still too long gets
+  // twice the width (a long name); only then does it go on 2 lines at a space
+  const shrink = (b, min) => {
+    const room = b.clientWidth;
+    let fs = parseFloat(getComputedStyle(b).fontSize);
+    for (let i = 0; i < 6 && room && b.scrollWidth > room + 0.5 && fs > min; i++) { fs = Math.max(min, Math.floor(fs * (room / b.scrollWidth) * 10) / 10 - 0.2); b.style.fontSize = fs + "px"; }
+    return !room || b.scrollWidth <= room + 0.5;
+  };
+  const fitBoxes = () => $$("#main .idbox > b, #main .rec-tile > b").forEach((b) => {
+    const box = b.parentElement;
+    box.classList.remove("ib-wide"); b.style.fontSize = ""; b.style.whiteSpace = "nowrap";
+    if (shrink(b, 12)) return;
+    if (box.classList.contains("idbox") && box.parentElement?.matches(".ch-ids")) { box.classList.add("ib-wide"); b.style.fontSize = ""; if (shrink(b, 12)) return; }
+    if (!shrink(b, 11)) b.style.whiteSpace = "normal";
+  });
   const markWide = () => {
     alignFields();
+    fitBoxes();
     const floor = window.innerWidth <= 1194 ? 0.72 : 0.8;
     $$(FIT).forEach((s) => fitTable(s, s.querySelector("table"), floor));
     // 3.85.2: also the tables made by hand in a list box (purchase order items, order lines, return items, gate passes …)

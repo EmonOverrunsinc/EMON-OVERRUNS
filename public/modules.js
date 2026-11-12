@@ -953,7 +953,8 @@
     return "";
   }
   // Record numbers and codes in a typewriter font; names, dates and amounts in the normal font.
-  const idBox = (label, value) => `<div class="idbox"><small>${esc(label)}</small><b class="${/^[A-Z0-9][A-Z0-9-]*\d[A-Z0-9-]*$/i.test(String(value || "")) ? "mono" : ""}">${esc(value || "—")}</b></div>`;
+  // a code (an account no, KG-202611030) is in the code font; a count (49) is not (3.99.17)
+  const idBox = (label, value) => { const v = String(value || ""); return `<div class="idbox"><small>${esc(label)}</small><b class="${/^[A-Z0-9][A-Z0-9-]*\d[A-Z0-9-]*$/i.test(v) && (/[A-Z]/i.test(v) || v.length >= 6) ? "mono" : ""}">${esc(value || "—")}</b></div>`; };
 
   V.customer = async (id, extra) => {
     // 3.35: drawn again after a change (Approve, an upload …) only while this customer's page is still open, never over
