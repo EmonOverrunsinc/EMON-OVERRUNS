@@ -3594,3 +3594,5 @@ body:has(.login) { background: #0f3a8c; }
 #main .rec-tile.sm b { white-space: nowrap; font-size: min(16px, 10cqi); }
 @media (max-width: 1194px) { #main .rec-tile b { font-size: min(18px, 12cqi); } #main .rec-tile.sm b { font-size: min(16px, 10cqi); } }
 @media (max-width: 700px) { #main .rec-tile b { font-size: min(16px, 12cqi); } #main .rec-tile.sm b { font-size: min(14px, 10cqi); } }
+/* 3.99.15: a document picture that could not be made black and white by the portal is made grey by the browser */
+img.bw-css { filter: grayscale(1) contrast(1.25); }
