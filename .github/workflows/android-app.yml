@@ -3,7 +3,9 @@
 # (Actions › Android app › the newest run › Artifacts). The release key is kept by EMON OVERRUNS, not in
 # this public repository: both are signed after download (see apps/README.md), or here when EMON OVERRUNS has put the
 # key in the repository's secrets (Settings › Secrets and variables › Actions): ANDROID_KEYSTORE_BASE64,
-# ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD. Then the run also keeps E-Portal-Android-signed.
+# ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD. Then the run also keeps E-Portal-Android-signed,
+# and (on main) publishes the signed APK as the release android-v<version>: a download link like the Windows app's,
+# https://github.com/<repo>/releases/download/android-v<version>/EMON-OVERRUNS-E-Portal-<version>.apk
 name: Android app
 
 on:
@@ -11,6 +13,9 @@ on:
     branches: [main]
     paths: ["apps/android/**", ".github/workflows/android-app.yml"]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   android:
@@ -72,3 +77,22 @@ jobs:
           name: E-Portal-Android-signed
           path: apps/android/app/build/outputs/signed/
           retention-days: 90
+
+      - name: Publish the signed APK as a download (release android-v<version>)
+        if: env.KS_B64 != '' && github.ref == 'refs/heads/main'
+        working-directory: apps/android/app/build/outputs/signed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(grep -oP 'versionName "\K[^"]+' ../../../build.gradle)
+          TAG="android-v$VERSION"
+          FILE="EMON-OVERRUNS-E-Portal-$VERSION.apk"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$FILE" --clobber
+          else
+            gh release create "$TAG" "$FILE" --target "$GITHUB_SHA" --latest=false \
+              --title "E-Portal for Android $VERSION" \
+              --notes "EMON OVERRUNS E-Portal for Android $VERSION. Download $FILE on the Android phone and open it to install (allow installing from this source when the phone asks)."
+          fi
+          echo "Download: https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$FILE"
