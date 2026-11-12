@@ -3599,3 +3599,5 @@ img.bw-css { filter: grayscale(1) contrast(1.25); }
 /* 3.99.17: a value in a small box is never broken inside a word or a date (the portal makes its writing smaller instead) */
 #main .idbox > b, #main .rec-tile > b { overflow-wrap: normal; word-break: normal; }
 #main .cust-hero .ch-ids > .idbox.ib-wide { grid-column: span 2; }
+/* 3.99.18: a record number (MS-202611001) is kept whole on one line */
+.nw { white-space: nowrap; }

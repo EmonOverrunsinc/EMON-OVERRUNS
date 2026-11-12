@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.17"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.18"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.17"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.18"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -1746,8 +1746,34 @@
     if (box.classList.contains("idbox") && box.parentElement?.matches(".ch-ids")) { box.classList.add("ib-wide"); b.style.fontSize = ""; if (shrink(b, 12)) return; }
     if (!shrink(b, 11)) b.style.whiteSpace = "normal";
   });
+  // 3.99.18: a record number or a word with a hyphen (MS-202611001, INV-202611-0001, E-Bill) is never broken at its hyphen
+  // (MS- / 202611001): it is kept whole on one line (only the words on the page are wrapped, nothing else changes)
+  const CODE_RE = /[A-Za-z0-9#]+(?:-[A-Za-z0-9#]+)+/g;
+  const noBreakCodes = () => {
+    const main = document.getElementById("main");
+    if (!main) return;
+    const tw = document.createTreeWalker(main, NodeFilter.SHOW_TEXT, { acceptNode: (t) => (t.nodeValue.includes("-") && !t.parentElement?.closest(".nw, script, style, textarea, select, option, svg, [contenteditable]") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT) });
+    const todo = [];
+    while (tw.nextNode()) todo.push(tw.currentNode);
+    for (const t of todo) {
+      const txt = t.nodeValue, parts = [];
+      let at = 0, m;
+      CODE_RE.lastIndex = 0;
+      while ((m = CODE_RE.exec(txt))) { if (m[0].length > 28) continue; parts.push([m.index, m[0]]); }
+      if (!parts.length) continue;
+      const frag = document.createDocumentFragment();
+      for (const [i, code] of parts) {
+        if (i > at) frag.append(txt.slice(at, i));
+        const sp = document.createElement("span"); sp.className = "nw"; sp.textContent = code; frag.append(sp);
+        at = i + code.length;
+      }
+      if (at < txt.length) frag.append(txt.slice(at));
+      t.replaceWith(frag);
+    }
+  };
   const markWide = () => {
     alignFields();
+    noBreakCodes();
     fitBoxes();
     const floor = window.innerWidth <= 1194 ? 0.72 : 0.8;
     $$(FIT).forEach((s) => fitTable(s, s.querySelector("table"), floor));
