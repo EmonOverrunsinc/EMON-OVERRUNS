@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.10"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.11"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.10"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.11"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -635,22 +635,53 @@
       if (/EO[0-9A-F]{40}/i.test(v) && window.EO.renderCustLogin) return window.EO.renderCustLogin(v);
       toast("This QR code is not an EMON OVERRUNS employee ID card or customer Public ID.", true);
     }, { title: "Scan Your ID", hint: "Hold your employee ID card (the QR code on the back) or your customer Public ID in front of the camera.", photo: false });
+    // 3.99.11: Sign In says why it did not work in a box that stays under the button (and that it worked)
+    const lgSay = (cls, html) => {
+      $("#lgProblem")?.remove();
+      $("#lgForm button[type=submit]")?.insertAdjacentHTML("afterend", `<div class="hint ${cls} small su-problem" id="lgProblem" role="${cls === "err" ? "alert" : "status"}">${html}</div>`);
+    };
+    const lgFail = (say, server) => { lgSay("err", `<b>${esc(say)}</b>${server ? `<br><span class="muted">Server: ${esc(server)}</span>` : ""}`); toast(say, true); };
+    $("#lgId").oninput = () => fieldErr("lgId", "");
+    $("#lgPass").oninput = () => fieldErr("lgPass", "");
     $("#lgForm").onsubmit = async (e) => {
       e.preventDefault();
-      const id = $("#lgId").value.trim(), password = $("#lgPass").value;
-      if (!id || !password) return toast("Enter your email or username and your password.", true);
-      setBusy(e.target, true, "Signing in");
-      const email = await loginEmail(id);
-      if (!email) { setBusy(e.target, false); return toast(`No account uses the username “${id}”. Check it, or sign in with your email.`, true); }
-      const { error } = await sb.auth.signInWithPassword({ email, password });
-      if (!error) return; // the auth listener opens the portal
-      setBusy(e.target, false);
-      if (/confirm/i.test(error.message)) {
+      $("#lgProblem")?.remove();
+      const form = e.target, id = $("#lgId").value.trim(), password = $("#lgPass").value;
+      if (!id) fieldErr("lgId", "Type your email or username.");
+      if (!password) fieldErr("lgPass", "Type your password.");
+      if (!id || !password) { $(id ? "#lgPass" : "#lgId").focus(); return lgFail("Type your email or username and your password."); }
+      setBusy(form, true, "Signing in");
+      const within = (ms, work, late) => Promise.race([work, new Promise((r) => setTimeout(() => r(late), ms))]);
+      const late = { status: 504, message: "The server did not answer in 30 seconds" };
+      let email = id.toLowerCase();
+      if (!id.includes("@")) {
+        const { data, error } = await within(30000, sb.rpc("login_email", { p_login: id }), { error: late });
+        if (error) { setBusy(form, false); console.error(error); return lgFail("The server did not answer. Check your internet, then press Sign In again.", `${error.message || ""}${error.status ? ` (HTTP ${error.status})` : ""}`); }
+        if (!data) { setBusy(form, false); fieldErr("lgId", "No account has this username."); $("#lgId").focus(); return lgFail(`No account uses the username “${id}”. Check it, or sign in with your email.`); }
+        email = data;
+      }
+      const { error } = await within(30000, sb.auth.signInWithPassword({ email, password }), { error: late });
+      if (!error) {
+        // the auth listener opens the portal (or the Waiting for Approval page of a new account)
+        if (form.isConnected) { $("button[type=submit]", form).innerHTML = `<span class="spin sm light"></span> Opening the portal`; lgSay("ok", "<b>✔ Signed in.</b> Opening the portal…"); }
+        return toast("Signed in. Welcome!");
+      }
+      setBusy(form, false);
+      const m = String(error.message || error);
+      if (/confirm/i.test(m)) {
         toast("Your email is not confirmed yet. Enter the code we emailed you.", true);
         sb.auth.resend({ type: "signup", email, options: { emailRedirectTo: authRedirect() } }).then(() => {}, () => {});
         return renderCode(email);
       }
-      fail(/invalid login/i.test(error.message) ? "Wrong email/username or password." : error, "Sign-in failed");
+      if (/invalid login|invalid credentials/i.test(m)) {
+        $("#lgPass").value = ""; fieldErr("lgPass", "Wrong password."); $("#lgPass").focus();
+        return lgFail(id.includes("@") ? `Wrong password, or no account uses ${email}. Check Caps Lock, or press “Forgot password?”.` : `Wrong password for “${id}”. Check Caps Lock, or press “Forgot password?”.`);
+      }
+      const why = timedOut(error) ? "The server did not answer. Check your internet, then press Sign In again."
+        : error.status === 429 || /rate limit|too many|security purposes/i.test(m) ? "Too many tries. Wait 5 minutes, then sign in again."
+        : /banned/i.test(m) ? "This account is blocked. Contact EMON HASAN."
+        : "Could not sign in.";
+      lgFail(why, `${m}${error.status ? ` (HTTP ${error.status})` : ""}`);
     };
   }
 

@@ -3581,3 +3581,4 @@ body:has(.login) { background: #0f3a8c; }
 .su-fix .linkbtn { display: inline; padding: 0 0 0 4px; font-size: inherit; font-weight: 700; }
 .su-agree.bad { color: var(--bad); } .su-agree.bad input { outline: 2px solid var(--bad); outline-offset: 2px; }
 .su-problem { text-align: left; margin-top: 4px; } .su-problem .muted { font-size: 11.5px; word-break: break-word; }
+.hint.err.su-problem, .hint.err.su-problem b { color: #a3000f; } .hint.ok.su-problem b { color: #135c27; }
