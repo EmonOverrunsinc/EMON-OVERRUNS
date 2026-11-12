@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.19"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.20"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.19"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.20"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -312,7 +312,8 @@
   // The barcode maker (bwip-js, 1.1 MB) loads once the first page is up and the browser is idle (3.35: no longer with
   // the page, so the first page comes sooner); a print or a barcode wanted before then waits for it. The code reader
   // (ZXing) loads the first time something is scanned or read from a photo without the phone's own barcode reader.
-  const LIBS = { bwip: ["vendor/bwip-js-min.js", "bwipjs"], zxing: ["vendor/zxing.min.js", "ZXing"], jsqr: ["vendor/jsqr.js", "jsQR"] }; // 3.78.3: jsQR reads QR codes well on iPhone
+  const LIBS = { bwip: ["vendor/bwip-js-min.js", "bwipjs"], zxing: ["vendor/zxing.min.js", "ZXing"], jsqr: ["vendor/jsqr.js", "jsQR"], // 3.78.3: jsQR reads QR codes well on iPhone
+    h2c: ["vendor/html2canvas.min.js", "html2canvas"], jspdf: ["vendor/jspdf.umd.min.js", "jspdf"] }; // 3.99.20: Download PDF
   const libs = {};
   function need(name) {
     const [src, global] = LIBS[name];
@@ -2142,6 +2143,78 @@
 
   // ---------- report preview window ----------
   // size: "" (A4 portrait), "landscape" (A4 landscape) or "a5l" (A5 landscape slip).
+  // 3.99.20: Download PDF: each page of the preview becomes a page of a PDF file, as it prints (A4; A5 or A4 across), but
+  // without the web address, date and page number that an iPad (Safari) prints at the bottom of every web page. A page
+  // longer than one sheet goes on to the next sheet (cut at a white line between rows). On a phone or tablet the file
+  // opens in Share (Print, Save to Files, WhatsApp ...); a computer downloads it.
+  async function savePdf(pv, desk, title, btn) {
+    if (btn.disabled) return;
+    const label = btn.innerHTML, zoom = desk.style.zoom, undo = [];
+    btn.disabled = true; btn.innerHTML = `<span class="spin sm"></span> Making PDF…`;
+    try {
+      const [h2c, lib] = await Promise.all([need("h2c"), need("jspdf")]);
+      await Promise.all([document.fonts?.ready, ...$$("img", desk).map((im) => im.decode().catch(() => {}))]);
+      desk.style.zoom = 1; // the pages at their real size (Fit / Zoom only changes the screen)
+      let pdf = null;
+      for (const pg of $$(".page", desk)) {
+        const [w, h] = pg.classList.contains("a4l") ? [297, 210] : pg.classList.contains("a5l") ? [210, 148] : [210, 297];
+        const sheetPx = (pg.offsetWidth * h) / w;
+        // a page made smaller to fit on one sheet (onePage): the picture maker does not know "zoom", so it is a scale here
+        const fit = $(".pg-fit", pg), z = fit ? parseFloat(fit.style.zoom) || 1 : 1;
+        if (fit && z !== 1) {
+          undo.push([fit, fit.getAttribute("style") || ""]);
+          fit.style.zoom = ""; fit.style.transformOrigin = "0 0"; fit.style.transform = `scale(${z})`; fit.style.width = `${100 / z}%`;
+        }
+        const canvas = await h2c(pg, { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false, ...(fit ? { height: Math.min(pg.scrollHeight, Math.floor(sheetPx)) } : {}) });
+        const cw = canvas.width, perSheet = Math.round((cw * h) / w);
+        // where each sheet ends: a white line a little above the sheet's end (not through a row of writing)
+        const g = canvas.getContext("2d"), cuts = [0];
+        while (canvas.height - cuts[cuts.length - 1] > perSheet * 1.02) {
+          let cut = cuts[cuts.length - 1] + perSheet;
+          for (let y = cut, stop = cut - Math.round(perSheet * 0.12); y > stop; y -= 2) {
+            const row = g.getImageData(0, y, cw, 1).data;
+            let white = true;
+            for (let i = 0; i < row.length; i += 16) if (row[i] < 245 || row[i + 1] < 245 || row[i + 2] < 245) { white = false; break; }
+            if (white) { cut = y; break; }
+          }
+          cuts.push(cut);
+        }
+        cuts.push(canvas.height);
+        for (let i = 0; i + 1 < cuts.length; i++) {
+          const part = document.createElement("canvas"), ph = cuts[i + 1] - cuts[i];
+          part.width = cw; part.height = ph;
+          const pc = part.getContext("2d"); pc.fillStyle = "#fff"; pc.fillRect(0, 0, cw, ph); pc.drawImage(canvas, 0, cuts[i], cw, ph, 0, 0, cw, ph);
+          const k = Math.min(w / cw, h / ph);
+          if (!pdf) pdf = new lib.jsPDF({ orientation: w > h ? "landscape" : "portrait", unit: "mm", format: [w, h], compress: true });
+          else pdf.addPage([w, h], w > h ? "landscape" : "portrait");
+          pdf.addImage(part.toDataURL("image/jpeg", 0.92), "JPEG", (w - cw * k) / 2, 0, cw * k, ph * k, undefined, "FAST");
+        }
+      }
+      if (!pdf) throw new Error("there is no page");
+      const name = (String(title).replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim() || "Document") + ".pdf";
+      pdfReady(new File([pdf.output("blob")], name, { type: "application/pdf" }));
+    } catch (e) {
+      console.error(e);
+      toast(`Could not make the PDF: ${e.message || e}. Use Print instead.`, true);
+    } finally {
+      undo.forEach(([el, st]) => el.setAttribute("style", st));
+      desk.style.zoom = zoom; pvFit?.();
+      btn.disabled = false; btn.innerHTML = label;
+    }
+  }
+  // the PDF is ready: Share (a phone or tablet: Print, Save to Files, WhatsApp ...) or Download
+  function pdfReady(file) {
+    const url = URL.createObjectURL(file);
+    const share = !!navigator.canShare?.({ files: [file] });
+    const m = modal("PDF Ready", `<p style="margin-top:0"><b>${esc(file.name)}</b> · ${Math.max(1, Math.round(file.size / 1024))} KB</p>
+      ${share ? `<p class="muted">Press <b>Share / Print</b> to print it, save it to Files or send it.</p>` : ""}`,
+      `${share ? `<button type="button" class="btn primary" id="pdShare">${ic("upload")} Share / Print</button>` : ""}
+       <a class="btn${share ? "" : " primary"}" id="pdSave" href="${url}" download="${esc(file.name)}">${ic("download")} Download</a>
+       <button type="button" class="btn" id="pdClose">Close</button>`,
+      { cls: "pdf-ready", onClose: () => setTimeout(() => URL.revokeObjectURL(url), 60000) });
+    $("#pdClose", m.el).onclick = () => m.close();
+    if ($("#pdShare", m.el)) $("#pdShare", m.el).onclick = () => navigator.share({ files: [file], title: file.name }).catch((e) => { if (e?.name !== "AbortError") toast("Could not open Share. Press Download.", true); });
+  }
   function openPreview(title, pages, opts = {}) {
     // the barcodes are drawn first: a print made while the barcode maker was still loading opens when it is there
     if (!window.bwipjs) { need("bwip").then(() => openPreview(title, pages, opts), (e) => toast(e.message, true)); return; }
@@ -2162,7 +2235,8 @@
     pv.innerHTML = `
       <div class="pv-title">Preview — ${esc(title)}</div>
       <div class="pv-tools">
-        <button type="button" class="btn primary" id="pvPrint">${ic("print")} Print / Save PDF</button>
+        <button type="button" class="btn primary" id="pvPrint">${ic("print")} Print</button>
+        <button type="button" class="btn" id="pvPdf">${ic("download")} Download PDF</button>
         <label for="pvZoom">Zoom</label>
         <select id="pvZoom" style="width:auto"><option value="fit">Fit</option><option>50</option><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
         <button type="button" class="btn" id="pvClose">Close</button>
@@ -2175,6 +2249,7 @@
     document.body.classList.toggle("print-a5l", size === "a5l");
     const desk = $("#pvDesk", pv);
     $("#pvPrint", pv).onclick = () => window.print();
+    $("#pvPdf", pv).onclick = (e) => savePdf(pv, desk, title, e.currentTarget);
     $("#pvClose", pv).onclick = closePreview;
     // 3.29: every document keeps its A4 layout; on a screen narrower than the page (a phone), Fit shows the whole A4
     // page as it prints. The print itself is always 100%.
