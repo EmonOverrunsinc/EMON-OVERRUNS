@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.14"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.15"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.14"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.15"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -436,22 +436,70 @@
   // paper); a person's photo about 1.2 million, a profile picture about 0.5 million. The picture is saved as JPEG on
   // white, or, for a clean PNG scan that JPEG would not make smaller, as a smaller PNG. PDFs and other files are kept as
   // they are, and so is a picture that is already small or would not get smaller.
-  const SLIM = { doc: 4.2e6, photo: 1.2e6, avatar: 0.5e6 };
-  // 2.9: a document picture is also made clear: the paper is made white and the ink (handwriting, stamps,
-  // signatures) darker, keeping its colour. Only this clear copy is saved.
-  function clearInk(g, w, h) {
-    const d = g.getImageData(0, 0, w, h), px = d.data, hist = new Uint32Array(256);
-    for (let i = 0; i < px.length; i += 16) hist[(px[i] * 77 + px[i + 1] * 150 + px[i + 2] * 29) >> 8]++;
-    let n = 0; for (const x of hist) n += x;
-    const at = (q) => { let a = 0; for (let v = 0; v < 256; v++) { a += hist[v]; if (a >= n * q) return v; } return 255; };
-    const lo = at(0.01), hi = Math.max(lo + 40, at(0.9));
-    const lut = new Uint8ClampedArray(256);
-    for (let v = 0; v < 256; v++) { const t = Math.min(1, Math.max(0, (v - lo) / (hi - lo))); lut[v] = Math.round(255 * Math.pow(t, 1.35)); }
-    for (let i = 0; i < px.length; i += 4) { px[i] = lut[px[i]]; px[i + 1] = lut[px[i + 1]]; px[i + 2] = lut[px[i + 2]]; }
+  // 3.99.15: a document (a receipt, a bank slip, a signed form) keeps about 3 million pixels: in black and white that is
+  // still sharp on an A4 page and the file is much smaller. "color": a document kept in colour (an employee's ID).
+  const SLIM = { doc: 3e6, receipt: 3e6, color: 3e6, photo: 1.2e6, avatar: 0.5e6 };
+  // 3.99.15: a document picture becomes a clear BLACK AND WHITE scan: grey, the paper white and the writing black, the
+  // file small. A screenshot with light writing on a dark or coloured screen (a bank app) is turned round first, so it
+  // also prints as black writing on white. (It was 2.9's "clear ink" in colour, which turned a blue bank screen cyan.)
+  function scanBW(g, w, h) {
+    const d = g.getImageData(0, 0, w, h), px = d.data, n = w * h, lum = new Uint8ClampedArray(n);
+    for (let i = 0, j = 0; j < n; i += 4, j++) lum[j] = (px[i] * 77 + px[i + 1] * 150 + px[i + 2] * 29) >> 8;
+    // the background: the most common grey in the middle of the picture (a table around the paper is left out)
+    const hist = new Uint32Array(256), x0 = (w * 0.2) | 0, x1 = Math.max(x0 + 1, (w * 0.8) | 0), y0 = (h * 0.2) | 0, y1 = Math.max(y0 + 1, (h * 0.8) | 0);
+    for (let y = y0; y < y1; y += 2) for (let x = x0; x < x1; x += 2) hist[lum[y * w + x]]++;
+    let bg = 255, most = -1;
+    for (let v = 0; v < 256; v++) { let c = 0; for (let k = Math.max(0, v - 6); k <= Math.min(255, v + 6); k++) c += hist[k]; if (c > most) { most = c; bg = v; } }
+    let lighter = 0, darker = 0;
+    for (let v = 0; v < 256; v++) { if (v > bg + 40) lighter += hist[v]; else if (v < bg - 40) darker += hist[v]; }
+    if (bg < 200 && lighter > darker * 1.5) for (let j = 0; j < n; j++) lum[j] = 255 - lum[j];
+    // the paper level around each spot (a shadow, a coloured panel): the light level of cells of about 1/40 of the
+    // picture, smoothed); each spot is measured against it, so every background becomes white
+    const cs = Math.max(8, Math.round(Math.max(w, h) / 40)), gw = Math.ceil(w / cs), gh = Math.ceil(h / cs);
+    const cell = new Float32Array(gw * gh), ch = new Uint32Array(64);
+    for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+      ch.fill(0); let m = 0;
+      for (let y = gy * cs; y < Math.min(h, gy * cs + cs); y += 2) for (let x = gx * cs; x < Math.min(w, gx * cs + cs); x += 2) { ch[lum[y * w + x] >> 2]++; m++; }
+      let c = 0, v = 63; for (; v > 0; v--) { c += ch[v]; if (c >= m * 0.1) break; }
+      cell[gy * gw + gx] = v * 4 + 2;
+    }
+    const back = new Float32Array(gw * gh);
+    for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) { let a = 0, k = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const yy = gy + dy, xx = gx + dx; if (yy >= 0 && xx >= 0 && yy < gh && xx < gw) { a += cell[yy * gw + xx]; k++; } }
+      back[gy * gw + gx] = a / k; }
+    const at = (x, y) => { const fx = Math.min(gw - 1, Math.max(0, x / cs - 0.5)), fy = Math.min(gh - 1, Math.max(0, y / cs - 0.5)), x0 = fx | 0, y0 = fy | 0, x1 = Math.min(gw - 1, x0 + 1), y1 = Math.min(gh - 1, y0 + 1), tx = fx - x0, ty = fy - y0;
+      return (back[y0 * gw + x0] * (1 - tx) + back[y0 * gw + x1] * tx) * (1 - ty) + (back[y1 * gw + x0] * (1 - tx) + back[y1 * gw + x1] * tx) * ty; };
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const j = y * w + x; lum[j] = Math.min(255, (lum[j] * 255) / Math.max(24, at(x, y))); }
+    // the darkest writing black, the paper (and lighter) white, the grey between a little darker (bolder writing)
+    const nh = new Uint32Array(256);
+    for (let j = 0; j < n; j += 3) nh[lum[j]]++;
+    let total = 0, acc = 0, lo = 0;
+    for (const c of nh) total += c;
+    for (let v = 0; v < 256; v++) { acc += nh[v]; if (acc >= total * 0.01) { lo = v; break; } }
+    const hi = Math.max(lo + 50, 232), lut = new Uint8ClampedArray(256);
+    for (let v = 0; v < 256; v++) { const t = Math.min(1, Math.max(0, (v - lo) / (hi - lo))); lut[v] = Math.round(255 * Math.pow(t, 1.5)); }
+    for (let i = 0, j = 0; j < n; i += 4, j++) px[i] = px[i + 1] = px[i + 2] = lut[lum[j]];
     g.putImageData(d, 0, 0);
+  }
+  // 3.99.15: a document picture already saved (in colour) shows in black and white on a printed page too
+  async function bwPictures(root) {
+    for (const im of $$(".v-rcpt img, .cvr-pic img, .soa-imgs img", root)) {
+      if (im.dataset.bw) continue;
+      im.dataset.bw = "1";
+      try {
+        const pic = await new Promise((ok, bad) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => ok(i); i.onerror = bad; i.src = im.currentSrc || im.src; });
+        const W = pic.naturalWidth, H = pic.naturalHeight, k = Math.min(1, Math.sqrt(SLIM.doc / (W * H)));
+        const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(W * k)); c.height = Math.max(1, Math.round(H * k));
+        const g = c.getContext("2d", { willReadFrequently: true });
+        g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.imageSmoothingQuality = "high"; g.drawImage(pic, 0, 0, c.width, c.height);
+        scanBW(g, c.width, c.height);
+        im.src = c.toDataURL("image/jpeg", 0.88);
+      } catch (_) { im.classList.add("bw-css"); } // a picture that cannot be read: made grey by the browser
+    }
   }
   async function slimFile(file, kind = "doc") {
     if (!file || !/^image\/(jpeg|png|webp|bmp)$/i.test(file.type || "")) return file;
+    if (kind === "receipt") kind = "doc";
     if (kind !== "doc" && file.size < 300 * 1024) return file;
     const url = URL.createObjectURL(file);
     try {
@@ -466,9 +514,9 @@
       g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
       g.imageSmoothingQuality = "high";
       g.drawImage(img, 0, 0, c.width, c.height);
-      if (kind === "doc") clearInk(g, c.width, c.height);
+      if (kind === "doc") scanBW(g, c.width, c.height);
       const encode = (type, q) => new Promise((res) => c.toBlob(res, type, q));
-      let best = await encode("image/jpeg", 0.82);
+      let best = await encode("image/jpeg", kind === "doc" ? 0.8 : 0.82);
       // a PNG picture (a clean scan) stays a PNG when that file is smaller (3.35: also when it keeps its size)
       if (/png/i.test(file.type)) { const png = await encode("image/png"); if (png && (!best || png.size < best.size)) best = png; }
       if (!best || (kind !== "doc" && best.size >= file.size)) return file;
@@ -2079,6 +2127,7 @@
       <div class="pv-desk" id="pvDesk">${pages.map((p, i) => (bare ? `<div class="page${cls} bare">${p}</div>` : `<div class="page${cls}">${dated(p)}${onePage ? `<div class="pg-fit">${p}</div>` : p}<div class="pg-num">PAGE ${i + 1} OF ${pages.length}</div></div>`)).join("")}</div>
       <div class="statusbar"><span id="pvCur">Current Page No: 1</span><span>Total Page No: ${pages.length}</span><span id="pvZf">Zoom Factor: 100%</span></div>`;
     document.body.appendChild(pv);
+    bwPictures($("#pvDesk", pv)); // 3.99.15
     // 3.0: no watermark (company seal) on printed pages
     document.body.classList.toggle("print-a5l", size === "a5l");
     const desk = $("#pvDesk", pv);
