@@ -265,10 +265,10 @@
           <span class="qc-verd" id="qcVerd"></span><small class="muted" id="qcHint"></small></div></fieldset>
       <fieldset class="opt"><legend>Notes</legend>
         <textarea id="qcNotes" rows="3" maxlength="1000" placeholder="Notes about the goods or the check, e.g. DOMINANT: 50 OF WHITE" aria-label="Notes">${esc(r.remarks || "")}</textarea></fieldset>
-      ${isNew ? "" : `<fieldset class="opt"><legend>Scan the Paper Form</legend>
-        <p class="muted" style="margin-top:0">Stick a result sticker on the paper QC TEST form, then scan or upload it (up to 6 files). Only the form logo is shown; press it to open.</p>
+      ${isNew ? "" : `<fieldset class="opt"><legend>Upload the Form</legend>
+        <p class="muted" style="margin-top:0">Stick a result sticker on the QC TEST form, then upload it (up to 6 files). Only the form logo is shown; press it to open.</p>
         <div class="qc-docs" id="qcDocs"></div>
-        <div class="btnrow"><label class="btn primary" for="qcUp" id="qcUpL">${ic("upload")} Upload Paper Form</label><input type="file" id="qcUp" hidden multiple accept="image/*,application/pdf" data-save-now></div></fieldset>`}
+        <div class="btnrow"><label class="btn primary" for="qcUp" id="qcUpL">${ic("upload")} Upload Form</label><input type="file" id="qcUp" hidden multiple accept="image/*,application/pdf" data-save-now></div></fieldset>`}
     </div><div class="wfoot">${isNew ? `<button type="button" class="btn" id="qcCancel">Cancel</button><button type="button" class="btn primary" id="qcSave">${ic("check")} Submit QC Test</button>`
       : `<button type="button" class="btn primary" id="qcSave">${ic("check")} ${done ? "Update" : "Save"}</button><button type="button" class="btn" id="qcSticker"${done ? "" : " disabled"}>${ic("print")} Print 2 Stickers</button>
       ${isAdmin() ? `<button type="button" class="btn danger" id="qcDel">${ic("trash")} Delete</button>` : ""}<a class="btn" href="#eooffice">Close</a>`}</div></div>`;
@@ -328,7 +328,7 @@
       const open = CHECKS.filter(([k]) => !v.choice[k]);
       if (open.length) { $(`#qcList [data-k="${open[0][0]}"]`)?.scrollIntoView({ block: "center" }); return toast(`Choose Pass or Fail for every check (${open.length} not checked).`, true); }
       if (v.score === "" || !Number.isInteger(s) || s < 0 || s > 100) return toast("Write the total score from 0 to 100.", true);
-      if (busyUp) return toast("Wait until the paper copy is uploaded.", true);
+      if (busyUp) return toast("Wait until the upload is finished.", true);
       const result = { checks: v.checks, numbers: v.numbers, score: s, remarks: v.notes };
       const all = { ...v.goods, qty_lines: v.lines, qty: colorSum(v.lines) ?? pcs(v.qty), mending_max: v.mending, ...result };
       const btn = e.currentTarget; btn.disabled = true;
@@ -361,15 +361,15 @@
     };
     // paper copies: only the form logo is shown, press to open
     const paintDocs = () => {
-      $("#qcDocs").innerHTML = docs.length ? docs.map((p, i) => `<div class="qc-doc"><button type="button" class="qc-doc-open" data-i="${i}" aria-label="Open the paper copy ${i + 1}">${E.logoHtml("qc-doc-logo")}
+      $("#qcDocs").innerHTML = docs.length ? docs.map((p, i) => `<div class="qc-doc"><button type="button" class="qc-doc-open" data-i="${i}" aria-label="Open upload ${i + 1}">${E.logoHtml("qc-doc-logo")}
           <b>QC FORM</b><small>Press to open${docs.length > 1 ? ` · ${i + 1}` : ""}</small></button><button type="button" class="qc-doc-rm" data-r="${i}" aria-label="Remove">${ic("trash")}</button></div>`).join("")
-        : `<div class="empty small">No paper form uploaded.</div>`;
+        : `<div class="empty small">No form uploaded.</div>`;
       $("#qcUpL").hidden = docs.length >= 6;
       $$("#qcDocs .qc-doc-open").forEach((b) => (b.onclick = () => E.viewFile({ storage_path: docs[Number(b.dataset.i)], mime: "", file_name: `${t.qc_no} QC Form` })));
       $$("#qcDocs .qc-doc-rm").forEach((b) => (b.onclick = async () => {
-        if (!(await E.confirmBox(`Remove this paper copy of <b>${esc(t.qc_no)}</b>? You can upload it again.`, { ok: "Remove", danger: true }))) return;
+        if (!(await E.confirmBox(`Remove this upload of <b>${esc(t.qc_no)}</b>? You can upload it again.`, { ok: "Remove", danger: true }))) return;
         const keep = docs.filter((_, i) => i !== Number(b.dataset.r));
-        if (busyUp) return toast("Wait until the paper copy is uploaded.", true);
+        if (busyUp) return toast("Wait until the upload is finished.", true);
         const { data: d, error } = await sb.rpc("qc_set_docs", { p_id: t.id, p_docs: keep });
         if (error) return fail(error, "Could not remove the file");
         docs.splice(0, docs.length, ...keep);
@@ -395,14 +395,14 @@
       const finish = () => { busyUp = false; if (here() && $("#qcSave")) { $("#qcSave").disabled = false; lab.classList.remove("disabled"); } };
       if (!added.length) return finish();
       const { error } = await sb.rpc("qc_set_docs", { p_id: t.id, p_docs: [...docs, ...added] });
-      if (error) { sb.storage.from("records").remove(added).then(() => {}, () => {}); finish(); return fail(error, "Could not save the paper copy"); }
+      if (error) { sb.storage.from("records").remove(added).then(() => {}, () => {}); finish(); return fail(error, "Could not save the upload"); }
       docs.push(...added);
       finish();
-      toast("Paper form saved.");
+      toast("Upload saved.");
       if (here()) paintDocs();
     };
     if ($("#qcDel")) $("#qcDel").onclick = async () => {
-      if (!(await E.confirmBox(`Delete QC test <b>${esc(t.qc_no)}</b> with its result and paper copies? This cannot be undone.`, { ok: "Delete", danger: true }))) return;
+      if (!(await E.confirmBox(`Delete QC test <b>${esc(t.qc_no)}</b> with its result and uploads? This cannot be undone.`, { ok: "Delete", danger: true }))) return;
       const { data: gone, error } = await sb.rpc("delete_qc", { p_id: t.id });
       if (error) return fail(error, "Could not delete");
       if (gone?.length) sb.storage.from("records").remove(gone).then(() => {}, () => {});

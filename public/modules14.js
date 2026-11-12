@@ -288,7 +288,7 @@
     if ($("#ipFile")) $("#ipFile").onchange = (e) => readSlip(e.target.files[0]);
     if ($("#ipSend")) $("#ipSend").onclick = async (e) => {
       const raw = $("#ipFile").files[0] || evaFile;
-      if (!raw) { $("#ipFile").focus(); return toast("Scan or upload the payment slip.", true); }
+      if (!raw) { $("#ipFile").focus(); return toast("Upload the payment slip.", true); }
       const btn = e.currentTarget; btn.disabled = true; toast("Uploading the proof…");
       const f = /pdf/i.test(raw.type) ? raw : await E.slimFile(raw, "photo");
       const path = `insurance/${i.id}/proof_${Date.now()}.${E.extOf(f)}`;
