@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.8"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.9"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.8"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.9"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -741,7 +741,7 @@
     "gmal.com": "gmail.com", "gnail.com": "gmail.com", "gmaill.com": "gmail.com", "gmail.om": "gmail.com", "yaho.com": "yahoo.com", "yahoo.con": "yahoo.com", "yhoo.com": "yahoo.com",
     "hotmal.com": "hotmail.com", "hotmail.con": "hotmail.com", "outlok.com": "outlook.com", "outlook.con": "outlook.com", "icloud.con": "icloud.com" };
   const mailFix = (email) => { const [u, d] = String(email).split("@"); const f = d && MAIL_FIX[d.toLowerCase()]; return f ? `${u}@${f}` : ""; };
-  const authSteps = (on) => `<ol class="su-steps">${["Your details", "Code from email", "Done"].map((t, i) => `<li class="${i < on ? "done" : i === on ? "on" : ""}"><span>${i < on ? "✔" : i + 1}</span>${t}</li>`).join("")}</ol>`;
+  const authSteps = (on, mid = "Code from email") => `<ol class="su-steps">${["Your details", mid, "Done"].map((t, i) => `<li class="${i < on ? "done" : i === on ? "on" : ""}"><span>${i < on ? "✔" : i + 1}</span>${t}</li>`).join("")}</ol>`;
   // a mistake is shown in red under its own box
   function fieldErr(id, msg) {
     const i = $("#" + id); if (!i) return;
@@ -757,7 +757,7 @@
     authFrame("Create Account", `<form class="wbody login-form" id="suForm" novalidate>
       ${brandBlock()}
       <div class="seg" role="tablist"><button type="button" role="tab" id="toSignin">Sign In</button><button type="button" class="on" role="tab" aria-selected="true">Create Account</button></div>
-      ${authSteps(0)}
+      ${authSteps(0, "Sign in")}
       <label class="fl" for="suName">Full Name</label><input type="text" id="suName" autocomplete="name" autocapitalize="words" placeholder="e.g. Juan Dela Cruz" required>
       <label class="fl" for="suEmail">Email</label><input type="email" id="suEmail" autocomplete="email" autocapitalize="none" spellcheck="false" inputmode="email" placeholder="name@gmail.com" required>
       <div class="su-fix" id="suFix" hidden></div>
@@ -768,7 +768,7 @@
       <div class="uname-msg" id="suUserMsg" aria-live="polite"></div>
       <label class="lg-agree su-agree"><input type="checkbox" id="suAgree"> <span><b>I agree</b> to the <button type="button" class="linkbtn" id="suTerms">Portal Terms of Use</button> (data privacy, confidentiality, e-signature and records).</span></label>
       <button class="btn primary big" type="submit">Create Account</button>
-      <div class="hint small center">Next: we email you a 6-digit code. Type it, and you are in.</div>
+      <div class="hint small center">No email code needed. Next: sign in with your username and password.</div>
     </form>`);
     bindEyes();
     $("#suName").focus();
@@ -850,17 +850,20 @@
       // so nobody thinks the page is stuck
       const form = e.target, t0 = Date.now(), note = document.createElement("div");
       note.className = "hint small center su-wait"; note.hidden = true;
-      note.innerHTML = "<b>Sending your 6-digit code by email.</b><br>This can take up to 1 minute. Please keep this page open.";
+      note.innerHTML = "<b>Creating your account.</b><br>This can take up to 1 minute. Please keep this page open.";
       $("button[type=submit]", form).after(note);
       const slow = setInterval(() => {
         const b = $("button[type=submit]", form), secs = Math.round((Date.now() - t0) / 1000);
         if (!b?.disabled) return;
-        b.innerHTML = `<span class="spin sm light"></span> ${secs < 4 ? "Creating account" : "Sending code by email"} · ${secs}s`;
+        b.innerHTML = `<span class="spin sm light"></span> Creating account · ${secs}s`;
         if (secs >= 4) note.hidden = false;
       }, 1000);
+      S.resetting = true; // 3.99.9: the new account does not open the portal by itself: it goes to Sign In
       const { data, error } = await within(45000, sb.auth.signUp({ email, password: p1, options: { data: { full_name, username, legal_agreed: window.EO.legalVersion?.() || "", legal_agreed_at: new Date().toISOString() }, emailRedirectTo: authRedirect() } }),
         { data: {}, error: { status: 504, message: "The server did not answer in 45 seconds" } });
       clearInterval(slow); note.remove();
+      if (data?.session) await sb.auth.signOut({ scope: "local" }).catch(() => {});
+      S.resetting = false;
       if (!form.isConnected) return; // another page was opened meanwhile
       setBusy(form, false);
       if (error && timedOut(error)) {
@@ -883,7 +886,12 @@
         toast(`${email} already has an account. Sign in with your password, or press “Forgot password?”`, true);
         return renderLogin("signin", email);
       }
-      if (!data.session) renderCode(email);
+      // 3.99.9: no email code (Confirm email is OFF in Supabase): the account is made, the person signs in at once.
+      // With Confirm email ON, the code page comes as before.
+      if (!data.session) return renderCode(email);
+      renderLogin("signin", username);
+      $("#lgForm .seg").insertAdjacentHTML("beforebegin", `<div class="hint ok small" id="lgMade">✔ <b>Account created.</b> Sign in now with your username <b>${esc(username)}</b> and your password.</div>`);
+      toast("Account created. Sign in now.");
     };
   }
 
