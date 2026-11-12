@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.9"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.10"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.9"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.10"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -827,6 +827,7 @@
     $("#suAgree").onchange = () => $("#suAgree").closest("label").classList.remove("bad");
     $("#suForm").onsubmit = async (e) => {
       e.preventDefault();
+      $("#suProblem")?.remove();
       const full_name = $("#suName").value.trim().replace(/\s+/g, " "), email = $("#suEmail").value.trim().toLowerCase(), p1 = $("#suPass").value;
       let username = $("#suUser").value.trim().toLowerCase();
       // every mistake shows under its own box; the first one gets the cursor
@@ -866,6 +867,13 @@
       S.resetting = false;
       if (!form.isConnected) return; // another page was opened meanwhile
       setBusy(form, false);
+      // 3.99.10: a problem stays on the page in a red box (a message at the top goes away after 7 seconds and was missed),
+      // with what the server said, so a photo shows what happened
+      const problem = (say, server) => {
+        $("#suProblem")?.remove();
+        $("button[type=submit]", form).insertAdjacentHTML("afterend", `<div class="hint err small su-problem" id="suProblem" role="alert"><b>${esc(say)}</b>${server ? `<br><span class="muted">Server: ${esc(server)}</span>` : ""}</div>`);
+        toast(say, true);
+      };
       if (error && timedOut(error)) {
         // 3.29.1: the email server was slow. The account may still have been made (then its username is taken now):
         // go on to the code, which can come late; otherwise nothing was made and the person tries again.
@@ -874,12 +882,24 @@
           toast(`Your account was created. The email with the code can take a few minutes to reach ${email}.`);
           return renderCode(email);
         }
-        return toast(free === true ? "The account was not made: the email server was too slow to send your code. Wait 2 minutes, then press Create Account again."
-          : "The server did not answer. Check your internet, wait a minute, then press Create Account again. If it says the email already has an account, press Sign In.", true);
+        return problem(free === true ? "The account was not made: the server took too long (the confirmation email). Wait 2 minutes, then press Create Account again."
+          : "The server did not answer. Check your internet, wait a minute, then press Create Account again.", `${error.message || ""} (HTTP ${error.status})`);
       }
       if (error) {
-        if (/password/i.test(error.message || "")) { fieldErr("suPass", "Choose a stronger password (mix letters and numbers)."); $("#suPass").focus(); }
-        return fail(error, "Could not create the account");
+        const m = String(error.message || error), code = String(error.code || "");
+        // the email already has an account: go to Sign In with the email filled in
+        if (code === "user_already_exists" || /already (been )?registered|already exists/i.test(m)) {
+          renderLogin("signin", email);
+          $("#lgForm .seg").insertAdjacentHTML("beforebegin", `<div class="hint err small" id="lgMade"><b>${esc(email)} already has an account.</b> Sign in with its password below, or press <b>Forgot password?</b> to make a new one.</div>`);
+          return toast("This email already has an account. Sign in.", true);
+        }
+        if (code === "weak_password" || /password/i.test(m)) { fieldErr("suPass", "Choose a stronger password (mix letters and numbers)."); $("#suPass").focus(); }
+        if (code === "email_address_invalid" || /email address .*invalid|invalid email/i.test(m)) { fieldErr("suEmail", "The server does not accept this email. Check it."); $("#suEmail").focus(); }
+        return problem(error.status === 429 || /rate limit|security purposes/i.test(m) ? "Too many tries. Wait 10 minutes, then press Create Account again."
+          : /sending|confirmation email|smtp|mail/i.test(m) ? "The account was not made: the confirmation email could not be sent. Please try again later."
+          : /signups? not allowed|signup.*disabled/i.test(m) ? "New accounts are turned off on the server right now."
+          : /database error/i.test(m) ? "The server could not save the new account."
+          : "The account was not made.", `${m}${error.status ? ` (HTTP ${error.status})` : ""}`);
       }
       // Supabase answers an already-registered email with a user that has no identities.
       if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
