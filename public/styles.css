@@ -3605,3 +3605,7 @@ img.bw-css { filter: grayscale(1) contrast(1.25); }
 @media print { .preview, .preview .pv-desk { background: #fff !important; } }
 /* 3.99.20: the "PDF Ready" window shows over a print preview */
 .modal.pdf-ready { z-index: 70; }
+/* 3.99.21: "Date Printed · Printed by" is at the BOTTOM of the page, in a small box (left; the page number stays right) */
+.page > .pg-date { top: auto; bottom: 2.6mm; left: 14mm; right: auto; padding: .6mm 2.2mm; border: .3mm solid #9db3dc; border-radius: 1.2mm; background: #fff; font: 600 7.5px/1.25 Arial, sans-serif; color: #10203f; letter-spacing: .01em; }
+.page.a5l > .pg-date { top: auto; bottom: 1.8mm; left: 11mm; right: auto; }
+.page.a4l > .pg-date { bottom: 1.4mm; left: 9mm; }
