@@ -4,7 +4,7 @@
     "target": {
       "namespace": "android_app",
       "package_name": "com.emonoverruns.eportal",
-      "sha256_cert_fingerprints": ["E1:FD:B2:70:BC:81:14:0D:D6:35:65:CE:D8:4E:AA:D5:90:9F:32:31:E4:53:AA:BD:16:34:32:0B:0E:A0:B8:2A"]
+      "sha256_cert_fingerprints": ["2C:F4:35:DB:9F:7C:79:97:FB:8D:FC:39:32:81:BE:A2:9E:98:D7:58:87:C8:CB:F8:79:43:B4:4C:73:7D:8F:C2", "E1:FD:B2:70:BC:81:14:0D:D6:35:65:CE:D8:4E:AA:D5:90:9F:32:31:E4:53:AA:BD:16:34:32:0B:0E:A0:B8:2A"]
     }
   }
 ]
