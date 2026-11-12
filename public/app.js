@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.21"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.22"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.21"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.22"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -424,6 +424,14 @@
         g.drawImage(img, -w / 2, -h / 2, w, h);
         if (jq) { try { const r = jq(g.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: "attemptBoth" }); if (r?.data) return r.data; } catch (_) { /* ZXing next */ } }
         try { return decodeCanvas(c); } catch (_) { /* try next orientation */ }
+      }
+      // 3.99.22: a small PDF417 in a big photo: the middle of the photo at its full size (more pixels for the thin bars)
+      if (k < 1) for (const part of [0.6, 0.4]) {
+        const cw = Math.round(img.width * part), ch = Math.round(img.height * part), kk = Math.min(1, 2400 / Math.max(cw, ch));
+        const c = document.createElement("canvas"); c.width = Math.round(cw * kk) + m * 2; c.height = Math.round(ch * kk) + m * 2;
+        const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+        g.drawImage(img, Math.round((img.width - cw) / 2), Math.round((img.height - ch) / 2), cw, ch, m, m, c.width - m * 2, c.height - m * 2);
+        try { return decodeCanvas(c); } catch (_) { /* a smaller middle next */ }
       }
       throw new Error("No QR code or barcode found in that image. Try a sharper photo, taken from the front.");
     } finally {
@@ -1575,13 +1583,15 @@
       lib?.catch(() => {});
       const jql = det ? null : need("jsqr").catch(() => null); // 3.78.3: and jsQR (QR codes on iPhone)
       let s;
-      try { s = await openCamera(deviceId, det ? CAM_SIZE.hd : CAM_SIZE.sd); }
+      try { s = await openCamera(deviceId, CAM_SIZE.hd); } // 3.99.22: full HD also on iPad / iPhone (the thin bars of a PDF417 need it)
       catch (e) { if (live()) noCamera(e); return; }
       if (!live()) return s.getTracks().forEach((t) => t.stop()); // closed, or started again, while the camera started
       stream = s;
       const track = s.getVideoTracks()[0];
       current = track.getSettings?.().deviceId || "";
+      try { const cap = track.getCapabilities?.() || {}; if (cap.focusMode?.includes("continuous")) track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {}); } catch (_) {} // sharp at a short distance
       d.classList.toggle("front", isFront(track)); // the front camera is shown like a mirror
+      if (!det) { $("#scCapL", d).hidden = false; $("#scCapL", d).innerHTML = `${ic("camera")} Take Photo`; msg(`${hint} A long barcode (PDF417): hold closer, about 15 cm, so it fills the box, or press Take Photo.`); }
       if (s.backFailed) { $("#scCapL", d).hidden = false; msg("The back camera did not start, so the front camera is on. Press Switch Camera to try another camera, or Open Camera."); }
       cameras().then((list) => { if (live()) { cams = list; $("#scSwitch", d).hidden = cams.length < 2; } }, () => {});
       const video = $("#scVideo", d);
@@ -1607,9 +1617,26 @@
       const jsQR = await jql;
       if (!jsQR || !live()) return;
       const cv = document.createElement("canvas"), g = cv.getContext("2d", { willReadFrequently: true });
+      // 3.99.22: every other look, the middle of the picture at the camera's full size goes to a PDF417 reader alone
+      // (faster than trying every kind of code; a PDF417 is wide and its bars thin)
+      const pc = document.createElement("canvas"), pg = pc.getContext("2d", { willReadFrequently: true });
+      const p417 = new Z.PDF417Reader(), pHints = new Map([[Z.DecodeHintType.TRY_HARDER, true]]);
+      let tick = 0;
+      const readPdf417 = (vw, vh) => {
+        const cw = Math.round(vw * 0.9), ch = Math.round(vh * 0.6);
+        pc.width = cw; pc.height = ch;
+        pg.drawImage(video, Math.round((vw - cw) / 2), Math.round((vh - ch) / 2), cw, ch, 0, 0, cw, ch);
+        for (const Bin of [Z.HybridBinarizer, Z.GlobalHistogramBinarizer]) {
+          try { return p417.decode(new Z.BinaryBitmap(new Bin(new Z.HTMLCanvasElementLuminanceSource(pc))), pHints).getText(); } catch (_) { /* not this way */ }
+        }
+        return "";
+      };
       const scan = () => {
         if (!live()) return;
         const vw = video.videoWidth, vh = video.videoHeight;
+        if (video.readyState >= 2 && vw && vh && ++tick % 2 === 0) {
+          try { const t = readPdf417(vw, vh); if (t && live()) { finish(t); if (!keep) return; } } catch (_) { /* the next picture */ }
+        }
         if (video.readyState >= 2 && vw && vh) {
           const k = Math.min(1, 960 / Math.max(vw, vh));
           cv.width = Math.round(vw * k); cv.height = Math.round(vh * k);
