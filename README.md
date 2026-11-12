@@ -202,7 +202,9 @@ smaller before upload, 2.2.2) and a custom domain for the database address.
   `windows-v<version>` that GitHub Actions publishes when `apps/windows/package.json` gets a new version on main),
   downloads it, checks its SHA-256, and asks **Restart now** or **Later** (Later installs it when the app is closed).
   **Help › Check for Updates…** looks at once. Download: https://github.com/EmonOverrunsinc/EMON-OVERRUNS/releases/latest
-- **Android**: `EMON-OVERRUNS-E-Portal-<version>.apk` opens the E-Portal full screen in Chrome.
+- **Android**: `EMON-OVERRUNS-E-Portal-<version>.apk` opens the E-Portal full screen in Chrome. GitHub Actions signs it with
+  the release key in the repository secrets (new key from 1.6, November 2026) and publishes it as the release
+  `android-v<version>`. Download: https://github.com/EmonOverrunsinc/EMON-OVERRUNS/releases/download/android-v1.6/EMON-OVERRUNS-E-Portal-1.6.apk
 - How they are built and signed: [apps/README.md](apps/README.md).
 
 ## Files
