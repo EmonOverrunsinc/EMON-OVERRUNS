@@ -3587,3 +3587,10 @@ body:has(.login) { background: #0f3a8c; }
 /* 3.99.13: the Due Date box of an invoice never breaks inside the date: a narrow box puts the year on the next line (DECEMBER 02 / 2026) */
 #main .rec-tile.sm b { overflow-wrap: normal; word-break: normal; }
 @media (min-width: 701px) { #main .rec-tile.sm b { white-space: normal; } }
+/* 3.99.14: the 4 boxes of an invoice (Total, Paid, Balance, Due Date) get smaller writing in a narrow box, so each stays on ONE line
+   (the size follows the box's own width; an old browser keeps the sizes above) */
+#main .rec-tile { container-type: inline-size; min-width: 0; }
+#main .rec-tile b { white-space: nowrap; font-size: min(20px, 12cqi); }
+#main .rec-tile.sm b { white-space: nowrap; font-size: min(16px, 10cqi); }
+@media (max-width: 1194px) { #main .rec-tile b { font-size: min(18px, 12cqi); } #main .rec-tile.sm b { font-size: min(16px, 10cqi); } }
+@media (max-width: 700px) { #main .rec-tile b { font-size: min(16px, 12cqi); } #main .rec-tile.sm b { font-size: min(14px, 10cqi); } }
