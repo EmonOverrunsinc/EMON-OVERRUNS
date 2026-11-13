@@ -2,6 +2,12 @@
   "buildCommand": "",
   "outputDirectory": "public",
   "cleanUrls": true,
+  "git": {
+    "deploymentEnabled": {
+      "*": false,
+      "main": true
+    }
+  },
   "headers": [
     {
       "source": "/vendor/(.*)",
