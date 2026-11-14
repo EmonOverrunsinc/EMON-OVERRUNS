@@ -2,12 +2,14 @@
 <resources>
     <string name="appName">EMON OVERRUNS</string>
     <string name="launcherName">EMON OVERRUNS</string>
-    <string name="launchUrl">https://www.emonoverruns.online/#dashboard</string>
-    <string name="webManifestUrl">https://www.emonoverruns.online/manifest.webmanifest</string>
+    <string name="launchUrl">https://emon-overruns.emonoverruns.workers.dev/#dashboard</string>
+    <string name="webManifestUrl">https://emon-overruns.emonoverruns.workers.dev/manifest.webmanifest</string>
     <string name="providerAuthority">com.emonoverruns.eportal.fileprovider</string>
-    <!-- 1.4: the E-Portal opens at www.emonoverruns.online. Both sites confirm this app in /.well-known/assetlinks.json, so it opens full screen. -->
+    <!-- 1.7: the E-Portal opens at emon-overruns.emonoverruns.workers.dev (Cloudflare). Every site below confirms this app in /.well-known/assetlinks.json, so it opens full screen. -->
     <string name="assetStatements" translatable="false">
         [{ \"relation\": [\"delegate_permission/common.handle_all_urls\"],
+           \"target\": { \"namespace\": \"web\", \"site\": \"https://emon-overruns.emonoverruns.workers.dev\" } },
+         { \"relation\": [\"delegate_permission/common.handle_all_urls\"],
            \"target\": { \"namespace\": \"web\", \"site\": \"https://www.emonoverruns.online\" } },
          { \"relation\": [\"delegate_permission/common.handle_all_urls\"],
            \"target\": { \"namespace\": \"web\", \"site\": \"https://emon-overruns.vercel.app\" } }]

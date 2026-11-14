@@ -9,7 +9,8 @@ const os = require("os");
 const { execFile, spawn } = require("child_process");
 const updater = require("./updater");
 
-const HOME = process.env.EO_URL || "https://emon-overruns.vercel.app/#dashboard";
+// 1.8.2: the E-Portal is on Cloudflare (Vercel stopped); the Cloudflare address works even while the domain moves
+const HOME = process.env.EO_URL || "https://emon-overruns.emonoverruns.workers.dev/#dashboard";
 const SITE = new URL(HOME).origin;
 // Uploaded files open from signed links of the E-Portal's Supabase server. Its address is read from the E-Portal page
 // itself (window.EMON_CONFIG.supabaseUrl) each time a page of the E-Portal loads, so a new server needs no new app (1.5.2).
