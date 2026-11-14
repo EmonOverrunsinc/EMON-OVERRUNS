@@ -1336,7 +1336,7 @@
     const head = `${printHead("STATEMENT OF ACCOUNT")}
       <div class="soa-top"><div class="soa-cust"><b>${esc(fullName(c).toUpperCase())}</b></div>
         <div class="soa-acct"><span>Statement No :</span><b>${esc(p.no || "—")}</b><span>Account No :</span><b>${esc(c.account_no)}</b>
-          <span>Period Covered :</span><b>${mdy(p.from || p.start)} - ${mdy(p.end)}</b><span>Date Printed :</span><b>${mdy(isoToday())}</b></div></div>`;
+          <span>Period Covered :</span><b>${mdy(p.from || p.start)} - ${mdy(p.end)}</b></div></div>`;
     const page1 = `${head}
       <table class="soa-table"><thead><tr><th>DATE</th><th>REFERENCE NO.</th><th>TRANSACTION DESCRIPTION</th><th class="num">DEBIT</th><th class="num">CREDIT</th><th class="num">BALANCE</th></tr></thead>
       <tbody><tr><td>${mdy(p.from || p.start)}</td><td></td><td>BEGINNING BALANCE</td><td></td><td></td><td class="num">${peso(p.opening)}</td></tr>

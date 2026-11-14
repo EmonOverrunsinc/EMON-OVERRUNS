@@ -6,10 +6,10 @@
 
   const C = window.EMON_CONFIG;
   const APP = "EMON OVERRUNS E-PORTAL";
-  const VERSION = "3.99.24"; // shown in the menu (3.79: kept with BUILD)
+  const VERSION = "3.99.25"; // shown in the menu (3.79: kept with BUILD)
   // 2.9: in the Windows app 1.8 the window buttons sit in the top bar (no Windows title bar): leave room and let the bar move the window
   if (window.EOApp && window.EOApp.overlay) document.documentElement.classList.add("eo-overlay");
-  const BUILD = "3.99.24"; // the same in index.html (?v=) and in version.json
+  const BUILD = "3.99.25"; // the same in index.html (?v=) and in version.json
   window.EO = window.EO || {};
   // 3.36: a save sent twice in a moment (a button pressed twice, Enter and a click together) reaches the server once:
   // the same request (address and content) sent again while the first is on its way gets the answer of the first; a
@@ -2254,7 +2254,9 @@
     const printed = dateTime(new Date().toISOString());
     // 3.63: and who printed it
     const by = S.profile?.full_name ? `Printed by: ${esc(String(S.profile.full_name).toUpperCase())}` : "";
-    const dated = (p) => (undated ? "" : /Date Printed|rp-stamp|Printed \d/.test(p) ? (by ? `<div class="pg-date">${by}</div>` : "") : `<div class="pg-date">Date Printed: ${esc(printed)}${by ? ` · ${by}` : ""}</div>`);
+    // 3.99.25: the date printed and who printed it show ONCE on every page: in the box at the bottom (the report's own
+    // date line at the top and its "Printed …" footer are not shown)
+    const dated = () => (undated ? "" : `<div class="pg-date">Date Printed: ${esc(printed)}${by ? ` · ${by}` : ""}</div>`);
     S.docTitle = document.title;
     document.title = title; // "Save as PDF" uses this as the file name
     const pv = document.createElement("div");
