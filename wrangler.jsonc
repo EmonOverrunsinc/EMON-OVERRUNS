@@ -1,0 +1,15 @@
+// Cloudflare (Workers with static assets) hosts the website: the files of public/ as they are, no build step.
+// The headers are in public/_headers. Production is the branch main (Cloudflare › Workers & Pages › emon-overruns).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "emon-overruns",
+  "compatibility_date": "2026-11-13",
+  "assets": {
+    "directory": "public",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  },
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": true }
+}
