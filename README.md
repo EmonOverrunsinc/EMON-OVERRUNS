@@ -1,6 +1,8 @@
 # Emon Overruns Portal (E-Portal v2.2)
 
-**Live:** https://emon-overruns.vercel.app
+**Live:** https://www.emonoverruns.online (hosted on **Cloudflare Pages** from November 2026: project connected to this
+repository, production branch `main`, no build command, output directory `public`; the headers are in `public/_headers`.
+`vercel.json` is kept for the old Vercel project only.)
 
 Business portal for **EMON OVERRUNS**, Pasay City, Metro Manila · emonoverruns@gmail.com · emonoverruns.online.
 It is laid out like AutoCount: option panel, then Inquiry, Preview and Print, then a grid, and printable report pages.
