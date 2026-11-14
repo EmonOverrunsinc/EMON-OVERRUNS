@@ -3611,3 +3611,5 @@ img.bw-css { filter: grayscale(1) contrast(1.25); }
 .page.a4l > .pg-date { bottom: 1.4mm; left: 9mm; }
 /* 3.99.23: the gold line under a short title (INVOICE) is exactly as wide as the title (a 34 mm minimum made it longer) */
 .page .ph2 .ph-gl { min-width: 0; width: 100%; }
+/* 3.99.25: one "Date Printed · Printed by" per page (the box at the bottom): a report's own date stamp and footer are not shown */
+.page .rp-stamp, .page .rp-foot { display: none !important; }
